@@ -4,11 +4,35 @@ import { Viewport3D } from './components/Viewport3D';
 import { SubdivisionControls } from './components/SubdivisionControls';
 import { PanelProperties } from './components/PanelProperties';
 import { AssemblyProperties } from './components/AssemblyProperties';
+import { DimensionForm } from './components/DimensionForm';
 import { ExportModal } from './components/ExportModal';
+import { useBoxStore } from './store/useBoxStore';
 import './App.css';
 
 function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const { selectedVoidId, selectedPanelId, selectedAssemblyId, selectedSubAssemblyId } = useBoxStore();
+
+  // Determine what to show in the right sidebar based on selection
+  const renderRightSidebar = () => {
+    // Void selected - show subdivision controls
+    if (selectedVoidId) {
+      return <SubdivisionControls />;
+    }
+
+    // Panel selected - show panel properties
+    if (selectedPanelId) {
+      return <PanelProperties />;
+    }
+
+    // Assembly or sub-assembly selected - show assembly properties
+    if (selectedAssemblyId || selectedSubAssemblyId) {
+      return <AssemblyProperties />;
+    }
+
+    // Nothing selected - show default dimension form
+    return <DimensionForm />;
+  };
 
   return (
     <div className="app">
@@ -38,9 +62,7 @@ function App() {
         </section>
 
         <aside className="sidebar right-sidebar">
-          <AssemblyProperties />
-          <PanelProperties />
-          <SubdivisionControls />
+          {renderRightSidebar()}
         </aside>
       </main>
 

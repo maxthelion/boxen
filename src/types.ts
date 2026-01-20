@@ -4,6 +4,7 @@ export interface BoxConfig {
   depth: number;
   materialThickness: number;
   fingerWidth: number;
+  fingerGap: number;  // Gap at corners (multiplier of fingerWidth, e.g., 1.5 = 1.5x fingerWidth)
 }
 
 export type FaceId = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';

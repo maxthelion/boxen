@@ -63,6 +63,17 @@ export const DimensionForm: React.FC = () => {
             step={1}
           />
         </label>
+        <label>
+          <span>Corner Gap (× finger width)</span>
+          <input
+            type="number"
+            value={config.fingerGap}
+            onChange={handleChange('fingerGap')}
+            min={0}
+            max={5}
+            step={0.1}
+          />
+        </label>
       </div>
     </Panel>
   );

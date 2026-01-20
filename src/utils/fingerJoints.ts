@@ -10,6 +10,7 @@ export interface FingerJointConfig {
   isTabOut: boolean;
   kerf: number;
   yUp?: boolean;  // If true, use Y-up coordinate system (Three.js), otherwise Y-down (SVG)
+  cornerGapMultiplier?: number;  // Gap at corners as multiplier of fingerWidth (default: 1.5)
 }
 
 export const generateFingerJointPath = (
@@ -34,8 +35,9 @@ export const generateFingerJointPath = (
   const perpX = config.yUp ? -unitY : unitY;
   const perpY = config.yUp ? unitX : -unitX;
 
-  // Corner gap to keep fingers away from corners - 1.5x finger width on each end
-  const cornerGap = fingerWidth * 1.5;
+  // Corner gap to keep fingers away from corners
+  const gapMultiplier = config.cornerGapMultiplier ?? 1.5;
+  const cornerGap = fingerWidth * gapMultiplier;
   const usableLength = edgeLength - (cornerGap * 2);
 
   // If usable length is too small, just return a straight edge

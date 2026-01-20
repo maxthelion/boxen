@@ -3,18 +3,10 @@ import { useBoxStore, getAllSubdivisions } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
 
 export const PanelProperties: React.FC = () => {
-  const { selectionMode, selectedPanelId, faces, config, rootVoid, toggleFace } = useBoxStore();
+  const { selectedPanelId, faces, config, rootVoid, toggleFace } = useBoxStore();
 
-  if (selectionMode !== 'panel' || !selectedPanelId) {
-    return (
-      <Panel title="Panel Properties">
-        <p className="hint">
-          {selectionMode === 'panel'
-            ? 'Click on a panel in the 3D view to select it'
-            : 'Switch to Panel selection mode to edit panels'}
-        </p>
-      </Panel>
-    );
+  if (!selectedPanelId) {
+    return null;
   }
 
   // Parse the panel ID to determine type

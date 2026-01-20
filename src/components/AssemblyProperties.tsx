@@ -7,7 +7,6 @@ const faceOrder: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
 
 export const AssemblyProperties: React.FC = () => {
   const {
-    selectionMode,
     selectedAssemblyId,
     config,
     faces,
@@ -18,20 +17,8 @@ export const AssemblyProperties: React.FC = () => {
     setSubAssemblyClearance,
   } = useBoxStore();
 
-  if (selectionMode !== 'assembly') {
-    return (
-      <Panel title="Assembly Properties">
-        <p className="hint">Switch to Assembly selection mode to edit assemblies</p>
-      </Panel>
-    );
-  }
-
   if (!selectedAssemblyId) {
-    return (
-      <Panel title="Assembly Properties">
-        <p className="hint">Click on an assembly in the 3D view to select it</p>
-      </Panel>
-    );
+    return null;
   }
 
   // Main assembly selected

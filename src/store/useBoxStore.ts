@@ -227,6 +227,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     depth: 100,
     materialThickness: 3,
     fingerWidth: 10,
+    fingerGap: 1.5,  // Corner gap as multiplier of fingerWidth
   },
   faces: initialFaces(),
   rootVoid: createRootVoid(100, 100, 100),

@@ -77,14 +77,21 @@ const getFaceEdges = (faceId: FaceId): EdgeInfo[] => {
   }
 };
 
+// Determines which face has tabs vs slots at each edge.
+// Uses a priority system: lower priority face has tabs OUT, higher priority has slots IN.
+// Priority: front(1) < back(2) < left(3) < right(4) < top(5) < bottom(6)
+// This ensures:
+// - Front/back always have tabs (they're most primary)
+// - Left/right have tabs on top/bottom edges, slots on front/back edges
+// - Top/bottom always have slots (receive tabs from all vertical faces)
 const shouldTabOut = (faceId: FaceId, position: 'top' | 'bottom' | 'left' | 'right'): boolean => {
   const tabOutMap: Record<FaceId, ('top' | 'bottom' | 'left' | 'right')[]> = {
-    front: ['top', 'left'],
-    back: ['top', 'right'],
-    left: ['top', 'left'],
-    right: ['top', 'right'],
-    top: ['top', 'left'],
-    bottom: ['bottom', 'right'],
+    front: ['top', 'bottom', 'left', 'right'],  // always tabs out
+    back: ['top', 'bottom', 'left', 'right'],   // always tabs out
+    left: ['top', 'bottom'],                     // tabs on top/bottom only
+    right: ['top', 'bottom'],                    // tabs on top/bottom only
+    top: [],                                     // never tabs out
+    bottom: [],                                  // never tabs out
   };
   return tabOutMap[faceId].includes(position);
 };
@@ -133,6 +140,7 @@ export const generateFaceSVGPath = (
       fingerWidth: config.fingerWidth,
       materialThickness: config.materialThickness,
       kerf,
+      cornerGapMultiplier: config.fingerGap,
     });
 
     for (let i = 0; i < points.length; i++) {
@@ -337,6 +345,7 @@ export const generateSubdivisionPanelPath = (
       fingerWidth: config.fingerWidth,
       materialThickness: config.materialThickness,
       kerf,
+      cornerGapMultiplier: config.fingerGap,
     });
 
     for (let i = 0; i < points.length; i++) {
