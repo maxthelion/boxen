@@ -140,6 +140,7 @@ export const FaceWithFingers: React.FC<FaceWithFingersProps> = ({
           materialThickness: scaledThickness,
           isTabOut,
           kerf: 0,
+          yUp: true,  // Three.js uses Y-up coordinate system
         });
       } else {
         // Straight edge for open adjacent faces

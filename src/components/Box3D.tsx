@@ -1,5 +1,5 @@
 import React from 'react';
-import { useBoxStore, getLeafVoids, getAllSubdivisions, getAllSubAssemblies } from '../store/useBoxStore';
+import { useBoxStore, getLeafVoids, getAllSubdivisions, getAllSubAssemblies, isVoidVisible } from '../store/useBoxStore';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { FaceWithFingers } from './FaceWithFingers';
@@ -61,7 +61,7 @@ const findVoid = (root: { id: string; bounds: Bounds; children: any[] }, id: str
 };
 
 export const Box3D: React.FC = () => {
-  const { config, faces, rootVoid, subdivisionPreview, selectionMode, selectedPanelId, selectPanel, selectedAssemblyId, selectAssembly } = useBoxStore();
+  const { config, faces, rootVoid, subdivisionPreview, selectionMode, selectedPanelId, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId } = useBoxStore();
   const { width, height, depth } = config;
 
   const scale = 100 / Math.max(width, height, depth);
@@ -243,15 +243,17 @@ export const Box3D: React.FC = () => {
       ))}
 
       {/* Sub-assemblies (drawers, trays, inserts) */}
-      {subAssemblies.map(({ voidId, subAssembly, bounds }) => (
-        <SubAssembly3D
-          key={subAssembly.id}
-          subAssembly={subAssembly}
-          parentBounds={bounds}
-          scale={scale}
-          boxCenter={boxCenter}
-        />
-      ))}
+      {subAssemblies
+        .filter(({ voidId }) => isVoidVisible(voidId, rootVoid, hiddenVoidIds, isolatedVoidId))
+        .map(({ voidId, subAssembly, bounds }) => (
+          <SubAssembly3D
+            key={subAssembly.id}
+            subAssembly={subAssembly}
+            parentBounds={bounds}
+            scale={scale}
+            boxCenter={boxCenter}
+          />
+        ))}
     </group>
   );
 };

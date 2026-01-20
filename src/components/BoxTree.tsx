@@ -3,17 +3,95 @@ import { useBoxStore } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
 import { Void, SubAssembly } from '../types';
 
+// Represents a divider panel created by a subdivision
+interface DividerPanel {
+  id: string;
+  axis: 'x' | 'y' | 'z';
+  position: number;
+  width: number;
+  height: number;
+}
+
+// Extract divider panels from a void's children
+const getDividerPanels = (parent: Void): DividerPanel[] => {
+  const panels: DividerPanel[] = [];
+  for (const child of parent.children) {
+    if (child.splitAxis && child.splitPosition !== undefined) {
+      // Calculate panel dimensions based on parent bounds and split axis
+      let width: number, height: number;
+      switch (child.splitAxis) {
+        case 'x':
+          width = parent.bounds.d;
+          height = parent.bounds.h;
+          break;
+        case 'y':
+          width = parent.bounds.w;
+          height = parent.bounds.d;
+          break;
+        case 'z':
+          width = parent.bounds.w;
+          height = parent.bounds.h;
+          break;
+      }
+      panels.push({
+        id: `panel-${child.id}`,
+        axis: child.splitAxis,
+        position: child.splitPosition,
+        width,
+        height,
+      });
+    }
+  }
+  return panels;
+};
+
+interface PanelNodeProps {
+  panel: DividerPanel;
+  depth: number;
+  selectedPanelId: string | null;
+  onSelectPanel: (id: string | null) => void;
+}
+
+const PanelNode: React.FC<PanelNodeProps> = ({
+  panel,
+  depth,
+  selectedPanelId,
+  onSelectPanel,
+}) => {
+  const isSelected = selectedPanelId === panel.id;
+  const axisLabel = panel.axis.toUpperCase();
+
+  return (
+    <div className="tree-node">
+      <div
+        className={`tree-node-content panel ${isSelected ? 'selected' : ''}`}
+        style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        onClick={() => onSelectPanel(isSelected ? null : panel.id)}
+      >
+        <span className="tree-node-main">
+          <span className="tree-icon">▬</span>
+          <span className="tree-label">Panel @ {axisLabel}={panel.position.toFixed(0)}</span>
+          <span className="tree-dimensions">{panel.width.toFixed(0)}×{panel.height.toFixed(0)}</span>
+        </span>
+      </div>
+    </div>
+  );
+};
+
 interface TreeNodeProps {
   node: Void;
   depth: number;
   selectedVoidId: string | null;
   selectedSubAssemblyId: string | null;
-  selectedAssemblyId: string | null;
-  selectionMode: 'void' | 'panel' | 'assembly';
+  selectedPanelId: string | null;
   onSelectVoid: (id: string | null) => void;
   onSelectSubAssembly: (id: string | null) => void;
-  onSelectAssembly: (id: string | null) => void;
+  onSelectPanel: (id: string | null) => void;
   isSubAssemblyRoot?: boolean;
+  hiddenVoidIds: Set<string>;
+  isolatedVoidId: string | null;
+  onToggleVisibility: (id: string) => void;
+  onSetIsolated: (id: string | null) => void;
 }
 
 interface SubAssemblyNodeProps {
@@ -21,11 +99,14 @@ interface SubAssemblyNodeProps {
   depth: number;
   selectedSubAssemblyId: string | null;
   selectedVoidId: string | null;
-  selectedAssemblyId: string | null;
-  selectionMode: 'void' | 'panel' | 'assembly';
+  selectedPanelId: string | null;
   onSelectSubAssembly: (id: string | null) => void;
   onSelectVoid: (id: string | null) => void;
-  onSelectAssembly: (id: string | null) => void;
+  onSelectPanel: (id: string | null) => void;
+  hiddenVoidIds: Set<string>;
+  isolatedVoidId: string | null;
+  onToggleVisibility: (id: string) => void;
+  onSetIsolated: (id: string | null) => void;
 }
 
 const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
@@ -33,8 +114,14 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
   depth,
   selectedSubAssemblyId,
   selectedVoidId,
+  selectedPanelId,
   onSelectSubAssembly,
   onSelectVoid,
+  onSelectPanel,
+  hiddenVoidIds,
+  isolatedVoidId,
+  onToggleVisibility,
+  onSetIsolated,
 }) => {
   const isSelected = selectedSubAssemblyId === subAssembly.id;
   const { rootVoid } = subAssembly;
@@ -81,9 +168,15 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
           depth={depth + 1}
           selectedVoidId={selectedVoidId}
           selectedSubAssemblyId={selectedSubAssemblyId}
+          selectedPanelId={selectedPanelId}
           onSelectVoid={onSelectVoid}
           onSelectSubAssembly={onSelectSubAssembly}
+          onSelectPanel={onSelectPanel}
           isSubAssemblyRoot
+          hiddenVoidIds={hiddenVoidIds}
+          isolatedVoidId={isolatedVoidId}
+          onToggleVisibility={onToggleVisibility}
+          onSetIsolated={onSetIsolated}
         />
       </div>
     </div>
@@ -95,14 +188,25 @@ const TreeNode: React.FC<TreeNodeProps> = ({
   depth,
   selectedVoidId,
   selectedSubAssemblyId,
+  selectedPanelId,
   onSelectVoid,
   onSelectSubAssembly,
+  onSelectPanel,
   isSubAssemblyRoot,
+  hiddenVoidIds,
+  isolatedVoidId,
+  onToggleVisibility,
+  onSetIsolated,
 }) => {
   const isSelected = selectedVoidId === node.id;
   const isLeaf = node.children.length === 0 && !node.subAssembly;
   const hasChildren = node.children.length > 0;
   const hasSubAssembly = !!node.subAssembly;
+  const isHidden = hiddenVoidIds.has(node.id);
+  const isIsolated = isolatedVoidId === node.id;
+
+  // Get divider panels created by this void's subdivision
+  const dividerPanels = hasChildren ? getDividerPanels(node) : [];
 
   // Generate a label for the node
   const getLabel = () => {
@@ -112,14 +216,7 @@ const TreeNode: React.FC<TreeNodeProps> = ({
     if (isSubAssemblyRoot) {
       return 'Interior';
     }
-
-    // Show the split info if available
-    if (node.splitAxis) {
-      const axisLabel = node.splitAxis.toUpperCase();
-      return `Cell (${axisLabel} split)`;
-    }
-
-    return 'Cell';
+    return 'Void';
   };
 
   // Show dimensions
@@ -139,13 +236,39 @@ const TreeNode: React.FC<TreeNodeProps> = ({
   return (
     <div className="tree-node">
       <div
-        className={`tree-node-content ${isSelected ? 'selected' : ''} ${isLeaf ? 'leaf' : 'branch'}`}
+        className={`tree-node-content ${isSelected ? 'selected' : ''} ${isLeaf ? 'leaf' : 'branch'} ${isHidden ? 'hidden' : ''} ${isIsolated ? 'isolated' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
-        onClick={() => onSelectVoid(isSelected ? null : node.id)}
       >
-        <span className="tree-icon">{getIcon()}</span>
-        <span className="tree-label">{getLabel()}</span>
-        <span className="tree-dimensions">{getDimensions()}</span>
+        <span
+          className="tree-node-main"
+          onClick={() => onSelectVoid(isSelected ? null : node.id)}
+        >
+          <span className="tree-icon">{getIcon()}</span>
+          <span className="tree-label">{getLabel()}</span>
+          <span className="tree-dimensions">{getDimensions()}</span>
+        </span>
+        <span className="tree-controls">
+          <button
+            className={`tree-btn ${isHidden ? 'active' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleVisibility(node.id);
+            }}
+            title={isHidden ? 'Show' : 'Hide'}
+          >
+            {isHidden ? '○' : '●'}
+          </button>
+          <button
+            className={`tree-btn ${isIsolated ? 'active' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSetIsolated(isIsolated ? null : node.id);
+            }}
+            title={isIsolated ? 'Unisolate' : 'Isolate'}
+          >
+            ◎
+          </button>
+        </span>
       </div>
 
       {/* Show sub-assembly if present */}
@@ -156,15 +279,32 @@ const TreeNode: React.FC<TreeNodeProps> = ({
             depth={depth + 1}
             selectedSubAssemblyId={selectedSubAssemblyId}
             selectedVoidId={selectedVoidId}
+            selectedPanelId={selectedPanelId}
             onSelectSubAssembly={onSelectSubAssembly}
             onSelectVoid={onSelectVoid}
+            onSelectPanel={onSelectPanel}
+            hiddenVoidIds={hiddenVoidIds}
+            isolatedVoidId={isolatedVoidId}
+            onToggleVisibility={onToggleVisibility}
+            onSetIsolated={onSetIsolated}
           />
         </div>
       )}
 
-      {/* Show child voids */}
+      {/* Show divider panels and child voids */}
       {hasChildren && (
         <div className="tree-children">
+          {/* Show divider panels first */}
+          {dividerPanels.map((panel) => (
+            <PanelNode
+              key={panel.id}
+              panel={panel}
+              depth={depth + 1}
+              selectedPanelId={selectedPanelId}
+              onSelectPanel={onSelectPanel}
+            />
+          ))}
+          {/* Show child voids */}
           {node.children.map((child) => (
             <TreeNode
               key={child.id}
@@ -172,8 +312,14 @@ const TreeNode: React.FC<TreeNodeProps> = ({
               depth={depth + 1}
               selectedVoidId={selectedVoidId}
               selectedSubAssemblyId={selectedSubAssemblyId}
+              selectedPanelId={selectedPanelId}
               onSelectVoid={onSelectVoid}
               onSelectSubAssembly={onSelectSubAssembly}
+              onSelectPanel={onSelectPanel}
+              hiddenVoidIds={hiddenVoidIds}
+              isolatedVoidId={isolatedVoidId}
+              onToggleVisibility={onToggleVisibility}
+              onSetIsolated={onSetIsolated}
             />
           ))}
         </div>
@@ -183,7 +329,19 @@ const TreeNode: React.FC<TreeNodeProps> = ({
 };
 
 export const BoxTree: React.FC = () => {
-  const { rootVoid, selectedVoidId, selectedSubAssemblyId, selectVoid, selectSubAssembly } = useBoxStore();
+  const {
+    rootVoid,
+    selectedVoidId,
+    selectedSubAssemblyId,
+    selectedPanelId,
+    selectVoid,
+    selectSubAssembly,
+    selectPanel,
+    hiddenVoidIds,
+    isolatedVoidId,
+    toggleVoidVisibility,
+    setIsolatedVoid,
+  } = useBoxStore();
 
   return (
     <Panel title="Structure">
@@ -193,10 +351,24 @@ export const BoxTree: React.FC = () => {
           depth={0}
           selectedVoidId={selectedVoidId}
           selectedSubAssemblyId={selectedSubAssemblyId}
+          selectedPanelId={selectedPanelId}
           onSelectVoid={selectVoid}
           onSelectSubAssembly={selectSubAssembly}
+          onSelectPanel={selectPanel}
+          hiddenVoidIds={hiddenVoidIds}
+          isolatedVoidId={isolatedVoidId}
+          onToggleVisibility={toggleVoidVisibility}
+          onSetIsolated={setIsolatedVoid}
         />
       </div>
+      {isolatedVoidId && (
+        <button
+          className="unisolate-btn"
+          onClick={() => setIsolatedVoid(null)}
+        >
+          Show All
+        </button>
+      )}
     </Panel>
   );
 };

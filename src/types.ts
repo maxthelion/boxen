@@ -74,6 +74,9 @@ export interface BoxState {
   selectedPanelId: string | null;  // FaceId or subdivision panel id
   selectedAssemblyId: string | null;  // 'main' for main box, or sub-assembly id
   subdivisionPreview: SubdivisionPreview | null;
+  // Visibility controls
+  hiddenVoidIds: Set<string>;  // Set of void IDs that are hidden
+  isolatedVoidId: string | null;  // If set, only show this void and its ancestors/descendants
 }
 
 export interface BoxActions {
@@ -93,6 +96,9 @@ export interface BoxActions {
   toggleSubAssemblyFace: (subAssemblyId: string, faceId: FaceId) => void;
   setSubAssemblyClearance: (subAssemblyId: string, clearance: number) => void;
   removeSubAssembly: (voidId: string) => void;
+  // Visibility actions
+  toggleVoidVisibility: (voidId: string) => void;
+  setIsolatedVoid: (voidId: string | null) => void;
 }
 
 // Subdivision panel - a physical divider piece to be cut

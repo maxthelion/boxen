@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { Mesh } from 'three';
-import { useBoxStore } from '../store/useBoxStore';
+import { useBoxStore, isVoidVisible } from '../store/useBoxStore';
 import { Bounds } from '../types';
 
 interface VoidMeshProps {
@@ -12,10 +12,11 @@ interface VoidMeshProps {
 export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter }) => {
   const meshRef = useRef<Mesh>(null);
   const [hovered, setHovered] = useState(false);
-  const { selectedVoidId, selectVoid, selectionMode } = useBoxStore();
+  const { selectedVoidId, selectVoid, selectionMode, rootVoid, hiddenVoidIds, isolatedVoidId } = useBoxStore();
 
   const isSelected = selectedVoidId === voidId;
   const isVoidMode = selectionMode === 'void';
+  const visible = isVoidVisible(voidId, rootVoid, hiddenVoidIds, isolatedVoidId);
 
   const position: [number, number, number] = [
     bounds.x + bounds.w / 2 - boxCenter.x,
@@ -29,8 +30,8 @@ export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter })
     bounds.d * 0.95,
   ];
 
-  // Only render interactive void mesh in void selection mode
-  if (!isVoidMode) {
+  // Only render interactive void mesh in void selection mode and if visible
+  if (!isVoidMode || !visible) {
     return null;
   }
 

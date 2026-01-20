@@ -1,6 +1,0 @@
-cTODO
-
-Panel editor
-s
-* Allow a panel to be edited. This should be possible through selecting it in the 3d ui and pressing a button, or via the tree of objects (which should list panels and sub-assemblies). Editing a panel should create a new view next to the 3d object. This should show the panel as a sketch with nodes and lines. The joints should be shown.
-

@@ -46,6 +46,64 @@ export const getLeafVoids = (root: Void): Void[] => {
   return root.children.flatMap(getLeafVoids);
 };
 
+// Get all void IDs in a subtree (including the root)
+export const getVoidSubtreeIds = (root: Void): string[] => {
+  const ids = [root.id];
+  for (const child of root.children) {
+    ids.push(...getVoidSubtreeIds(child));
+  }
+  return ids;
+};
+
+// Get ancestor IDs of a void (path from root to the void, excluding the void itself)
+export const getVoidAncestorIds = (root: Void, targetId: string): string[] => {
+  const path: string[] = [];
+
+  const findPath = (node: Void, target: string): boolean => {
+    if (node.id === target) return true;
+    for (const child of node.children) {
+      if (findPath(child, target)) {
+        path.unshift(node.id);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  findPath(root, targetId);
+  return path;
+};
+
+// Check if a void should be visible given the visibility settings
+export const isVoidVisible = (
+  voidId: string,
+  rootVoid: Void,
+  hiddenVoidIds: Set<string>,
+  isolatedVoidId: string | null
+): boolean => {
+  // If explicitly hidden, not visible
+  if (hiddenVoidIds.has(voidId)) return false;
+
+  // If no isolation, visible (unless hidden)
+  if (!isolatedVoidId) return true;
+
+  // If this is the isolated void, visible
+  if (voidId === isolatedVoidId) return true;
+
+  // Check if this void is an ancestor of the isolated void
+  const ancestorIds = getVoidAncestorIds(rootVoid, isolatedVoidId);
+  if (ancestorIds.includes(voidId)) return true;
+
+  // Check if this void is a descendant of the isolated void
+  const isolatedVoid = findVoid(rootVoid, isolatedVoidId);
+  if (isolatedVoid) {
+    const subtreeIds = getVoidSubtreeIds(isolatedVoid);
+    if (subtreeIds.includes(voidId)) return true;
+  }
+
+  return false;
+};
+
 // Get all subdivisions (non-leaf voids have split info)
 export const getAllSubdivisions = (root: Void): Subdivision[] => {
   const subdivisions: Subdivision[] = [];
@@ -178,6 +236,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   selectedPanelId: null,
   selectedAssemblyId: null,
   subdivisionPreview: null,
+  hiddenVoidIds: new Set<string>(),
+  isolatedVoidId: null,
 
   setConfig: (newConfig) =>
     set((state) => {
@@ -190,6 +250,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         selectedPanelId: null,
         selectedAssemblyId: null,
         subdivisionPreview: null,
+        hiddenVoidIds: new Set<string>(),
+        isolatedVoidId: null,
       };
     }),
 
@@ -347,6 +409,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       selectedPanelId: null,
       selectedAssemblyId: null,
       subdivisionPreview: null,
+      hiddenVoidIds: new Set<string>(),
+      isolatedVoidId: null,
     })),
 
   // Sub-assembly actions
@@ -498,4 +562,19 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         subdivisionPreview: null,
       };
     }),
+
+  // Visibility actions
+  toggleVoidVisibility: (voidId) =>
+    set((state) => {
+      const newHiddenVoidIds = new Set(state.hiddenVoidIds);
+      if (newHiddenVoidIds.has(voidId)) {
+        newHiddenVoidIds.delete(voidId);
+      } else {
+        newHiddenVoidIds.add(voidId);
+      }
+      return { hiddenVoidIds: newHiddenVoidIds };
+    }),
+
+  setIsolatedVoid: (voidId) =>
+    set({ isolatedVoidId: voidId }),
 }));
