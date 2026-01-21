@@ -1,8 +1,18 @@
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
 import { useBoxStore } from '../store/useBoxStore';
-import { FaceId, Face, BoxConfig } from '../types';
+import { FaceId, Face, BoxConfig, Bounds } from '../types';
 import { generateFingerJointPath, Point } from '../utils/fingerJoints';
+
+// Divider intersection info (passed from Box3D)
+export interface DividerIntersection {
+  subdivisionId: string;
+  position: number;  // Position along the face in local 2D coordinates
+  length: number;    // Length of the slot
+  orientation: 'horizontal' | 'vertical';
+  dividerBounds: Bounds;
+  dividerAxis: 'x' | 'y' | 'z';
+}
 
 interface FaceWithFingersProps {
   faceId: FaceId;
@@ -13,6 +23,7 @@ interface FaceWithFingersProps {
   scale: number;  // Scale factor from mm to display units
   isSelected: boolean;
   isSolid: boolean;
+  dividerIntersections?: DividerIntersection[];  // Dividers that intersect this face
   onClick?: () => void;
 }
 
@@ -93,6 +104,7 @@ export const FaceWithFingers: React.FC<FaceWithFingersProps> = ({
   scale,
   isSelected,
   isSolid,
+  dividerIntersections = [],
   onClick,
 }) => {
   const { config, faces } = useBoxStore();
@@ -112,11 +124,40 @@ export const FaceWithFingers: React.FC<FaceWithFingersProps> = ({
     const halfW = sizeW / 2;
     const halfH = sizeH / 2;
 
+    // Check which edges have tabs extending outward (only if adjacent face is solid)
+    // Corners need to be inset when their adjacent edges have tabs,
+    // so that tabs extend TO (not beyond) the outer dimensions
+    const edgeHasTabs = (position: 'top' | 'bottom' | 'left' | 'right'): boolean => {
+      const edgeInfo = edges.find(e => e.position === position)!;
+      const adjacentFace = faces.find(f => f.id === edgeInfo.adjacentFaceId);
+      const isSolidAdjacent = adjacentFace?.solid ?? false;
+      return isSolidAdjacent && shouldTabOut(faceId, position);
+    };
+
+    const topHasTabs = edgeHasTabs('top');
+    const bottomHasTabs = edgeHasTabs('bottom');
+    const leftHasTabs = edgeHasTabs('left');
+    const rightHasTabs = edgeHasTabs('right');
+
+    // Inset corners by material thickness where tabs will extend outward
+    // This ensures the total panel size (base + tabs) equals the intended outer dimensions
     const corners: Record<string, Point> = {
-      topLeft: { x: -halfW, y: halfH },
-      topRight: { x: halfW, y: halfH },
-      bottomRight: { x: halfW, y: -halfH },
-      bottomLeft: { x: -halfW, y: -halfH },
+      topLeft: {
+        x: -halfW + (leftHasTabs ? scaledThickness : 0),
+        y: halfH - (topHasTabs ? scaledThickness : 0),
+      },
+      topRight: {
+        x: halfW - (rightHasTabs ? scaledThickness : 0),
+        y: halfH - (topHasTabs ? scaledThickness : 0),
+      },
+      bottomRight: {
+        x: halfW - (rightHasTabs ? scaledThickness : 0),
+        y: -halfH + (bottomHasTabs ? scaledThickness : 0),
+      },
+      bottomLeft: {
+        x: -halfW + (leftHasTabs ? scaledThickness : 0),
+        y: -halfH + (bottomHasTabs ? scaledThickness : 0),
+      },
     };
 
     const edgeConfigs: { start: Point; end: Point; edgeInfo: EdgeInfo }[] = [
@@ -138,6 +179,19 @@ export const FaceWithFingers: React.FC<FaceWithFingersProps> = ({
 
       if (isSolidAdjacent) {
         const isTabOut = shouldTabOut(faceId, edgeInfo.position);
+
+        // Calculate corner inset for this edge to adjust finger gap
+        // Horizontal edges (top/bottom): corners inset in X if left/right edges have tabs
+        // Vertical edges (left/right): corners inset in Y if top/bottom edges have tabs
+        const isHorizontalEdge = edgeInfo.position === 'top' || edgeInfo.position === 'bottom';
+        const cornerInset = isHorizontalEdge
+          ? (leftHasTabs ? scaledThickness : 0)  // left and right have same tab status
+          : (topHasTabs ? scaledThickness : 0);  // top and bottom have same tab status
+
+        // Reduce corner gap by inset amount so fingers align with mating edges
+        // Gap from outer dimension should be uniform for both tabbed and slotted edges
+        const adjustedGapMultiplier = Math.max(0, fingerGap - cornerInset / scaledFingerWidth);
+
         points = generateFingerJointPath(start, end, {
           edgeLength,
           fingerWidth: scaledFingerWidth,
@@ -145,7 +199,7 @@ export const FaceWithFingers: React.FC<FaceWithFingersProps> = ({
           isTabOut,
           kerf: 0,
           yUp: true,  // Three.js uses Y-up coordinate system
-          cornerGapMultiplier: fingerGap,
+          cornerGapMultiplier: adjustedGapMultiplier,
         });
       } else {
         // Straight edge for open adjacent faces
@@ -165,6 +219,60 @@ export const FaceWithFingers: React.FC<FaceWithFingersProps> = ({
 
     shape.closePath();
 
+    // Add slots (rectangular holes) for divider intersections
+    // Each slot is a simple rectangle: length = finger width (tab length), width = material thickness
+    for (const intersection of dividerIntersections) {
+      const { position: slotPos, length: slotLength, orientation } = intersection;
+
+      // Calculate finger/tab positions along the divider edge
+      // This must match the finger pattern generated by the divider
+      const cornerGapVal = scaledFingerWidth * fingerGap;
+      const usableSlotLength = slotLength - (cornerGapVal * 2);
+
+      if (usableSlotLength < scaledFingerWidth) {
+        // Too short for any tabs, skip
+        continue;
+      }
+
+      // Calculate number of fingers (must match divider's finger count)
+      let numFingers = Math.max(1, Math.floor(usableSlotLength / scaledFingerWidth));
+      if (numFingers % 2 === 0) numFingers++;  // Odd number for symmetry
+      const actualFingerWidth = usableSlotLength / numFingers;
+
+      // Slot dimensions
+      const slotWidth = scaledThickness;  // Material thickness
+      const slotHalfWidth = slotWidth / 2;
+      const slotHalfLength = slotLength / 2;
+
+      // Create a rectangular slot for each tab (even positions have tabs)
+      for (let i = 0; i < numFingers; i++) {
+        const isEvenPosition = i % 2 === 0;
+        if (!isEvenPosition) continue;  // Only even positions have tabs
+
+        const fingerStart = -slotHalfLength + cornerGapVal + i * actualFingerWidth;
+        const fingerEnd = fingerStart + actualFingerWidth;
+
+        const holePath = new THREE.Path();
+
+        if (orientation === 'vertical') {
+          // Vertical slot - rectangle at X = slotPos, spanning fingerStart to fingerEnd in Y
+          holePath.moveTo(slotPos - slotHalfWidth, fingerStart);
+          holePath.lineTo(slotPos + slotHalfWidth, fingerStart);
+          holePath.lineTo(slotPos + slotHalfWidth, fingerEnd);
+          holePath.lineTo(slotPos - slotHalfWidth, fingerEnd);
+        } else {
+          // Horizontal slot - rectangle at Y = slotPos, spanning fingerStart to fingerEnd in X
+          holePath.moveTo(fingerStart, slotPos - slotHalfWidth);
+          holePath.lineTo(fingerEnd, slotPos - slotHalfWidth);
+          holePath.lineTo(fingerEnd, slotPos + slotHalfWidth);
+          holePath.lineTo(fingerStart, slotPos + slotHalfWidth);
+        }
+
+        holePath.closePath();
+        shape.holes.push(holePath);
+      }
+    }
+
     // Extrude the shape to create 3D geometry
     const extrudeSettings: THREE.ExtrudeGeometryOptions = {
       depth: scaledThickness,
@@ -177,7 +285,7 @@ export const FaceWithFingers: React.FC<FaceWithFingersProps> = ({
     geo.translate(0, 0, -scaledThickness / 2);
 
     return geo;
-  }, [faceId, sizeW, sizeH, scale, config, faces, isSolid, materialThickness, fingerWidth]);
+  }, [faceId, sizeW, sizeH, scale, config, faces, isSolid, materialThickness, fingerWidth, fingerGap, dividerIntersections]);
 
   // Create edge geometry for outline - must be before any early returns to maintain hooks order
   const edgesGeometry = useMemo(() => {
