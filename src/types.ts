@@ -217,6 +217,19 @@ export interface BoxActions {
   addAugmentation: (augmentation: PanelAugmentation) => void;
   removeAugmentation: (augmentationId: string) => void;
   togglePanelVisibility: (panelId: string) => void;
+  setEdgeExtension: (
+    panelId: string,
+    edge: 'top' | 'bottom' | 'left' | 'right',
+    value: number
+  ) => void;
+  setDividerPosition: (
+    subdivisionId: string,
+    newPosition: number
+  ) => void;
+  // URL state management
+  loadFromUrl: () => boolean;  // Returns true if state was loaded
+  saveToUrl: () => void;
+  getShareableUrl: () => string;
 }
 
 // Subdivision panel - a physical divider piece to be cut
@@ -289,6 +302,18 @@ export interface PanelSource {
   subAssemblyId?: string;
 }
 
+// Edge extensions for panel edge editing (V1 - straight edges only)
+export interface EdgeExtensions {
+  top: number;     // mm (positive = outward, negative = inward)
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+export const defaultEdgeExtensions: EdgeExtensions = {
+  top: 0, bottom: 0, left: 0, right: 0
+};
+
 // A panel with its 2D path geometry and 3D positioning
 export interface PanelPath {
   id: string;
@@ -311,6 +336,9 @@ export interface PanelPath {
   label?: string;
   color?: string;
   visible: boolean;
+
+  // Edge extensions (V1 - only for straight edges)
+  edgeExtensions: EdgeExtensions;
 }
 
 // Augmentation types that can be added to panels

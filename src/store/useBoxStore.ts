@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssemblyType, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation } from '../types';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssemblyType, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions } from '../types';
+import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -1073,11 +1074,13 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   generatePanels: () =>
     set((state) => {
       // Generate panel paths from current configuration
+      // Pass existing panels to preserve edge extensions during regeneration
       const collection = generatePanelCollection(
         state.faces,
         state.rootVoid,
         state.config,
-        1  // Scale factor (1 = mm)
+        1,  // Scale factor (1 = mm)
+        state.panelCollection?.panels
       );
 
       return {
@@ -1204,4 +1207,252 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         },
       };
     }),
+
+  setEdgeExtension: (panelId, edge, value) =>
+    set((state) => {
+      if (!state.panelCollection) return state;
+
+      // First, update the extension value on the panel
+      const updatedPanels = state.panelCollection.panels.map((panel) =>
+        panel.id === panelId
+          ? {
+              ...panel,
+              edgeExtensions: {
+                ...(panel.edgeExtensions || defaultEdgeExtensions),
+                [edge]: value,
+              },
+            }
+          : panel
+      );
+
+      // Now regenerate panels with the updated extensions
+      const collection = generatePanelCollection(
+        state.faces,
+        state.rootVoid,
+        state.config,
+        1,
+        updatedPanels  // Pass updated panels to preserve new extensions
+      );
+
+      return {
+        panelCollection: collection,
+      };
+    }),
+
+  setDividerPosition: (subdivisionId, newPosition) =>
+    set((state) => {
+      const mt = state.config.materialThickness;
+
+      // The subdivision ID is like "abc123-split", the void ID is "abc123"
+      const voidId = subdivisionId.replace('-split', '');
+
+      // Find the void that has this split position
+      const targetVoid = findVoid(state.rootVoid, voidId);
+      if (!targetVoid || !targetVoid.splitPosition || !targetVoid.splitAxis) {
+        return state;
+      }
+
+      // Find the parent to get sibling voids
+      const parent = findParent(state.rootVoid, voidId);
+      if (!parent) return state;
+
+      const axis = targetVoid.splitAxis;
+
+      // Find the index of this void in the parent's children
+      const voidIndex = parent.children.findIndex(c => c.id === voidId);
+      if (voidIndex === -1) return state;
+
+      // Calculate bounds constraints
+      // Previous divider position (or parent start)
+      const parentStart = axis === 'x' ? parent.bounds.x :
+                          axis === 'y' ? parent.bounds.y : parent.bounds.z;
+      const parentEnd = axis === 'x' ? parent.bounds.x + parent.bounds.w :
+                        axis === 'y' ? parent.bounds.y + parent.bounds.h :
+                        parent.bounds.z + parent.bounds.d;
+
+      // Find min position (previous divider + material thickness, or parent start + min void size)
+      const prevVoid = voidIndex > 0 ? parent.children[voidIndex - 1] : null;
+      const minPos = prevVoid?.splitPosition
+        ? prevVoid.splitPosition + mt + 1  // At least 1mm void space
+        : parentStart + mt / 2 + 1;
+
+      // Find max position (next divider - material thickness, or parent end - min void size)
+      const nextVoid = voidIndex < parent.children.length - 1 ? parent.children[voidIndex + 1] : null;
+      const maxPos = nextVoid?.splitPosition
+        ? nextVoid.splitPosition - mt - 1
+        : parentEnd - mt / 2 - 1;
+
+      // Clamp new position to valid range
+      const clampedPosition = Math.max(minPos, Math.min(maxPos, newPosition));
+
+      // Update the void tree
+      const updateVoidPosition = (node: Void): Void => {
+        if (node.id === parent.id) {
+          // This is the parent - update its children
+          const newChildren = parent.children.map((child, idx) => {
+            if (child.id === voidId) {
+              // Update this void's splitPosition
+              return { ...child, splitPosition: clampedPosition };
+            }
+            return child;
+          });
+
+          // Recalculate bounds for all children
+          const recalculatedChildren = newChildren.map((child, idx) => {
+            // Calculate region start
+            const regionStart = idx === 0
+              ? parentStart
+              : (newChildren[idx - 1].splitPosition ?? parentStart) + mt / 2;
+
+            // Calculate region end
+            const regionEnd = child.splitPosition
+              ? child.splitPosition - mt / 2
+              : parentEnd;
+
+            const regionSize = regionEnd - regionStart;
+
+            let newBounds: Bounds;
+            switch (axis) {
+              case 'x':
+                newBounds = { ...child.bounds, x: regionStart, w: regionSize };
+                break;
+              case 'y':
+                newBounds = { ...child.bounds, y: regionStart, h: regionSize };
+                break;
+              case 'z':
+                newBounds = { ...child.bounds, z: regionStart, d: regionSize };
+                break;
+            }
+
+            return { ...child, bounds: newBounds };
+          });
+
+          return { ...node, children: recalculatedChildren };
+        }
+
+        return {
+          ...node,
+          children: node.children.map(updateVoidPosition),
+        };
+      };
+
+      const newRootVoid = updateVoidPosition(state.rootVoid);
+
+      // Regenerate panels
+      const collection = generatePanelCollection(
+        state.faces,
+        newRootVoid,
+        state.config,
+        1,
+        state.panelCollection?.panels
+      );
+
+      return {
+        rootVoid: newRootVoid,
+        panelCollection: collection,
+      };
+    }),
+
+  // URL state management
+  loadFromUrl: () => {
+    const loaded = loadFromUrl();
+    if (!loaded) return false;
+
+    // Apply loaded state
+    const state = get();
+
+    // Collect edge extensions from loaded data
+    const edgeExtensionsMap = loaded.edgeExtensions;
+
+    // Create panels with loaded extensions
+    const panelsWithExtensions = state.panelCollection?.panels.map(panel => ({
+      ...panel,
+      edgeExtensions: edgeExtensionsMap[panel.id] ?? defaultEdgeExtensions,
+    }));
+
+    // Generate new panel collection with loaded config
+    const collection = generatePanelCollection(
+      loaded.faces,
+      loaded.rootVoid,
+      loaded.config,
+      1,
+      panelsWithExtensions
+    );
+
+    // Apply edge extensions to newly generated panels
+    if (collection && Object.keys(edgeExtensionsMap).length > 0) {
+      collection.panels = collection.panels.map(panel => ({
+        ...panel,
+        edgeExtensions: edgeExtensionsMap[panel.id] ?? panel.edgeExtensions,
+      }));
+    }
+
+    set({
+      config: loaded.config,
+      faces: loaded.faces,
+      rootVoid: loaded.rootVoid,
+      panelCollection: collection,
+      panelsDirty: false,
+      selectedVoidId: null,
+      selectedPanelId: null,
+      selectedAssemblyId: null,
+      selectedSubAssemblyId: null,
+    });
+
+    return true;
+  },
+
+  saveToUrl: () => {
+    const state = get();
+
+    // Collect edge extensions from panels
+    const edgeExtensions: Record<string, EdgeExtensions> = {};
+    if (state.panelCollection) {
+      for (const panel of state.panelCollection.panels) {
+        if (panel.edgeExtensions &&
+            (panel.edgeExtensions.top !== 0 ||
+             panel.edgeExtensions.bottom !== 0 ||
+             panel.edgeExtensions.left !== 0 ||
+             panel.edgeExtensions.right !== 0)) {
+          edgeExtensions[panel.id] = panel.edgeExtensions;
+        }
+      }
+    }
+
+    const projectState: ProjectState = {
+      config: state.config,
+      faces: state.faces,
+      rootVoid: state.rootVoid,
+      edgeExtensions,
+    };
+
+    saveStateToUrl(projectState);
+  },
+
+  getShareableUrl: () => {
+    const state = get();
+
+    // Collect edge extensions from panels
+    const edgeExtensions: Record<string, EdgeExtensions> = {};
+    if (state.panelCollection) {
+      for (const panel of state.panelCollection.panels) {
+        if (panel.edgeExtensions &&
+            (panel.edgeExtensions.top !== 0 ||
+             panel.edgeExtensions.bottom !== 0 ||
+             panel.edgeExtensions.left !== 0 ||
+             panel.edgeExtensions.right !== 0)) {
+          edgeExtensions[panel.id] = panel.edgeExtensions;
+        }
+      }
+    }
+
+    const projectState: ProjectState = {
+      config: state.config,
+      faces: state.faces,
+      rootVoid: state.rootVoid,
+      edgeExtensions,
+    };
+
+    return getShareUrl(projectState);
+  },
 }));

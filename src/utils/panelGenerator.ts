@@ -12,9 +12,11 @@ import {
   PanelCollection,
   PanelSource,
   AssemblyConfig,
+  EdgeExtensions,
   getFaceRole,
   getLidSide,
   getWallPriority,
+  defaultEdgeExtensions,
 } from '../types';
 import { generateFingerJointPath, Point } from './fingerJoints';
 import { getAllSubdivisions } from '../store/useBoxStore';
@@ -45,13 +47,13 @@ export const getFaceDimensions = (
   }
 };
 
-interface EdgeInfo {
+export interface EdgeInfo {
   adjacentFaceId: FaceId;
   isHorizontal: boolean;
   position: 'top' | 'bottom' | 'left' | 'right';
 }
 
-const getFaceEdges = (faceId: FaceId): EdgeInfo[] => {
+export const getFaceEdges = (faceId: FaceId): EdgeInfo[] => {
   switch (faceId) {
     case 'front':
       return [
@@ -96,6 +98,55 @@ const getFaceEdges = (faceId: FaceId): EdgeInfo[] => {
         { adjacentFaceId: 'right', isHorizontal: false, position: 'right' },
       ];
   }
+};
+
+// =============================================================================
+// Edge Status Utilities - Determine which edges are locked (finger joints) vs unlocked (straight)
+// =============================================================================
+
+export interface EdgeStatusInfo {
+  position: 'top' | 'bottom' | 'left' | 'right';
+  adjacentFaceId?: FaceId;
+  status: 'locked' | 'unlocked';  // unlocked = straight edge only
+}
+
+// For divider panels - edge is unlocked only if it's straight (meets open face)
+export const getDividerEdgeStatuses = (
+  meetsTop: boolean,    // meets solid top face
+  meetsBottom: boolean,
+  meetsLeft: boolean,
+  meetsRight: boolean
+): EdgeStatusInfo[] => {
+  // V1: Edge is LOCKED if it has tabs (meets solid face)
+  // Edge is UNLOCKED only if straight (meets open face)
+  return [
+    { position: 'top', status: meetsTop ? 'locked' : 'unlocked' },
+    { position: 'bottom', status: meetsBottom ? 'locked' : 'unlocked' },
+    { position: 'left', status: meetsLeft ? 'locked' : 'unlocked' },
+    { position: 'right', status: meetsRight ? 'locked' : 'unlocked' },
+  ];
+};
+
+// For face panels - edge is unlocked only if adjacent face is open
+export const getFaceEdgeStatuses = (
+  faceId: FaceId,
+  faces: Face[],
+  _assembly: AssemblyConfig  // Reserved for V2: may need for tab direction logic
+): EdgeStatusInfo[] => {
+  const edges = getFaceEdges(faceId);
+
+  return edges.map((edge) => {
+    const adjacentFace = faces.find((f) => f.id === edge.adjacentFaceId);
+    const isSolidAdjacent = adjacentFace?.solid ?? false;
+
+    // V1: Edge is LOCKED if adjacent face is solid (has finger joint)
+    // Edge is UNLOCKED only if adjacent face is open (straight edge)
+    return {
+      position: edge.position,
+      adjacentFaceId: edge.adjacentFaceId,
+      status: isSolidAdjacent ? 'locked' : 'unlocked',
+    };
+  });
 };
 
 // Dynamic tab direction logic based on assembly configuration
@@ -196,7 +247,8 @@ const getFaceTransform = (
 const generateFacePanelOutline = (
   faceId: FaceId,
   faces: Face[],
-  config: BoxConfig
+  config: BoxConfig,
+  edgeExtensions: EdgeExtensions = defaultEdgeExtensions
 ): PathPoint[] => {
   const dims = getFaceDimensions(faceId, config);
   const edges = getFaceEdges(faceId);
@@ -205,7 +257,7 @@ const generateFacePanelOutline = (
   const halfW = dims.width / 2;
   const halfH = dims.height / 2;
 
-  // Determine which edges have tabs extending outward
+  // Determine which edges have tabs extending outward (locked edges)
   const edgeHasTabs = (position: 'top' | 'bottom' | 'left' | 'right'): boolean => {
     const edgeInfo = edges.find(e => e.position === position)!;
     const adjacentFace = faces.find(f => f.id === edgeInfo.adjacentFaceId);
@@ -214,28 +266,41 @@ const generateFacePanelOutline = (
     return isSolidAdjacent && tabOut === true;
   };
 
+  // Check if edge is unlocked (straight, no finger joints)
+  const edgeIsUnlocked = (position: 'top' | 'bottom' | 'left' | 'right'): boolean => {
+    const edgeInfo = edges.find(e => e.position === position)!;
+    const adjacentFace = faces.find(f => f.id === edgeInfo.adjacentFaceId);
+    return !(adjacentFace?.solid ?? false);
+  };
+
   const topHasTabs = edgeHasTabs('top');
   const bottomHasTabs = edgeHasTabs('bottom');
   const leftHasTabs = edgeHasTabs('left');
   const rightHasTabs = edgeHasTabs('right');
 
-  // Corners inset where tabs extend outward
+  // Calculate extension amounts (only apply to unlocked edges)
+  const extTop = edgeIsUnlocked('top') ? edgeExtensions.top : 0;
+  const extBottom = edgeIsUnlocked('bottom') ? edgeExtensions.bottom : 0;
+  const extLeft = edgeIsUnlocked('left') ? edgeExtensions.left : 0;
+  const extRight = edgeIsUnlocked('right') ? edgeExtensions.right : 0;
+
+  // Corners inset where tabs extend outward, with extensions applied
   const corners: Record<string, Point> = {
     topLeft: {
-      x: -halfW + (leftHasTabs ? materialThickness : 0),
-      y: halfH - (topHasTabs ? materialThickness : 0)
+      x: -halfW + (leftHasTabs ? materialThickness : 0) - extLeft,
+      y: halfH - (topHasTabs ? materialThickness : 0) + extTop
     },
     topRight: {
-      x: halfW - (rightHasTabs ? materialThickness : 0),
-      y: halfH - (topHasTabs ? materialThickness : 0)
+      x: halfW - (rightHasTabs ? materialThickness : 0) + extRight,
+      y: halfH - (topHasTabs ? materialThickness : 0) + extTop
     },
     bottomRight: {
-      x: halfW - (rightHasTabs ? materialThickness : 0),
-      y: -halfH + (bottomHasTabs ? materialThickness : 0)
+      x: halfW - (rightHasTabs ? materialThickness : 0) + extRight,
+      y: -halfH + (bottomHasTabs ? materialThickness : 0) - extBottom
     },
     bottomLeft: {
-      x: -halfW + (leftHasTabs ? materialThickness : 0),
-      y: -halfH + (bottomHasTabs ? materialThickness : 0)
+      x: -halfW + (leftHasTabs ? materialThickness : 0) - extLeft,
+      y: -halfH + (bottomHasTabs ? materialThickness : 0) - extBottom
     },
   };
 
@@ -318,13 +383,22 @@ const generateDividerSlotHoles = (
   faceId: FaceId,
   faces: Face[],
   rootVoid: Void,
-  config: BoxConfig
+  config: BoxConfig,
+  existingPanels?: PanelPath[]
 ): PanelHole[] => {
   const holes: PanelHole[] = [];
   const { materialThickness, fingerWidth, fingerGap, width, height, depth } = config;
   const subdivisions = getAllSubdivisions(rootVoid);
   const isFaceSolid = (id: FaceId) => faces.find(f => f.id === id)?.solid ?? false;
   const tolerance = 0.01;
+
+  // Helper to get divider's edge extensions
+  const getDividerExtensions = (subId: string): EdgeExtensions => {
+    if (!existingPanels) return defaultEdgeExtensions;
+    // Match the divider panel ID format
+    const dividerPanel = existingPanels.find(p => p.id === `divider-${subId}`);
+    return dividerPanel?.edgeExtensions ?? defaultEdgeExtensions;
+  };
 
   for (const sub of subdivisions) {
     let slotX: number | null = null;
@@ -333,8 +407,12 @@ const generateDividerSlotHoles = (
     let isHorizontal: boolean = false;
     let startInset: number = 0;  // Inset at start of slot (mm)
     let endInset: number = 0;    // Inset at end of slot (mm)
+    let extensionStart: number = 0;  // Extension at start of slot edge
+    let extensionEnd: number = 0;    // Extension at end of slot edge
+    let slotCenterOffset: number = 0;  // Offset to center slots within bounds
 
     const { bounds, position, axis } = sub;
+    const extensions = getDividerExtensions(sub.id);
 
     // Helper to check if divider meets an outer face
     const meetsBottom = bounds.y < tolerance;
@@ -344,7 +422,16 @@ const generateDividerSlotHoles = (
     const meetsBack = bounds.z < tolerance;
     const meetsFront = bounds.z + bounds.d > depth - tolerance;
 
+    // For divider edges: determine which unlocked edges affect the slot endpoints
+    // The divider's edge meeting this face - extensions on perpendicular unlocked edges affect length
+    const getExtForEdge = (edgeName: 'top' | 'bottom' | 'left' | 'right', meetsCondition: boolean): number => {
+      // If the perpendicular face is solid, edge is locked, no extension applies
+      // If perpendicular face is open, edge is unlocked, extension applies
+      return meetsCondition ? 0 : extensions[edgeName];
+    };
+
     // Check if this subdivision touches this face
+    // For each case, calculate slotCenterOffset to position slots within sub-void bounds
     switch (faceId) {
       case 'front':
         if (meetsFront) {
@@ -352,16 +439,26 @@ const generateDividerSlotHoles = (
             slotX = position - width / 2;
             slotLength = bounds.h;
             isHorizontal = false;
+            // Vertical slot runs in Y direction - offset based on bounds.y
+            slotCenterOffset = (bounds.y + bounds.h / 2) - height / 2;
             // Vertical slot: start=bottom, end=top
             startInset = meetsBottom && isFaceSolid('bottom') ? materialThickness : 0;
             endInset = meetsTop && isFaceSolid('top') ? materialThickness : 0;
+            // For X-axis divider meeting front: right edge meets front face
+            // Slot runs vertically (bottom to top), extensions: bottom/top affect length
+            extensionStart = getExtForEdge('bottom', meetsBottom && isFaceSolid('bottom'));
+            extensionEnd = getExtForEdge('top', meetsTop && isFaceSolid('top'));
           } else if (axis === 'y') {
             slotY = position - height / 2;
             slotLength = bounds.w;
             isHorizontal = true;
+            // Horizontal slot runs in X direction - offset based on bounds.x
+            slotCenterOffset = (bounds.x + bounds.w / 2) - width / 2;
             // Horizontal slot: start=left, end=right
             startInset = meetsLeft && isFaceSolid('left') ? materialThickness : 0;
             endInset = meetsRight && isFaceSolid('right') ? materialThickness : 0;
+            extensionStart = getExtForEdge('left', meetsLeft && isFaceSolid('left'));
+            extensionEnd = getExtForEdge('right', meetsRight && isFaceSolid('right'));
           }
         }
         break;
@@ -371,14 +468,22 @@ const generateDividerSlotHoles = (
             slotX = -(position - width / 2);
             slotLength = bounds.h;
             isHorizontal = false;
+            // Vertical slot runs in Y direction - offset based on bounds.y
+            slotCenterOffset = (bounds.y + bounds.h / 2) - height / 2;
             startInset = meetsBottom && isFaceSolid('bottom') ? materialThickness : 0;
             endInset = meetsTop && isFaceSolid('top') ? materialThickness : 0;
+            extensionStart = getExtForEdge('bottom', meetsBottom && isFaceSolid('bottom'));
+            extensionEnd = getExtForEdge('top', meetsTop && isFaceSolid('top'));
           } else if (axis === 'y') {
             slotY = position - height / 2;
             slotLength = bounds.w;
             isHorizontal = true;
+            // Horizontal slot runs in X direction (mirrored) - offset based on bounds.x
+            slotCenterOffset = -((bounds.x + bounds.w / 2) - width / 2);
             startInset = meetsLeft && isFaceSolid('left') ? materialThickness : 0;
             endInset = meetsRight && isFaceSolid('right') ? materialThickness : 0;
+            extensionStart = getExtForEdge('left', meetsLeft && isFaceSolid('left'));
+            extensionEnd = getExtForEdge('right', meetsRight && isFaceSolid('right'));
           }
         }
         break;
@@ -388,15 +493,25 @@ const generateDividerSlotHoles = (
             slotX = position - depth / 2;
             slotLength = bounds.h;
             isHorizontal = false;
+            // Vertical slot runs in Y direction - offset based on bounds.y
+            slotCenterOffset = (bounds.y + bounds.h / 2) - height / 2;
             startInset = meetsBottom && isFaceSolid('bottom') ? materialThickness : 0;
             endInset = meetsTop && isFaceSolid('top') ? materialThickness : 0;
+            extensionStart = getExtForEdge('bottom', meetsBottom && isFaceSolid('bottom'));
+            extensionEnd = getExtForEdge('top', meetsTop && isFaceSolid('top'));
           } else if (axis === 'y') {
             slotY = position - height / 2;
             slotLength = bounds.d;
             isHorizontal = true;
+            // Horizontal slot runs in Z direction - offset based on bounds.z
+            slotCenterOffset = (bounds.z + bounds.d / 2) - depth / 2;
             // Horizontal slot on left: start=back, end=front
             startInset = meetsBack && isFaceSolid('back') ? materialThickness : 0;
             endInset = meetsFront && isFaceSolid('front') ? materialThickness : 0;
+            // For Y-axis divider: left edge, slots run front-to-back
+            // In divider's 2D: "left" corresponds to back, "right" to front
+            extensionStart = getExtForEdge('left', meetsBack && isFaceSolid('back'));
+            extensionEnd = getExtForEdge('right', meetsFront && isFaceSolid('front'));
           }
         }
         break;
@@ -406,15 +521,23 @@ const generateDividerSlotHoles = (
             slotX = -(position - depth / 2);
             slotLength = bounds.h;
             isHorizontal = false;
+            // Vertical slot runs in Y direction - offset based on bounds.y
+            slotCenterOffset = (bounds.y + bounds.h / 2) - height / 2;
             startInset = meetsBottom && isFaceSolid('bottom') ? materialThickness : 0;
             endInset = meetsTop && isFaceSolid('top') ? materialThickness : 0;
+            extensionStart = getExtForEdge('bottom', meetsBottom && isFaceSolid('bottom'));
+            extensionEnd = getExtForEdge('top', meetsTop && isFaceSolid('top'));
           } else if (axis === 'y') {
             slotY = position - height / 2;
             slotLength = bounds.d;
             isHorizontal = true;
+            // Horizontal slot runs in Z direction (mirrored) - offset based on bounds.z
+            slotCenterOffset = -((bounds.z + bounds.d / 2) - depth / 2);
             // Horizontal slot on right: start=front, end=back (mirrored from left)
             startInset = meetsFront && isFaceSolid('front') ? materialThickness : 0;
             endInset = meetsBack && isFaceSolid('back') ? materialThickness : 0;
+            extensionStart = getExtForEdge('right', meetsFront && isFaceSolid('front'));
+            extensionEnd = getExtForEdge('left', meetsBack && isFaceSolid('back'));
           }
         }
         break;
@@ -424,15 +547,26 @@ const generateDividerSlotHoles = (
             slotX = position - width / 2;
             slotLength = bounds.d;
             isHorizontal = false;
+            // Vertical slot runs in Z direction (mapped to local Y) - offset based on bounds.z
+            // Top face: local Y corresponds to -Z (front is negative Y)
+            slotCenterOffset = -((bounds.z + bounds.d / 2) - depth / 2);
             // For top: start=front (negative local Y), end=back
             startInset = meetsFront && isFaceSolid('front') ? materialThickness : 0;
             endInset = meetsBack && isFaceSolid('back') ? materialThickness : 0;
+            // X-axis divider meeting top: slot runs front-to-back
+            // In divider's 2D: "left" is back, "right" is front
+            extensionStart = getExtForEdge('right', meetsFront && isFaceSolid('front'));
+            extensionEnd = getExtForEdge('left', meetsBack && isFaceSolid('back'));
           } else if (axis === 'z') {
             slotY = position - depth / 2;
             slotLength = bounds.w;
             isHorizontal = true;
+            // Horizontal slot runs in X direction - offset based on bounds.x
+            slotCenterOffset = (bounds.x + bounds.w / 2) - width / 2;
             startInset = meetsLeft && isFaceSolid('left') ? materialThickness : 0;
             endInset = meetsRight && isFaceSolid('right') ? materialThickness : 0;
+            extensionStart = getExtForEdge('left', meetsLeft && isFaceSolid('left'));
+            extensionEnd = getExtForEdge('right', meetsRight && isFaceSolid('right'));
           }
         }
         break;
@@ -442,15 +576,24 @@ const generateDividerSlotHoles = (
             slotX = position - width / 2;
             slotLength = bounds.d;
             isHorizontal = false;
+            // Vertical slot runs in Z direction (mapped to local Y) - offset based on bounds.z
+            // Bottom face: local Y corresponds to -Z (back is negative Y)
+            slotCenterOffset = -((bounds.z + bounds.d / 2) - depth / 2);
             // For bottom: start=back (negative local Y), end=front
             startInset = meetsBack && isFaceSolid('back') ? materialThickness : 0;
             endInset = meetsFront && isFaceSolid('front') ? materialThickness : 0;
+            extensionStart = getExtForEdge('left', meetsBack && isFaceSolid('back'));
+            extensionEnd = getExtForEdge('right', meetsFront && isFaceSolid('front'));
           } else if (axis === 'z') {
             slotY = -(position - depth / 2);
             slotLength = bounds.w;
             isHorizontal = true;
+            // Horizontal slot runs in X direction - offset based on bounds.x
+            slotCenterOffset = (bounds.x + bounds.w / 2) - width / 2;
             startInset = meetsLeft && isFaceSolid('left') ? materialThickness : 0;
             endInset = meetsRight && isFaceSolid('right') ? materialThickness : 0;
+            extensionStart = getExtForEdge('left', meetsLeft && isFaceSolid('left'));
+            extensionEnd = getExtForEdge('right', meetsRight && isFaceSolid('right'));
           }
         }
         break;
@@ -467,7 +610,7 @@ const generateDividerSlotHoles = (
       const maxInset = Math.max(startInset, endInset);
       const adjustedCornerGap = Math.max(0, cornerGapBase - maxInset);
 
-      // Usable length for fingers
+      // Usable length for fingers (based on original, not extended)
       const usableLength = effectiveLength - (adjustedCornerGap * 2);
 
       if (usableLength < fingerWidth) continue;  // Too short for slots
@@ -478,33 +621,60 @@ const generateDividerSlotHoles = (
 
       const actualFingerWidth = usableLength / numFingers;
 
-      // Starting position for finger region
-      // Measure from -halfSlotLength (outer dimension), then add startInset and adjustedCornerGap
+      // Pattern offset: how much the start has moved due to extension
+      // Negative extension = shrink = start moved inward = positive offset (skip into pattern)
+      const patternOffset = -extensionStart;
+
+      // Actual slot region bounds (with extensions applied)
+      const actualHalfLength = halfSlotLength + extensionStart + (extensionEnd - extensionStart) / 2;
+      const actualStart = -halfSlotLength - extensionStart;
+      const actualEnd = halfSlotLength + extensionEnd;
+
+      // Starting position for finger region in original pattern
       const fingerRegionStart = -halfSlotLength + startInset + adjustedCornerGap;
 
       for (let i = 0; i < numFingers; i++) {
         if (i % 2 === 0) {
-          const slotStart = fingerRegionStart + i * actualFingerWidth;
-          const slotEnd = slotStart + actualFingerWidth;
+          // Calculate slot position in original pattern coordinates
+          const patternStart = fingerRegionStart + i * actualFingerWidth;
+          const patternEnd = patternStart + actualFingerWidth;
+
+          // Convert to actual coordinates (apply offset)
+          const slotStart = patternStart;
+          const slotEnd = patternEnd;
+
+          // Skip slots entirely outside actual bounds
+          if (slotEnd < actualStart || slotStart > actualEnd) continue;
+
+          // Clip slot to actual bounds
+          const clippedStart = Math.max(slotStart, actualStart);
+          const clippedEnd = Math.min(slotEnd, actualEnd);
+
+          // Skip if clipped slot is too small
+          if (clippedEnd - clippedStart < 0.1) continue;
+
+          // Apply center offset to position slots within sub-void bounds
+          const offsetStart = clippedStart + slotCenterOffset;
+          const offsetEnd = clippedEnd + slotCenterOffset;
 
           let holePoints: PathPoint[];
           if (isHorizontal) {
             // Horizontal slot
             const y = slotY!;
             holePoints = [
-              { x: slotStart, y: y - materialThickness / 2 },
-              { x: slotEnd, y: y - materialThickness / 2 },
-              { x: slotEnd, y: y + materialThickness / 2 },
-              { x: slotStart, y: y + materialThickness / 2 },
+              { x: offsetStart, y: y - materialThickness / 2 },
+              { x: offsetEnd, y: y - materialThickness / 2 },
+              { x: offsetEnd, y: y + materialThickness / 2 },
+              { x: offsetStart, y: y + materialThickness / 2 },
             ];
           } else {
             // Vertical slot
             const x = slotX!;
             holePoints = [
-              { x: x - materialThickness / 2, y: slotStart },
-              { x: x + materialThickness / 2, y: slotStart },
-              { x: x + materialThickness / 2, y: slotEnd },
-              { x: x - materialThickness / 2, y: slotEnd },
+              { x: x - materialThickness / 2, y: offsetStart },
+              { x: x + materialThickness / 2, y: offsetStart },
+              { x: x + materialThickness / 2, y: offsetEnd },
+              { x: x - materialThickness / 2, y: offsetEnd },
             ];
           }
 
@@ -687,14 +857,17 @@ const generateFacePanel = (
   faces: Face[],
   rootVoid: Void,
   config: BoxConfig,
-  scale: number = 1
+  scale: number = 1,
+  existingExtensions?: EdgeExtensions,
+  existingPanels?: PanelPath[]
 ): PanelPath | null => {
   const face = faces.find((f) => f.id === faceId);
   if (!face || !face.solid) return null;
 
+  const extensions = existingExtensions ?? defaultEdgeExtensions;
   const dims = getFaceDimensions(faceId, config);
-  const outlinePoints = generateFacePanelOutline(faceId, faces, config);
-  const dividerHoles = generateDividerSlotHoles(faceId, faces, rootVoid, config);
+  const outlinePoints = generateFacePanelOutline(faceId, faces, config, extensions);
+  const dividerHoles = generateDividerSlotHoles(faceId, faces, rootVoid, config, existingPanels);
   const lidHoles = generateLidSlotHoles(faceId, faces, config);
   const { position, rotation } = getFaceTransform(faceId, config, scale);
 
@@ -715,6 +888,7 @@ const generateFacePanel = (
     rotation,
     label: faceId.toUpperCase(),
     visible: true,
+    edgeExtensions: { ...extensions },
   };
 };
 
@@ -726,12 +900,14 @@ const generateDividerPanel = (
   subdivision: { id: string; axis: 'x' | 'y' | 'z'; position: number; bounds: any },
   faces: Face[],
   config: BoxConfig,
-  scale: number = 1
+  scale: number = 1,
+  existingExtensions?: EdgeExtensions
 ): PanelPath => {
   const { materialThickness, fingerWidth, fingerGap, width, height, depth } = config;
   const { bounds, axis, position } = subdivision;
   const isFaceSolid = (faceId: FaceId) => faces.find(f => f.id === faceId)?.solid ?? false;
   const tolerance = 0.01;
+  const extensions = existingExtensions ?? defaultEdgeExtensions;
 
   // Calculate panel dimensions based on axis
   let panelWidth: number;
@@ -771,8 +947,14 @@ const generateDividerPanel = (
   const halfW = panelWidth / 2;
   const halfH = panelHeight / 2;
 
-  // Corners inset where tabs extend
-  const corners: Record<string, Point> = {
+  // Calculate extension amounts (only apply to unlocked/straight edges)
+  const extTop = !meetsTop ? extensions.top : 0;
+  const extBottom = !meetsBottom ? extensions.bottom : 0;
+  const extLeft = !meetsLeft ? extensions.left : 0;
+  const extRight = !meetsRight ? extensions.right : 0;
+
+  // Original corners (without extensions) - used for finger pattern calculation
+  const origCorners: Record<string, Point> = {
     topLeft: {
       x: -halfW + (meetsLeft ? materialThickness : 0),
       y: halfH - (meetsTop ? materialThickness : 0),
@@ -791,22 +973,81 @@ const generateDividerPanel = (
     },
   };
 
+  // Actual corners with extensions applied
+  const corners: Record<string, Point> = {
+    topLeft: {
+      x: origCorners.topLeft.x - extLeft,
+      y: origCorners.topLeft.y + extTop,
+    },
+    topRight: {
+      x: origCorners.topRight.x + extRight,
+      y: origCorners.topRight.y + extTop,
+    },
+    bottomRight: {
+      x: origCorners.bottomRight.x + extRight,
+      y: origCorners.bottomRight.y - extBottom,
+    },
+    bottomLeft: {
+      x: origCorners.bottomLeft.x - extLeft,
+      y: origCorners.bottomLeft.y - extBottom,
+    },
+  };
+
+  // Calculate original edge lengths (for finger pattern generation)
+  const origTopLength = Math.abs(origCorners.topRight.x - origCorners.topLeft.x);
+  const origBottomLength = Math.abs(origCorners.bottomRight.x - origCorners.bottomLeft.x);
+  const origLeftLength = Math.abs(origCorners.topLeft.y - origCorners.bottomLeft.y);
+  const origRightLength = Math.abs(origCorners.topRight.y - origCorners.bottomRight.y);
+
+  // For each edge, calculate the patternOffset (how far into the original pattern to start)
+  // When an edge shrinks (negative extension), the start moves inward, so patternOffset is positive
+  // patternOffset = -extension (convert negative shrink to positive offset)
+  //
+  // Top edge: goes left→right. If left is unlocked, left extension affects start
+  // Right edge: goes top→bottom. If top is unlocked, top extension affects start
+  // Bottom edge: goes right→left. If right is unlocked, right extension affects start
+  // Left edge: goes bottom→top. If bottom is unlocked, bottom extension affects start
+
   const edgeConfigs = [
-    { start: corners.topLeft, end: corners.topRight, hasTabs: meetsTop, position: 'top' as const },
-    { start: corners.topRight, end: corners.bottomRight, hasTabs: meetsRight, position: 'right' as const },
-    { start: corners.bottomRight, end: corners.bottomLeft, hasTabs: meetsBottom, position: 'bottom' as const },
-    { start: corners.bottomLeft, end: corners.topLeft, hasTabs: meetsLeft, position: 'left' as const },
+    {
+      start: corners.topLeft, end: corners.topRight,
+      hasTabs: meetsTop, position: 'top' as const,
+      originalLength: origTopLength,
+      // Top edge goes left→right, left extension affects start
+      // Negative extension = shrink = positive offset
+      patternOffset: !meetsLeft ? -extLeft : 0,
+    },
+    {
+      start: corners.topRight, end: corners.bottomRight,
+      hasTabs: meetsRight, position: 'right' as const,
+      originalLength: origRightLength,
+      // Right edge goes top→bottom, top extension affects start
+      patternOffset: !meetsTop ? -extTop : 0,
+    },
+    {
+      start: corners.bottomRight, end: corners.bottomLeft,
+      hasTabs: meetsBottom, position: 'bottom' as const,
+      originalLength: origBottomLength,
+      // Bottom edge goes right→left, right extension affects start
+      patternOffset: !meetsRight ? -extRight : 0,
+    },
+    {
+      start: corners.bottomLeft, end: corners.topLeft,
+      hasTabs: meetsLeft, position: 'left' as const,
+      originalLength: origLeftLength,
+      // Left edge goes bottom→top, bottom extension affects start
+      patternOffset: !meetsBottom ? -extBottom : 0,
+    },
   ];
 
   const outlinePoints: PathPoint[] = [];
 
-  for (const { start, end, hasTabs, position: edgePosition } of edgeConfigs) {
-    const edgeLength = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+  for (const { start, end, hasTabs, position: edgePosition, originalLength, patternOffset } of edgeConfigs) {
+    const actualLength = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
 
     let points: Point[];
     if (hasTabs) {
       // Calculate corner inset for adjusted gap multiplier
-      // Use Math.max: prioritize correct alignment on the closed/inset side
       const isHorizontalEdge = edgePosition === 'top' || edgePosition === 'bottom';
       const cornerInset = isHorizontalEdge
         ? Math.max(meetsLeft ? materialThickness : 0, meetsRight ? materialThickness : 0)
@@ -814,13 +1055,15 @@ const generateDividerPanel = (
       const adjustedGapMultiplier = Math.max(0, fingerGap - cornerInset / fingerWidth);
 
       points = generateFingerJointPath(start, end, {
-        edgeLength,
+        edgeLength: actualLength,
         fingerWidth,
         materialThickness,
         isTabOut: true,
         kerf: 0,
         yUp: true,
         cornerGapMultiplier: adjustedGapMultiplier,
+        originalLength: originalLength,
+        patternOffset: patternOffset,
       });
     } else {
       points = [start, end];
@@ -833,6 +1076,8 @@ const generateDividerPanel = (
   }
 
   // Calculate 3D position
+  // The divider must be positioned at the split position on its axis,
+  // and centered within its parent void's bounds on the other two axes.
   let panelPosition: [number, number, number];
   let panelRotation: [number, number, number];
 
@@ -841,17 +1086,25 @@ const generateDividerPanel = (
   const halfHeight = (height * scale) / 2;
   const halfDepth = (depth * scale) / 2;
 
+  // Calculate the center of the parent bounds in box-centered coordinates
+  const boundsCenterX = (bounds.x + bounds.w / 2) * scale - halfWidth;
+  const boundsCenterY = (bounds.y + bounds.h / 2) * scale - halfHeight;
+  const boundsCenterZ = (bounds.z + bounds.d / 2) * scale - halfDepth;
+
   switch (axis) {
     case 'x':
-      panelPosition = [scaledPos - halfWidth, 0, 0];
+      // X-axis divider: positioned at splitPosition on X, centered on Y and Z within bounds
+      panelPosition = [scaledPos - halfWidth, boundsCenterY, boundsCenterZ];
       panelRotation = [0, Math.PI / 2, 0];
       break;
     case 'y':
-      panelPosition = [0, scaledPos - halfHeight, 0];
+      // Y-axis divider: positioned at splitPosition on Y, centered on X and Z within bounds
+      panelPosition = [boundsCenterX, scaledPos - halfHeight, boundsCenterZ];
       panelRotation = [Math.PI / 2, 0, 0];
       break;
     case 'z':
-      panelPosition = [0, 0, scaledPos - halfDepth];
+      // Z-axis divider: positioned at splitPosition on Z, centered on X and Y within bounds
+      panelPosition = [boundsCenterX, boundsCenterY, scaledPos - halfDepth];
       panelRotation = [0, 0, 0];
       break;
   }
@@ -874,6 +1127,7 @@ const generateDividerPanel = (
     rotation: panelRotation,
     label: `DIV-${axis.toUpperCase()}@${position.toFixed(1)}mm`,
     visible: true,
+    edgeExtensions: { ...extensions },
   };
 };
 
@@ -885,24 +1139,41 @@ export const generatePanelCollection = (
   faces: Face[],
   rootVoid: Void,
   config: BoxConfig,
-  scale: number = 1
+  scale: number = 1,
+  existingPanels?: PanelPath[]
 ): PanelCollection => {
   const panels: PanelPath[] = [];
 
+  // Helper to get existing extensions for a panel
+  const getExistingExtensions = (panelId: string): EdgeExtensions | undefined => {
+    if (!existingPanels) return undefined;
+    const existing = existingPanels.find(p => p.id === panelId);
+    return existing?.edgeExtensions;
+  };
+
   // Generate face panels
+  // First pass: generate divider panels to get their extensions
+  const dividerPanels: PanelPath[] = [];
+  const subdivisions = getAllSubdivisions(rootVoid);
+  for (const sub of subdivisions) {
+    const panelId = `divider-${sub.id}`;
+    const panel = generateDividerPanel(sub, faces, config, scale, getExistingExtensions(panelId));
+    dividerPanels.push(panel);
+  }
+
+  // Second pass: generate face panels with divider extension info
   const faceIds: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
   for (const faceId of faceIds) {
-    const panel = generateFacePanel(faceId, faces, rootVoid, config, scale);
+    const panelId = `face-${faceId}`;
+    const panel = generateFacePanel(faceId, faces, rootVoid, config, scale, getExistingExtensions(panelId), dividerPanels);
     if (panel) {
       panels.push(panel);
     }
   }
 
-  // Generate divider panels
-  const subdivisions = getAllSubdivisions(rootVoid);
-  for (const sub of subdivisions) {
-    const panel = generateDividerPanel(sub, faces, config, scale);
-    panels.push(panel);
+  // Add divider panels (already generated above)
+  for (const dividerPanel of dividerPanels) {
+    panels.push(dividerPanel);
   }
 
   return {
