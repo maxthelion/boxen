@@ -1,3 +1,83 @@
+// Assembly axis determines which pair of faces acts as "lids"
+export type AssemblyAxis = 'x' | 'y' | 'z';
+
+// Tab direction for each lid
+export type LidTabDirection = 'tabs-out' | 'tabs-in';
+
+// Configuration for a single lid face
+export interface LidConfig {
+  enabled: boolean;              // Whether face is solid (redundant with Face.solid but explicit)
+  tabDirection: LidTabDirection;
+  inset: number;                 // Inset from outer dimension (mm), 0 = flush with outer
+}
+
+// Assembly configuration for a box or sub-assembly
+export interface AssemblyConfig {
+  assemblyAxis: AssemblyAxis;
+  lids: {
+    positive: LidConfig;  // top (Y), right (X), or front (Z)
+    negative: LidConfig;  // bottom (Y), left (X), or back (Z)
+  };
+}
+
+// Helper: Get the role of a face (wall or lid) based on assembly axis
+export const getFaceRole = (faceId: FaceId, axis: AssemblyAxis): 'wall' | 'lid' => {
+  switch (axis) {
+    case 'y':
+      return (faceId === 'top' || faceId === 'bottom') ? 'lid' : 'wall';
+    case 'x':
+      return (faceId === 'left' || faceId === 'right') ? 'lid' : 'wall';
+    case 'z':
+      return (faceId === 'front' || faceId === 'back') ? 'lid' : 'wall';
+  }
+};
+
+// Helper: Get which side of the assembly axis a lid face is on
+export const getLidSide = (faceId: FaceId, axis: AssemblyAxis): 'positive' | 'negative' | null => {
+  const lidMap: Record<AssemblyAxis, { positive: FaceId; negative: FaceId }> = {
+    y: { positive: 'top', negative: 'bottom' },
+    x: { positive: 'right', negative: 'left' },
+    z: { positive: 'front', negative: 'back' },
+  };
+  const mapping = lidMap[axis];
+  if (faceId === mapping.positive) return 'positive';
+  if (faceId === mapping.negative) return 'negative';
+  return null;
+};
+
+// Helper: Get the FaceId for a lid given axis and side
+export const getLidFaceId = (axis: AssemblyAxis, side: 'positive' | 'negative'): FaceId => {
+  const lidMap: Record<AssemblyAxis, { positive: FaceId; negative: FaceId }> = {
+    y: { positive: 'top', negative: 'bottom' },
+    x: { positive: 'right', negative: 'left' },
+    z: { positive: 'front', negative: 'back' },
+  };
+  return lidMap[axis][side];
+};
+
+// Helper: Get wall priority for wall-to-wall tab direction
+// Lower priority face has tabs OUT, higher priority face has slots IN
+export const getWallPriority = (faceId: FaceId): number => {
+  const priorities: Record<FaceId, number> = {
+    front: 1,
+    back: 2,
+    left: 3,
+    right: 4,
+    top: 5,
+    bottom: 6,
+  };
+  return priorities[faceId];
+};
+
+// Default assembly config - Y axis with tabs-out on both lids
+export const defaultAssemblyConfig: AssemblyConfig = {
+  assemblyAxis: 'y',
+  lids: {
+    positive: { enabled: true, tabDirection: 'tabs-out', inset: 0 },
+    negative: { enabled: true, tabDirection: 'tabs-out', inset: 0 },
+  },
+};
+
 export interface BoxConfig {
   width: number;
   height: number;
@@ -5,6 +85,7 @@ export interface BoxConfig {
   materialThickness: number;
   fingerWidth: number;
   fingerGap: number;  // Gap at corners (multiplier of fingerWidth, e.g., 1.5 = 1.5x fingerWidth)
+  assembly: AssemblyConfig;
 }
 
 export type FaceId = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
@@ -36,6 +117,7 @@ export interface SubAssembly {
   faces: Face[];      // Which faces are solid/open
   rootVoid: Void;     // Sub-assembly's internal void structure
   materialThickness: number;
+  assembly: AssemblyConfig;  // Assembly configuration for this sub-assembly
 }
 
 // Hierarchical void structure - subdivisions create child voids
@@ -47,6 +129,10 @@ export interface Void {
   // If this void was created by splitting a parent:
   splitAxis?: 'x' | 'y' | 'z';
   splitPosition?: number;  // Absolute position in box coordinates where the split occurred
+  // If this void is a lid inset cap (space between inset lid and outer edge):
+  lidInsetSide?: 'positive' | 'negative';
+  // If this is the main interior void (when lid insets exist):
+  isMainInterior?: boolean;
 }
 
 // Legacy flat subdivision interface (kept for panel generation)
@@ -81,6 +167,8 @@ export interface BoxState {
   // Visibility controls for sub-assemblies
   hiddenSubAssemblyIds: Set<string>;  // Set of sub-assembly IDs that are hidden
   isolatedSubAssemblyId: string | null;  // If set, only show this sub-assembly
+  // Visibility controls for face panels
+  hiddenFaceIds: Set<string>;  // Set of face panel IDs that are hidden (e.g., 'face-front', 'subasm-xxx-face-top')
 }
 
 export interface BoxActions {
@@ -94,18 +182,28 @@ export interface BoxActions {
   applySubdivision: () => void;  // Apply the current preview
   removeVoid: (voidId: string) => void;
   resetVoids: () => void;
+  // Assembly config actions for main box
+  setAssemblyAxis: (axis: AssemblyAxis) => void;
+  setLidTabDirection: (side: 'positive' | 'negative', direction: LidTabDirection) => void;
+  setLidInset: (side: 'positive' | 'negative', inset: number) => void;
   // Sub-assembly actions
   createSubAssembly: (voidId: string, type: SubAssemblyType) => void;
   selectSubAssembly: (subAssemblyId: string | null) => void;
   toggleSubAssemblyFace: (subAssemblyId: string, faceId: FaceId) => void;
   setSubAssemblyClearance: (subAssemblyId: string, clearance: number) => void;
   removeSubAssembly: (voidId: string) => void;
+  // Assembly config actions for sub-assemblies
+  setSubAssemblyAxis: (subAssemblyId: string, axis: AssemblyAxis) => void;
+  setSubAssemblyLidTabDirection: (subAssemblyId: string, side: 'positive' | 'negative', direction: LidTabDirection) => void;
+  setSubAssemblyLidInset: (subAssemblyId: string, side: 'positive' | 'negative', inset: number) => void;
   // Visibility actions for voids
   toggleVoidVisibility: (voidId: string) => void;
   setIsolatedVoid: (voidId: string | null) => void;
   // Visibility actions for sub-assemblies
   toggleSubAssemblyVisibility: (subAssemblyId: string) => void;
   setIsolatedSubAssembly: (subAssemblyId: string | null) => void;
+  // Visibility actions for face panels
+  toggleFaceVisibility: (faceId: string) => void;
 }
 
 // Subdivision panel - a physical divider piece to be cut

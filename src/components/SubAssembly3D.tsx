@@ -1,6 +1,6 @@
 import React from 'react';
 import { useBoxStore } from '../store/useBoxStore';
-import { SubAssembly, Bounds, FaceId } from '../types';
+import { SubAssembly, Bounds, FaceId, getFaceRole, getLidSide } from '../types';
 import * as THREE from 'three';
 
 interface SubAssembly3DProps {
@@ -60,12 +60,12 @@ export const SubAssembly3D: React.FC<SubAssembly3DProps> = ({
   scale,
   boxCenter,
 }) => {
-  const { selectedSubAssemblyId, selectSubAssembly, selectionMode, selectedAssemblyId, selectAssembly } = useBoxStore();
+  const { selectedSubAssemblyId, selectSubAssembly, selectionMode, selectedAssemblyId, selectAssembly, hiddenFaceIds } = useBoxStore();
 
   const isSelectedSubAssembly = selectedSubAssemblyId === subAssembly.id;
   const isSelectedAssembly = selectedAssemblyId === subAssembly.id;
   const isSelected = isSelectedSubAssembly || isSelectedAssembly;
-  const { clearance, faces, rootVoid } = subAssembly;
+  const { clearance, faces, rootVoid, assembly } = subAssembly;
 
   // Calculate the sub-assembly dimensions (inner dimensions of the sub-assembly box)
   const subW = rootVoid.bounds.w;
@@ -108,8 +108,38 @@ export const SubAssembly3D: React.FC<SubAssembly3DProps> = ({
       {faceConfigs.map((faceConfig) => {
         const face = faces.find((f) => f.id === faceConfig.id);
         const isSolid = face?.solid ?? true;
+        const faceId = `subasm-${subAssembly.id}-face-${faceConfig.id}`;
+        const isHidden = hiddenFaceIds.has(faceId);
+
+        // Skip hidden faces
+        if (isHidden) return null;
+
         const [sizeW, sizeH] = faceConfig.size(scaledW, scaledH, scaledD);
-        const position = faceConfig.position(scaledW, scaledH, scaledD);
+        let position = faceConfig.position(scaledW, scaledH, scaledD);
+
+        // Apply inset adjustments for lid faces
+        const faceRole = getFaceRole(faceConfig.id, assembly.assemblyAxis);
+        const lidSide = getLidSide(faceConfig.id, assembly.assemblyAxis);
+        if (faceRole === 'lid' && lidSide) {
+          const lidConfig = assembly.lids[lidSide];
+          const inset = lidConfig.inset * scale;
+
+          if (inset > 0) {
+            const insetDirection = lidSide === 'positive' ? -1 : 1;
+
+            switch (assembly.assemblyAxis) {
+              case 'y':
+                position = [position[0], position[1] + insetDirection * inset, position[2]];
+                break;
+              case 'x':
+                position = [position[0] + insetDirection * inset, position[1], position[2]];
+                break;
+              case 'z':
+                position = [position[0], position[1], position[2] + insetDirection * inset];
+                break;
+            }
+          }
+        }
 
         const handleClick = (e: any) => {
           e.stopPropagation();

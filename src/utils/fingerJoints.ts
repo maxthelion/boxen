@@ -111,10 +111,11 @@ export const generateFingerJointPath = (
     }
   }
 
-  // The end point is already added as part of the last finger iteration
-  // Just need to ensure we end at the actual end point
-  // Remove the last point if it's not already at the end, and add end
-  if (points[points.length - 1].x !== end.x || points[points.length - 1].y !== end.y) {
+  // Add the final straight segment (corner gap at end)
+  // Always add the end point to ensure we reach the exact corner
+  const lastPt = points[points.length - 1];
+  const distToEnd = Math.sqrt(Math.pow(lastPt.x - end.x, 2) + Math.pow(lastPt.y - end.y, 2));
+  if (distToEnd > 0.001) {
     points.push(end);
   }
 

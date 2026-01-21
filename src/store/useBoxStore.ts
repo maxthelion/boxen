@@ -1,13 +1,196 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssemblyType, SubAssembly, Face } from '../types';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssemblyType, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig } from '../types';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-const createRootVoid = (width: number, height: number, depth: number): Void => ({
+// Create a simple root void without lid inset considerations
+const createSimpleRootVoid = (width: number, height: number, depth: number): Void => ({
   id: 'root',
   bounds: { x: 0, y: 0, z: 0, w: width, h: height, d: depth },
   children: [],
 });
+
+// Create root void with lid inset structure
+// When lids are inset, creates children: lid cap voids + main interior void
+const createRootVoidWithInsets = (
+  width: number,
+  height: number,
+  depth: number,
+  assembly: AssemblyConfig,
+  existingChildren?: Void[]
+): Void => {
+  const positiveInset = assembly.lids.positive.inset;
+  const negativeInset = assembly.lids.negative.inset;
+
+  // If no insets, return simple root void (preserving existing children)
+  if (positiveInset === 0 && negativeInset === 0) {
+    return {
+      id: 'root',
+      bounds: { x: 0, y: 0, z: 0, w: width, h: height, d: depth },
+      children: existingChildren || [],
+    };
+  }
+
+  // Calculate main interior bounds based on assembly axis
+  let mainBounds: Bounds;
+  let positiveCapBounds: Bounds | null = null;
+  let negativeCapBounds: Bounds | null = null;
+
+  switch (assembly.assemblyAxis) {
+    case 'y':
+      // Top/bottom are lids
+      mainBounds = {
+        x: 0,
+        y: negativeInset,
+        z: 0,
+        w: width,
+        h: height - positiveInset - negativeInset,
+        d: depth,
+      };
+      if (positiveInset > 0) {
+        positiveCapBounds = {
+          x: 0,
+          y: height - positiveInset,
+          z: 0,
+          w: width,
+          h: positiveInset,
+          d: depth,
+        };
+      }
+      if (negativeInset > 0) {
+        negativeCapBounds = {
+          x: 0,
+          y: 0,
+          z: 0,
+          w: width,
+          h: negativeInset,
+          d: depth,
+        };
+      }
+      break;
+
+    case 'x':
+      // Left/right are lids
+      mainBounds = {
+        x: negativeInset,
+        y: 0,
+        z: 0,
+        w: width - positiveInset - negativeInset,
+        h: height,
+        d: depth,
+      };
+      if (positiveInset > 0) {
+        positiveCapBounds = {
+          x: width - positiveInset,
+          y: 0,
+          z: 0,
+          w: positiveInset,
+          h: height,
+          d: depth,
+        };
+      }
+      if (negativeInset > 0) {
+        negativeCapBounds = {
+          x: 0,
+          y: 0,
+          z: 0,
+          w: negativeInset,
+          h: height,
+          d: depth,
+        };
+      }
+      break;
+
+    case 'z':
+      // Front/back are lids
+      mainBounds = {
+        x: 0,
+        y: 0,
+        z: negativeInset,
+        w: width,
+        h: height,
+        d: depth - positiveInset - negativeInset,
+      };
+      if (positiveInset > 0) {
+        positiveCapBounds = {
+          x: 0,
+          y: 0,
+          z: depth - positiveInset,
+          w: width,
+          h: height,
+          d: positiveInset,
+        };
+      }
+      if (negativeInset > 0) {
+        negativeCapBounds = {
+          x: 0,
+          y: 0,
+          z: 0,
+          w: width,
+          h: height,
+          d: negativeInset,
+        };
+      }
+      break;
+  }
+
+  // Build children array
+  // Note: We do NOT set splitAxis/splitPosition on lid inset voids because
+  // they are not physical divider panels - they're just the space between
+  // the inset lid and the outer box edge.
+  const children: Void[] = [];
+
+  // Add negative cap void first (at lower position)
+  if (negativeCapBounds) {
+    children.push({
+      id: 'lid-inset-negative',
+      bounds: negativeCapBounds,
+      children: [],
+      lidInsetSide: 'negative',
+    });
+  }
+
+  // Add main interior void (contains existing user subdivisions)
+  children.push({
+    id: 'main-interior',
+    bounds: mainBounds,
+    children: existingChildren || [],
+    isMainInterior: true,
+  });
+
+  // Add positive cap void last (at higher position)
+  if (positiveCapBounds) {
+    children.push({
+      id: 'lid-inset-positive',
+      bounds: positiveCapBounds,
+      children: [],
+      lidInsetSide: 'positive',
+    });
+  }
+
+  return {
+    id: 'root',
+    bounds: { x: 0, y: 0, z: 0, w: width, h: height, d: depth },
+    children,
+  };
+};
+
+// Get the main interior void (either root or the main-interior child if insets exist)
+export const getMainInteriorVoid = (root: Void): Void => {
+  const mainInterior = root.children.find(c => c.isMainInterior);
+  return mainInterior || root;
+};
+
+// Helper to get existing user subdivisions (excludes lid inset voids)
+const getUserSubdivisions = (root: Void): Void[] => {
+  // If root has a main-interior child, return its children
+  const mainInterior = root.children.find(c => c.isMainInterior);
+  if (mainInterior) {
+    return mainInterior.children;
+  }
+  // Otherwise, return root's children (filtering out any lid inset voids just in case)
+  return root.children.filter(c => !c.lidInsetSide);
+};
 
 const initialFaces = (): { id: FaceId; solid: boolean }[] => [
   { id: 'front', solid: true },
@@ -244,26 +427,28 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     materialThickness: 3,
     fingerWidth: 10,
     fingerGap: 1.5,  // Corner gap as multiplier of fingerWidth
+    assembly: defaultAssemblyConfig,
   },
   faces: initialFaces(),
-  rootVoid: createRootVoid(100, 100, 100),
-  selectionMode: 'void' as SelectionMode,
+  rootVoid: createSimpleRootVoid(100, 100, 100),
+  selectionMode: 'assembly' as SelectionMode,
   selectedVoidId: null,
   selectedSubAssemblyId: null,
   selectedPanelId: null,
-  selectedAssemblyId: null,
+  selectedAssemblyId: 'main',  // Default to main assembly selected
   subdivisionPreview: null,
   hiddenVoidIds: new Set<string>(),
   isolatedVoidId: null,
   hiddenSubAssemblyIds: new Set<string>(),
   isolatedSubAssemblyId: null,
+  hiddenFaceIds: new Set<string>(),
 
   setConfig: (newConfig) =>
     set((state) => {
       const config = { ...state.config, ...newConfig };
       return {
         config,
-        rootVoid: createRootVoid(config.width, config.height, config.depth),
+        rootVoid: createRootVoidWithInsets(config.width, config.height, config.depth, config.assembly),
         selectedVoidId: null,
         selectedSubAssemblyId: null,
         selectedPanelId: null,
@@ -273,6 +458,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         isolatedVoidId: null,
         hiddenSubAssemblyIds: new Set<string>(),
         isolatedSubAssemblyId: null,
+        hiddenFaceIds: new Set<string>(),
       };
     }),
 
@@ -300,7 +486,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       selectedSubAssemblyId: null,
       selectedPanelId: null,
       selectedAssemblyId: null,
-      subdivisionPreview: null,  // Clear preview when selection changes
+      // Keep subdivisionPreview - don't clear on selection change
     }),
 
   selectPanel: (panelId) =>
@@ -309,7 +495,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       selectedVoidId: null,
       selectedSubAssemblyId: null,
       selectedAssemblyId: null,
-      subdivisionPreview: null,
+      // Keep subdivisionPreview - don't clear on selection change
     }),
 
   selectAssembly: (assemblyId) =>
@@ -318,7 +504,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       selectedVoidId: null,
       selectedSubAssemblyId: null,
       selectedPanelId: null,
-      subdivisionPreview: null,
+      // Keep subdivisionPreview - don't clear on selection change
     }),
 
   setSubdivisionPreview: (preview) =>
@@ -333,14 +519,31 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       if (!targetVoid || targetVoid.children.length > 0) return state;
 
       const { bounds } = targetVoid;
-      const { axis, count } = preview;
+      const { axis, count, positions } = preview;
+      const mt = state.config.materialThickness;
 
       // Create N+1 child voids for N divisions
+      // Account for material thickness of dividers
       const children: Void[] = [];
 
+      // Get the dimension size along the split axis
+      const dimSize = axis === 'x' ? bounds.w : axis === 'y' ? bounds.h : bounds.d;
+      const dimStart = axis === 'x' ? bounds.x : axis === 'y' ? bounds.y : bounds.z;
+
+      // Calculate void boundaries accounting for divider thickness
+      // Each divider is centered at its position and takes up materialThickness
       for (let i = 0; i <= count; i++) {
-        const start = i / (count + 1);
-        const end = (i + 1) / (count + 1);
+        // Start of this void region
+        const regionStart = i === 0
+          ? dimStart
+          : positions[i - 1] + mt / 2;  // After previous divider
+
+        // End of this void region
+        const regionEnd = i === count
+          ? dimStart + dimSize
+          : positions[i] - mt / 2;  // Before next divider
+
+        const regionSize = regionEnd - regionStart;
 
         let childBounds: Bounds;
         let splitPos: number | undefined;
@@ -350,33 +553,33 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           case 'x':
             childBounds = {
               ...bounds,
-              x: bounds.x + start * bounds.w,
-              w: (end - start) * bounds.w,
+              x: regionStart,
+              w: regionSize,
             };
             if (i > 0) {
-              splitPos = bounds.x + start * bounds.w;
+              splitPos = positions[i - 1];
               splitAxis = axis;
             }
             break;
           case 'y':
             childBounds = {
               ...bounds,
-              y: bounds.y + start * bounds.h,
-              h: (end - start) * bounds.h,
+              y: regionStart,
+              h: regionSize,
             };
             if (i > 0) {
-              splitPos = bounds.y + start * bounds.h;
+              splitPos = positions[i - 1];
               splitAxis = axis;
             }
             break;
           case 'z':
             childBounds = {
               ...bounds,
-              z: bounds.z + start * bounds.d,
-              d: (end - start) * bounds.d,
+              z: regionStart,
+              d: regionSize,
             };
             if (i > 0) {
-              splitPos = bounds.z + start * bounds.d;
+              splitPos = positions[i - 1];
               splitAxis = axis;
             }
             break;
@@ -424,7 +627,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   resetVoids: () =>
     set((state) => ({
-      rootVoid: createRootVoid(state.config.width, state.config.height, state.config.depth),
+      rootVoid: createRootVoidWithInsets(state.config.width, state.config.height, state.config.depth, state.config.assembly),
       selectedVoidId: null,
       selectedSubAssemblyId: null,
       selectedPanelId: null,
@@ -434,6 +637,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       isolatedVoidId: null,
       hiddenSubAssemblyIds: new Set<string>(),
       isolatedSubAssemblyId: null,
+      hiddenFaceIds: new Set<string>(),
     })),
 
   // Sub-assembly actions
@@ -477,6 +681,14 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           bounds: { x: 0, y: 0, z: 0, w: innerWidth, h: innerHeight, d: innerDepth },
           children: [],
         },
+        // Default assembly config for sub-assemblies: Y axis with tabs-out
+        assembly: {
+          assemblyAxis: 'y',
+          lids: {
+            positive: { enabled: type !== 'tray' && type !== 'drawer', tabDirection: 'tabs-out', inset: 0 },
+            negative: { enabled: true, tabDirection: 'tabs-out', inset: 0 },
+          },
+        },
       };
 
       const newRootVoid = updateVoidInTree(state.rootVoid, voidId, (v) => ({
@@ -498,7 +710,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       selectedVoidId: null,
       selectedPanelId: null,
       selectedAssemblyId: null,
-      subdivisionPreview: null,
+      // Keep subdivisionPreview - don't clear on selection change
     }),
 
   toggleSubAssemblyFace: (subAssemblyId, faceId) =>
@@ -615,4 +827,227 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   setIsolatedSubAssembly: (subAssemblyId) =>
     set({ isolatedSubAssemblyId: subAssemblyId }),
+
+  // Face panel visibility actions
+  toggleFaceVisibility: (faceId) =>
+    set((state) => {
+      const newHiddenFaceIds = new Set(state.hiddenFaceIds);
+      if (newHiddenFaceIds.has(faceId)) {
+        newHiddenFaceIds.delete(faceId);
+      } else {
+        newHiddenFaceIds.add(faceId);
+      }
+      return { hiddenFaceIds: newHiddenFaceIds };
+    }),
+
+  // Assembly config actions for main box
+  setAssemblyAxis: (axis) =>
+    set((state) => {
+      const newAssembly: AssemblyConfig = {
+        ...state.config.assembly,
+        assemblyAxis: axis,
+      };
+
+      // Rebuild the void structure with the new axis
+      // Preserve user subdivisions from the main interior
+      const userSubdivisions = getUserSubdivisions(state.rootVoid);
+      const newRootVoid = createRootVoidWithInsets(
+        state.config.width,
+        state.config.height,
+        state.config.depth,
+        newAssembly,
+        userSubdivisions
+      );
+
+      return {
+        config: {
+          ...state.config,
+          assembly: newAssembly,
+        },
+        rootVoid: newRootVoid,
+        // Clear selection when void structure changes
+        selectedVoidId: null,
+        selectedPanelId: null,
+      };
+    }),
+
+  setLidTabDirection: (side, direction) =>
+    set((state) => {
+      const newInset = direction === 'tabs-in' ? 0 : state.config.assembly.lids[side].inset;
+      const newAssembly: AssemblyConfig = {
+        ...state.config.assembly,
+        lids: {
+          ...state.config.assembly.lids,
+          [side]: {
+            ...state.config.assembly.lids[side],
+            tabDirection: direction,
+            // If setting tabs-in and there's an inset, reset inset to 0
+            // (tabs-in doesn't work with inset)
+            inset: newInset,
+          },
+        },
+      };
+
+      // Rebuild the void structure if inset changed
+      const userSubdivisions = getUserSubdivisions(state.rootVoid);
+      const newRootVoid = createRootVoidWithInsets(
+        state.config.width,
+        state.config.height,
+        state.config.depth,
+        newAssembly,
+        userSubdivisions
+      );
+
+      return {
+        config: {
+          ...state.config,
+          assembly: newAssembly,
+        },
+        rootVoid: newRootVoid,
+      };
+    }),
+
+  setLidInset: (side, inset) =>
+    set((state) => {
+      const newInset = Math.max(0, inset);
+      const newAssembly: AssemblyConfig = {
+        ...state.config.assembly,
+        lids: {
+          ...state.config.assembly.lids,
+          [side]: {
+            ...state.config.assembly.lids[side],
+            inset: newInset,
+            // If setting inset > 0, force tabs-out (tabs-in doesn't work with inset)
+            tabDirection: newInset > 0 ? 'tabs-out' : state.config.assembly.lids[side].tabDirection,
+          },
+        },
+      };
+
+      // Rebuild the void structure with the new insets
+      // Preserve user subdivisions from the main interior
+      const userSubdivisions = getUserSubdivisions(state.rootVoid);
+      const newRootVoid = createRootVoidWithInsets(
+        state.config.width,
+        state.config.height,
+        state.config.depth,
+        newAssembly,
+        userSubdivisions
+      );
+
+      return {
+        config: {
+          ...state.config,
+          assembly: newAssembly,
+        },
+        rootVoid: newRootVoid,
+        // Clear selection when void structure changes
+        selectedVoidId: null,
+        selectedPanelId: null,
+      };
+    }),
+
+  // Assembly config actions for sub-assemblies
+  setSubAssemblyAxis: (subAssemblyId, axis) =>
+    set((state) => {
+      const updateSubAssemblyInVoid = (v: Void): Void => {
+        if (v.subAssembly?.id === subAssemblyId) {
+          return {
+            ...v,
+            subAssembly: {
+              ...v.subAssembly,
+              assembly: {
+                ...v.subAssembly.assembly,
+                assemblyAxis: axis,
+              },
+            },
+          };
+        }
+        return {
+          ...v,
+          children: v.children.map(updateSubAssemblyInVoid),
+          subAssembly: v.subAssembly ? {
+            ...v.subAssembly,
+            rootVoid: updateSubAssemblyInVoid(v.subAssembly.rootVoid),
+          } : undefined,
+        };
+      };
+
+      return {
+        rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+      };
+    }),
+
+  setSubAssemblyLidTabDirection: (subAssemblyId, side, direction) =>
+    set((state) => {
+      const updateSubAssemblyInVoid = (v: Void): Void => {
+        if (v.subAssembly?.id === subAssemblyId) {
+          return {
+            ...v,
+            subAssembly: {
+              ...v.subAssembly,
+              assembly: {
+                ...v.subAssembly.assembly,
+                lids: {
+                  ...v.subAssembly.assembly.lids,
+                  [side]: {
+                    ...v.subAssembly.assembly.lids[side],
+                    tabDirection: direction,
+                    inset: direction === 'tabs-in' ? 0 : v.subAssembly.assembly.lids[side].inset,
+                  },
+                },
+              },
+            },
+          };
+        }
+        return {
+          ...v,
+          children: v.children.map(updateSubAssemblyInVoid),
+          subAssembly: v.subAssembly ? {
+            ...v.subAssembly,
+            rootVoid: updateSubAssemblyInVoid(v.subAssembly.rootVoid),
+          } : undefined,
+        };
+      };
+
+      return {
+        rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+      };
+    }),
+
+  setSubAssemblyLidInset: (subAssemblyId, side, inset) =>
+    set((state) => {
+      const updateSubAssemblyInVoid = (v: Void): Void => {
+        if (v.subAssembly?.id === subAssemblyId) {
+          return {
+            ...v,
+            subAssembly: {
+              ...v.subAssembly,
+              assembly: {
+                ...v.subAssembly.assembly,
+                lids: {
+                  ...v.subAssembly.assembly.lids,
+                  [side]: {
+                    ...v.subAssembly.assembly.lids[side],
+                    inset: Math.max(0, inset),
+                    tabDirection: inset > 0 ? 'tabs-out' : v.subAssembly.assembly.lids[side].tabDirection,
+                  },
+                },
+              },
+            },
+          };
+        }
+        return {
+          ...v,
+          children: v.children.map(updateSubAssemblyInVoid),
+          subAssembly: v.subAssembly ? {
+            ...v.subAssembly,
+            rootVoid: updateSubAssemblyInVoid(v.subAssembly.rootVoid),
+          } : undefined,
+        };
+      };
+
+      return {
+        rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+      };
+    }),
 }));

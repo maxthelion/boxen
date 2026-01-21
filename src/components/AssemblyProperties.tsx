@@ -1,7 +1,7 @@
 import React from 'react';
 import { useBoxStore, getAllSubAssemblies } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
-import { FaceId } from '../types';
+import { FaceId, AssemblyAxis, LidTabDirection, getLidFaceId } from '../types';
 
 const faceOrder: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
 
@@ -15,6 +15,12 @@ export const AssemblyProperties: React.FC = () => {
     toggleFace,
     toggleSubAssemblyFace,
     setSubAssemblyClearance,
+    setAssemblyAxis,
+    setLidTabDirection,
+    setLidInset,
+    setSubAssemblyAxis,
+    setSubAssemblyLidTabDirection,
+    setSubAssemblyLidInset,
   } = useBoxStore();
 
   if (!selectedAssemblyId) {
@@ -105,6 +111,83 @@ export const AssemblyProperties: React.FC = () => {
                 <div className="face-spacer small" />
                 <FaceButton faceId="back" face={faces.find(f => f.id === 'back')!} onToggle={toggleFace} />
                 <div className="face-spacer small" />
+              </div>
+            </div>
+          </div>
+
+          <div className="property-section">
+            <h4>Assembly</h4>
+            <div className="form-grid">
+              <label>
+                <span>Assembly Axis</span>
+                <select
+                  value={config.assembly.assemblyAxis}
+                  onChange={(e) => setAssemblyAxis(e.target.value as AssemblyAxis)}
+                >
+                  <option value="y">Y (top/bottom lids)</option>
+                  <option value="x">X (left/right lids)</option>
+                  <option value="z">Z (front/back lids)</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="lid-config-section">
+              <h5>
+                {getLidFaceId(config.assembly.assemblyAxis, 'positive').charAt(0).toUpperCase() +
+                  getLidFaceId(config.assembly.assemblyAxis, 'positive').slice(1)} Lid
+              </h5>
+              <div className="form-grid">
+                <label>
+                  <span>Tab Direction</span>
+                  <select
+                    value={config.assembly.lids.positive.tabDirection}
+                    onChange={(e) => setLidTabDirection('positive', e.target.value as LidTabDirection)}
+                    disabled={config.assembly.lids.positive.inset > 0}
+                  >
+                    <option value="tabs-out">Tabs Out (into walls)</option>
+                    <option value="tabs-in">Tabs In (from walls)</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Inset (mm)</span>
+                  <input
+                    type="number"
+                    value={config.assembly.lids.positive.inset}
+                    onChange={(e) => setLidInset('positive', parseFloat(e.target.value) || 0)}
+                    min={0}
+                    step={1}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="lid-config-section">
+              <h5>
+                {getLidFaceId(config.assembly.assemblyAxis, 'negative').charAt(0).toUpperCase() +
+                  getLidFaceId(config.assembly.assemblyAxis, 'negative').slice(1)} Lid
+              </h5>
+              <div className="form-grid">
+                <label>
+                  <span>Tab Direction</span>
+                  <select
+                    value={config.assembly.lids.negative.tabDirection}
+                    onChange={(e) => setLidTabDirection('negative', e.target.value as LidTabDirection)}
+                    disabled={config.assembly.lids.negative.inset > 0}
+                  >
+                    <option value="tabs-out">Tabs Out (into walls)</option>
+                    <option value="tabs-in">Tabs In (from walls)</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Inset (mm)</span>
+                  <input
+                    type="number"
+                    value={config.assembly.lids.negative.inset}
+                    onChange={(e) => setLidInset('negative', parseFloat(e.target.value) || 0)}
+                    min={0}
+                    step={1}
+                  />
+                </label>
               </div>
             </div>
           </div>
@@ -221,6 +304,83 @@ export const AssemblyProperties: React.FC = () => {
                 onToggle={(id) => toggleSubAssemblyFace(subAssembly.id, id)}
               />
               <div className="face-spacer small" />
+            </div>
+          </div>
+        </div>
+
+        <div className="property-section">
+          <h4>Assembly</h4>
+          <div className="form-grid">
+            <label>
+              <span>Assembly Axis</span>
+              <select
+                value={subAssembly.assembly.assemblyAxis}
+                onChange={(e) => setSubAssemblyAxis(subAssembly.id, e.target.value as AssemblyAxis)}
+              >
+                <option value="y">Y (top/bottom lids)</option>
+                <option value="x">X (left/right lids)</option>
+                <option value="z">Z (front/back lids)</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="lid-config-section">
+            <h5>
+              {getLidFaceId(subAssembly.assembly.assemblyAxis, 'positive').charAt(0).toUpperCase() +
+                getLidFaceId(subAssembly.assembly.assemblyAxis, 'positive').slice(1)} Lid
+            </h5>
+            <div className="form-grid">
+              <label>
+                <span>Tab Direction</span>
+                <select
+                  value={subAssembly.assembly.lids.positive.tabDirection}
+                  onChange={(e) => setSubAssemblyLidTabDirection(subAssembly.id, 'positive', e.target.value as LidTabDirection)}
+                  disabled={subAssembly.assembly.lids.positive.inset > 0}
+                >
+                  <option value="tabs-out">Tabs Out (into walls)</option>
+                  <option value="tabs-in">Tabs In (from walls)</option>
+                </select>
+              </label>
+              <label>
+                <span>Inset (mm)</span>
+                <input
+                  type="number"
+                  value={subAssembly.assembly.lids.positive.inset}
+                  onChange={(e) => setSubAssemblyLidInset(subAssembly.id, 'positive', parseFloat(e.target.value) || 0)}
+                  min={0}
+                  step={1}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="lid-config-section">
+            <h5>
+              {getLidFaceId(subAssembly.assembly.assemblyAxis, 'negative').charAt(0).toUpperCase() +
+                getLidFaceId(subAssembly.assembly.assemblyAxis, 'negative').slice(1)} Lid
+            </h5>
+            <div className="form-grid">
+              <label>
+                <span>Tab Direction</span>
+                <select
+                  value={subAssembly.assembly.lids.negative.tabDirection}
+                  onChange={(e) => setSubAssemblyLidTabDirection(subAssembly.id, 'negative', e.target.value as LidTabDirection)}
+                  disabled={subAssembly.assembly.lids.negative.inset > 0}
+                >
+                  <option value="tabs-out">Tabs Out (into walls)</option>
+                  <option value="tabs-in">Tabs In (from walls)</option>
+                </select>
+              </label>
+              <label>
+                <span>Inset (mm)</span>
+                <input
+                  type="number"
+                  value={subAssembly.assembly.lids.negative.inset}
+                  onChange={(e) => setSubAssemblyLidInset(subAssembly.id, 'negative', parseFloat(e.target.value) || 0)}
+                  min={0}
+                  step={1}
+                />
+              </label>
             </div>
           </div>
         </div>

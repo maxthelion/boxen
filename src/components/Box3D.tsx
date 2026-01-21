@@ -1,10 +1,10 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useBoxStore, getLeafVoids, getAllSubdivisions, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible } from '../store/useBoxStore';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { FaceWithFingers } from './FaceWithFingers';
 import { DividerPanel } from './DividerPanel';
-import { FaceId, Bounds } from '../types';
+import { FaceId, Bounds, AssemblyConfig, getFaceRole, getLidSide, getLidFaceId } from '../types';
 import * as THREE from 'three';
 
 // Face configs for a box with OUTER dimensions w × h × d.
@@ -236,8 +236,167 @@ const getDividerIntersections = (
   return intersections;
 };
 
+// Calculate lid intersections for a wall face (when lids have tabs-out)
+// Returns DividerIntersection-like objects for slot cutting in walls
+const getLidIntersections = (
+  faceId: FaceId,
+  assembly: AssemblyConfig,
+  faces: { id: FaceId; solid: boolean }[],
+  boxDimensions: { width: number; height: number; depth: number },
+  scale: number,
+  materialThickness: number
+): DividerIntersection[] => {
+  const intersections: DividerIntersection[] = [];
+  const { width, height, depth } = boxDimensions;
+  const T = materialThickness * scale;
+
+  // Only walls get slots for lid tabs
+  if (getFaceRole(faceId, assembly.assemblyAxis) !== 'wall') return [];
+
+  // Check each lid (positive and negative)
+  for (const side of ['positive', 'negative'] as const) {
+    const lidConfig = assembly.lids[side];
+
+    // Only process if lid has tabs-out, is enabled, AND is inset
+    // For flush lids (inset=0), the tabs interlock with wall edges via finger joints
+    // Only inset lids need separate slots cut through the wall face
+    if (lidConfig.tabDirection !== 'tabs-out') continue;
+    if (lidConfig.inset <= 0) continue;  // Flush lids use edge finger joints, not face slots
+
+    const lidFaceId = getLidFaceId(assembly.assemblyAxis, side);
+    const lidFace = faces.find(f => f.id === lidFaceId);
+    if (!lidFace?.solid) continue;
+
+    const inset = lidConfig.inset * scale;
+
+    // Calculate the slot based on assembly axis and face
+    // The slot is a horizontal or vertical line where the lid tabs meet this wall
+    let slotPosition: number;  // Position along face's primary axis
+    let slotLength: number;     // Length of the intersection
+    let orientation: 'horizontal' | 'vertical';
+    let startInset = 0;
+    let endInset = 0;
+
+    // Determine slot position based on which face and which lid
+    switch (assembly.assemblyAxis) {
+      case 'y':
+        // Top/bottom are lids
+        // Walls (front/back/left/right) get horizontal slots at top/bottom edges
+        if (side === 'positive') {
+          // Top lid - slot at top of wall
+          slotPosition = (height / 2 - materialThickness / 2 - lidConfig.inset) * scale;
+        } else {
+          // Bottom lid - slot at bottom of wall
+          slotPosition = (-height / 2 + materialThickness / 2 + lidConfig.inset) * scale;
+        }
+        orientation = 'horizontal';
+
+        // Slot length depends on which wall
+        if (faceId === 'front' || faceId === 'back') {
+          slotLength = width * scale;
+          // Insets where lid meets left/right walls
+          const leftFace = faces.find(f => f.id === 'left');
+          const rightFace = faces.find(f => f.id === 'right');
+          startInset = leftFace?.solid ? T : 0;
+          endInset = rightFace?.solid ? T : 0;
+        } else {  // left or right
+          slotLength = depth * scale;
+          // Insets where lid meets front/back walls
+          const backFace = faces.find(f => f.id === 'back');
+          const frontFace = faces.find(f => f.id === 'front');
+          startInset = (faceId === 'left' ? backFace : frontFace)?.solid ? T : 0;
+          endInset = (faceId === 'left' ? frontFace : backFace)?.solid ? T : 0;
+        }
+        break;
+
+      case 'x':
+        // Left/right are lids
+        // Walls (front/back/top/bottom) get vertical slots at left/right edges
+        if (side === 'positive') {
+          // Right lid - slot at right of wall
+          slotPosition = (width / 2 - materialThickness / 2 - lidConfig.inset) * scale;
+        } else {
+          // Left lid - slot at left of wall
+          slotPosition = (-width / 2 + materialThickness / 2 + lidConfig.inset) * scale;
+        }
+        orientation = 'vertical';
+
+        // Slot length depends on which wall
+        if (faceId === 'front' || faceId === 'back') {
+          slotLength = height * scale;
+          const topFace = faces.find(f => f.id === 'top');
+          const bottomFace = faces.find(f => f.id === 'bottom');
+          startInset = bottomFace?.solid ? T : 0;
+          endInset = topFace?.solid ? T : 0;
+        } else {  // top or bottom
+          slotLength = depth * scale;
+          const backFace = faces.find(f => f.id === 'back');
+          const frontFace = faces.find(f => f.id === 'front');
+          startInset = (faceId === 'top' ? frontFace : backFace)?.solid ? T : 0;
+          endInset = (faceId === 'top' ? backFace : frontFace)?.solid ? T : 0;
+        }
+        break;
+
+      case 'z':
+        // Front/back are lids
+        // Left/right walls get vertical slots, top/bottom walls get horizontal slots
+        if (side === 'positive') {
+          // Front lid - slot at front of wall (positive Z)
+          if (faceId === 'left') {
+            slotPosition = (depth / 2 - materialThickness / 2 - lidConfig.inset) * scale;
+          } else if (faceId === 'right') {
+            slotPosition = (-depth / 2 + materialThickness / 2 + lidConfig.inset) * scale;
+          } else {
+            // top/bottom - slot along Y (negative for top, positive for bottom due to rotation)
+            slotPosition = (faceId === 'top' ? -1 : 1) * (depth / 2 - materialThickness / 2 - lidConfig.inset) * scale;
+          }
+        } else {
+          // Back lid - slot at back of wall (negative Z)
+          if (faceId === 'left') {
+            slotPosition = (-depth / 2 + materialThickness / 2 + lidConfig.inset) * scale;
+          } else if (faceId === 'right') {
+            slotPosition = (depth / 2 - materialThickness / 2 - lidConfig.inset) * scale;
+          } else {
+            slotPosition = (faceId === 'top' ? 1 : -1) * (depth / 2 - materialThickness / 2 - lidConfig.inset) * scale;
+          }
+        }
+
+        // Slot length and orientation depend on which wall
+        if (faceId === 'left' || faceId === 'right') {
+          slotLength = height * scale;
+          orientation = 'vertical';
+          const topFace = faces.find(f => f.id === 'top');
+          const bottomFace = faces.find(f => f.id === 'bottom');
+          startInset = bottomFace?.solid ? T : 0;
+          endInset = topFace?.solid ? T : 0;
+        } else {  // top or bottom
+          slotLength = width * scale;
+          orientation = 'horizontal';  // Slots run along X on top/bottom faces
+          const leftFace = faces.find(f => f.id === 'left');
+          const rightFace = faces.find(f => f.id === 'right');
+          startInset = leftFace?.solid ? T : 0;
+          endInset = rightFace?.solid ? T : 0;
+        }
+        break;
+    }
+
+    intersections.push({
+      subdivisionId: `lid-${side}`,
+      position: slotPosition,
+      length: slotLength,
+      orientation,
+      dividerBounds: { x: 0, y: 0, z: 0, w: width, h: height, d: depth },
+      dividerAxis: assembly.assemblyAxis,
+      startInset,
+      endInset,
+    });
+  }
+
+  return intersections;
+};
+
 export const Box3D: React.FC = () => {
-  const { config, faces, rootVoid, subdivisionPreview, selectionMode, selectedPanelId, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId } = useBoxStore();
+  const { config, faces, rootVoid, subdivisionPreview, selectionMode, selectedPanelId, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds } = useBoxStore();
   const { width, height, depth } = config;
 
   const scale = 100 / Math.max(width, height, depth);
@@ -260,8 +419,49 @@ export const Box3D: React.FC = () => {
   // Get all sub-assemblies
   const subAssemblies = getAllSubAssemblies(rootVoid);
 
-  // Get preview void bounds if preview is active
+  // Get preview void bounds if preview is active, with insets for panel thickness
   const previewVoid = subdivisionPreview ? findVoid(rootVoid, subdivisionPreview.voidId) : null;
+
+  // Calculate inset bounds for preview (accounting for solid outer faces)
+  const previewInsetBounds = useMemo(() => {
+    if (!previewVoid) return null;
+    const { bounds } = previewVoid;
+    const tolerance = 0.01;
+    const mt = config.materialThickness;
+
+    // Check which edges are at outer boundaries
+    const atLeft = bounds.x < tolerance;
+    const atRight = Math.abs(bounds.x + bounds.w - width) < tolerance;
+    const atBottom = bounds.y < tolerance;
+    const atTop = Math.abs(bounds.y + bounds.h - height) < tolerance;
+    const atBack = bounds.z < tolerance;
+    const atFront = Math.abs(bounds.z + bounds.d - depth) < tolerance;
+
+    // Check which faces are solid
+    const leftSolid = faces.find(f => f.id === 'left')?.solid ?? false;
+    const rightSolid = faces.find(f => f.id === 'right')?.solid ?? false;
+    const bottomSolid = faces.find(f => f.id === 'bottom')?.solid ?? false;
+    const topSolid = faces.find(f => f.id === 'top')?.solid ?? false;
+    const backSolid = faces.find(f => f.id === 'back')?.solid ?? false;
+    const frontSolid = faces.find(f => f.id === 'front')?.solid ?? false;
+
+    // Calculate insets
+    const insetLeft = (atLeft && leftSolid) ? mt : 0;
+    const insetRight = (atRight && rightSolid) ? mt : 0;
+    const insetBottom = (atBottom && bottomSolid) ? mt : 0;
+    const insetTop = (atTop && topSolid) ? mt : 0;
+    const insetBack = (atBack && backSolid) ? mt : 0;
+    const insetFront = (atFront && frontSolid) ? mt : 0;
+
+    return {
+      x: bounds.x + insetLeft,
+      y: bounds.y + insetBottom,
+      z: bounds.z + insetBack,
+      w: bounds.w - insetLeft - insetRight,
+      h: bounds.h - insetBottom - insetTop,
+      d: bounds.d - insetBack - insetFront,
+    };
+  }, [previewVoid, config.materialThickness, width, height, depth, faces]);
 
   return (
     <group>
@@ -275,8 +475,45 @@ export const Box3D: React.FC = () => {
       {faceConfigs.map((faceConfig) => {
         const face = faces.find((f) => f.id === faceConfig.id);
         const isSolid = face?.solid ?? true;
-        const [sizeW, sizeH] = faceConfig.size(scaledW, scaledH, scaledD);
-        const position = faceConfig.position(scaledW, scaledH, scaledD);
+        const faceId = `face-${faceConfig.id}`;
+        const isHidden = hiddenFaceIds.has(faceId);
+
+        // Skip hidden faces
+        if (isHidden) return null;
+
+        let [sizeW, sizeH] = faceConfig.size(scaledW, scaledH, scaledD);
+        let position = faceConfig.position(scaledW, scaledH, scaledD);
+
+        // Apply inset adjustments for lid faces
+        const faceRole = getFaceRole(faceConfig.id, config.assembly.assemblyAxis);
+        const lidSide = getLidSide(faceConfig.id, config.assembly.assemblyAxis);
+        if (faceRole === 'lid' && lidSide) {
+          const lidConfig = config.assembly.lids[lidSide];
+          const inset = lidConfig.inset * scale;
+
+          if (inset > 0) {
+            // Adjust position: move lid inward by inset amount
+            // Positive lid moves in negative direction, negative lid moves in positive direction
+            const insetDirection = lidSide === 'positive' ? -1 : 1;
+
+            switch (config.assembly.assemblyAxis) {
+              case 'y':
+                // Top/bottom lids - adjust Y position
+                position = [position[0], position[1] + insetDirection * inset, position[2]];
+                // Size stays the same when inset (tabs still go to walls, just positioned differently)
+                // But if inset is large enough, size might need to shrink to fit between walls
+                break;
+              case 'x':
+                // Left/right lids - adjust X position
+                position = [position[0] + insetDirection * inset, position[1], position[2]];
+                break;
+              case 'z':
+                // Front/back lids - adjust Z position
+                position = [position[0], position[1], position[2] + insetDirection * inset];
+                break;
+            }
+          }
+        }
         const isSelectedPanel = selectionMode === 'panel' && selectedPanelId === `face-${faceConfig.id}`;
         const isSelectedAssembly = selectionMode === 'assembly' && selectedAssemblyId === 'main';
         const isPanelMode = selectionMode === 'panel';
@@ -287,7 +524,18 @@ export const Box3D: React.FC = () => {
           faceConfig.id,
           subdivisions,
           { width, height, depth },
-          scale
+          scale,
+          config.materialThickness
+        );
+
+        // Calculate which lid tabs intersect this face (for walls when lids have tabs-out)
+        const lidIntersections = getLidIntersections(
+          faceConfig.id,
+          config.assembly,
+          faces,
+          { width, height, depth },
+          scale,
+          config.materialThickness
         );
 
         const handleClick = () => {
@@ -310,6 +558,8 @@ export const Box3D: React.FC = () => {
             isSelected={isSelectedPanel || isSelectedAssembly}
             isSolid={isSolid}
             dividerIntersections={dividerIntersections}
+            lidIntersections={lidIntersections}
+            assembly={config.assembly}
             onClick={(isPanelMode && isSolid) || isAssemblyMode ? handleClick : undefined}
           />
         );
@@ -370,8 +620,8 @@ export const Box3D: React.FC = () => {
       })}
 
       {/* Preview panels (semi-transparent, different color) with thickness */}
-      {subdivisionPreview && previewVoid && subdivisionPreview.positions.map((pos, idx) => {
-        const { bounds } = previewVoid;
+      {subdivisionPreview && previewVoid && previewInsetBounds && subdivisionPreview.positions.map((pos, idx) => {
+        const bounds = previewInsetBounds;
         let position: [number, number, number];
         let rotation: [number, number, number];
         let size: [number, number];

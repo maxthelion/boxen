@@ -79,6 +79,8 @@ interface TreeOpsProps {
   isolatedSubAssemblyId: string | null;
   onToggleSubAssemblyVisibility: (id: string) => void;
   onSetIsolatedSubAssembly: (id: string | null) => void;
+  hiddenFaceIds: Set<string>;
+  onToggleFaceVisibility: (faceId: string) => void;
   onDeleteVoid: (voidId: string) => void;
   onDeleteSubAssembly: (voidId: string) => void;
 }
@@ -89,21 +91,40 @@ const OuterPanelNode: React.FC<{
   depth: number;
   selectedPanelId: string | null;
   onSelectPanel: (id: string | null) => void;
-}> = ({ panel, depth, selectedPanelId, onSelectPanel }) => {
+  hiddenFaceIds: Set<string>;
+  onToggleFaceVisibility: (faceId: string) => void;
+}> = ({ panel, depth, selectedPanelId, onSelectPanel, hiddenFaceIds, onToggleFaceVisibility }) => {
   const isSelected = selectedPanelId === panel.id;
+  const isHidden = hiddenFaceIds.has(panel.id);
 
   return (
     <div className="tree-node">
       <div
-        className={`tree-node-content panel ${isSelected ? 'selected' : ''} ${!panel.solid ? 'open-face' : ''}`}
+        className={`tree-node-content panel ${isSelected ? 'selected' : ''} ${!panel.solid ? 'open-face' : ''} ${isHidden ? 'hidden' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
-        onClick={() => onSelectPanel(isSelected ? null : panel.id)}
       >
-        <span className="tree-node-main">
+        <span
+          className="tree-node-main"
+          onClick={() => onSelectPanel(isSelected ? null : panel.id)}
+        >
           <span className="tree-icon">{panel.solid ? '▬' : '▭'}</span>
           <span className="tree-label">{panel.label}</span>
           <span className="tree-status">{panel.solid ? '' : '(open)'}</span>
         </span>
+        {panel.solid && (
+          <span className="tree-controls">
+            <button
+              className={`tree-btn ${isHidden ? 'active' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleFaceVisibility(panel.id);
+              }}
+              title={isHidden ? 'Show' : 'Hide'}
+            >
+              {isHidden ? '○' : '●'}
+            </button>
+          </span>
+        )}
       </div>
     </div>
   );
@@ -179,6 +200,8 @@ const VoidNode: React.FC<VoidNodeProps> = ({
   isolatedSubAssemblyId,
   onToggleSubAssemblyVisibility,
   onSetIsolatedSubAssembly,
+  hiddenFaceIds,
+  onToggleFaceVisibility,
   onDeleteVoid,
   onDeleteSubAssembly,
 }) => {
@@ -193,6 +216,10 @@ const VoidNode: React.FC<VoidNodeProps> = ({
 
   const getLabel = () => {
     if (label) return label;
+    // Special labels for lid inset voids
+    if (node.lidInsetSide === 'positive') return 'Lid Cap (Top/Right/Front)';
+    if (node.lidInsetSide === 'negative') return 'Lid Cap (Bottom/Left/Back)';
+    if (node.isMainInterior) return 'Main Interior';
     return 'Void';
   };
 
@@ -203,6 +230,7 @@ const VoidNode: React.FC<VoidNodeProps> = ({
 
   const getIcon = () => {
     if (hasSubAssembly) return '⊞';
+    if (node.lidInsetSide) return '▭';  // Lid cap icon
     if (isLeaf) return '◻';
     return '▤';
   };
@@ -224,6 +252,8 @@ const VoidNode: React.FC<VoidNodeProps> = ({
     isolatedSubAssemblyId,
     onToggleSubAssemblyVisibility,
     onSetIsolatedSubAssembly,
+    hiddenFaceIds,
+    onToggleFaceVisibility,
     onDeleteVoid,
     onDeleteSubAssembly,
   };
@@ -336,6 +366,8 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
   isolatedSubAssemblyId,
   onToggleSubAssemblyVisibility,
   onSetIsolatedSubAssembly,
+  hiddenFaceIds,
+  onToggleFaceVisibility,
   onDeleteVoid,
   onDeleteSubAssembly,
 }) => {
@@ -391,6 +423,8 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
     isolatedSubAssemblyId,
     onToggleSubAssemblyVisibility,
     onSetIsolatedSubAssembly,
+    hiddenFaceIds,
+    onToggleFaceVisibility,
     onDeleteVoid,
     onDeleteSubAssembly,
   };
@@ -452,6 +486,8 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
             depth={depth + 1}
             selectedPanelId={selectedPanelId}
             onSelectPanel={onSelectPanel}
+            hiddenFaceIds={hiddenFaceIds}
+            onToggleFaceVisibility={onToggleFaceVisibility}
           />
         ))}
       </div>
@@ -496,6 +532,8 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
   isolatedSubAssemblyId,
   onToggleSubAssemblyVisibility,
   onSetIsolatedSubAssembly,
+  hiddenFaceIds,
+  onToggleFaceVisibility,
   onDeleteVoid,
   onDeleteSubAssembly,
 }) => {
@@ -526,6 +564,8 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
     isolatedSubAssemblyId,
     onToggleSubAssemblyVisibility,
     onSetIsolatedSubAssembly,
+    hiddenFaceIds,
+    onToggleFaceVisibility,
     onDeleteVoid,
     onDeleteSubAssembly,
   };
@@ -553,6 +593,8 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
             depth={depth + 1}
             selectedPanelId={selectedPanelId}
             onSelectPanel={onSelectPanel}
+            hiddenFaceIds={hiddenFaceIds}
+            onToggleFaceVisibility={onToggleFaceVisibility}
           />
         ))}
       </div>
@@ -590,6 +632,8 @@ export const BoxTree: React.FC = () => {
     isolatedSubAssemblyId,
     toggleSubAssemblyVisibility,
     setIsolatedSubAssembly,
+    hiddenFaceIds,
+    toggleFaceVisibility,
     removeVoid,
     removeSubAssembly,
   } = useBoxStore();
@@ -624,6 +668,8 @@ export const BoxTree: React.FC = () => {
           isolatedSubAssemblyId={isolatedSubAssemblyId}
           onToggleSubAssemblyVisibility={toggleSubAssemblyVisibility}
           onSetIsolatedSubAssembly={setIsolatedSubAssembly}
+          hiddenFaceIds={hiddenFaceIds}
+          onToggleFaceVisibility={toggleFaceVisibility}
           onDeleteVoid={removeVoid}
           onDeleteSubAssembly={removeSubAssembly}
         />

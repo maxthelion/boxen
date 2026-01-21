@@ -94,11 +94,11 @@ export const DividerPanel: React.FC<DividerPanelProps> = ({
   const { config, faces } = useBoxStore();
   const { materialThickness, fingerWidth, fingerGap } = config;
 
-  const geometry = useMemo(() => {
+  // Compute outline points and geometry data together
+  const panelData = useMemo(() => {
     const scaledThickness = materialThickness * scale;
     const scaledFingerWidth = fingerWidth * scale;
 
-    const shape = new THREE.Shape();
     const edgeMeetings = getDividerEdgeMeetings(subdivision.axis, subdivision.bounds, boxDimensions);
 
     const halfW = sizeW / 2;
@@ -146,6 +146,54 @@ export const DividerPanel: React.FC<DividerPanelProps> = ({
       { start: corners.bottomLeft, end: corners.topLeft, meeting: leftMeeting, hasTabs: leftHasTabs },
     ];
 
+    // Collect outline points for custom edge rendering
+    const outerPoints: Point[] = [];
+
+    for (const { start, end, meeting, hasTabs } of edgeConfigs) {
+      const edgeLength = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+
+      let points: Point[];
+
+      if (hasTabs && meeting.meetsFace) {
+        // Use the MAXIMUM of corner insets - ensures correct gap on the inset side
+        // The non-inset side (open face) will have slightly smaller gap, which is fine
+        const isHorizontalEdge = meeting.position === 'top' || meeting.position === 'bottom';
+        // Use Math.max: prioritize correct alignment on the closed/inset side
+        // The open side will have a smaller margin, but fit is more important than aesthetics
+        const cornerInset = isHorizontalEdge
+          ? Math.max(leftHasTabs ? scaledThickness : 0, rightHasTabs ? scaledThickness : 0)
+          : Math.max(topHasTabs ? scaledThickness : 0, bottomHasTabs ? scaledThickness : 0);
+        const adjustedGapMultiplier = Math.max(0, fingerGap - cornerInset / scaledFingerWidth);
+
+        points = generateFingerJointPath(start, end, {
+          edgeLength,
+          fingerWidth: scaledFingerWidth,
+          materialThickness: scaledThickness,
+          isTabOut: true,
+          kerf: 0,
+          yUp: true,
+          cornerGapMultiplier: adjustedGapMultiplier,
+        });
+      } else {
+        points = [start, end];
+      }
+
+      // Add points (skip first point after first edge to avoid duplicates)
+      const startIndex = outerPoints.length === 0 ? 0 : 1;
+      for (let i = startIndex; i < points.length; i++) {
+        outerPoints.push(points[i]);
+      }
+    }
+
+    return { outerPoints, scaledThickness, scaledFingerWidth, topHasTabs, bottomHasTabs, leftHasTabs, rightHasTabs, corners, edgeConfigs };
+  }, [subdivision, sizeW, sizeH, scale, config, faces, boxDimensions, materialThickness, fingerWidth, fingerGap]);
+
+  const geometry = useMemo(() => {
+    if (!panelData) return null;
+
+    const { scaledThickness, scaledFingerWidth, topHasTabs, bottomHasTabs, leftHasTabs, rightHasTabs, edgeConfigs } = panelData;
+
+    const shape = new THREE.Shape();
     let isFirst = true;
 
     for (const { start, end, meeting, hasTabs } of edgeConfigs) {
@@ -154,24 +202,26 @@ export const DividerPanel: React.FC<DividerPanelProps> = ({
       let points: Point[];
 
       if (hasTabs && meeting.meetsFace) {
-        // Calculate adjusted gap (same logic as FaceWithFingers)
+        // Use the MAXIMUM of corner insets - ensures correct gap on the inset side
+        // The non-inset side (open face) will have slightly smaller gap, which is fine
         const isHorizontalEdge = meeting.position === 'top' || meeting.position === 'bottom';
+        // Use Math.max: prioritize correct alignment on the closed/inset side
+        // The open side will have a smaller margin, but fit is more important than aesthetics
         const cornerInset = isHorizontalEdge
-          ? (leftHasTabs ? scaledThickness : 0)
-          : (topHasTabs ? scaledThickness : 0);
+          ? Math.max(leftHasTabs ? scaledThickness : 0, rightHasTabs ? scaledThickness : 0)
+          : Math.max(topHasTabs ? scaledThickness : 0, bottomHasTabs ? scaledThickness : 0);
         const adjustedGapMultiplier = Math.max(0, fingerGap - cornerInset / scaledFingerWidth);
 
         points = generateFingerJointPath(start, end, {
           edgeLength,
           fingerWidth: scaledFingerWidth,
           materialThickness: scaledThickness,
-          isTabOut: true,  // Dividers always tab OUT into outer faces
+          isTabOut: true,
           kerf: 0,
           yUp: true,
           cornerGapMultiplier: adjustedGapMultiplier,
         });
       } else {
-        // Straight edge (doesn't meet an outer face, or face is open)
         points = [start, end];
       }
 
@@ -197,16 +247,54 @@ export const DividerPanel: React.FC<DividerPanelProps> = ({
     geo.translate(0, 0, -scaledThickness / 2);
 
     return geo;
-  }, [subdivision, sizeW, sizeH, scale, config, faces, boxDimensions, materialThickness, fingerWidth, fingerGap]);
+  }, [panelData, fingerGap]);
 
-  const edgesGeometry = useMemo(() => {
-    if (!geometry) return null;
-    return new THREE.EdgesGeometry(geometry, 1);
-  }, [geometry]);
+  // Create custom edge geometry for outline (avoiding triangulation artifacts from EdgesGeometry)
+  const customEdgesGeometry = useMemo(() => {
+    if (!panelData) return null;
+
+    const { outerPoints, scaledThickness } = panelData;
+    const frontZ = scaledThickness / 2;
+    const backZ = -scaledThickness / 2;
+
+    const vertices: number[] = [];
+
+    const addSegment = (x1: number, y1: number, z1: number, x2: number, y2: number, z2: number) => {
+      vertices.push(x1, y1, z1, x2, y2, z2);
+    };
+
+    // Front face outline
+    for (let i = 0; i < outerPoints.length; i++) {
+      const p1 = outerPoints[i];
+      const p2 = outerPoints[(i + 1) % outerPoints.length];
+      addSegment(p1.x, p1.y, frontZ, p2.x, p2.y, frontZ);
+    }
+
+    // Back face outline
+    for (let i = 0; i < outerPoints.length; i++) {
+      const p1 = outerPoints[i];
+      const p2 = outerPoints[(i + 1) % outerPoints.length];
+      addSegment(p1.x, p1.y, backZ, p2.x, p2.y, backZ);
+    }
+
+    // Connecting edges between front and back
+    for (const p of outerPoints) {
+      addSegment(p.x, p.y, frontZ, p.x, p.y, backZ);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    return geo;
+  }, [panelData]);
+
+  const handleClick = onClick ? (e: THREE.Event) => {
+    e.stopPropagation();
+    onClick();
+  } : undefined;
 
   return (
     <group position={position} rotation={rotation}>
-      <mesh geometry={geometry} onClick={onClick}>
+      <mesh geometry={geometry} onClick={handleClick}>
         <meshStandardMaterial
           color={isSelected ? '#9b59b6' : '#f39c12'}
           transparent
@@ -214,8 +302,8 @@ export const DividerPanel: React.FC<DividerPanelProps> = ({
           side={THREE.DoubleSide}
         />
       </mesh>
-      {edgesGeometry && (
-        <lineSegments geometry={edgesGeometry}>
+      {customEdgesGeometry && (
+        <lineSegments geometry={customEdgesGeometry}>
           <lineBasicMaterial color={isSelected ? '#7b4397' : '#c77b05'} linewidth={1} />
         </lineSegments>
       )}

@@ -1,4 +1,4 @@
-import { BoxConfig, Face, FaceId, Void, SubdivisionPanel, SubdivisionIntersection, Subdivision, Bounds } from '../types';
+import { BoxConfig, Face, FaceId, Void, SubdivisionPanel, SubdivisionIntersection, Subdivision, Bounds, getFaceRole, getLidSide, getWallPriority, getLidFaceId } from '../types';
 import { EdgeType, getEdgePath, Point } from './fingerJoints';
 import { getAllSubdivisions } from '../store/useBoxStore';
 
@@ -77,23 +77,47 @@ const getFaceEdges = (faceId: FaceId): EdgeInfo[] => {
   }
 };
 
-// Determines which face has tabs vs slots at each edge.
-// Uses a priority system: lower priority face has tabs OUT, higher priority has slots IN.
-// Priority: front(1) < back(2) < left(3) < right(4) < top(5) < bottom(6)
-// This ensures:
-// - Front/back always have tabs (they're most primary)
-// - Left/right have tabs on top/bottom edges, slots on front/back edges
-// - Top/bottom always have slots (receive tabs from all vertical faces)
-const shouldTabOut = (faceId: FaceId, position: 'top' | 'bottom' | 'left' | 'right'): boolean => {
-  const tabOutMap: Record<FaceId, ('top' | 'bottom' | 'left' | 'right')[]> = {
-    front: ['top', 'bottom', 'left', 'right'],  // always tabs out
-    back: ['top', 'bottom', 'left', 'right'],   // always tabs out
-    left: ['top', 'bottom'],                     // tabs on top/bottom only
-    right: ['top', 'bottom'],                    // tabs on top/bottom only
-    top: [],                                     // never tabs out
-    bottom: [],                                  // never tabs out
-  };
-  return tabOutMap[faceId].includes(position);
+// Dynamic tab direction logic based on assembly configuration
+// Returns true if this face should have tabs extending outward at the edge meeting adjacentFaceId
+// Returns null if the edge should be straight (no finger joint) - e.g., wall edges for inset lids
+const shouldTabOut = (
+  faceId: FaceId,
+  adjacentFaceId: FaceId,
+  assembly: AssemblyConfig
+): boolean | null => {
+  const myRole = getFaceRole(faceId, assembly.assemblyAxis);
+  const adjRole = getFaceRole(adjacentFaceId, assembly.assemblyAxis);
+
+  // Wall-to-Wall: use priority system (lower priority tabs OUT)
+  if (myRole === 'wall' && adjRole === 'wall') {
+    return getWallPriority(faceId) < getWallPriority(adjacentFaceId);
+  }
+
+  // Lid-to-Wall interactions
+  if (myRole === 'lid') {
+    const side = getLidSide(faceId, assembly.assemblyAxis);
+    if (side) {
+      // Inset lids still have tabs (like dividers) that fit into wall slot holes
+      return assembly.lids[side].tabDirection === 'tabs-out';
+    }
+    return false;
+  }
+
+  // Wall-to-Lid interactions
+  if (adjRole === 'lid') {
+    const side = getLidSide(adjacentFaceId, assembly.assemblyAxis);
+    if (side) {
+      // If lid is inset, wall edge should be straight (no fingers)
+      // Wall will have slot holes for the inset lid's tabs instead
+      if (assembly.lids[side].inset > 0) {
+        return null;  // Straight edge, no fingers - slots are cut as holes
+      }
+      return assembly.lids[side].tabDirection === 'tabs-in';
+    }
+    return false;
+  }
+
+  return false;
 };
 
 export const generateFaceSVGPath = (
@@ -132,7 +156,11 @@ export const generateFaceSVGPath = (
 
     let edgeType: EdgeType = 'straight';
     if (isSolidAdjacent) {
-      edgeType = shouldTabOut(faceId, edgeInfo.position) ? 'finger-out' : 'finger-in';
+      const tabOutResult = shouldTabOut(faceId, edgeInfo.adjacentFaceId, config.assembly);
+      // tabOutResult === null means straight edge (for inset lids)
+      if (tabOutResult !== null) {
+        edgeType = tabOutResult ? 'finger-out' : 'finger-in';
+      }
     }
 
     const points = getEdgePath(start, end, edgeType, {
@@ -567,6 +595,121 @@ export const generateFaceSlotPaths = (
   return paths;
 };
 
+// Generate slot paths for lid tabs on wall faces (when lids have tabs-out)
+export const generateLidSlotPaths = (
+  faceId: FaceId,
+  config: BoxConfig
+): string[] => {
+  const paths: string[] = [];
+  const { assembly, materialThickness, fingerWidth, width, height, depth } = config;
+  const padding = materialThickness * 2;
+
+  // Only walls get slots for lid tabs
+  if (getFaceRole(faceId, assembly.assemblyAxis) !== 'wall') return [];
+
+  // Check each lid
+  for (const side of ['positive', 'negative'] as const) {
+    const lidConfig = assembly.lids[side];
+
+    // Only process if lid has tabs-out
+    if (lidConfig.tabDirection !== 'tabs-out') continue;
+
+    // For SVG export, we assume the lid face exists (caller should check)
+
+    let slotPosition: number;  // Position in SVG coordinates
+    let slotLength: number;
+    let isHorizontal: boolean;
+
+    // Determine slot position based on assembly axis and face
+    switch (assembly.assemblyAxis) {
+      case 'y':
+        // Top/bottom are lids - walls get horizontal slots at top/bottom
+        if (side === 'positive') {
+          // Top lid - slot near top of wall
+          slotPosition = padding + materialThickness / 2 + lidConfig.inset;
+        } else {
+          // Bottom lid - slot near bottom of wall
+          const faceHeight = (faceId === 'front' || faceId === 'back') ? height : height;
+          slotPosition = padding + faceHeight - materialThickness / 2 - lidConfig.inset;
+        }
+        isHorizontal = true;
+        slotLength = (faceId === 'front' || faceId === 'back') ? width : depth;
+        break;
+
+      case 'x':
+        // Left/right are lids - walls get vertical slots at left/right
+        if (side === 'positive') {
+          // Right lid - slot near right of wall
+          const faceWidth = (faceId === 'front' || faceId === 'back') ? width : depth;
+          slotPosition = padding + faceWidth - materialThickness / 2 - lidConfig.inset;
+        } else {
+          // Left lid - slot near left of wall
+          slotPosition = padding + materialThickness / 2 + lidConfig.inset;
+        }
+        isHorizontal = false;
+        slotLength = (faceId === 'front' || faceId === 'back') ? height : height;
+        break;
+
+      case 'z':
+        // Front/back are lids - walls get vertical slots at front/back
+        if (faceId === 'left' || faceId === 'right') {
+          const faceWidth = depth;
+          if (side === 'positive') {
+            // Front lid
+            slotPosition = padding + faceWidth - materialThickness / 2 - lidConfig.inset;
+          } else {
+            // Back lid
+            slotPosition = padding + materialThickness / 2 + lidConfig.inset;
+          }
+          isHorizontal = false;
+          slotLength = height;
+        } else {
+          // top/bottom
+          const faceHeight = depth;
+          if (side === 'positive') {
+            slotPosition = padding + faceHeight - materialThickness / 2 - lidConfig.inset;
+          } else {
+            slotPosition = padding + materialThickness / 2 + lidConfig.inset;
+          }
+          isHorizontal = true;
+          slotLength = width;
+        }
+        break;
+
+      default:
+        continue;
+    }
+
+    // Generate finger slots
+    const numFingers = Math.max(1, Math.floor(slotLength / fingerWidth));
+    const actualFingerWidth = slotLength / numFingers;
+
+    for (let i = 0; i < numFingers; i++) {
+      if (i % 2 === 0) {  // Only even positions have tabs
+        if (isHorizontal) {
+          const x1 = padding + i * actualFingerWidth;
+          const x2 = padding + (i + 1) * actualFingerWidth;
+          const path = `M ${x1.toFixed(3)} ${(slotPosition - materialThickness / 2).toFixed(3)} ` +
+            `L ${x2.toFixed(3)} ${(slotPosition - materialThickness / 2).toFixed(3)} ` +
+            `L ${x2.toFixed(3)} ${(slotPosition + materialThickness / 2).toFixed(3)} ` +
+            `L ${x1.toFixed(3)} ${(slotPosition + materialThickness / 2).toFixed(3)} Z`;
+          paths.push(path);
+        } else {
+          const y1 = padding + i * actualFingerWidth;
+          const y2 = padding + (i + 1) * actualFingerWidth;
+          const path = `M ${(slotPosition - materialThickness / 2).toFixed(3)} ${y1.toFixed(3)} ` +
+            `L ${(slotPosition - materialThickness / 2).toFixed(3)} ${y2.toFixed(3)} ` +
+            `L ${(slotPosition + materialThickness / 2).toFixed(3)} ${y2.toFixed(3)} ` +
+            `L ${(slotPosition + materialThickness / 2).toFixed(3)} ${y1.toFixed(3)} Z`;
+          paths.push(path);
+        }
+      }
+    }
+  }
+
+  return paths;
+};
+
 export const generateFaceSVG = (
   faceId: FaceId,
   faces: Face[],
@@ -583,7 +726,9 @@ export const generateFaceSVG = (
   const svgHeight = dims.height + padding * 2;
 
   const outlinePath = generateFaceSVGPath(faceId, faces, config, kerf);
-  const slotPaths = generateFaceSlotPaths(faceId, rootVoid, config);
+  const dividerSlotPaths = generateFaceSlotPaths(faceId, rootVoid, config);
+  const lidSlotPaths = generateLidSlotPaths(faceId, config);
+  const allSlotPaths = [...dividerSlotPaths, ...lidSlotPaths];
 
   let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
@@ -595,7 +740,7 @@ export const generateFaceSVG = (
     <path d="${outlinePath}" />
 `;
 
-  for (const slotPath of slotPaths) {
+  for (const slotPath of allSlotPaths) {
     svg += `    <path d="${slotPath}" stroke="#000" fill="none" />\n`;
   }
 
@@ -640,10 +785,12 @@ export const generateAllFacesSVG = (
     const width = dims.width + padding * 2;
     const height = dims.height + padding * 2;
 
+    const dividerSlots = generateFaceSlotPaths(face.id, rootVoid, config);
+    const lidSlots = generateLidSlotPaths(face.id, config);
     svgItems.push({
       label: face.id.toUpperCase(),
       pathData: generateFaceSVGPath(face.id, faces, config, kerf),
-      slotPaths: generateFaceSlotPaths(face.id, rootVoid, config),
+      slotPaths: [...dividerSlots, ...lidSlots],
       width,
       height,
       y: currentY,

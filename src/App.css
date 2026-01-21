@@ -75,7 +75,7 @@ body {
 .panel {
   background: #1a1a2e;
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .panel-title {
@@ -1073,6 +1073,24 @@ body {
   margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.property-section h5 {
+  font-size: 0.7rem;
+  color: #666;
+  font-weight: 500;
+  margin: 0.5rem 0 0.25rem 0;
+}
+
+.lid-config-section {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.lid-config-section .form-grid {
+  gap: 0.5rem;
 }
 
 /* Compact face grid for assembly properties */
