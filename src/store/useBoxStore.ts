@@ -104,6 +104,22 @@ export const isVoidVisible = (
   return false;
 };
 
+// Check if a sub-assembly should be visible given the visibility settings
+export const isSubAssemblyVisible = (
+  subAssemblyId: string,
+  hiddenSubAssemblyIds: Set<string>,
+  isolatedSubAssemblyId: string | null
+): boolean => {
+  // If explicitly hidden, not visible
+  if (hiddenSubAssemblyIds.has(subAssemblyId)) return false;
+
+  // If no isolation, visible (unless hidden)
+  if (!isolatedSubAssemblyId) return true;
+
+  // If this is the isolated sub-assembly, visible
+  return subAssemblyId === isolatedSubAssemblyId;
+};
+
 // Get all subdivisions (non-leaf voids have split info)
 export const getAllSubdivisions = (root: Void): Subdivision[] => {
   const subdivisions: Subdivision[] = [];
@@ -239,6 +255,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   subdivisionPreview: null,
   hiddenVoidIds: new Set<string>(),
   isolatedVoidId: null,
+  hiddenSubAssemblyIds: new Set<string>(),
+  isolatedSubAssemblyId: null,
 
   setConfig: (newConfig) =>
     set((state) => {
@@ -253,6 +271,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         subdivisionPreview: null,
         hiddenVoidIds: new Set<string>(),
         isolatedVoidId: null,
+        hiddenSubAssemblyIds: new Set<string>(),
+        isolatedSubAssemblyId: null,
       };
     }),
 
@@ -412,6 +432,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       subdivisionPreview: null,
       hiddenVoidIds: new Set<string>(),
       isolatedVoidId: null,
+      hiddenSubAssemblyIds: new Set<string>(),
+      isolatedSubAssemblyId: null,
     })),
 
   // Sub-assembly actions
@@ -578,4 +600,19 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   setIsolatedVoid: (voidId) =>
     set({ isolatedVoidId: voidId }),
+
+  // Sub-assembly visibility actions
+  toggleSubAssemblyVisibility: (subAssemblyId) =>
+    set((state) => {
+      const newHiddenSubAssemblyIds = new Set(state.hiddenSubAssemblyIds);
+      if (newHiddenSubAssemblyIds.has(subAssemblyId)) {
+        newHiddenSubAssemblyIds.delete(subAssemblyId);
+      } else {
+        newHiddenSubAssemblyIds.add(subAssemblyId);
+      }
+      return { hiddenSubAssemblyIds: newHiddenSubAssemblyIds };
+    }),
+
+  setIsolatedSubAssembly: (subAssemblyId) =>
+    set({ isolatedSubAssemblyId: subAssemblyId }),
 }));

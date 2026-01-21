@@ -69,16 +69,13 @@ const getFaceEdges = (faceId: FaceId): EdgeInfo[] => {
 };
 
 // Determines which face has tabs vs slots at each edge.
-// Uses a priority system: lower priority face has tabs OUT, higher priority has slots IN.
-// Priority: front(1) < back(2) < left(3) < right(4) < top(5) < bottom(6)
-// This ensures:
-// - Front/back always have tabs (they're most primary)
-// - Left/right have tabs on top/bottom edges, slots on front/back edges
-// - Top/bottom always have slots (receive tabs from all vertical faces)
+// Front/back have tabs on ALL edges (they're the primary faces).
+// Left/right have tabs on top/bottom, slots on front/back edges.
+// Top/bottom have slots on all edges (receive tabs from all vertical faces).
 const shouldTabOut = (faceId: FaceId, position: 'top' | 'bottom' | 'left' | 'right'): boolean => {
   const tabOutMap: Record<FaceId, ('top' | 'bottom' | 'left' | 'right')[]> = {
-    front: ['top', 'bottom', 'left', 'right'],  // always tabs out
-    back: ['top', 'bottom', 'left', 'right'],   // always tabs out
+    front: ['top', 'bottom', 'left', 'right'],  // tabs on all edges
+    back: ['top', 'bottom', 'left', 'right'],   // tabs on all edges
     left: ['top', 'bottom'],                     // tabs on top/bottom only
     right: ['top', 'bottom'],                    // tabs on top/bottom only
     top: [],                                     // never tabs out
@@ -182,6 +179,12 @@ export const FaceWithFingers: React.FC<FaceWithFingersProps> = ({
     return geo;
   }, [faceId, sizeW, sizeH, scale, config, faces, isSolid, materialThickness, fingerWidth]);
 
+  // Create edge geometry for outline - must be before any early returns to maintain hooks order
+  const edgesGeometry = useMemo(() => {
+    if (!geometry) return null;
+    return new THREE.EdgesGeometry(geometry, 1);  // threshold angle of 1 degree
+  }, [geometry]);
+
   if (!isSolid || !geometry) {
     // Render a simple plane for open faces
     return (
@@ -198,18 +201,22 @@ export const FaceWithFingers: React.FC<FaceWithFingersProps> = ({
   }
 
   return (
-    <mesh
-      position={position}
-      rotation={rotation}
-      geometry={geometry}
-      onClick={onClick}
-    >
-      <meshStandardMaterial
-        color={isSelected ? '#9b59b6' : '#3498db'}
-        transparent
-        opacity={isSelected ? 0.9 : 0.85}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
+    <group position={position} rotation={rotation}>
+      {/* Solid panel mesh */}
+      <mesh geometry={geometry} onClick={onClick}>
+        <meshStandardMaterial
+          color={isSelected ? '#9b59b6' : '#3498db'}
+          transparent
+          opacity={isSelected ? 0.9 : 0.7}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* Outline */}
+      {edgesGeometry && (
+        <lineSegments geometry={edgesGeometry}>
+          <lineBasicMaterial color={isSelected ? '#7b4397' : '#1a5276'} linewidth={1} />
+        </lineSegments>
+      )}
+    </group>
   );
 };

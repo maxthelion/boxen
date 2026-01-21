@@ -1151,6 +1151,17 @@ body {
   color: white;
 }
 
+.tree-btn.delete {
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+.tree-btn.delete:hover {
+  background: #e74c3c;
+  border-color: #e74c3c;
+  color: white;
+}
+
 .tree-node-content.hidden {
   opacity: 0.4;
 }
@@ -1175,6 +1186,29 @@ body {
 .tree-node-content.panel.selected {
   background: #f39c1230;
   border-left: 2px solid #f39c12;
+}
+
+.tree-node-content.panel.open-face {
+  opacity: 0.6;
+}
+
+.tree-node-content.panel.open-face .tree-icon {
+  color: #888;
+}
+
+.tree-status {
+  font-size: 0.7rem;
+  color: #666;
+  margin-left: 0.25rem;
+}
+
+.tree-node-content.assembly {
+  color: #3498db;
+}
+
+.tree-node-content.assembly.selected {
+  background: #3498db30;
+  border-left: 2px solid #3498db;
 }
 
 .unisolate-btn {

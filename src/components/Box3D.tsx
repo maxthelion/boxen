@@ -1,54 +1,69 @@
 import React from 'react';
-import { useBoxStore, getLeafVoids, getAllSubdivisions, getAllSubAssemblies, isVoidVisible } from '../store/useBoxStore';
+import { useBoxStore, getLeafVoids, getAllSubdivisions, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible } from '../store/useBoxStore';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { FaceWithFingers } from './FaceWithFingers';
 import { FaceId, Bounds } from '../types';
 import * as THREE from 'three';
 
-const faceConfigs: {
+// Face configs for a box with OUTER dimensions w × h × d.
+//
+// Edge length matching (mating edges must have same length for finger alignment):
+// - front↔top: both w
+// - front↔left: both h-2T
+// - left↔top: both d
+//
+// Sizing:
+// - front/back: w × (h-2T) — tabs on top/bottom extend height to h
+// - left/right: d × (h-2T) — tabs on top/bottom extend height to h
+// - top/bottom: w × d — full size, slots cut inward
+const getFaceConfigs = (scaledThickness: number): {
   id: FaceId;
   position: (w: number, h: number, d: number) => [number, number, number];
   rotation: [number, number, number];
   size: (w: number, h: number, d: number) => [number, number];
-}[] = [
-  {
-    id: 'front',
-    position: (w, h, d) => [0, 0, d / 2],
-    rotation: [0, 0, 0],
-    size: (w, h) => [w, h],
-  },
-  {
-    id: 'back',
-    position: (w, h, d) => [0, 0, -d / 2],
-    rotation: [0, Math.PI, 0],
-    size: (w, h) => [w, h],
-  },
-  {
-    id: 'left',
-    position: (w, h, d) => [-w / 2, 0, 0],
-    rotation: [0, -Math.PI / 2, 0],
-    size: (w, h, d) => [d, h],
-  },
-  {
-    id: 'right',
-    position: (w, h, d) => [w / 2, 0, 0],
-    rotation: [0, Math.PI / 2, 0],
-    size: (w, h, d) => [d, h],
-  },
-  {
-    id: 'top',
-    position: (w, h, d) => [0, h / 2, 0],
-    rotation: [-Math.PI / 2, 0, 0],
-    size: (w, h, d) => [w, d],
-  },
-  {
-    id: 'bottom',
-    position: (w, h, d) => [0, -h / 2, 0],
-    rotation: [Math.PI / 2, 0, 0],
-    size: (w, h, d) => [w, d],
-  },
-];
+}[] => {
+  const halfT = scaledThickness / 2;
+  const T = scaledThickness;
+  return [
+    {
+      id: 'front',
+      position: (w, h, d) => [0, 0, d / 2 - halfT],  // outer surface at z = d/2
+      rotation: [0, 0, 0],
+      size: (w, h) => [w, h - 2 * T],
+    },
+    {
+      id: 'back',
+      position: (w, h, d) => [0, 0, -d / 2 + halfT],  // outer surface at z = -d/2
+      rotation: [0, Math.PI, 0],
+      size: (w, h) => [w, h - 2 * T],
+    },
+    {
+      id: 'left',
+      position: (w, h, d) => [-w / 2 + halfT, 0, 0],  // outer surface at x = -w/2
+      rotation: [0, -Math.PI / 2, 0],
+      size: (w, h, d) => [d, h - 2 * T],
+    },
+    {
+      id: 'right',
+      position: (w, h, d) => [w / 2 - halfT, 0, 0],  // outer surface at x = w/2
+      rotation: [0, Math.PI / 2, 0],
+      size: (w, h, d) => [d, h - 2 * T],
+    },
+    {
+      id: 'top',
+      position: (w, h, d) => [0, h / 2 - halfT, 0],  // outer surface at y = h/2
+      rotation: [-Math.PI / 2, 0, 0],
+      size: (w, h, d) => [w, d],
+    },
+    {
+      id: 'bottom',
+      position: (w, h, d) => [0, -h / 2 + halfT, 0],  // outer surface at y = -h/2
+      rotation: [Math.PI / 2, 0, 0],
+      size: (w, h, d) => [w, d],
+    },
+  ];
+};
 
 // Find a void by ID
 const findVoid = (root: { id: string; bounds: Bounds; children: any[] }, id: string): { bounds: Bounds } | null => {
@@ -61,15 +76,19 @@ const findVoid = (root: { id: string; bounds: Bounds; children: any[] }, id: str
 };
 
 export const Box3D: React.FC = () => {
-  const { config, faces, rootVoid, subdivisionPreview, selectionMode, selectedPanelId, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId } = useBoxStore();
+  const { config, faces, rootVoid, subdivisionPreview, selectionMode, selectedPanelId, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId } = useBoxStore();
   const { width, height, depth } = config;
 
   const scale = 100 / Math.max(width, height, depth);
   const scaledW = width * scale;
   const scaledH = height * scale;
   const scaledD = depth * scale;
+  const scaledThickness = config.materialThickness * scale;
 
   const boxCenter = { x: width / 2, y: height / 2, z: depth / 2 };
+
+  // Get face configs with proper thickness offset
+  const faceConfigs = getFaceConfigs(scaledThickness);
 
   // Get all leaf voids (selectable cells)
   const leafVoids = getLeafVoids(rootVoid);
@@ -136,7 +155,6 @@ export const Box3D: React.FC = () => {
         const centerX = (bounds.x + bounds.w / 2 - boxCenter.x) * scale;
         const centerY = (bounds.y + bounds.h / 2 - boxCenter.y) * scale;
         const centerZ = (bounds.z + bounds.d / 2 - boxCenter.z) * scale;
-        const scaledThickness = config.materialThickness * scale;
 
         switch (sub.axis) {
           case 'x':
@@ -189,7 +207,6 @@ export const Box3D: React.FC = () => {
         const centerX = (bounds.x + bounds.w / 2 - boxCenter.x) * scale;
         const centerY = (bounds.y + bounds.h / 2 - boxCenter.y) * scale;
         const centerZ = (bounds.z + bounds.d / 2 - boxCenter.z) * scale;
-        const scaledThickness = config.materialThickness * scale;
 
         switch (subdivisionPreview.axis) {
           case 'x':
@@ -221,30 +238,35 @@ export const Box3D: React.FC = () => {
         );
       })}
 
-      {/* Void cells (leaf voids are selectable) */}
-      {leafVoids.map((leafVoid) => (
-        <VoidMesh
-          key={leafVoid.id}
-          voidId={leafVoid.id}
-          bounds={{
-            x: leafVoid.bounds.x * scale,
-            y: leafVoid.bounds.y * scale,
-            z: leafVoid.bounds.z * scale,
-            w: leafVoid.bounds.w * scale,
-            h: leafVoid.bounds.h * scale,
-            d: leafVoid.bounds.d * scale,
-          }}
-          boxCenter={{
-            x: boxCenter.x * scale,
-            y: boxCenter.y * scale,
-            z: boxCenter.z * scale,
-          }}
-        />
-      ))}
+      {/* Void cells (leaf voids are selectable) - filtered by visibility */}
+      {leafVoids
+        .filter((leafVoid) => isVoidVisible(leafVoid.id, rootVoid, hiddenVoidIds, isolatedVoidId))
+        .map((leafVoid) => (
+          <VoidMesh
+            key={leafVoid.id}
+            voidId={leafVoid.id}
+            bounds={{
+              x: leafVoid.bounds.x * scale,
+              y: leafVoid.bounds.y * scale,
+              z: leafVoid.bounds.z * scale,
+              w: leafVoid.bounds.w * scale,
+              h: leafVoid.bounds.h * scale,
+              d: leafVoid.bounds.d * scale,
+            }}
+            boxCenter={{
+              x: boxCenter.x * scale,
+              y: boxCenter.y * scale,
+              z: boxCenter.z * scale,
+            }}
+          />
+        ))}
 
       {/* Sub-assemblies (drawers, trays, inserts) */}
       {subAssemblies
-        .filter(({ voidId }) => isVoidVisible(voidId, rootVoid, hiddenVoidIds, isolatedVoidId))
+        .filter(({ voidId, subAssembly }) =>
+          isVoidVisible(voidId, rootVoid, hiddenVoidIds, isolatedVoidId) &&
+          isSubAssemblyVisible(subAssembly.id, hiddenSubAssemblyIds, isolatedSubAssemblyId)
+        )
         .map(({ voidId, subAssembly, bounds }) => (
           <SubAssembly3D
             key={subAssembly.id}
