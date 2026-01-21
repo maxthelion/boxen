@@ -169,6 +169,10 @@ export interface BoxState {
   isolatedSubAssemblyId: string | null;  // If set, only show this sub-assembly
   // Visibility controls for face panels
   hiddenFaceIds: Set<string>;  // Set of face panel IDs that are hidden (e.g., 'face-front', 'subasm-xxx-face-top')
+  // Generated panel paths - the source of truth for geometry
+  panelCollection: PanelCollection | null;
+  // Flag indicating panels need regeneration (config changed since last generate)
+  panelsDirty: boolean;
 }
 
 export interface BoxActions {
@@ -204,6 +208,15 @@ export interface BoxActions {
   setIsolatedSubAssembly: (subAssemblyId: string | null) => void;
   // Visibility actions for face panels
   toggleFaceVisibility: (faceId: string) => void;
+  // Panel path actions
+  generatePanels: () => void;                    // Generate panel paths from current config
+  clearPanels: () => void;                       // Clear generated panels
+  updatePanelPath: (panelId: string, updates: Partial<PanelPath>) => void;
+  addPanelHole: (panelId: string, hole: PanelHole) => void;
+  removePanelHole: (panelId: string, holeId: string) => void;
+  addAugmentation: (augmentation: PanelAugmentation) => void;
+  removeAugmentation: (augmentationId: string) => void;
+  togglePanelVisibility: (panelId: string) => void;
 }
 
 // Subdivision panel - a physical divider piece to be cut
@@ -229,3 +242,140 @@ export interface SubdivisionIntersection {
   position: number;      // position along this panel's width in mm
   fromTop: boolean;      // slot comes from top (true) or bottom (false)
 }
+
+// =============================================================================
+// Panel Path Model - Stored geometry that can be manipulated and exported
+// =============================================================================
+
+// A 2D point
+export interface PathPoint {
+  x: number;
+  y: number;
+}
+
+// A closed path (contour or hole)
+export interface Path {
+  points: PathPoint[];
+  closed: boolean;  // Should always be true for panel outlines/holes
+}
+
+// Types of holes that can be added to a panel
+export type HoleType = 'slot' | 'circle' | 'rectangle' | 'custom';
+
+// A hole in a panel (slot, decorative cutout, etc.)
+export interface PanelHole {
+  id: string;
+  type: HoleType;
+  path: Path;
+  // Source info - what created this hole
+  source?: {
+    type: 'divider-slot' | 'lid-slot' | 'decorative' | 'functional';
+    sourceId?: string;  // ID of divider/lid that created this slot
+  };
+}
+
+// Types of panels
+export type PanelType = 'face' | 'divider' | 'lid';
+
+// Source information for a panel
+export interface PanelSource {
+  type: PanelType;
+  // For faces: the face ID
+  faceId?: FaceId;
+  // For dividers: the subdivision info
+  subdivisionId?: string;
+  axis?: 'x' | 'y' | 'z';
+  // For sub-assembly panels
+  subAssemblyId?: string;
+}
+
+// A panel with its 2D path geometry and 3D positioning
+export interface PanelPath {
+  id: string;
+  source: PanelSource;
+
+  // 2D geometry (in mm, centered at origin)
+  outline: Path;              // Outer contour with finger joints
+  holes: PanelHole[];         // Slots, decorative cutouts, etc.
+
+  // Dimensions (for reference, derived from outline bounds)
+  width: number;              // X extent of outline
+  height: number;             // Y extent of outline
+  thickness: number;          // Material thickness (Z extent when extruded)
+
+  // 3D positioning (for rendering)
+  position: [number, number, number];
+  rotation: [number, number, number];
+
+  // Display properties
+  label?: string;
+  color?: string;
+  visible: boolean;
+}
+
+// Augmentation types that can be added to panels
+export type AugmentationType = 'feet-notch' | 'handle-cutout' | 'vent-holes' | 'custom-hole';
+
+// An augmentation is a modification to a panel (hole, notch, etc.)
+export interface PanelAugmentation {
+  id: string;
+  type: AugmentationType;
+  panelId: string;           // Which panel this augmentation belongs to
+  hole: PanelHole;           // The actual geometry
+  // Parameters for regeneration (optional, for parametric augmentations)
+  params?: Record<string, number | string | boolean>;
+}
+
+// Collection of all generated panels
+export interface PanelCollection {
+  panels: PanelPath[];
+  augmentations: PanelAugmentation[];
+  // Generation metadata
+  generatedAt: number;       // Timestamp
+  sourceConfigHash?: string; // Hash of config used to generate (for dirty detection)
+}
+
+// Helper: Calculate bounding box of a path
+export const getPathBounds = (path: Path): { minX: number; maxX: number; minY: number; maxY: number; width: number; height: number } => {
+  if (path.points.length === 0) {
+    return { minX: 0, maxX: 0, minY: 0, maxY: 0, width: 0, height: 0 };
+  }
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of path.points) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
+
+  return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
+};
+
+// Helper: Create a rectangular path
+export const createRectPath = (width: number, height: number, centerX = 0, centerY = 0): Path => {
+  const hw = width / 2;
+  const hh = height / 2;
+  return {
+    points: [
+      { x: centerX - hw, y: centerY + hh },  // top-left
+      { x: centerX + hw, y: centerY + hh },  // top-right
+      { x: centerX + hw, y: centerY - hh },  // bottom-right
+      { x: centerX - hw, y: centerY - hh },  // bottom-left
+    ],
+    closed: true,
+  };
+};
+
+// Helper: Create a circular path (approximated with segments)
+export const createCirclePath = (radius: number, centerX = 0, centerY = 0, segments = 32): Path => {
+  const points: PathPoint[] = [];
+  for (let i = 0; i < segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    points.push({
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius,
+    });
+  }
+  return { points, closed: true };
+};

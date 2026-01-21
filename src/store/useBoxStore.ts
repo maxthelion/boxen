@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssemblyType, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig } from '../types';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssemblyType, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation } from '../types';
+import { generatePanelCollection } from '../utils/panelGenerator';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -442,6 +443,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   hiddenSubAssemblyIds: new Set<string>(),
   isolatedSubAssemblyId: null,
   hiddenFaceIds: new Set<string>(),
+  panelCollection: null,
+  panelsDirty: true,  // Start dirty so panels get generated on first use
 
   setConfig: (newConfig) =>
     set((state) => {
@@ -459,6 +462,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         hiddenSubAssemblyIds: new Set<string>(),
         isolatedSubAssemblyId: null,
         hiddenFaceIds: new Set<string>(),
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -468,6 +472,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         face.id === faceId ? { ...face, solid: !face.solid } : face
       ),
       subdivisionPreview: null,  // Clear preview when faces change
+      panelsDirty: true,  // Mark panels as needing regeneration
     })),
 
   setSelectionMode: (mode) =>
@@ -604,6 +609,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         selectedVoidId: null,
         selectedPanelId: null,
         subdivisionPreview: null,
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -622,6 +628,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         selectedVoidId: null,
         selectedPanelId: null,
         subdivisionPreview: null,
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -638,6 +645,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       hiddenSubAssemblyIds: new Set<string>(),
       isolatedSubAssemblyId: null,
       hiddenFaceIds: new Set<string>(),
+      panelsDirty: true,  // Mark panels as needing regeneration
     })),
 
   // Sub-assembly actions
@@ -701,6 +709,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         selectedVoidId: null,
         selectedSubAssemblyId: subAssembly.id,
         subdivisionPreview: null,
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -743,6 +752,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       return {
         rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -780,6 +790,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       return {
         rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -795,6 +806,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         selectedVoidId: null,
         selectedSubAssemblyId: null,
         subdivisionPreview: null,
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -868,6 +880,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         // Clear selection when void structure changes
         selectedVoidId: null,
         selectedPanelId: null,
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -904,6 +917,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           assembly: newAssembly,
         },
         rootVoid: newRootVoid,
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -943,6 +957,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         // Clear selection when void structure changes
         selectedVoidId: null,
         selectedPanelId: null,
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -974,6 +989,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       return {
         rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -1011,6 +1027,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       return {
         rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+        panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
 
@@ -1048,6 +1065,143 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       return {
         rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+        panelsDirty: true,  // Mark panels as needing regeneration
+      };
+    }),
+
+  // Panel path actions
+  generatePanels: () =>
+    set((state) => {
+      // Generate panel paths from current configuration
+      const collection = generatePanelCollection(
+        state.faces,
+        state.rootVoid,
+        state.config,
+        1  // Scale factor (1 = mm)
+      );
+
+      return {
+        panelCollection: collection,
+        panelsDirty: false,
+      };
+    }),
+
+  clearPanels: () =>
+    set({
+      panelCollection: null,
+      panelsDirty: true,
+    }),
+
+  updatePanelPath: (panelId, updates) =>
+    set((state) => {
+      if (!state.panelCollection) return state;
+
+      return {
+        panelCollection: {
+          ...state.panelCollection,
+          panels: state.panelCollection.panels.map((panel) =>
+            panel.id === panelId ? { ...panel, ...updates } : panel
+          ),
+        },
+      };
+    }),
+
+  addPanelHole: (panelId, hole) =>
+    set((state) => {
+      if (!state.panelCollection) return state;
+
+      return {
+        panelCollection: {
+          ...state.panelCollection,
+          panels: state.panelCollection.panels.map((panel) =>
+            panel.id === panelId
+              ? { ...panel, holes: [...panel.holes, hole] }
+              : panel
+          ),
+        },
+      };
+    }),
+
+  removePanelHole: (panelId, holeId) =>
+    set((state) => {
+      if (!state.panelCollection) return state;
+
+      return {
+        panelCollection: {
+          ...state.panelCollection,
+          panels: state.panelCollection.panels.map((panel) =>
+            panel.id === panelId
+              ? { ...panel, holes: panel.holes.filter((h) => h.id !== holeId) }
+              : panel
+          ),
+        },
+      };
+    }),
+
+  addAugmentation: (augmentation) =>
+    set((state) => {
+      if (!state.panelCollection) return state;
+
+      // Add augmentation to the collection
+      const newAugmentations = [...state.panelCollection.augmentations, augmentation];
+
+      // Also add the hole to the target panel
+      const newPanels = state.panelCollection.panels.map((panel) =>
+        panel.id === augmentation.panelId
+          ? { ...panel, holes: [...panel.holes, augmentation.hole] }
+          : panel
+      );
+
+      return {
+        panelCollection: {
+          ...state.panelCollection,
+          panels: newPanels,
+          augmentations: newAugmentations,
+        },
+      };
+    }),
+
+  removeAugmentation: (augmentationId) =>
+    set((state) => {
+      if (!state.panelCollection) return state;
+
+      const augmentation = state.panelCollection.augmentations.find(
+        (a) => a.id === augmentationId
+      );
+      if (!augmentation) return state;
+
+      // Remove augmentation from the collection
+      const newAugmentations = state.panelCollection.augmentations.filter(
+        (a) => a.id !== augmentationId
+      );
+
+      // Also remove the hole from the target panel
+      const newPanels = state.panelCollection.panels.map((panel) =>
+        panel.id === augmentation.panelId
+          ? { ...panel, holes: panel.holes.filter((h) => h.id !== augmentation.hole.id) }
+          : panel
+      );
+
+      return {
+        panelCollection: {
+          ...state.panelCollection,
+          panels: newPanels,
+          augmentations: newAugmentations,
+        },
+      };
+    }),
+
+  togglePanelVisibility: (panelId) =>
+    set((state) => {
+      if (!state.panelCollection) return state;
+
+      return {
+        panelCollection: {
+          ...state.panelCollection,
+          panels: state.panelCollection.panels.map((panel) =>
+            panel.id === panelId ? { ...panel, visible: !panel.visible } : panel
+          ),
+        },
       };
     }),
 }));

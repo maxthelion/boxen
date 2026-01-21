@@ -1,52 +1,68 @@
 import React, { useMemo } from 'react';
 import { useBoxStore } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
-import { FaceId, SubdivisionPanel } from '../types';
-import {
-  generateFaceSVGPath,
-  generateFaceSlotPaths,
-  getFaceDimensions,
-  getSubdivisionPanels,
-  generateSubdivisionPanelPath,
-  generateSlotPaths,
-} from '../utils/svgExport';
+import { FaceId, PanelPath, PathPoint } from '../types';
 
 const faceOrder: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
 
-export const FacePreview: React.FC = () => {
-  const { faces, rootVoid, config } = useBoxStore();
+// Convert PathPoints to SVG path data string
+// The points are in panel-local coordinates (centered at 0,0)
+// offsetX/offsetY shift the center to the SVG coordinate space
+const pathPointsToSVGPath = (
+  points: PathPoint[],
+  offsetX: number,
+  offsetY: number
+): string => {
+  if (points.length === 0) return '';
 
-  const subdivisionPanels = useMemo(
-    () => getSubdivisionPanels(rootVoid, faces, config),
-    [rootVoid, faces, config]
-  );
+  // Note: SVG Y-axis is flipped (positive Y is down), so we negate Y
+  let path = `M ${(points[0].x + offsetX).toFixed(3)} ${(-points[0].y + offsetY).toFixed(3)} `;
+  for (let i = 1; i < points.length; i++) {
+    path += `L ${(points[i].x + offsetX).toFixed(3)} ${(-points[i].y + offsetY).toFixed(3)} `;
+  }
+  path += 'Z';
+  return path;
+};
+
+export const FacePreview: React.FC = () => {
+  const { faces, panelCollection } = useBoxStore();
+
+  // Get panels from stored collection
+  const panels = panelCollection?.panels ?? [];
+  const facePanels = panels.filter(p => p.source.type === 'face');
+  const dividerPanels = panels.filter(p => p.source.type === 'divider');
 
   return (
     <Panel title="2D Face Preview">
       <div className="face-preview-section">
         <h4>Outer Faces</h4>
         <div className="face-preview-grid">
-          {faceOrder.map((faceId) => (
-            <FacePreviewItem
-              key={faceId}
-              faceId={faceId}
-              faces={faces}
-              rootVoid={rootVoid}
-              config={config}
-            />
-          ))}
+          {faceOrder.map((faceId) => {
+            const face = faces.find((f) => f.id === faceId);
+            const isSolid = face?.solid ?? true;
+            const panel = facePanels.find(
+              p => p.source.type === 'face' && p.source.faceId === faceId
+            );
+            return (
+              <FacePreviewItem
+                key={faceId}
+                faceId={faceId}
+                panel={panel}
+                isSolid={isSolid}
+              />
+            );
+          })}
         </div>
       </div>
 
-      {subdivisionPanels.length > 0 && (
+      {dividerPanels.length > 0 && (
         <div className="face-preview-section">
-          <h4>Subdivision Panels ({subdivisionPanels.length})</h4>
+          <h4>Subdivision Panels ({dividerPanels.length})</h4>
           <div className="face-preview-grid">
-            {subdivisionPanels.map((panel) => (
-              <SubdivisionPanelPreview
+            {dividerPanels.map((panel) => (
+              <PanelPreviewItem
                 key={panel.id}
                 panel={panel}
-                config={config}
               />
             ))}
           </div>
@@ -58,33 +74,34 @@ export const FacePreview: React.FC = () => {
 
 interface FacePreviewItemProps {
   faceId: FaceId;
-  faces: { id: FaceId; solid: boolean }[];
-  rootVoid: ReturnType<typeof useBoxStore>['rootVoid'];
-  config: ReturnType<typeof useBoxStore>['config'];
+  panel: PanelPath | undefined;
+  isSolid: boolean;
 }
 
-const FacePreviewItem: React.FC<FacePreviewItemProps> = ({ faceId, faces, rootVoid, config }) => {
-  const face = faces.find((f) => f.id === faceId);
-  const isSolid = face?.solid ?? true;
-
+const FacePreviewItem: React.FC<FacePreviewItemProps> = ({ faceId, panel, isSolid }) => {
   const svgContent = useMemo(() => {
-    if (!isSolid) return null;
+    if (!isSolid || !panel) return null;
 
-    const dims = getFaceDimensions(faceId, config);
-    const padding = config.materialThickness * 4;
-    const svgWidth = dims.width + padding * 2;
-    const svgHeight = dims.height + padding * 2;
+    const padding = panel.thickness * 4;
+    const svgWidth = panel.width + padding * 2;
+    const svgHeight = panel.height + padding * 2;
 
-    const pathData = generateFaceSVGPath(faceId, faces, config, 0);
-    const slotPaths = generateFaceSlotPaths(faceId, rootVoid, config);
+    // Offset to center the panel in the SVG
+    const offsetX = svgWidth / 2;
+    const offsetY = svgHeight / 2;
+
+    const pathData = pathPointsToSVGPath(panel.outline.points, offsetX, offsetY);
+    const holePaths = panel.holes.map(hole =>
+      pathPointsToSVGPath(hole.path.points, offsetX, offsetY)
+    );
 
     return {
       viewBox: `0 0 ${svgWidth} ${svgHeight}`,
       pathData,
-      slotPaths,
-      dims,
+      holePaths,
+      dims: { width: panel.width, height: panel.height },
     };
-  }, [faceId, faces, rootVoid, config, isSolid]);
+  }, [panel, isSolid]);
 
   if (!isSolid) {
     return (
@@ -95,7 +112,14 @@ const FacePreviewItem: React.FC<FacePreviewItemProps> = ({ faceId, faces, rootVo
     );
   }
 
-  if (!svgContent) return null;
+  if (!svgContent) {
+    return (
+      <div className="face-preview-item">
+        <div className="face-preview-header">{faceId.toUpperCase()}</div>
+        <div className="face-preview-empty">Loading...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="face-preview-item">
@@ -111,10 +135,10 @@ const FacePreviewItem: React.FC<FacePreviewItemProps> = ({ faceId, faces, rootVo
           stroke="#333"
           strokeWidth="0.5"
         />
-        {svgContent.slotPaths.map((slotPath, idx) => (
+        {svgContent.holePaths.map((holePath, idx) => (
           <path
             key={idx}
-            d={slotPath}
+            d={holePath}
             fill="none"
             stroke="#e74c3c"
             strokeWidth="0.3"
@@ -128,28 +152,36 @@ const FacePreviewItem: React.FC<FacePreviewItemProps> = ({ faceId, faces, rootVo
   );
 };
 
-interface SubdivisionPanelPreviewProps {
-  panel: SubdivisionPanel;
-  config: ReturnType<typeof useBoxStore>['config'];
+interface PanelPreviewItemProps {
+  panel: PanelPath;
 }
 
-const SubdivisionPanelPreview: React.FC<SubdivisionPanelPreviewProps> = ({ panel, config }) => {
+const PanelPreviewItem: React.FC<PanelPreviewItemProps> = ({ panel }) => {
   const svgContent = useMemo(() => {
-    const padding = config.materialThickness * 4;
+    const padding = panel.thickness * 4;
     const svgWidth = panel.width + padding * 2;
     const svgHeight = panel.height + padding * 2;
 
-    const pathData = generateSubdivisionPanelPath(panel, config, 0);
-    const slotPaths = generateSlotPaths(panel, config);
+    // Offset to center the panel in the SVG
+    const offsetX = svgWidth / 2;
+    const offsetY = svgHeight / 2;
+
+    const pathData = pathPointsToSVGPath(panel.outline.points, offsetX, offsetY);
+    const holePaths = panel.holes.map(hole =>
+      pathPointsToSVGPath(hole.path.points, offsetX, offsetY)
+    );
 
     return {
       viewBox: `0 0 ${svgWidth} ${svgHeight}`,
       pathData,
-      slotPaths,
+      holePaths,
     };
-  }, [panel, config]);
+  }, [panel]);
 
-  const label = `${panel.axis.toUpperCase()}@${panel.position.toFixed(0)}mm`;
+  // Create label from panel source info
+  const label = panel.source.type === 'divider' && panel.source.axis
+    ? `${panel.source.axis.toUpperCase()}@${panel.label?.split('@')[1]?.split('mm')[0] ?? '?'}mm`
+    : panel.label || panel.id;
 
   return (
     <div className="face-preview-item subdivision">
@@ -165,10 +197,10 @@ const SubdivisionPanelPreview: React.FC<SubdivisionPanelPreviewProps> = ({ panel
           stroke="#f39c12"
           strokeWidth="0.5"
         />
-        {svgContent.slotPaths.map((slotPath, idx) => (
+        {svgContent.holePaths.map((holePath, idx) => (
           <path
             key={idx}
-            d={slotPath}
+            d={holePath}
             fill="none"
             stroke="#e74c3c"
             strokeWidth="0.3"

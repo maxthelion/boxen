@@ -1,13 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { useBoxStore } from '../store/useBoxStore';
 import { Modal } from './UI/Modal';
-import { FaceId } from '../types';
+import { FaceId, PanelPath } from '../types';
 import {
-  generateFaceSVG,
-  generateAllFacesSVG,
+  generatePanelPathSVG,
+  generateAllPanelPathsSVG,
   downloadSVG,
-  getSubdivisionPanels,
-  generateSubdivisionPanelSVG,
 } from '../utils/svgExport';
 
 const faceOrder: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
@@ -18,35 +16,29 @@ interface ExportModalProps {
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => {
-  const { faces, rootVoid, config } = useBoxStore();
+  const { faces, panelCollection } = useBoxStore();
   const [kerf, setKerf] = useState(0.1);
 
-  const solidFaces = faces.filter((f) => f.solid);
-  const subdivisionPanels = useMemo(
-    () => getSubdivisionPanels(rootVoid, faces, config),
-    [rootVoid, faces, config]
-  );
+  // Get panels from stored collection
+  const panels = panelCollection?.panels ?? [];
+  const facePanels = panels.filter(p => p.source.type === 'face');
+  const dividerPanels = panels.filter(p => p.source.type === 'divider');
 
-  const totalPieces = solidFaces.length + subdivisionPanels.length;
+  const totalPieces = panels.filter(p => p.visible).length;
 
-  const handleExportFace = (faceId: FaceId) => {
-    const svg = generateFaceSVG(faceId, faces, rootVoid, config, kerf);
+  const handleExportPanel = (panel: PanelPath) => {
+    const svg = generatePanelPathSVG(panel, kerf);
     if (svg) {
-      downloadSVG(svg, `boxen-${faceId}.svg`);
-    }
-  };
-
-  const handleExportSubdivision = (panelIndex: number) => {
-    const panel = subdivisionPanels[panelIndex];
-    if (panel) {
-      const svg = generateSubdivisionPanelSVG(panel, config, kerf);
-      const label = `${panel.axis}-${panel.position.toFixed(0)}`;
-      downloadSVG(svg, `boxen-div-${label}.svg`);
+      const filename = panel.source.type === 'face'
+        ? `boxen-${panel.source.faceId}.svg`
+        : `boxen-${panel.id}.svg`;
+      downloadSVG(svg, filename);
     }
   };
 
   const handleExportAll = () => {
-    const svg = generateAllFacesSVG(faces, rootVoid, config, kerf);
+    if (!panelCollection) return;
+    const svg = generateAllPanelPathsSVG(panelCollection, kerf);
     downloadSVG(svg, 'boxen-all-pieces.svg');
   };
 
@@ -66,16 +58,19 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
           </label>
 
           <div className="export-section">
-            <h4>Outer Faces ({solidFaces.length})</h4>
+            <h4>Outer Faces ({facePanels.length})</h4>
             <div className="export-buttons">
               {faceOrder.map((faceId) => {
                 const face = faces.find((f) => f.id === faceId);
                 const isSolid = face?.solid ?? true;
+                const facePanel = facePanels.find(
+                  p => p.source.type === 'face' && p.source.faceId === faceId
+                );
                 return (
                   <button
                     key={faceId}
-                    onClick={() => handleExportFace(faceId)}
-                    disabled={!isSolid}
+                    onClick={() => facePanel && handleExportPanel(facePanel)}
+                    disabled={!isSolid || !facePanel}
                     title={isSolid ? `Export ${faceId} face` : `${faceId} face is open`}
                   >
                     {faceId.charAt(0).toUpperCase() + faceId.slice(1)}
@@ -85,19 +80,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
             </div>
           </div>
 
-          {subdivisionPanels.length > 0 && (
+          {dividerPanels.length > 0 && (
             <div className="export-section">
-              <h4>Subdivision Panels ({subdivisionPanels.length})</h4>
+              <h4>Subdivision Panels ({dividerPanels.length})</h4>
               <div className="export-buttons">
-                {subdivisionPanels.map((panel, idx) => (
-                  <button
-                    key={panel.id}
-                    onClick={() => handleExportSubdivision(idx)}
-                    title={`Export ${panel.axis.toUpperCase()} subdivision at ${panel.position.toFixed(0)}mm`}
-                  >
-                    {panel.axis.toUpperCase()}@{panel.position.toFixed(0)}
-                  </button>
-                ))}
+                {dividerPanels.map((panel) => {
+                  const label = panel.source.type === 'divider'
+                    ? `${panel.source.axis?.toUpperCase()}@${panel.label?.split('@')[1]?.split('mm')[0] ?? '?'}`
+                    : panel.id;
+                  return (
+                    <button
+                      key={panel.id}
+                      onClick={() => handleExportPanel(panel)}
+                      title={`Export ${panel.label || panel.id}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

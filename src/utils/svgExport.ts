@@ -1,6 +1,152 @@
-import { BoxConfig, Face, FaceId, Void, SubdivisionPanel, SubdivisionIntersection, Subdivision, Bounds, getFaceRole, getLidSide, getWallPriority, getLidFaceId } from '../types';
+import { BoxConfig, Face, FaceId, Void, SubdivisionPanel, SubdivisionIntersection, Subdivision, Bounds, getFaceRole, getLidSide, getWallPriority, getLidFaceId, AssemblyConfig, PanelPath, PanelCollection, PathPoint } from '../types';
 import { EdgeType, getEdgePath, Point } from './fingerJoints';
 import { getAllSubdivisions } from '../store/useBoxStore';
+
+// =============================================================================
+// Panel Path based SVG generation (uses stored paths)
+// =============================================================================
+
+// Convert PathPoints to SVG path data string
+// The points are in panel-local coordinates (centered at 0,0)
+// offsetX/offsetY shift the center to the SVG coordinate space
+const pathPointsToSVGPath = (
+  points: PathPoint[],
+  offsetX: number,
+  offsetY: number
+): string => {
+  if (points.length === 0) return '';
+
+  // Note: SVG Y-axis is flipped (positive Y is down), so we negate Y
+  let path = `M ${(points[0].x + offsetX).toFixed(3)} ${(-points[0].y + offsetY).toFixed(3)} `;
+  for (let i = 1; i < points.length; i++) {
+    path += `L ${(points[i].x + offsetX).toFixed(3)} ${(-points[i].y + offsetY).toFixed(3)} `;
+  }
+  path += 'Z';
+  return path;
+};
+
+// Generate SVG for a single panel using stored PanelPath
+export const generatePanelPathSVG = (
+  panel: PanelPath,
+  kerf: number = 0
+): string => {
+  const padding = panel.thickness * 4;
+  const svgWidth = panel.width + padding * 2;
+  const svgHeight = panel.height + padding * 2;
+
+  // Offset to center the panel in the SVG (panel coords are centered at 0,0)
+  const offsetX = svgWidth / 2;
+  const offsetY = svgHeight / 2;
+
+  const outlinePath = pathPointsToSVGPath(panel.outline.points, offsetX, offsetY);
+
+  let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="${svgWidth}mm"
+     height="${svgHeight}mm"
+     viewBox="0 0 ${svgWidth} ${svgHeight}">
+  <title>${panel.label || panel.id}</title>
+  <g stroke="#000" stroke-width="0.1" fill="none">
+    <path d="${outlinePath}" />
+`;
+
+  // Add hole paths
+  for (const hole of panel.holes) {
+    const holePath = pathPointsToSVGPath(hole.path.points, offsetX, offsetY);
+    svg += `    <path d="${holePath}" />\n`;
+  }
+
+  svg += `  </g>
+  <text x="${svgWidth / 2}" y="${svgHeight - 2}"
+        text-anchor="middle" font-size="3" fill="#666">
+    ${panel.label || panel.id} - ${panel.width.toFixed(1)}mm x ${panel.height.toFixed(1)}mm
+  </text>
+</svg>`;
+
+  return svg;
+};
+
+// Generate SVG containing all panels from a PanelCollection
+export const generateAllPanelPathsSVG = (
+  collection: PanelCollection,
+  kerf: number = 0
+): string => {
+  const gap = 10;
+  let currentY = gap;
+  let maxWidth = 0;
+
+  interface SvgItem {
+    panel: PanelPath;
+    width: number;
+    height: number;
+    y: number;
+    offsetX: number;
+    offsetY: number;
+  }
+
+  const svgItems: SvgItem[] = [];
+
+  // Layout panels vertically
+  for (const panel of collection.panels) {
+    if (!panel.visible) continue;
+
+    const padding = panel.thickness * 4;
+    const width = panel.width + padding * 2;
+    const height = panel.height + padding * 2;
+
+    svgItems.push({
+      panel,
+      width,
+      height,
+      y: currentY,
+      offsetX: width / 2,
+      offsetY: height / 2,
+    });
+
+    maxWidth = Math.max(maxWidth, width);
+    currentY += height + gap;
+  }
+
+  const totalHeight = currentY;
+
+  let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="${maxWidth + gap * 2}mm"
+     height="${totalHeight}mm"
+     viewBox="0 0 ${maxWidth + gap * 2} ${totalHeight}">
+  <title>Boxen Export - All Pieces</title>
+`;
+
+  for (const item of svgItems) {
+    const x = (maxWidth - item.width) / 2 + gap;
+    const outlinePath = pathPointsToSVGPath(item.panel.outline.points, item.offsetX, item.offsetY);
+
+    svg += `  <g transform="translate(${x}, ${item.y})" stroke="#000" stroke-width="0.1" fill="none">
+    <path d="${outlinePath}" />
+`;
+
+    // Add hole paths
+    for (const hole of item.panel.holes) {
+      const holePath = pathPointsToSVGPath(hole.path.points, item.offsetX, item.offsetY);
+      svg += `    <path d="${holePath}" />\n`;
+    }
+
+    svg += `    <text x="${item.width / 2}" y="${item.height - 2}"
+          text-anchor="middle" font-size="3" fill="#666">
+      ${item.panel.label || item.panel.id} - ${item.panel.width.toFixed(1)}mm x ${item.panel.height.toFixed(1)}mm
+    </text>
+  </g>
+`;
+  }
+
+  svg += '</svg>';
+  return svg;
+};
+
+// =============================================================================
+// Legacy SVG generation (computes paths on-the-fly)
+// These functions are kept for backwards compatibility
+// =============================================================================
 
 interface FaceDimensions {
   width: number;

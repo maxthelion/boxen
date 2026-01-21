@@ -1,11 +1,15 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { useBoxStore, getLeafVoids, getAllSubdivisions, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible } from '../store/useBoxStore';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { FaceWithFingers } from './FaceWithFingers';
 import { DividerPanel } from './DividerPanel';
+import { PanelCollectionRenderer } from './PanelPathRenderer';
 import { FaceId, Bounds, AssemblyConfig, getFaceRole, getLidSide, getLidFaceId } from '../types';
 import * as THREE from 'three';
+
+// Flag to switch between old (computed) and new (stored paths) rendering
+const USE_STORED_PATHS = true;  // Check panelGenerator holes
 
 // Face configs for a box with OUTER dimensions w × h × d.
 //
@@ -396,8 +400,15 @@ const getLidIntersections = (
 };
 
 export const Box3D: React.FC = () => {
-  const { config, faces, rootVoid, subdivisionPreview, selectionMode, selectedPanelId, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds } = useBoxStore();
+  const { config, faces, rootVoid, subdivisionPreview, selectionMode, selectedPanelId, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, panelCollection } = useBoxStore();
   const { width, height, depth } = config;
+
+  // Auto-generate panels when dirty
+  useEffect(() => {
+    if (panelsDirty) {
+      generatePanels();
+    }
+  }, [panelsDirty, generatePanels]);
 
   const scale = 100 / Math.max(width, height, depth);
   const scaledW = width * scale;
@@ -471,8 +482,20 @@ export const Box3D: React.FC = () => {
         <lineBasicMaterial color="#ff0000" linewidth={2} />
       </lineSegments>
 
-      {/* Face panels with finger joints and material thickness */}
-      {faceConfigs.map((faceConfig) => {
+      {/* Render panels from stored paths when enabled and available */}
+      {USE_STORED_PATHS && panelCollection && (
+        <PanelCollectionRenderer
+          scale={scale}
+          selectedPanelId={selectedPanelId}
+          onPanelClick={selectionMode === 'panel' ? (panelId) => {
+            selectPanel(selectedPanelId === panelId ? null : panelId);
+          } : undefined}
+          hiddenFaceIds={hiddenFaceIds}
+        />
+      )}
+
+      {/* Face panels with finger joints and material thickness (old method, when not using stored paths) */}
+      {!USE_STORED_PATHS && faceConfigs.map((faceConfig) => {
         const face = faces.find((f) => f.id === faceConfig.id);
         const isSolid = face?.solid ?? true;
         const faceId = `face-${faceConfig.id}`;
@@ -565,8 +588,8 @@ export const Box3D: React.FC = () => {
         );
       })}
 
-      {/* Existing subdivision panels with finger joints */}
-      {subdivisions.map((sub) => {
+      {/* Existing subdivision panels with finger joints (old method, when not using stored paths) */}
+      {!USE_STORED_PATHS && subdivisions.map((sub) => {
         let position: [number, number, number];
         let rotation: [number, number, number];
         let sizeW: number;
