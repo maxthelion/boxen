@@ -229,22 +229,34 @@ export const deserializeProject = (encoded: string): ProjectState | null => {
   }
 };
 
-// URL helpers
+// URL helpers - using query parameter for better sharing compatibility
+const URL_PARAM = 'p';
+
 export const saveToUrl = (state: ProjectState): void => {
   const encoded = serializeProject(state);
   const url = new URL(window.location.href);
-  url.hash = encoded;
+  url.searchParams.set(URL_PARAM, encoded);
+  url.hash = ''; // Clear any old hash
   window.history.replaceState(null, '', url.toString());
 };
 
 export const loadFromUrl = (): ProjectState | null => {
-  const hash = window.location.hash.slice(1); // Remove leading #
-  if (!hash) return null;
-  return deserializeProject(hash);
+  const params = new URLSearchParams(window.location.search);
+  const encoded = params.get(URL_PARAM);
+
+  // Also check hash for backwards compatibility with old URLs
+  if (!encoded) {
+    const hash = window.location.hash.slice(1);
+    if (hash) return deserializeProject(hash);
+    return null;
+  }
+
+  return deserializeProject(encoded);
 };
 
 export const clearUrlState = (): void => {
   const url = new URL(window.location.href);
+  url.searchParams.delete(URL_PARAM);
   url.hash = '';
   window.history.replaceState(null, '', url.toString());
 };
@@ -252,6 +264,7 @@ export const clearUrlState = (): void => {
 export const getShareableUrl = (state: ProjectState): string => {
   const encoded = serializeProject(state);
   const url = new URL(window.location.href);
-  url.hash = encoded;
+  url.searchParams.set(URL_PARAM, encoded);
+  url.hash = '';
   return url.toString();
 };
