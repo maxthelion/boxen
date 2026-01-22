@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useMemo } from 'react';
 import * as THREE from 'three';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
@@ -15,11 +15,11 @@ interface VoidMeshProps {
 
 export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter }) => {
   const meshRef = useRef<THREE.Mesh>(null);
-  const [hovered, setHovered] = useState(false);
-  const { selectedVoidId, selectVoid, selectionMode, rootVoid, hiddenVoidIds, isolatedVoidId, config, faces } = useBoxStore();
+  const { selectedVoidIds, selectVoid, hoveredVoidId, setHoveredVoid, selectionMode, rootVoid, hiddenVoidIds, isolatedVoidId, config, faces } = useBoxStore();
   const { size: canvasSize } = useThree();
 
-  const isSelected = selectedVoidId === voidId;
+  const isSelected = selectedVoidIds.has(voidId);
+  const isHovered = hoveredVoidId === voidId;
   const isVoidMode = selectionMode === 'void';
   const visible = isVoidVisible(voidId, rootVoid, hiddenVoidIds, isolatedVoidId);
 
@@ -127,23 +127,23 @@ export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter })
           scale={[0.95, 0.95, 0.95]}
           onClick={(e) => {
             e.stopPropagation();
-            selectVoid(isSelected ? null : voidId);
+            selectVoid(voidId, e.shiftKey);
           }}
           onPointerOver={(e) => {
             e.stopPropagation();
-            setHovered(true);
+            setHoveredVoid(voidId);
             document.body.style.cursor = 'pointer';
           }}
           onPointerOut={() => {
-            setHovered(false);
+            setHoveredVoid(null);
             document.body.style.cursor = 'auto';
           }}
         >
           <boxGeometry args={[insetBounds.w, insetBounds.h, insetBounds.d]} />
           <meshStandardMaterial
-            color={isSelected ? '#4a90d9' : hovered ? '#6ab04c' : '#95a5a6'}
+            color={isSelected ? '#4a90d9' : isHovered ? '#6ab04c' : '#95a5a6'}
             transparent
-            opacity={isSelected ? 0.6 : hovered ? 0.4 : 0.2}
+            opacity={isSelected ? 0.6 : isHovered ? 0.4 : 0.2}
           />
         </mesh>
       )}

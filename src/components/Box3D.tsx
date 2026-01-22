@@ -400,7 +400,7 @@ const getLidIntersections = (
 };
 
 export const Box3D: React.FC = () => {
-  const { config, faces, rootVoid, subdivisionPreview, selectionMode, selectedPanelId, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, panelCollection } = useBoxStore();
+  const { config, faces, rootVoid, subdivisionPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, panelCollection } = useBoxStore();
   const { width, height, depth } = config;
 
   // Auto-generate panels when dirty
@@ -486,9 +486,9 @@ export const Box3D: React.FC = () => {
       {USE_STORED_PATHS && panelCollection && (
         <PanelCollectionRenderer
           scale={scale}
-          selectedPanelId={selectedPanelId}
-          onPanelClick={selectionMode === 'panel' ? (panelId) => {
-            selectPanel(selectedPanelId === panelId ? null : panelId);
+          selectedPanelIds={selectedPanelIds}
+          onPanelClick={selectionMode === 'panel' ? (panelId, e) => {
+            selectPanel(panelId, e?.shiftKey);
           } : undefined}
           hiddenFaceIds={hiddenFaceIds}
         />
@@ -537,7 +537,7 @@ export const Box3D: React.FC = () => {
             }
           }
         }
-        const isSelectedPanel = selectionMode === 'panel' && selectedPanelId === `face-${faceConfig.id}`;
+        const isSelectedPanel = selectionMode === 'panel' && selectedPanelIds.has(`face-${faceConfig.id}`);
         const isSelectedAssembly = selectionMode === 'assembly' && selectedAssemblyId === 'main';
         const isPanelMode = selectionMode === 'panel';
         const isAssemblyMode = selectionMode === 'assembly';
@@ -561,9 +561,9 @@ export const Box3D: React.FC = () => {
           config.materialThickness
         );
 
-        const handleClick = () => {
+        const handleClick = (e?: React.MouseEvent) => {
           if (isPanelMode && isSolid) {
-            selectPanel(isSelectedPanel ? null : `face-${faceConfig.id}`);
+            selectPanel(`face-${faceConfig.id}`, e?.shiftKey);
           } else if (isAssemblyMode) {
             selectAssembly(isSelectedAssembly ? null : 'main');
           }
@@ -621,7 +621,7 @@ export const Box3D: React.FC = () => {
             break;
         }
 
-        const isSelected = selectionMode === 'panel' && selectedPanelId === `sub-${sub.id}`;
+        const isSelected = selectionMode === 'panel' && selectedPanelIds.has(`sub-${sub.id}`);
         const isPanelMode = selectionMode === 'panel';
 
         return (
@@ -635,8 +635,8 @@ export const Box3D: React.FC = () => {
             scale={scale}
             boxDimensions={{ width, height, depth }}
             isSelected={isSelected}
-            onClick={isPanelMode ? () => {
-              selectPanel(isSelected ? null : `sub-${sub.id}`);
+            onClick={isPanelMode ? (e?: React.MouseEvent) => {
+              selectPanel(`sub-${sub.id}`, e?.shiftKey);
             } : undefined}
           />
         );

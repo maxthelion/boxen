@@ -35,7 +35,7 @@ const getValidAxes = (faces: Face[]): { x: boolean; y: boolean; z: boolean } => 
 
 export const SubdivisionControls: React.FC = () => {
   const {
-    selectedVoidId,
+    selectedVoidIds,
     rootVoid,
     faces,
     subdivisionPreview,
@@ -47,6 +47,9 @@ export const SubdivisionControls: React.FC = () => {
     removeSubAssembly,
     selectSubAssembly
   } = useBoxStore();
+
+  // Get the single selected void ID (this component only shows when exactly 1 is selected)
+  const selectedVoidId = selectedVoidIds.size === 1 ? Array.from(selectedVoidIds)[0] : null;
 
   // Track whether user has clicked to enter edit mode (vs just hovering)
   const [isEditingPreview, setIsEditingPreview] = useState(false);

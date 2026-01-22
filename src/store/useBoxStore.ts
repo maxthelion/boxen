@@ -434,10 +434,13 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   faces: initialFaces(),
   rootVoid: createSimpleRootVoid(100, 100, 100),
   selectionMode: 'assembly' as SelectionMode,
-  selectedVoidId: null,
-  selectedSubAssemblyId: null,
-  selectedPanelId: null,
+  selectedVoidIds: new Set<string>(),
+  selectedSubAssemblyIds: new Set<string>(),
+  selectedPanelIds: new Set<string>(),
   selectedAssemblyId: 'main',  // Default to main assembly selected
+  // Hover state
+  hoveredVoidId: null,
+  hoveredPanelId: null,
   subdivisionPreview: null,
   hiddenVoidIds: new Set<string>(),
   isolatedVoidId: null,
@@ -453,9 +456,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       return {
         config,
         rootVoid: createRootVoidWithInsets(config.width, config.height, config.depth, config.assembly),
-        selectedVoidId: null,
-        selectedSubAssemblyId: null,
-        selectedPanelId: null,
+        selectedVoidIds: new Set<string>(),
+        selectedSubAssemblyIds: new Set<string>(),
+        selectedPanelIds: new Set<string>(),
         selectedAssemblyId: null,
         subdivisionPreview: null,
         hiddenVoidIds: new Set<string>(),
@@ -479,39 +482,101 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   setSelectionMode: (mode) =>
     set({
       selectionMode: mode,
-      selectedVoidId: null,
-      selectedSubAssemblyId: null,
-      selectedPanelId: null,
+      selectedVoidIds: new Set<string>(),
+      selectedSubAssemblyIds: new Set<string>(),
+      selectedPanelIds: new Set<string>(),
       selectedAssemblyId: null,
       subdivisionPreview: null,
     }),
 
-  selectVoid: (voidId) =>
-    set({
-      selectedVoidId: voidId,
-      selectedSubAssemblyId: null,
-      selectedPanelId: null,
-      selectedAssemblyId: null,
-      // Keep subdivisionPreview - don't clear on selection change
+  selectVoid: (voidId, additive = false) =>
+    set((state) => {
+      if (voidId === null) {
+        return { selectedVoidIds: new Set<string>() };
+      }
+      const newSet = new Set(additive ? state.selectedVoidIds : []);
+      if (newSet.has(voidId)) {
+        newSet.delete(voidId);
+      } else {
+        newSet.add(voidId);
+      }
+      return {
+        selectedVoidIds: newSet,
+        // Clear other selection types if not additive
+        ...(additive ? {} : {
+          selectedSubAssemblyIds: new Set<string>(),
+          selectedPanelIds: new Set<string>(),
+          selectedAssemblyId: null,
+        }),
+      };
     }),
 
-  selectPanel: (panelId) =>
-    set({
-      selectedPanelId: panelId,
-      selectedVoidId: null,
-      selectedSubAssemblyId: null,
-      selectedAssemblyId: null,
-      // Keep subdivisionPreview - don't clear on selection change
+  selectPanel: (panelId, additive = false) =>
+    set((state) => {
+      if (panelId === null) {
+        return { selectedPanelIds: new Set<string>() };
+      }
+      const newSet = new Set(additive ? state.selectedPanelIds : []);
+      if (newSet.has(panelId)) {
+        newSet.delete(panelId);
+      } else {
+        newSet.add(panelId);
+      }
+      return {
+        selectedPanelIds: newSet,
+        // Clear other selection types if not additive
+        ...(additive ? {} : {
+          selectedVoidIds: new Set<string>(),
+          selectedSubAssemblyIds: new Set<string>(),
+          selectedAssemblyId: null,
+        }),
+      };
     }),
 
   selectAssembly: (assemblyId) =>
     set({
       selectedAssemblyId: assemblyId,
-      selectedVoidId: null,
-      selectedSubAssemblyId: null,
-      selectedPanelId: null,
+      selectedVoidIds: new Set<string>(),
+      selectedSubAssemblyIds: new Set<string>(),
+      selectedPanelIds: new Set<string>(),
       // Keep subdivisionPreview - don't clear on selection change
     }),
+
+  selectSubAssembly: (subAssemblyId, additive = false) =>
+    set((state) => {
+      if (subAssemblyId === null) {
+        return { selectedSubAssemblyIds: new Set<string>() };
+      }
+      const newSet = new Set(additive ? state.selectedSubAssemblyIds : []);
+      if (newSet.has(subAssemblyId)) {
+        newSet.delete(subAssemblyId);
+      } else {
+        newSet.add(subAssemblyId);
+      }
+      return {
+        selectedSubAssemblyIds: newSet,
+        // Clear other selection types if not additive
+        ...(additive ? {} : {
+          selectedVoidIds: new Set<string>(),
+          selectedPanelIds: new Set<string>(),
+          selectedAssemblyId: null,
+        }),
+      };
+    }),
+
+  clearSelection: () =>
+    set({
+      selectedVoidIds: new Set<string>(),
+      selectedSubAssemblyIds: new Set<string>(),
+      selectedPanelIds: new Set<string>(),
+      selectedAssemblyId: null,
+    }),
+
+  setHoveredVoid: (voidId) =>
+    set({ hoveredVoidId: voidId }),
+
+  setHoveredPanel: (panelId) =>
+    set({ hoveredPanelId: panelId }),
 
   setSubdivisionPreview: (preview) =>
     set({ subdivisionPreview: preview }),
@@ -607,8 +672,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       return {
         rootVoid: newRootVoid,
-        selectedVoidId: null,
-        selectedPanelId: null,
+        selectedVoidIds: new Set<string>(),
+        selectedPanelIds: new Set<string>(),
         subdivisionPreview: null,
         panelsDirty: true,  // Mark panels as needing regeneration
       };
@@ -626,8 +691,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       return {
         rootVoid: newRootVoid,
-        selectedVoidId: null,
-        selectedPanelId: null,
+        selectedVoidIds: new Set<string>(),
+        selectedPanelIds: new Set<string>(),
         subdivisionPreview: null,
         panelsDirty: true,  // Mark panels as needing regeneration
       };
@@ -636,9 +701,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   resetVoids: () =>
     set((state) => ({
       rootVoid: createRootVoidWithInsets(state.config.width, state.config.height, state.config.depth, state.config.assembly),
-      selectedVoidId: null,
-      selectedSubAssemblyId: null,
-      selectedPanelId: null,
+      selectedVoidIds: new Set<string>(),
+      selectedSubAssemblyIds: new Set<string>(),
+      selectedPanelIds: new Set<string>(),
       selectedAssemblyId: null,
       subdivisionPreview: null,
       hiddenVoidIds: new Set<string>(),
@@ -707,20 +772,11 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       return {
         rootVoid: newRootVoid,
-        selectedVoidId: null,
-        selectedSubAssemblyId: subAssembly.id,
+        selectedVoidIds: new Set<string>(),
+        selectedSubAssemblyIds: new Set([subAssembly.id]),
         subdivisionPreview: null,
         panelsDirty: true,  // Mark panels as needing regeneration
       };
-    }),
-
-  selectSubAssembly: (subAssemblyId) =>
-    set({
-      selectedSubAssemblyId: subAssemblyId,
-      selectedVoidId: null,
-      selectedPanelId: null,
-      selectedAssemblyId: null,
-      // Keep subdivisionPreview - don't clear on selection change
     }),
 
   toggleSubAssemblyFace: (subAssemblyId, faceId) =>
@@ -804,8 +860,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       return {
         rootVoid: newRootVoid,
-        selectedVoidId: null,
-        selectedSubAssemblyId: null,
+        selectedVoidIds: new Set<string>(),
+        selectedSubAssemblyIds: new Set<string>(),
         subdivisionPreview: null,
         panelsDirty: true,  // Mark panels as needing regeneration
       };
@@ -879,8 +935,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         },
         rootVoid: newRootVoid,
         // Clear selection when void structure changes
-        selectedVoidId: null,
-        selectedPanelId: null,
+        selectedVoidIds: new Set<string>(),
+        selectedPanelIds: new Set<string>(),
         panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
@@ -956,8 +1012,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         },
         rootVoid: newRootVoid,
         // Clear selection when void structure changes
-        selectedVoidId: null,
-        selectedPanelId: null,
+        selectedVoidIds: new Set<string>(),
+        selectedPanelIds: new Set<string>(),
         panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
@@ -1443,10 +1499,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       rootVoid: loaded.rootVoid,
       panelCollection: collection,
       panelsDirty: false,
-      selectedVoidId: null,
-      selectedPanelId: null,
+      selectedVoidIds: new Set<string>(),
+      selectedPanelIds: new Set<string>(),
       selectedAssemblyId: null,
-      selectedSubAssemblyId: null,
+      selectedSubAssemblyIds: new Set<string>(),
     });
 
     return true;

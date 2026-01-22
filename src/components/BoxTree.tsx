@@ -50,7 +50,7 @@ const getDividerPanels = (parent: Void): DividerPanel[] => {
           break;
       }
       panels.push({
-        id: `panel-${child.id}`,
+        id: `divider-${child.id}-split`,
         axis: child.splitAxis,
         position: child.splitPosition,
         width,
@@ -63,14 +63,20 @@ const getDividerPanels = (parent: Void): DividerPanel[] => {
 
 // Common props for tree operations
 interface TreeOpsProps {
-  selectedVoidId: string | null;
-  selectedSubAssemblyId: string | null;
-  selectedPanelId: string | null;
+  selectedVoidIds: Set<string>;
+  selectedSubAssemblyIds: Set<string>;
+  selectedPanelIds: Set<string>;
   selectedAssemblyId: string | null;
-  onSelectVoid: (id: string | null) => void;
-  onSelectSubAssembly: (id: string | null) => void;
-  onSelectPanel: (id: string | null) => void;
+  onSelectVoid: (id: string | null, additive?: boolean) => void;
+  onSelectSubAssembly: (id: string | null, additive?: boolean) => void;
+  onSelectPanel: (id: string | null, additive?: boolean) => void;
   onSelectAssembly: (id: string | null) => void;
+  // Hover state
+  hoveredVoidId: string | null;
+  hoveredPanelId: string | null;
+  onHoverVoid: (id: string | null) => void;
+  onHoverPanel: (id: string | null) => void;
+  // Visibility
   hiddenVoidIds: Set<string>;
   isolatedVoidId: string | null;
   onToggleVisibility: (id: string) => void;
@@ -89,23 +95,28 @@ interface TreeOpsProps {
 const OuterPanelNode: React.FC<{
   panel: OuterFacePanel;
   depth: number;
-  selectedPanelId: string | null;
-  onSelectPanel: (id: string | null) => void;
+  selectedPanelIds: Set<string>;
+  onSelectPanel: (id: string | null, additive?: boolean) => void;
+  hoveredPanelId: string | null;
+  onHoverPanel: (id: string | null) => void;
   hiddenFaceIds: Set<string>;
   onToggleFaceVisibility: (faceId: string) => void;
-}> = ({ panel, depth, selectedPanelId, onSelectPanel, hiddenFaceIds, onToggleFaceVisibility }) => {
-  const isSelected = selectedPanelId === panel.id;
+}> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, hiddenFaceIds, onToggleFaceVisibility }) => {
+  const isSelected = selectedPanelIds.has(panel.id);
+  const isHovered = hoveredPanelId === panel.id;
   const isHidden = hiddenFaceIds.has(panel.id);
 
   return (
     <div className="tree-node">
       <div
-        className={`tree-node-content panel ${isSelected ? 'selected' : ''} ${!panel.solid ? 'open-face' : ''} ${isHidden ? 'hidden' : ''}`}
+        className={`tree-node-content panel ${isSelected ? 'selected' : ''} ${isHovered ? 'hovered' : ''} ${!panel.solid ? 'open-face' : ''} ${isHidden ? 'hidden' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        onMouseEnter={() => onHoverPanel(panel.id)}
+        onMouseLeave={() => onHoverPanel(null)}
       >
         <span
           className="tree-node-main"
-          onClick={() => onSelectPanel(isSelected ? null : panel.id)}
+          onClick={(e) => onSelectPanel(panel.id, e.shiftKey)}
         >
           <span className="tree-icon">{panel.solid ? '▬' : '▭'}</span>
           <span className="tree-label">{panel.label}</span>
@@ -134,23 +145,28 @@ const OuterPanelNode: React.FC<{
 const DividerPanelNode: React.FC<{
   panel: DividerPanel;
   depth: number;
-  selectedPanelId: string | null;
-  onSelectPanel: (id: string | null) => void;
+  selectedPanelIds: Set<string>;
+  onSelectPanel: (id: string | null, additive?: boolean) => void;
+  hoveredPanelId: string | null;
+  onHoverPanel: (id: string | null) => void;
   onDelete: (voidId: string) => void;
-}> = ({ panel, depth, selectedPanelId, onSelectPanel, onDelete }) => {
-  const isSelected = selectedPanelId === panel.id;
+}> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, onDelete }) => {
+  const isSelected = selectedPanelIds.has(panel.id);
+  const isHovered = hoveredPanelId === panel.id;
   const axisLabel = panel.axis.toUpperCase();
-  const voidId = panel.id.replace('panel-', '');
+  const voidId = panel.id.replace('divider-', '').replace('-split', '');
 
   return (
     <div className="tree-node">
       <div
-        className={`tree-node-content panel ${isSelected ? 'selected' : ''}`}
+        className={`tree-node-content panel ${isSelected ? 'selected' : ''} ${isHovered ? 'hovered' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        onMouseEnter={() => onHoverPanel(panel.id)}
+        onMouseLeave={() => onHoverPanel(null)}
       >
         <span
           className="tree-node-main"
-          onClick={() => onSelectPanel(isSelected ? null : panel.id)}
+          onClick={(e) => onSelectPanel(panel.id, e.shiftKey)}
         >
           <span className="tree-icon">▬</span>
           <span className="tree-label">Divider @ {axisLabel}={panel.position.toFixed(0)}</span>
@@ -184,14 +200,18 @@ const VoidNode: React.FC<VoidNodeProps> = ({
   node,
   depth,
   label,
-  selectedVoidId,
-  selectedSubAssemblyId,
-  selectedPanelId,
+  selectedVoidIds,
+  selectedSubAssemblyIds,
+  selectedPanelIds,
   selectedAssemblyId,
   onSelectVoid,
   onSelectSubAssembly,
   onSelectPanel,
   onSelectAssembly,
+  hoveredVoidId,
+  hoveredPanelId,
+  onHoverVoid,
+  onHoverPanel,
   hiddenVoidIds,
   isolatedVoidId,
   onToggleVisibility,
@@ -205,7 +225,8 @@ const VoidNode: React.FC<VoidNodeProps> = ({
   onDeleteVoid,
   onDeleteSubAssembly,
 }) => {
-  const isSelected = selectedVoidId === node.id;
+  const isSelected = selectedVoidIds.has(node.id);
+  const isHovered = hoveredVoidId === node.id;
   const isLeaf = node.children.length === 0 && !node.subAssembly;
   const hasChildren = node.children.length > 0;
   const hasSubAssembly = !!node.subAssembly;
@@ -236,14 +257,18 @@ const VoidNode: React.FC<VoidNodeProps> = ({
   };
 
   const treeOps: TreeOpsProps = {
-    selectedVoidId,
-    selectedSubAssemblyId,
-    selectedPanelId,
+    selectedVoidIds,
+    selectedSubAssemblyIds,
+    selectedPanelIds,
     selectedAssemblyId,
     onSelectVoid,
     onSelectSubAssembly,
     onSelectPanel,
     onSelectAssembly,
+    hoveredVoidId,
+    hoveredPanelId,
+    onHoverVoid,
+    onHoverPanel,
     hiddenVoidIds,
     isolatedVoidId,
     onToggleVisibility,
@@ -261,12 +286,14 @@ const VoidNode: React.FC<VoidNodeProps> = ({
   return (
     <div className="tree-node">
       <div
-        className={`tree-node-content ${isSelected ? 'selected' : ''} ${isLeaf ? 'leaf' : 'branch'} ${isHidden ? 'hidden' : ''} ${isIsolated ? 'isolated' : ''}`}
+        className={`tree-node-content ${isSelected ? 'selected' : ''} ${isHovered ? 'hovered' : ''} ${isLeaf ? 'leaf' : 'branch'} ${isHidden ? 'hidden' : ''} ${isIsolated ? 'isolated' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        onMouseEnter={() => onHoverVoid(node.id)}
+        onMouseLeave={() => onHoverVoid(null)}
       >
         <span
           className="tree-node-main"
-          onClick={() => onSelectVoid(isSelected ? null : node.id)}
+          onClick={(e) => onSelectVoid(node.id, e.shiftKey)}
         >
           <span className="tree-icon">{getIcon()}</span>
           <span className="tree-label">{getLabel()}</span>
@@ -312,7 +339,7 @@ const VoidNode: React.FC<VoidNodeProps> = ({
       {hasChildren && (
         <div className="tree-children">
           {node.children.map((child) => {
-            const panel = dividerPanels.find(p => p.id === `panel-${child.id}`);
+            const panel = dividerPanels.find(p => p.id === `divider-${child.id}-split`);
 
             return (
               <React.Fragment key={child.id}>
@@ -320,8 +347,10 @@ const VoidNode: React.FC<VoidNodeProps> = ({
                   <DividerPanelNode
                     panel={panel}
                     depth={depth + 1}
-                    selectedPanelId={selectedPanelId}
+                    selectedPanelIds={selectedPanelIds}
                     onSelectPanel={onSelectPanel}
+                    hoveredPanelId={hoveredPanelId}
+                    onHoverPanel={onHoverPanel}
                     onDelete={onDeleteVoid}
                   />
                 )}
@@ -350,14 +379,18 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
   subAssembly,
   parentVoidId,
   depth,
-  selectedVoidId,
-  selectedSubAssemblyId,
-  selectedPanelId,
+  selectedVoidIds,
+  selectedSubAssemblyIds,
+  selectedPanelIds,
   selectedAssemblyId,
   onSelectVoid,
   onSelectSubAssembly,
   onSelectPanel,
   onSelectAssembly,
+  hoveredVoidId,
+  hoveredPanelId,
+  onHoverVoid,
+  onHoverPanel,
   hiddenVoidIds,
   isolatedVoidId,
   onToggleVisibility,
@@ -371,7 +404,7 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
   onDeleteVoid,
   onDeleteSubAssembly,
 }) => {
-  const isSelected = selectedSubAssemblyId === subAssembly.id;
+  const isSelected = selectedSubAssemblyIds.has(subAssembly.id);
   const { rootVoid } = subAssembly;
   const isHidden = hiddenSubAssemblyIds.has(subAssembly.id);
   const isIsolated = isolatedSubAssemblyId === subAssembly.id;
@@ -407,14 +440,18 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
   }));
 
   const treeOps: TreeOpsProps = {
-    selectedVoidId,
-    selectedSubAssemblyId,
-    selectedPanelId,
+    selectedVoidIds,
+    selectedSubAssemblyIds,
+    selectedPanelIds,
     selectedAssemblyId,
     onSelectVoid,
     onSelectSubAssembly,
     onSelectPanel,
     onSelectAssembly,
+    hoveredVoidId,
+    hoveredPanelId,
+    onHoverVoid,
+    onHoverPanel,
     hiddenVoidIds,
     isolatedVoidId,
     onToggleVisibility,
@@ -437,7 +474,7 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
       >
         <span
           className="tree-node-main"
-          onClick={() => onSelectSubAssembly(isSelected ? null : subAssembly.id)}
+          onClick={(e) => onSelectSubAssembly(subAssembly.id, e.shiftKey)}
         >
           <span className="tree-icon">{getTypeIcon()}</span>
           <span className="tree-label">{getTypeLabel()}</span>
@@ -484,8 +521,10 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
             key={panel.id}
             panel={panel}
             depth={depth + 1}
-            selectedPanelId={selectedPanelId}
+            selectedPanelIds={selectedPanelIds}
             onSelectPanel={onSelectPanel}
+            hoveredPanelId={hoveredPanelId}
+            onHoverPanel={onHoverPanel}
             hiddenFaceIds={hiddenFaceIds}
             onToggleFaceVisibility={onToggleFaceVisibility}
           />
@@ -516,14 +555,18 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
   rootVoid,
   faces,
   depth,
-  selectedVoidId,
-  selectedSubAssemblyId,
-  selectedPanelId,
+  selectedVoidIds,
+  selectedSubAssemblyIds,
+  selectedPanelIds,
   selectedAssemblyId,
   onSelectVoid,
   onSelectSubAssembly,
   onSelectPanel,
   onSelectAssembly,
+  hoveredVoidId,
+  hoveredPanelId,
+  onHoverVoid,
+  onHoverPanel,
   hiddenVoidIds,
   isolatedVoidId,
   onToggleVisibility,
@@ -548,14 +591,18 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
   }));
 
   const treeOps: TreeOpsProps = {
-    selectedVoidId,
-    selectedSubAssemblyId,
-    selectedPanelId,
+    selectedVoidIds,
+    selectedSubAssemblyIds,
+    selectedPanelIds,
     selectedAssemblyId,
     onSelectVoid,
     onSelectSubAssembly,
     onSelectPanel,
     onSelectAssembly,
+    hoveredVoidId,
+    hoveredPanelId,
+    onHoverVoid,
+    onHoverPanel,
     hiddenVoidIds,
     isolatedVoidId,
     onToggleVisibility,
@@ -591,8 +638,10 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
             key={panel.id}
             panel={panel}
             depth={depth + 1}
-            selectedPanelId={selectedPanelId}
+            selectedPanelIds={selectedPanelIds}
             onSelectPanel={onSelectPanel}
+            hoveredPanelId={hoveredPanelId}
+            onHoverPanel={onHoverPanel}
             hiddenFaceIds={hiddenFaceIds}
             onToggleFaceVisibility={onToggleFaceVisibility}
           />
@@ -616,14 +665,18 @@ export const BoxTree: React.FC = () => {
   const {
     rootVoid,
     faces,
-    selectedVoidId,
-    selectedSubAssemblyId,
-    selectedPanelId,
+    selectedVoidIds,
+    selectedSubAssemblyIds,
+    selectedPanelIds,
     selectedAssemblyId,
     selectVoid,
     selectSubAssembly,
     selectPanel,
     selectAssembly,
+    hoveredVoidId,
+    hoveredPanelId,
+    setHoveredVoid,
+    setHoveredPanel,
     hiddenVoidIds,
     isolatedVoidId,
     toggleVoidVisibility,
@@ -652,14 +705,18 @@ export const BoxTree: React.FC = () => {
           rootVoid={rootVoid}
           faces={faces}
           depth={0}
-          selectedVoidId={selectedVoidId}
-          selectedSubAssemblyId={selectedSubAssemblyId}
-          selectedPanelId={selectedPanelId}
+          selectedVoidIds={selectedVoidIds}
+          selectedSubAssemblyIds={selectedSubAssemblyIds}
+          selectedPanelIds={selectedPanelIds}
           selectedAssemblyId={selectedAssemblyId}
           onSelectVoid={selectVoid}
           onSelectSubAssembly={selectSubAssembly}
           onSelectPanel={selectPanel}
           onSelectAssembly={selectAssembly}
+          hoveredVoidId={hoveredVoidId}
+          hoveredPanelId={hoveredPanelId}
+          onHoverVoid={setHoveredVoid}
+          onHoverPanel={setHoveredPanel}
           hiddenVoidIds={hiddenVoidIds}
           isolatedVoidId={isolatedVoidId}
           onToggleVisibility={toggleVoidVisibility}

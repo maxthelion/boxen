@@ -215,7 +215,7 @@ const EdgeControls: React.FC<EdgeControlsProps> = ({ edge, value, status, onChan
 
 export const PanelProperties: React.FC = () => {
   const {
-    selectedPanelId,
+    selectedPanelIds,
     faces,
     config,
     rootVoid,
@@ -226,6 +226,10 @@ export const PanelProperties: React.FC = () => {
   } = useBoxStore();
 
   const [selectedEdge, setSelectedEdge] = useState<EdgePosition | null>(null);
+
+  // Get the first selected panel ID (for multi-select, show properties of the first one)
+  const selectedPanelId = selectedPanelIds.size > 0 ? Array.from(selectedPanelIds)[0] : null;
+  const selectionCount = selectedPanelIds.size;
 
   // Get the selected panel from panelCollection
   const selectedPanel = useMemo(() => {

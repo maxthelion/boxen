@@ -639,10 +639,23 @@ const generateDividerSlotHoles = (
   existingPanels?: PanelPath[]
 ): PanelHole[] => {
   const holes: PanelHole[] = [];
-  const { materialThickness, fingerWidth, fingerGap, width, height, depth } = config;
+  const { materialThickness, fingerWidth, fingerGap, width, height, depth, assembly } = config;
   const subdivisions = getAllSubdivisions(rootVoid);
   const isFaceSolid = (id: FaceId) => faces.find(f => f.id === id)?.solid ?? false;
   const tolerance = 0.01;
+
+  // Get lid inset values based on assembly axis
+  const getLidInset = (side: 'positive' | 'negative'): number => {
+    return assembly.lids[side].inset || 0;
+  };
+
+  // Calculate boundary thresholds accounting for lid insets
+  const topInset = assembly.assemblyAxis === 'y' ? getLidInset('positive') : 0;
+  const bottomInset = assembly.assemblyAxis === 'y' ? getLidInset('negative') : 0;
+  const leftInset = assembly.assemblyAxis === 'x' ? getLidInset('negative') : 0;
+  const rightInset = assembly.assemblyAxis === 'x' ? getLidInset('positive') : 0;
+  const frontInset = assembly.assemblyAxis === 'z' ? getLidInset('positive') : 0;
+  const backInset = assembly.assemblyAxis === 'z' ? getLidInset('negative') : 0;
 
   // Helper to get divider's edge extensions
   const getDividerExtensions = (subId: string): EdgeExtensions => {
@@ -666,13 +679,13 @@ const generateDividerSlotHoles = (
     const { bounds, position, axis } = sub;
     const extensions = getDividerExtensions(sub.id);
 
-    // Helper to check if divider meets an outer face
-    const meetsBottom = bounds.y < tolerance;
-    const meetsTop = bounds.y + bounds.h > height - tolerance;
-    const meetsLeft = bounds.x < tolerance;
-    const meetsRight = bounds.x + bounds.w > width - tolerance;
-    const meetsBack = bounds.z < tolerance;
-    const meetsFront = bounds.z + bounds.d > depth - tolerance;
+    // Helper to check if divider meets an outer face (accounting for lid insets)
+    const meetsBottom = bounds.y <= bottomInset + tolerance;
+    const meetsTop = bounds.y + bounds.h >= height - topInset - tolerance;
+    const meetsLeft = bounds.x <= leftInset + tolerance;
+    const meetsRight = bounds.x + bounds.w >= width - rightInset - tolerance;
+    const meetsBack = bounds.z <= backInset + tolerance;
+    const meetsFront = bounds.z + bounds.d >= depth - frontInset - tolerance;
 
     // For divider edges: determine which unlocked edges affect the slot endpoints
     // The divider's edge meeting this face - extensions on perpendicular unlocked edges affect length
@@ -1152,53 +1165,366 @@ const generateFacePanel = (
 // Divider Panel Generation
 // =============================================================================
 
+// Generate slot holes in a divider panel where child dividers connect
+const generateDividerToSlotHoles = (
+  subdivision: { id: string; axis: 'x' | 'y' | 'z'; position: number; bounds: any },
+  allSubdivisions: { id: string; axis: 'x' | 'y' | 'z'; position: number; bounds: any }[],
+  config: BoxConfig,
+  faces: Face[]
+): PanelHole[] => {
+  const holes: PanelHole[] = [];
+  const { materialThickness, fingerWidth, fingerGap, width, height, depth } = config;
+  const mt = materialThickness;
+  const tolerance = 0.01;
+  const { bounds, axis, position } = subdivision;
+  const isFaceSolid = (faceId: FaceId) => faces.find(f => f.id === faceId)?.solid ?? false;
+
+  // Find child dividers that connect to this divider
+  // A child divider connects if:
+  // 1. It's on a perpendicular axis
+  // 2. One of its bounds edges (adjusted for mt/2) equals this divider's position
+  // 3. Its position falls within this divider's bounds on that axis
+
+  for (const child of allSubdivisions) {
+    if (child.id === subdivision.id) continue;
+    if (child.axis === axis) continue; // Must be perpendicular
+
+    let connectsToThis = false;
+    let slotPosition: number = 0; // Position along this divider's surface (in panel local coords)
+    let slotLength: number = 0;
+    let cornerInsetStart: number = 0; // Inset at start of slot (if child meets outer face)
+    let cornerInsetEnd: number = 0;   // Inset at end of slot (if child meets outer face)
+    let isHorizontal: boolean = false;
+
+    // Check if child's bounds edge (with mt/2 adjustment) matches this divider's position
+    // Child bounds are offset by mt/2 from the actual divider positions:
+    // - child.bounds start edge corresponds to divider at (bounds.start - mt/2)
+    // - child.bounds end edge corresponds to divider at (bounds.end + mt/2)
+
+    switch (axis) {
+      case 'y':
+        // This is a Y-axis divider (horizontal shelf) at `position` on Y-axis
+        // Panel dimensions: width = bounds.w (X), height = bounds.d (Z)
+        // Child X-axis dividers connect if their Y-bounds edge touches this Y position
+        if (child.axis === 'x') {
+          // Check if child's Y bounds edge (adjusted) matches this divider's Y position
+          const childYMin = child.bounds.y - mt / 2;
+          const childYMax = child.bounds.y + child.bounds.h + mt / 2;
+
+          if (Math.abs(childYMin - position) < tolerance || Math.abs(childYMax - position) < tolerance) {
+            if (bounds.x <= child.position && child.position <= bounds.x + bounds.w) {
+              connectsToThis = true;
+              slotPosition = child.position - (bounds.x + bounds.w / 2);
+              // Child X-divider's edge runs along Z; check if it meets back/front outer faces
+              slotLength = child.bounds.d;
+              // Child's "left" edge (in panel coords) is back face, "right" is front face
+              cornerInsetStart = (isFaceSolid('back') && child.bounds.z <= tolerance) ? mt : 0;
+              cornerInsetEnd = (isFaceSolid('front') && child.bounds.z + child.bounds.d >= depth - tolerance) ? mt : 0;
+              isHorizontal = false;
+            }
+          }
+        } else if (child.axis === 'z') {
+          const childYMin = child.bounds.y - mt / 2;
+          const childYMax = child.bounds.y + child.bounds.h + mt / 2;
+
+          if (Math.abs(childYMin - position) < tolerance || Math.abs(childYMax - position) < tolerance) {
+            if (bounds.z <= child.position && child.position <= bounds.z + bounds.d) {
+              connectsToThis = true;
+              slotPosition = child.position - (bounds.z + bounds.d / 2);
+              slotLength = child.bounds.w;
+              // Child Z-divider's edge runs along X; check if it meets left/right outer faces
+              cornerInsetStart = (isFaceSolid('left') && child.bounds.x <= tolerance) ? mt : 0;
+              cornerInsetEnd = (isFaceSolid('right') && child.bounds.x + child.bounds.w >= width - tolerance) ? mt : 0;
+              isHorizontal = true;
+            }
+          }
+        }
+        break;
+
+      case 'x':
+        // This is an X-axis divider (vertical partition) at `position` on X-axis
+        // Panel dimensions: width = bounds.d (Z), height = bounds.h (Y)
+        if (child.axis === 'y') {
+          const childXMin = child.bounds.x - mt / 2;
+          const childXMax = child.bounds.x + child.bounds.w + mt / 2;
+
+          if (Math.abs(childXMin - position) < tolerance || Math.abs(childXMax - position) < tolerance) {
+            if (bounds.y <= child.position && child.position <= bounds.y + bounds.h) {
+              connectsToThis = true;
+              slotPosition = child.position - (bounds.y + bounds.h / 2);
+              slotLength = child.bounds.d;
+              // Child Y-divider's edge runs along Z; check if it meets back/front outer faces
+              cornerInsetStart = (isFaceSolid('back') && child.bounds.z <= tolerance) ? mt : 0;
+              cornerInsetEnd = (isFaceSolid('front') && child.bounds.z + child.bounds.d >= depth - tolerance) ? mt : 0;
+              isHorizontal = true;
+            }
+          }
+        } else if (child.axis === 'z') {
+          const childXMin = child.bounds.x - mt / 2;
+          const childXMax = child.bounds.x + child.bounds.w + mt / 2;
+
+          if (Math.abs(childXMin - position) < tolerance || Math.abs(childXMax - position) < tolerance) {
+            if (bounds.z <= child.position && child.position <= bounds.z + bounds.d) {
+              connectsToThis = true;
+              slotPosition = child.position - (bounds.z + bounds.d / 2);
+              slotLength = child.bounds.h;
+              // Child Z-divider's edge runs along Y; check if it meets top/bottom outer faces
+              cornerInsetStart = (isFaceSolid('bottom') && child.bounds.y <= tolerance) ? mt : 0;
+              cornerInsetEnd = (isFaceSolid('top') && child.bounds.y + child.bounds.h >= height - tolerance) ? mt : 0;
+              isHorizontal = false;
+            }
+          }
+        }
+        break;
+
+      case 'z':
+        // This is a Z-axis divider at `position` on Z-axis
+        // Panel dimensions: width = bounds.w (X), height = bounds.h (Y)
+        if (child.axis === 'x') {
+          const childZMin = child.bounds.z - mt / 2;
+          const childZMax = child.bounds.z + child.bounds.d + mt / 2;
+
+          if (Math.abs(childZMin - position) < tolerance || Math.abs(childZMax - position) < tolerance) {
+            if (bounds.x <= child.position && child.position <= bounds.x + bounds.w) {
+              connectsToThis = true;
+              slotPosition = child.position - (bounds.x + bounds.w / 2);
+              slotLength = child.bounds.h;
+              // Child X-divider's edge runs along Y; check if it meets top/bottom outer faces
+              cornerInsetStart = (isFaceSolid('bottom') && child.bounds.y <= tolerance) ? mt : 0;
+              cornerInsetEnd = (isFaceSolid('top') && child.bounds.y + child.bounds.h >= height - tolerance) ? mt : 0;
+              isHorizontal = false;
+            }
+          }
+        } else if (child.axis === 'y') {
+          const childZMin = child.bounds.z - mt / 2;
+          const childZMax = child.bounds.z + child.bounds.d + mt / 2;
+
+          if (Math.abs(childZMin - position) < tolerance || Math.abs(childZMax - position) < tolerance) {
+            if (bounds.y <= child.position && child.position <= bounds.y + bounds.h) {
+              connectsToThis = true;
+              slotPosition = child.position - (bounds.y + bounds.h / 2);
+              slotLength = child.bounds.w;
+              // Child Y-divider's edge runs along X; check if it meets left/right outer faces
+              cornerInsetStart = (isFaceSolid('left') && child.bounds.x <= tolerance) ? mt : 0;
+              cornerInsetEnd = (isFaceSolid('right') && child.bounds.x + child.bounds.w >= width - tolerance) ? mt : 0;
+              isHorizontal = true;
+            }
+          }
+        }
+        break;
+    }
+
+    if (connectsToThis && slotLength > 0) {
+      // Calculate effective edge length (same as child's finger pattern)
+      // Account for corner insets where child meets outer faces
+      const effectiveLength = slotLength - cornerInsetStart - cornerInsetEnd;
+      const halfEffectiveLength = effectiveLength / 2;
+
+      // Use the same corner gap adjustment as the finger pattern
+      const maxCornerInset = Math.max(cornerInsetStart, cornerInsetEnd);
+      const adjustedGapMultiplier = Math.max(0, fingerGap - maxCornerInset / fingerWidth);
+      const cornerGap = adjustedGapMultiplier * fingerWidth;
+      const usableLength = effectiveLength - cornerGap * 2;
+
+      if (usableLength < fingerWidth) continue;
+
+      let numFingers = Math.max(1, Math.floor(usableLength / fingerWidth));
+      if (numFingers % 2 === 0) numFingers++;
+
+      const actualFingerWidth = usableLength / numFingers;
+
+      // Center offset: the effective region is shifted by (cornerInsetStart - cornerInsetEnd) / 2
+      const centerOffset = (cornerInsetStart - cornerInsetEnd) / 2;
+      const fingerRegionStart = -halfEffectiveLength + cornerGap + centerOffset;
+
+      for (let i = 0; i < numFingers; i++) {
+        if (i % 2 === 0) {
+          const slotStart = fingerRegionStart + i * actualFingerWidth;
+          const slotEnd = slotStart + actualFingerWidth;
+
+          let holePoints: PathPoint[];
+          if (isHorizontal) {
+            holePoints = [
+              { x: slotStart, y: slotPosition - materialThickness / 2 },
+              { x: slotEnd, y: slotPosition - materialThickness / 2 },
+              { x: slotEnd, y: slotPosition + materialThickness / 2 },
+              { x: slotStart, y: slotPosition + materialThickness / 2 },
+            ];
+          } else {
+            holePoints = [
+              { x: slotPosition - materialThickness / 2, y: slotStart },
+              { x: slotPosition + materialThickness / 2, y: slotStart },
+              { x: slotPosition + materialThickness / 2, y: slotEnd },
+              { x: slotPosition - materialThickness / 2, y: slotEnd },
+            ];
+          }
+
+          holes.push({
+            id: `divider-slot-${subdivision.id}-${child.id}-${i}`,
+            type: 'slot',
+            path: { points: holePoints, closed: true },
+            source: {
+              type: 'divider-slot',
+              sourceId: child.id,
+            },
+          });
+        }
+      }
+    }
+  }
+
+  return holes;
+};
+
 const generateDividerPanel = (
   subdivision: { id: string; axis: 'x' | 'y' | 'z'; position: number; bounds: any },
   faces: Face[],
   config: BoxConfig,
   scale: number = 1,
-  existingExtensions?: EdgeExtensions
+  existingExtensions?: EdgeExtensions,
+  allSubdivisions?: { id: string; axis: 'x' | 'y' | 'z'; position: number; bounds: any }[]
 ): PanelPath => {
-  const { materialThickness, fingerWidth, fingerGap, width, height, depth } = config;
+  const { materialThickness, fingerWidth, fingerGap, width, height, depth, assembly } = config;
   const { bounds, axis, position } = subdivision;
   const isFaceSolid = (faceId: FaceId) => faces.find(f => f.id === faceId)?.solid ?? false;
   const tolerance = 0.01;
   const extensions = existingExtensions ?? defaultEdgeExtensions;
 
+  // Get lid inset values based on assembly axis
+  // These affect where the divider "meets" a lid face
+  const getLidInset = (side: 'positive' | 'negative'): number => {
+    return assembly.lids[side].inset || 0;
+  };
+
+  // Calculate boundary thresholds accounting for lid insets
+  // For Y-axis assembly: top/bottom are lids
+  // For X-axis assembly: left/right are lids
+  // For Z-axis assembly: front/back are lids
+  const topInset = assembly.assemblyAxis === 'y' ? getLidInset('positive') : 0;
+  const bottomInset = assembly.assemblyAxis === 'y' ? getLidInset('negative') : 0;
+  const leftInset = assembly.assemblyAxis === 'x' ? getLidInset('negative') : 0;
+  const rightInset = assembly.assemblyAxis === 'x' ? getLidInset('positive') : 0;
+  const frontInset = assembly.assemblyAxis === 'z' ? getLidInset('positive') : 0;
+  const backInset = assembly.assemblyAxis === 'z' ? getLidInset('negative') : 0;
+
+  // Check if an edge meets another divider panel
+  // edgeAxis: the axis perpendicular to the edge (the axis another divider would need to be on)
+  // edgePosition: the position along that axis where this edge is
+  // thisPosition: this divider's position on its own axis (for checking bounds overlap)
+  // thisAxis: this divider's axis
+  const meetsOtherDivider = (
+    edgeAxis: 'x' | 'y' | 'z',
+    edgePosition: number,
+    thisPosition: number,
+    thisAxis: 'x' | 'y' | 'z'
+  ): boolean => {
+    if (!allSubdivisions) return false;
+
+    for (const other of allSubdivisions) {
+      if (other.id === subdivision.id) continue; // Skip self
+      if (other.axis !== edgeAxis) continue; // Must be on the perpendicular axis
+
+      // Check if other divider's position matches this edge's position
+      if (Math.abs(other.position - edgePosition) > tolerance) continue;
+
+      // Check if other divider's bounds contain this divider's position
+      // The other divider's bounds define where it exists, and this divider
+      // must pass through that space
+      let containsThis = false;
+      switch (thisAxis) {
+        case 'x':
+          // This is an X-axis divider at position `thisPosition` on X
+          // Other divider must have bounds that span this X position
+          containsThis = other.bounds.x <= thisPosition && thisPosition <= other.bounds.x + other.bounds.w;
+          break;
+        case 'y':
+          // This is a Y-axis divider at position `thisPosition` on Y
+          containsThis = other.bounds.y <= thisPosition && thisPosition <= other.bounds.y + other.bounds.h;
+          break;
+        case 'z':
+          // This is a Z-axis divider at position `thisPosition` on Z
+          containsThis = other.bounds.z <= thisPosition && thisPosition <= other.bounds.z + other.bounds.d;
+          break;
+      }
+
+      if (containsThis) return true;
+    }
+    return false;
+  };
+
   // Calculate panel dimensions based on axis
   let panelWidth: number;
   let panelHeight: number;
-  let meetsTop: boolean;
-  let meetsBottom: boolean;
-  let meetsLeft: boolean;
-  let meetsRight: boolean;
+
+  // Track outer face contacts separately from divider contacts
+  // - meetsFace*: edge meets a solid outer face (panel corners should be inset)
+  // - meetsDivider*: edge meets another divider (no corner inset, but has finger joints)
+  // - meetsTop/Bottom/Left/Right: combined (has finger joints)
+  let meetsFaceTop: boolean;
+  let meetsFaceBottom: boolean;
+  let meetsFaceLeft: boolean;
+  let meetsFaceRight: boolean;
+  let meetsDividerTop: boolean;
+  let meetsDividerBottom: boolean;
+  let meetsDividerLeft: boolean;
+  let meetsDividerRight: boolean;
+
+  // When checking if an edge meets another divider, we need to account for material thickness.
+  // The bounds are offset from split positions by mt/2:
+  // - For "start" edges (bounds.x, bounds.y, bounds.z): the divider is at edge - mt/2
+  // - For "end" edges (bounds.x + bounds.w, etc.): the divider is at edge + mt/2
+  const mt = materialThickness;
 
   switch (axis) {
     case 'x':
       panelWidth = bounds.d;
       panelHeight = bounds.h;
-      meetsTop = isFaceSolid('top') && bounds.y + bounds.h >= height - tolerance;
-      meetsBottom = isFaceSolid('bottom') && bounds.y <= tolerance;
-      meetsLeft = isFaceSolid('back') && bounds.z <= tolerance;
-      meetsRight = isFaceSolid('front') && bounds.z + bounds.d >= depth - tolerance;
+      // Check outer faces separately from other dividers
+      // Account for lid insets: divider meets lid if it reaches the inset position
+      meetsFaceTop = isFaceSolid('top') && bounds.y + bounds.h >= height - topInset - tolerance;
+      meetsFaceBottom = isFaceSolid('bottom') && bounds.y <= bottomInset + tolerance;
+      meetsFaceLeft = isFaceSolid('back') && bounds.z <= backInset + tolerance;
+      meetsFaceRight = isFaceSolid('front') && bounds.z + bounds.d >= depth - frontInset - tolerance;
+      // For divider checks, adjust edge positions by mt/2 to match divider positions
+      meetsDividerTop = meetsOtherDivider('y', bounds.y + bounds.h + mt / 2, position, axis);
+      meetsDividerBottom = meetsOtherDivider('y', bounds.y - mt / 2, position, axis);
+      meetsDividerLeft = meetsOtherDivider('z', bounds.z - mt / 2, position, axis);
+      meetsDividerRight = meetsOtherDivider('z', bounds.z + bounds.d + mt / 2, position, axis);
       break;
     case 'y':
       panelWidth = bounds.w;
       panelHeight = bounds.d;
-      meetsTop = isFaceSolid('back') && bounds.z <= tolerance;
-      meetsBottom = isFaceSolid('front') && bounds.z + bounds.d >= depth - tolerance;
-      meetsLeft = isFaceSolid('left') && bounds.x <= tolerance;
-      meetsRight = isFaceSolid('right') && bounds.x + bounds.w >= width - tolerance;
+      // Y-axis dividers: top/bottom mapped to back/front, left/right mapped to left/right
+      meetsFaceTop = isFaceSolid('back') && bounds.z <= backInset + tolerance;
+      meetsFaceBottom = isFaceSolid('front') && bounds.z + bounds.d >= depth - frontInset - tolerance;
+      meetsFaceLeft = isFaceSolid('left') && bounds.x <= leftInset + tolerance;
+      meetsFaceRight = isFaceSolid('right') && bounds.x + bounds.w >= width - rightInset - tolerance;
+      meetsDividerTop = meetsOtherDivider('z', bounds.z - mt / 2, position, axis);
+      meetsDividerBottom = meetsOtherDivider('z', bounds.z + bounds.d + mt / 2, position, axis);
+      meetsDividerLeft = meetsOtherDivider('x', bounds.x - mt / 2, position, axis);
+      meetsDividerRight = meetsOtherDivider('x', bounds.x + bounds.w + mt / 2, position, axis);
       break;
     case 'z':
+    default:
       panelWidth = bounds.w;
       panelHeight = bounds.h;
-      meetsTop = isFaceSolid('top') && bounds.y + bounds.h >= height - tolerance;
-      meetsBottom = isFaceSolid('bottom') && bounds.y <= tolerance;
-      meetsLeft = isFaceSolid('left') && bounds.x <= tolerance;
-      meetsRight = isFaceSolid('right') && bounds.x + bounds.w >= width - tolerance;
+      // Account for lid insets
+      meetsFaceTop = isFaceSolid('top') && bounds.y + bounds.h >= height - topInset - tolerance;
+      meetsFaceBottom = isFaceSolid('bottom') && bounds.y <= bottomInset + tolerance;
+      meetsFaceLeft = isFaceSolid('left') && bounds.x <= leftInset + tolerance;
+      meetsFaceRight = isFaceSolid('right') && bounds.x + bounds.w >= width - rightInset - tolerance;
+      meetsDividerTop = meetsOtherDivider('y', bounds.y + bounds.h + mt / 2, position, axis);
+      meetsDividerBottom = meetsOtherDivider('y', bounds.y - mt / 2, position, axis);
+      meetsDividerLeft = meetsOtherDivider('x', bounds.x - mt / 2, position, axis);
+      meetsDividerRight = meetsOtherDivider('x', bounds.x + bounds.w + mt / 2, position, axis);
       break;
   }
+
+  // Combined: has finger joints if meets either face or divider
+  const meetsTop = meetsFaceTop || meetsDividerTop;
+  const meetsBottom = meetsFaceBottom || meetsDividerBottom;
+  const meetsLeft = meetsFaceLeft || meetsDividerLeft;
+  const meetsRight = meetsFaceRight || meetsDividerRight;
 
   const halfW = panelWidth / 2;
   const halfH = panelHeight / 2;
@@ -1210,22 +1536,24 @@ const generateDividerPanel = (
   const extRight = !meetsRight ? extensions.right : 0;
 
   // Original corners (without extensions) - used for finger pattern calculation
+  // Corner insets only apply when meeting OUTER FACES (not other dividers)
+  // When meeting another divider, the panel extends to its full size
   const origCorners: Record<string, Point> = {
     topLeft: {
-      x: -halfW + (meetsLeft ? materialThickness : 0),
-      y: halfH - (meetsTop ? materialThickness : 0),
+      x: -halfW + (meetsFaceLeft ? materialThickness : 0),
+      y: halfH - (meetsFaceTop ? materialThickness : 0),
     },
     topRight: {
-      x: halfW - (meetsRight ? materialThickness : 0),
-      y: halfH - (meetsTop ? materialThickness : 0),
+      x: halfW - (meetsFaceRight ? materialThickness : 0),
+      y: halfH - (meetsFaceTop ? materialThickness : 0),
     },
     bottomRight: {
-      x: halfW - (meetsRight ? materialThickness : 0),
-      y: -halfH + (meetsBottom ? materialThickness : 0),
+      x: halfW - (meetsFaceRight ? materialThickness : 0),
+      y: -halfH + (meetsFaceBottom ? materialThickness : 0),
     },
     bottomLeft: {
-      x: -halfW + (meetsLeft ? materialThickness : 0),
-      y: -halfH + (meetsBottom ? materialThickness : 0),
+      x: -halfW + (meetsFaceLeft ? materialThickness : 0),
+      y: -halfH + (meetsFaceBottom ? materialThickness : 0),
     },
   };
 
@@ -1371,11 +1699,16 @@ const generateDividerPanel = (
     axis,
   };
 
+  // Generate slot holes for child dividers that connect to this divider
+  const dividerSlots = allSubdivisions
+    ? generateDividerToSlotHoles(subdivision, allSubdivisions, config, faces)
+    : [];
+
   return {
     id: `divider-${subdivision.id}`,
     source,
     outline: { points: outlinePoints, closed: true },
-    holes: [], // Divider intersection slots would go here
+    holes: dividerSlots,
     width: panelWidth,
     height: panelHeight,
     thickness: materialThickness,
@@ -1413,7 +1746,7 @@ export const generatePanelCollection = (
   const subdivisions = getAllSubdivisions(rootVoid);
   for (const sub of subdivisions) {
     const panelId = `divider-${sub.id}`;
-    const panel = generateDividerPanel(sub, faces, config, scale, getExistingExtensions(panelId));
+    const panel = generateDividerPanel(sub, faces, config, scale, getExistingExtensions(panelId), subdivisions);
     dividerPanels.push(panel);
   }
 

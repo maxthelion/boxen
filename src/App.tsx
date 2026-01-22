@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { BoxTree } from './components/BoxTree';
 import { Viewport3D } from './components/Viewport3D';
 import { SubdivisionControls } from './components/SubdivisionControls';
@@ -13,10 +13,10 @@ function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [shareStatus, setShareStatus] = useState<'idle' | 'copied'>('idle');
   const {
-    selectedVoidId,
-    selectedPanelId,
+    selectedVoidIds,
+    selectedPanelIds,
     selectedAssemblyId,
-    selectedSubAssemblyId,
+    selectedSubAssemblyIds,
     loadFromUrl,
     getShareableUrl,
     generatePanels
@@ -53,18 +53,18 @@ function App() {
 
   // Determine what to show in the right sidebar based on selection
   const renderRightSidebar = () => {
-    // Void selected - show subdivision controls
-    if (selectedVoidId) {
+    // Void selected - show subdivision controls (only for single selection)
+    if (selectedVoidIds.size === 1) {
       return <SubdivisionControls />;
     }
 
     // Panel selected - show panel properties
-    if (selectedPanelId) {
+    if (selectedPanelIds.size > 0) {
       return <PanelProperties />;
     }
 
     // Assembly or sub-assembly selected - show assembly properties
-    if (selectedAssemblyId || selectedSubAssemblyId) {
+    if (selectedAssemblyId || selectedSubAssemblyIds.size > 0) {
       return <AssemblyProperties />;
     }
 

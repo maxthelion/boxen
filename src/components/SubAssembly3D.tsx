@@ -60,9 +60,9 @@ export const SubAssembly3D: React.FC<SubAssembly3DProps> = ({
   scale,
   boxCenter,
 }) => {
-  const { selectedSubAssemblyId, selectSubAssembly, selectionMode, selectedAssemblyId, selectAssembly, hiddenFaceIds } = useBoxStore();
+  const { selectedSubAssemblyIds, selectSubAssembly, selectionMode, selectedAssemblyId, selectAssembly, hiddenFaceIds } = useBoxStore();
 
-  const isSelectedSubAssembly = selectedSubAssemblyId === subAssembly.id;
+  const isSelectedSubAssembly = selectedSubAssemblyIds.has(subAssembly.id);
   const isSelectedAssembly = selectedAssemblyId === subAssembly.id;
   const isSelected = isSelectedSubAssembly || isSelectedAssembly;
   const { clearance, faces, rootVoid, assembly } = subAssembly;
@@ -144,7 +144,7 @@ export const SubAssembly3D: React.FC<SubAssembly3DProps> = ({
         const handleClick = (e: any) => {
           e.stopPropagation();
           if (selectionMode === 'void') {
-            selectSubAssembly(isSelectedSubAssembly ? null : subAssembly.id);
+            selectSubAssembly(subAssembly.id, e.shiftKey);
           } else if (selectionMode === 'assembly') {
             selectAssembly(isSelectedAssembly ? null : subAssembly.id);
           }

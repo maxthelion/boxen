@@ -156,10 +156,14 @@ export interface BoxState {
   faces: Face[];
   rootVoid: Void;  // Single root void that contains the hierarchy
   selectionMode: SelectionMode;
-  selectedVoidId: string | null;
-  selectedSubAssemblyId: string | null;  // Currently selected sub-assembly
-  selectedPanelId: string | null;  // FaceId or subdivision panel id
-  selectedAssemblyId: string | null;  // 'main' for main box, or sub-assembly id
+  // Multi-select enabled - use Sets instead of single IDs
+  selectedVoidIds: Set<string>;
+  selectedSubAssemblyIds: Set<string>;
+  selectedPanelIds: Set<string>;  // FaceId or subdivision panel ids
+  selectedAssemblyId: string | null;  // 'main' for main box (single select for assembly)
+  // Hover state - synchronized between tree and 3D view
+  hoveredVoidId: string | null;
+  hoveredPanelId: string | null;
   subdivisionPreview: SubdivisionPreview | null;
   // Visibility controls for voids
   hiddenVoidIds: Set<string>;  // Set of void IDs that are hidden
@@ -179,9 +183,15 @@ export interface BoxActions {
   setConfig: (config: Partial<BoxConfig>) => void;
   toggleFace: (faceId: FaceId) => void;
   setSelectionMode: (mode: SelectionMode) => void;
-  selectVoid: (voidId: string | null) => void;
-  selectPanel: (panelId: string | null) => void;
+  // Selection actions - additive parameter enables multi-select (e.g., shift-click)
+  selectVoid: (voidId: string | null, additive?: boolean) => void;
+  selectPanel: (panelId: string | null, additive?: boolean) => void;
   selectAssembly: (assemblyId: string | null) => void;  // 'main' or sub-assembly id
+  selectSubAssembly: (subAssemblyId: string | null, additive?: boolean) => void;
+  clearSelection: () => void;  // Clear all selections
+  // Hover actions - synchronized between tree and 3D view
+  setHoveredVoid: (voidId: string | null) => void;
+  setHoveredPanel: (panelId: string | null) => void;
   setSubdivisionPreview: (preview: SubdivisionPreview | null) => void;
   applySubdivision: () => void;  // Apply the current preview
   removeVoid: (voidId: string) => void;
@@ -192,7 +202,6 @@ export interface BoxActions {
   setLidInset: (side: 'positive' | 'negative', inset: number) => void;
   // Sub-assembly actions
   createSubAssembly: (voidId: string, type: SubAssemblyType) => void;
-  selectSubAssembly: (subAssemblyId: string | null) => void;
   toggleSubAssemblyFace: (subAssemblyId: string, faceId: FaceId) => void;
   setSubAssemblyClearance: (subAssemblyId: string, clearance: number) => void;
   removeSubAssembly: (voidId: string) => void;

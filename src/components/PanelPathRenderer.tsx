@@ -7,9 +7,12 @@ interface PanelPathRendererProps {
   panel: PanelPath;
   scale: number;
   isSelected: boolean;
-  onClick?: () => void;
+  isHovered?: boolean;
+  onClick?: (event?: React.MouseEvent) => void;
+  onHover?: (hovered: boolean) => void;
   color?: string;
   selectedColor?: string;
+  hoveredColor?: string;
 }
 
 // Convert stored PathPoints to THREE.js geometry
@@ -125,9 +128,12 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
   panel,
   scale,
   isSelected,
+  isHovered = false,
   onClick,
+  onHover,
   color = '#3498db',
   selectedColor = '#9b59b6',
+  hoveredColor = '#6ab04c',
 }) => {
   const { outline, holes, thickness, position, rotation, visible } = panel;
 
@@ -164,23 +170,45 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
 
   const handleClick = onClick ? (e: any) => {
     e.stopPropagation?.();
-    onClick();
+    // Extract native event for shiftKey access
+    const nativeEvent = e.nativeEvent || e;
+    onClick(nativeEvent);
   } : undefined;
+
+  const handlePointerOver = onHover ? (e: any) => {
+    e.stopPropagation?.();
+    onHover(true);
+    document.body.style.cursor = 'pointer';
+  } : undefined;
+
+  const handlePointerOut = onHover ? () => {
+    onHover(false);
+    document.body.style.cursor = 'auto';
+  } : undefined;
+
+  // Determine color - selected takes priority, then hovered, then default
+  const displayColor = isSelected ? selectedColor : isHovered ? hoveredColor : color;
+  const displayOpacity = isSelected ? 0.9 : isHovered ? 0.8 : 0.7;
 
   return (
     <group position={scaledPosition} rotation={rotation}>
-      <mesh geometry={geometry} onClick={handleClick}>
+      <mesh
+        geometry={geometry}
+        onClick={handleClick}
+        onPointerOver={handlePointerOver}
+        onPointerOut={handlePointerOut}
+      >
         <meshStandardMaterial
-          color={isSelected ? selectedColor : color}
+          color={displayColor}
           transparent
-          opacity={isSelected ? 0.9 : 0.7}
+          opacity={displayOpacity}
           side={THREE.DoubleSide}
         />
       </mesh>
       {edgeGeometry && (
         <lineSegments geometry={edgeGeometry}>
           <lineBasicMaterial
-            color={isSelected ? '#7b4397' : '#1a5276'}
+            color={isSelected ? '#7b4397' : isHovered ? '#2d6a4f' : '#1a5276'}
             linewidth={1}
           />
         </lineSegments>
@@ -192,18 +220,20 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
 // Render all panels from a collection
 interface PanelCollectionRendererProps {
   scale: number;
-  selectedPanelId: string | null;
-  onPanelClick?: (panelId: string) => void;
+  selectedPanelIds: Set<string>;
+  onPanelClick?: (panelId: string, event?: React.MouseEvent) => void;
   hiddenFaceIds?: Set<string>;
 }
 
 export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = ({
   scale,
-  selectedPanelId,
+  selectedPanelIds,
   onPanelClick,
   hiddenFaceIds = new Set(),
 }) => {
   const panelCollection = useBoxStore((state) => state.panelCollection);
+  const hoveredPanelId = useBoxStore((state) => state.hoveredPanelId);
+  const setHoveredPanel = useBoxStore((state) => state.setHoveredPanel);
 
   if (!panelCollection) {
     return null;
@@ -217,14 +247,17 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
         if (hiddenFaceIds.has(panel.id)) return null;
 
         const isDivider = panel.source.type === 'divider';
+        const isHovered = hoveredPanelId === panel.id;
 
         return (
           <PanelPathRenderer
             key={panel.id}
             panel={panel}
             scale={scale}
-            isSelected={selectedPanelId === panel.id}
-            onClick={onPanelClick ? () => onPanelClick(panel.id) : undefined}
+            isSelected={selectedPanelIds.has(panel.id)}
+            isHovered={isHovered}
+            onClick={onPanelClick ? (e) => onPanelClick(panel.id, e) : undefined}
+            onHover={(hovered) => setHoveredPanel(hovered ? panel.id : null)}
             color={isDivider ? '#f39c12' : '#3498db'}
             selectedColor={isDivider ? '#9b59b6' : '#9b59b6'}
           />
