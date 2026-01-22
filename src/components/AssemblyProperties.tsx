@@ -1,6 +1,7 @@
 import React from 'react';
 import { useBoxStore, getAllSubAssemblies } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
+import { NumberInput } from './UI/NumberInput';
 import { FaceId, AssemblyAxis, LidTabDirection, getLidFaceId } from '../types';
 
 const faceOrder: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
@@ -47,47 +48,42 @@ export const AssemblyProperties: React.FC = () => {
             <div className="form-grid">
               <label>
                 <span>Width (mm)</span>
-                <input
-                  type="number"
+                <NumberInput
                   value={config.width}
-                  onChange={(e) => setConfig({ width: Math.max(1, parseFloat(e.target.value) || 0) })}
+                  onChange={(v) => setConfig({ width: v })}
                   min={1}
                 />
               </label>
               <label>
                 <span>Height (mm)</span>
-                <input
-                  type="number"
+                <NumberInput
                   value={config.height}
-                  onChange={(e) => setConfig({ height: Math.max(1, parseFloat(e.target.value) || 0) })}
+                  onChange={(v) => setConfig({ height: v })}
                   min={1}
                 />
               </label>
               <label>
                 <span>Depth (mm)</span>
-                <input
-                  type="number"
+                <NumberInput
                   value={config.depth}
-                  onChange={(e) => setConfig({ depth: Math.max(1, parseFloat(e.target.value) || 0) })}
+                  onChange={(v) => setConfig({ depth: v })}
                   min={1}
                 />
               </label>
               <label>
                 <span>Material Thickness (mm)</span>
-                <input
-                  type="number"
+                <NumberInput
                   value={config.materialThickness}
-                  onChange={(e) => setConfig({ materialThickness: Math.max(0.1, parseFloat(e.target.value) || 0) })}
+                  onChange={(v) => setConfig({ materialThickness: v })}
                   min={0.1}
                   step={0.5}
                 />
               </label>
               <label>
                 <span>Finger Width (mm)</span>
-                <input
-                  type="number"
+                <NumberInput
                   value={config.fingerWidth}
-                  onChange={(e) => setConfig({ fingerWidth: Math.max(1, parseFloat(e.target.value) || 0) })}
+                  onChange={(v) => setConfig({ fingerWidth: v })}
                   min={1}
                 />
               </label>
@@ -155,10 +151,9 @@ export const AssemblyProperties: React.FC = () => {
                 </label>
                 <label>
                   <span>Inset (mm)</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     value={config.assembly.lids.positive.inset}
-                    onChange={(e) => setLidInset('positive', parseFloat(e.target.value) || 0)}
+                    onChange={(v) => setLidInset('positive', v)}
                     min={0}
                     step={1}
                   />
@@ -185,10 +180,9 @@ export const AssemblyProperties: React.FC = () => {
                 </label>
                 <label>
                   <span>Inset (mm)</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     value={config.assembly.lids.negative.inset}
-                    onChange={(e) => setLidInset('negative', parseFloat(e.target.value) || 0)}
+                    onChange={(v) => setLidInset('negative', v)}
                     min={0}
                     step={1}
                   />
@@ -250,10 +244,9 @@ export const AssemblyProperties: React.FC = () => {
           <div className="form-grid">
             <label>
               <span>Gap from parent void (mm)</span>
-              <input
-                type="number"
+              <NumberInput
                 value={subAssembly.clearance}
-                onChange={(e) => setSubAssemblyClearance(subAssembly.id, parseFloat(e.target.value) || 0)}
+                onChange={(v) => setSubAssemblyClearance(subAssembly.id, v)}
                 min={0}
                 max={Math.min(bounds.w, bounds.h, bounds.d) / 2 - 1}
                 step={0.5}
@@ -347,10 +340,9 @@ export const AssemblyProperties: React.FC = () => {
               </label>
               <label>
                 <span>Inset (mm)</span>
-                <input
-                  type="number"
+                <NumberInput
                   value={subAssembly.assembly.lids.positive.inset}
-                  onChange={(e) => setSubAssemblyLidInset(subAssembly.id, 'positive', parseFloat(e.target.value) || 0)}
+                  onChange={(v) => setSubAssemblyLidInset(subAssembly.id, 'positive', v)}
                   min={0}
                   step={1}
                 />
@@ -377,10 +369,9 @@ export const AssemblyProperties: React.FC = () => {
               </label>
               <label>
                 <span>Inset (mm)</span>
-                <input
-                  type="number"
+                <NumberInput
                   value={subAssembly.assembly.lids.negative.inset}
-                  onChange={(e) => setSubAssemblyLidInset(subAssembly.id, 'negative', parseFloat(e.target.value) || 0)}
+                  onChange={(v) => setSubAssemblyLidInset(subAssembly.id, 'negative', v)}
                   min={0}
                   step={1}
                 />

@@ -1,74 +1,64 @@
 import React from 'react';
 import { useBoxStore } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
+import { NumberInput } from './UI/NumberInput';
 
 export const DimensionForm: React.FC = () => {
   const { config, setConfig } = useBoxStore();
-
-  const handleChange = (field: keyof typeof config) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseFloat(e.target.value) || 0;
-    setConfig({ [field]: Math.max(1, value) });
-  };
 
   return (
     <Panel title="Dimensions">
       <div className="form-grid">
         <label>
           <span>Width (mm)</span>
-          <input
-            type="number"
+          <NumberInput
             value={config.width}
-            onChange={handleChange('width')}
+            onChange={(v) => setConfig({ width: v })}
             min={1}
             step={1}
           />
         </label>
         <label>
           <span>Height (mm)</span>
-          <input
-            type="number"
+          <NumberInput
             value={config.height}
-            onChange={handleChange('height')}
+            onChange={(v) => setConfig({ height: v })}
             min={1}
             step={1}
           />
         </label>
         <label>
           <span>Depth (mm)</span>
-          <input
-            type="number"
+          <NumberInput
             value={config.depth}
-            onChange={handleChange('depth')}
+            onChange={(v) => setConfig({ depth: v })}
             min={1}
             step={1}
           />
         </label>
         <label>
           <span>Material Thickness (mm)</span>
-          <input
-            type="number"
+          <NumberInput
             value={config.materialThickness}
-            onChange={handleChange('materialThickness')}
+            onChange={(v) => setConfig({ materialThickness: v })}
             min={0.1}
             step={0.1}
           />
         </label>
         <label>
           <span>Finger Width (mm)</span>
-          <input
-            type="number"
+          <NumberInput
             value={config.fingerWidth}
-            onChange={handleChange('fingerWidth')}
+            onChange={(v) => setConfig({ fingerWidth: v })}
             min={1}
             step={1}
           />
         </label>
         <label>
           <span>Corner Gap (× finger width)</span>
-          <input
-            type="number"
+          <NumberInput
             value={config.fingerGap}
-            onChange={handleChange('fingerGap')}
+            onChange={(v) => setConfig({ fingerGap: v })}
             min={0}
             max={5}
             step={0.1}

@@ -1,6 +1,7 @@
 import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import { useBoxStore, getAllSubdivisions, calculatePreviewPositions } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
+import { NumberInput } from './UI/NumberInput';
 import { Void, Face, AssemblyAxis, FaceId, FaceOffsets, defaultFaceOffsets, Bounds } from '../types';
 
 // Find a void by ID in the tree (including inside sub-assemblies)
@@ -358,10 +359,9 @@ export const SubdivisionControls: React.FC = () => {
                       <div className="create-assembly-form">
                         <div className="form-row">
                           <label>Clearance (mm):</label>
-                          <input
-                            type="number"
+                          <NumberInput
                             value={createClearance}
-                            onChange={(e) => setCreateClearance(Math.max(0, parseFloat(e.target.value) || 0))}
+                            onChange={(v) => setCreateClearance(v)}
                             min={0}
                             step={0.5}
                           />
@@ -391,10 +391,9 @@ export const SubdivisionControls: React.FC = () => {
                                   >
                                     -
                                   </button>
-                                  <input
-                                    type="number"
+                                  <NumberInput
                                     value={createFaceOffsets[faceId]}
-                                    onChange={(e) => handleFaceOffsetChange(faceId, parseFloat(e.target.value) || 0)}
+                                    onChange={(v) => handleFaceOffsetChange(faceId, v)}
                                     step={0.5}
                                     className="offset-input"
                                   />
@@ -442,10 +441,9 @@ export const SubdivisionControls: React.FC = () => {
                         >
                           -
                         </button>
-                        <input
-                          type="number"
+                        <NumberInput
                           value={subdivisionPreview.count}
-                          onChange={(e) => updatePreviewCount(parseInt(e.target.value) || 1)}
+                          onChange={(v) => updatePreviewCount(Math.round(v))}
                           min={1}
                           max={20}
                         />

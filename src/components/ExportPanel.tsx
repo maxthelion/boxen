@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useBoxStore } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
+import { NumberInput } from './UI/NumberInput';
 import { FaceId, PanelPath } from '../types';
 import {
   generatePanelPathSVG,
@@ -42,10 +43,9 @@ export const ExportPanel: React.FC = () => {
       <div className="export-controls">
         <label className="kerf-input">
           <span>Kerf compensation (mm):</span>
-          <input
-            type="number"
+          <NumberInput
             value={kerf}
-            onChange={(e) => setKerf(Math.max(0, parseFloat(e.target.value) || 0))}
+            onChange={setKerf}
             min={0}
             step={0.01}
           />

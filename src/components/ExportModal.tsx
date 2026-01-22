@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useBoxStore } from '../store/useBoxStore';
 import { Modal } from './UI/Modal';
+import { NumberInput } from './UI/NumberInput';
 import { FaceId, PanelPath } from '../types';
 import {
   generatePanelPathSVG,
@@ -121,20 +122,18 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
               <div className="export-setting-row custom-bed-size">
                 <label>
                   <span>Width (mm):</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     value={customBedWidth}
-                    onChange={(e) => setCustomBedWidth(Math.max(50, parseFloat(e.target.value) || 300))}
+                    onChange={setCustomBedWidth}
                     min={50}
                     step={10}
                   />
                 </label>
                 <label>
                   <span>Height (mm):</span>
-                  <input
-                    type="number"
+                  <NumberInput
                     value={customBedHeight}
-                    onChange={(e) => setCustomBedHeight(Math.max(50, parseFloat(e.target.value) || 200))}
+                    onChange={setCustomBedHeight}
                     min={50}
                     step={10}
                   />
@@ -145,10 +144,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
             <div className="export-setting-row">
               <label>
                 <span>Gap between pieces (mm):</span>
-                <input
-                  type="number"
+                <NumberInput
                   value={gap}
-                  onChange={(e) => setGap(Math.max(0, parseFloat(e.target.value) || 5))}
+                  onChange={setGap}
                   min={0}
                   step={1}
                 />
@@ -193,10 +191,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
             <div className="export-setting-row">
               <label>
                 <span>Kerf compensation (mm):</span>
-                <input
-                  type="number"
+                <NumberInput
                   value={kerf}
-                  onChange={(e) => setKerf(Math.max(0, parseFloat(e.target.value) || 0))}
+                  onChange={setKerf}
                   min={0}
                   step={0.01}
                 />

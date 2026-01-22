@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { PanelPath, PathPoint } from '../types';
 import { useBoxStore } from '../store/useBoxStore';
@@ -165,6 +165,18 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
       scale
     );
   }, [outline, holes, thickness, scale, visible]);
+
+  // Properly dispose of geometry when it changes or component unmounts
+  useEffect(() => {
+    return () => {
+      if (geometry) {
+        geometry.dispose();
+      }
+      if (edgeGeometry) {
+        edgeGeometry.dispose();
+      }
+    };
+  }, [geometry, edgeGeometry]);
 
   if (!visible || !geometry) {
     return null;

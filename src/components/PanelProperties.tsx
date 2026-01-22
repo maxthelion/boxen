@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useBoxStore, getAllSubdivisions, getAllSubAssemblies } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
+import { NumberInput } from './UI/NumberInput';
 import { FaceId, Face, AssemblyConfig } from '../types';
 import {
   getFaceEdgeStatuses,
@@ -190,11 +191,10 @@ const EdgeControls: React.FC<EdgeControlsProps> = ({ edge, value, status, onChan
         >
           -
         </button>
-        <input
-          type="number"
+        <NumberInput
           className="edge-input"
           value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+          onChange={onChange}
           step={1}
         />
         <button
@@ -557,11 +557,12 @@ export const PanelProperties: React.FC = () => {
                   >
                     -
                   </button>
-                  <input
-                    type="number"
+                  <NumberInput
                     className="position-input"
-                    value={position.toFixed(1)}
-                    onChange={(e) => handlePositionChange(parseFloat(e.target.value) || position)}
+                    value={position}
+                    onChange={handlePositionChange}
+                    min={minPosition}
+                    max={maxPosition}
                     step={0.5}
                   />
                   <button
