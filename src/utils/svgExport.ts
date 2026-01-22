@@ -3,6 +3,317 @@ import { EdgeType, getEdgePath, Point } from './fingerJoints';
 import { getAllSubdivisions } from '../store/useBoxStore';
 
 // =============================================================================
+// Bin Packing Algorithm (MaxRects with Best Short Side Fit)
+// =============================================================================
+
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface PackedItem {
+  panel: PanelPath;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotated: boolean;
+}
+
+interface PackedBed {
+  items: PackedItem[];
+  width: number;
+  height: number;
+}
+
+// MaxRects bin packing implementation
+class MaxRectsBin {
+  private binWidth: number;
+  private binHeight: number;
+  private freeRectangles: Rect[] = [];
+  public packedItems: PackedItem[] = [];
+
+  constructor(width: number, height: number) {
+    this.binWidth = width;
+    this.binHeight = height;
+    this.freeRectangles = [{ x: 0, y: 0, width, height }];
+  }
+
+  // Try to insert a rectangle, returns true if successful
+  insert(panel: PanelPath, itemWidth: number, itemHeight: number, allowRotation: boolean = true): boolean {
+    // Find the best position using Best Short Side Fit
+    let bestScore = Infinity;
+    let bestRect: Rect | null = null;
+    let bestRotated = false;
+
+    for (const freeRect of this.freeRectangles) {
+      // Try without rotation
+      if (itemWidth <= freeRect.width && itemHeight <= freeRect.height) {
+        const leftover = Math.min(freeRect.width - itemWidth, freeRect.height - itemHeight);
+        if (leftover < bestScore) {
+          bestScore = leftover;
+          bestRect = freeRect;
+          bestRotated = false;
+        }
+      }
+
+      // Try with rotation
+      if (allowRotation && itemHeight <= freeRect.width && itemWidth <= freeRect.height) {
+        const leftover = Math.min(freeRect.width - itemHeight, freeRect.height - itemWidth);
+        if (leftover < bestScore) {
+          bestScore = leftover;
+          bestRect = freeRect;
+          bestRotated = true;
+        }
+      }
+    }
+
+    if (!bestRect) return false;
+
+    const placedWidth = bestRotated ? itemHeight : itemWidth;
+    const placedHeight = bestRotated ? itemWidth : itemHeight;
+
+    this.packedItems.push({
+      panel,
+      x: bestRect.x,
+      y: bestRect.y,
+      width: placedWidth,
+      height: placedHeight,
+      rotated: bestRotated,
+    });
+
+    // Split the free rectangle
+    this.splitFreeRect(bestRect, placedWidth, placedHeight);
+    this.pruneFreeRectangles();
+
+    return true;
+  }
+
+  private splitFreeRect(rect: Rect, usedWidth: number, usedHeight: number): void {
+    // Remove the used rectangle from free list
+    const index = this.freeRectangles.indexOf(rect);
+    if (index !== -1) {
+      this.freeRectangles.splice(index, 1);
+    }
+
+    // Create new free rectangles from the remaining space
+    // Right remainder
+    if (usedWidth < rect.width) {
+      this.freeRectangles.push({
+        x: rect.x + usedWidth,
+        y: rect.y,
+        width: rect.width - usedWidth,
+        height: rect.height,
+      });
+    }
+
+    // Top remainder
+    if (usedHeight < rect.height) {
+      this.freeRectangles.push({
+        x: rect.x,
+        y: rect.y + usedHeight,
+        width: usedWidth,
+        height: rect.height - usedHeight,
+      });
+    }
+  }
+
+  private pruneFreeRectangles(): void {
+    // Remove rectangles that are fully contained in other rectangles
+    for (let i = 0; i < this.freeRectangles.length; i++) {
+      for (let j = i + 1; j < this.freeRectangles.length; j++) {
+        if (this.isContainedIn(this.freeRectangles[i], this.freeRectangles[j])) {
+          this.freeRectangles.splice(i, 1);
+          i--;
+          break;
+        }
+        if (this.isContainedIn(this.freeRectangles[j], this.freeRectangles[i])) {
+          this.freeRectangles.splice(j, 1);
+          j--;
+        }
+      }
+    }
+  }
+
+  private isContainedIn(a: Rect, b: Rect): boolean {
+    return a.x >= b.x && a.y >= b.y &&
+           a.x + a.width <= b.x + b.width &&
+           a.y + a.height <= b.y + b.height;
+  }
+}
+
+// Minimal padding for labels (just enough for text below panel)
+const LABEL_PADDING = 5; // mm below panel for label text
+
+// Pack panels into beds of specified size
+export const packPanelsIntoBeds = (
+  panels: PanelPath[],
+  bedWidth: number,
+  bedHeight: number,
+  gap: number = 5,
+  allowRotation: boolean = true,
+  showLabels: boolean = true
+): PackedBed[] => {
+  const beds: PackedBed[] = [];
+  const labelSpace = showLabels ? LABEL_PADDING : 0;
+
+  // Filter visible panels and calculate their sizes
+  // Only add gap between items, no extra padding
+  const itemsToPlace = panels
+    .filter(p => p.visible)
+    .map(panel => {
+      return {
+        panel,
+        width: panel.width + gap,
+        height: panel.height + labelSpace + gap,
+      };
+    })
+    // Sort by area (largest first) for better packing
+    .sort((a, b) => (b.width * b.height) - (a.width * a.height));
+
+  // Effective bed size (accounting for edge gap)
+  const effectiveWidth = bedWidth - gap;
+  const effectiveHeight = bedHeight - gap;
+
+  let remainingItems = [...itemsToPlace];
+
+  while (remainingItems.length > 0) {
+    const bin = new MaxRectsBin(effectiveWidth, effectiveHeight);
+    const placedIndices: number[] = [];
+
+    for (let i = 0; i < remainingItems.length; i++) {
+      const item = remainingItems[i];
+      if (bin.insert(item.panel, item.width, item.height, allowRotation)) {
+        placedIndices.push(i);
+      }
+    }
+
+    if (placedIndices.length === 0) {
+      // Can't fit any remaining items - they're too large for the bed
+      // Create oversized beds for each remaining item
+      for (const item of remainingItems) {
+        beds.push({
+          items: [{
+            panel: item.panel,
+            x: gap,
+            y: gap,
+            width: item.width,
+            height: item.height,
+            rotated: false,
+          }],
+          width: item.width + gap * 2,
+          height: item.height + gap * 2,
+        });
+      }
+      break;
+    }
+
+    // Adjust positions to account for initial gap offset
+    const adjustedItems = bin.packedItems.map(item => ({
+      ...item,
+      x: item.x + gap,
+      y: item.y + gap,
+    }));
+
+    beds.push({
+      items: adjustedItems,
+      width: bedWidth,
+      height: bedHeight,
+    });
+
+    // Remove placed items from remaining
+    remainingItems = remainingItems.filter((_, i) => !placedIndices.includes(i));
+  }
+
+  return beds;
+};
+
+// Pack panels efficiently without a specific bed size (auto-size)
+export const packPanelsAuto = (
+  panels: PanelPath[],
+  gap: number = 5,
+  showLabels: boolean = true
+): PackedBed => {
+  const visiblePanels = panels.filter(p => p.visible);
+  if (visiblePanels.length === 0) {
+    return { items: [], width: 0, height: 0 };
+  }
+
+  const labelSpace = showLabels ? LABEL_PADDING : 0;
+
+  // Calculate sizes - minimal padding, just gap between items
+  const items = visiblePanels.map(panel => {
+    return {
+      panel,
+      width: panel.width,
+      height: panel.height + labelSpace,
+    };
+  });
+
+  // Sort by height (tallest first) for shelf packing
+  items.sort((a, b) => b.height - a.height);
+
+  // Use a simple shelf-based algorithm for auto-sizing
+  // This tends to produce compact rectangular layouts
+  const shelves: { y: number; height: number; items: PackedItem[] }[] = [];
+  let maxWidth = 0;
+
+  for (const item of items) {
+    // Try to fit on an existing shelf
+    let placed = false;
+    for (const shelf of shelves) {
+      const shelfWidth = shelf.items.reduce((sum, i) => sum + i.width + gap, gap);
+      if (item.height <= shelf.height) {
+        shelf.items.push({
+          panel: item.panel,
+          x: shelfWidth,
+          y: shelf.y,
+          width: item.width,
+          height: item.height,
+          rotated: false,
+        });
+        maxWidth = Math.max(maxWidth, shelfWidth + item.width + gap);
+        placed = true;
+        break;
+      }
+    }
+
+    // Create a new shelf
+    if (!placed) {
+      const shelfY = shelves.length === 0
+        ? gap
+        : shelves[shelves.length - 1].y + shelves[shelves.length - 1].height + gap;
+      shelves.push({
+        y: shelfY,
+        height: item.height,
+        items: [{
+          panel: item.panel,
+          x: gap,
+          y: shelfY,
+          width: item.width,
+          height: item.height,
+          rotated: false,
+        }],
+      });
+      maxWidth = Math.max(maxWidth, gap + item.width + gap);
+    }
+  }
+
+  const allItems = shelves.flatMap(s => s.items);
+  const totalHeight = shelves.length === 0
+    ? 0
+    : shelves[shelves.length - 1].y + shelves[shelves.length - 1].height + gap;
+
+  return {
+    items: allItems,
+    width: maxWidth,
+    height: totalHeight,
+  };
+};
+
+// =============================================================================
 // Panel Path based SVG generation (uses stored paths)
 // =============================================================================
 
@@ -58,7 +369,7 @@ export const generatePanelPathSVG = (
 
   svg += `  </g>
   <text x="${svgWidth / 2}" y="${svgHeight - 2}"
-        text-anchor="middle" font-size="3" fill="#666">
+        text-anchor="middle" font-size="3" fill="red" stroke="red">
     ${panel.label || panel.id} - ${panel.width.toFixed(1)}mm x ${panel.height.toFixed(1)}mm
   </text>
 </svg>`;
@@ -66,81 +377,256 @@ export const generatePanelPathSVG = (
   return svg;
 };
 
-// Generate SVG containing all panels from a PanelCollection
-export const generateAllPanelPathsSVG = (
-  collection: PanelCollection,
-  kerf: number = 0
+// Export options for bed-based packing
+export interface BedExportOptions {
+  bedWidth?: number;       // Bed width in mm (undefined = auto-size)
+  bedHeight?: number;      // Bed height in mm (undefined = auto-size)
+  gap?: number;            // Gap between pieces in mm (default: 5)
+  allowRotation?: boolean; // Allow 90° rotation for better fit (default: true)
+  kerf?: number;           // Kerf compensation in mm (default: 0)
+  showLabels?: boolean;    // Show labels on panels (default: true)
+}
+
+// Generate SVG for a single packed bed
+const generatePackedBedSVG = (
+  bed: PackedBed,
+  bedIndex: number,
+  totalBeds: number,
+  kerf: number = 0,
+  showLabels: boolean = true
 ): string => {
-  const gap = 10;
-  let currentY = gap;
-  let maxWidth = 0;
-
-  interface SvgItem {
-    panel: PanelPath;
-    width: number;
-    height: number;
-    y: number;
-    offsetX: number;
-    offsetY: number;
-  }
-
-  const svgItems: SvgItem[] = [];
-
-  // Layout panels vertically
-  for (const panel of collection.panels) {
-    if (!panel.visible) continue;
-
-    const padding = panel.thickness * 4;
-    const width = panel.width + padding * 2;
-    const height = panel.height + padding * 2;
-
-    svgItems.push({
-      panel,
-      width,
-      height,
-      y: currentY,
-      offsetX: width / 2,
-      offsetY: height / 2,
-    });
-
-    maxWidth = Math.max(maxWidth, width);
-    currentY += height + gap;
-  }
-
-  const totalHeight = currentY;
+  const title = totalBeds > 1
+    ? `Boxen Export - Bed ${bedIndex + 1} of ${totalBeds}`
+    : 'Boxen Export - All Pieces';
 
   let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
-     width="${maxWidth + gap * 2}mm"
-     height="${totalHeight}mm"
-     viewBox="0 0 ${maxWidth + gap * 2} ${totalHeight}">
-  <title>Boxen Export - All Pieces</title>
+     width="${bed.width}mm"
+     height="${bed.height}mm"
+     viewBox="0 0 ${bed.width} ${bed.height}">
+  <title>${title}</title>
 `;
 
-  for (const item of svgItems) {
-    const x = (maxWidth - item.width) / 2 + gap;
-    const outlinePath = pathPointsToSVGPath(item.panel.outline.points, item.offsetX, item.offsetY);
+  for (const item of bed.items) {
+    // Panel paths are centered at (0,0), offset to position in allocated space
+    const panelW = item.panel.width;
+    const panelH = item.panel.height;
+    const offsetX = panelW / 2;
+    const offsetY = panelH / 2;
 
-    svg += `  <g transform="translate(${x}, ${item.y})" stroke="#000" stroke-width="0.1" fill="none">
+    // Generate path with potential rotation
+    let outlinePath: string;
+    let holePaths: string[] = [];
+
+    if (item.rotated) {
+      // Rotate points 90° clockwise: (x, y) -> (y, -x)
+      const rotatedOutline = item.panel.outline.points.map(p => ({
+        x: p.y,
+        y: -p.x,
+      }));
+      // For rotated panels, swap width/height for offset
+      outlinePath = pathPointsToSVGPath(rotatedOutline, panelH / 2, panelW / 2);
+
+      for (const hole of item.panel.holes) {
+        const rotatedHole = hole.path.points.map(p => ({
+          x: p.y,
+          y: -p.x,
+        }));
+        holePaths.push(pathPointsToSVGPath(rotatedHole, panelH / 2, panelW / 2));
+      }
+    } else {
+      outlinePath = pathPointsToSVGPath(item.panel.outline.points, offsetX, offsetY);
+
+      for (const hole of item.panel.holes) {
+        holePaths.push(pathPointsToSVGPath(hole.path.points, offsetX, offsetY));
+      }
+    }
+
+    const displayWidth = item.rotated ? panelH : panelW;
+    const displayHeight = item.rotated ? panelW : panelH;
+
+    svg += `  <g transform="translate(${item.x}, ${item.y})" stroke="#000" stroke-width="0.1" fill="none">
     <path d="${outlinePath}" />
 `;
 
-    // Add hole paths
-    for (const hole of item.panel.holes) {
-      const holePath = pathPointsToSVGPath(hole.path.points, item.offsetX, item.offsetY);
+    for (const holePath of holePaths) {
       svg += `    <path d="${holePath}" />\n`;
     }
 
-    svg += `    <text x="${item.width / 2}" y="${item.height - 2}"
-          text-anchor="middle" font-size="3" fill="#666">
-      ${item.panel.label || item.panel.id} - ${item.panel.width.toFixed(1)}mm x ${item.panel.height.toFixed(1)}mm
+    if (showLabels) {
+      const rotatedIndicator = item.rotated ? ' (R)' : '';
+      svg += `    <text x="${displayWidth / 2}" y="${displayHeight + LABEL_PADDING - 1}"
+          text-anchor="middle" font-size="2" fill="red" stroke="red">
+      ${item.panel.label || item.panel.id}${rotatedIndicator}
     </text>
-  </g>
+`;
+    }
+    svg += `  </g>
 `;
   }
 
   svg += '</svg>';
   return svg;
+};
+
+// Generate SVG containing all panels from a PanelCollection with efficient packing
+export const generateAllPanelPathsSVG = (
+  collection: PanelCollection,
+  kerf: number = 0,
+  options?: BedExportOptions
+): string => {
+  const gap = options?.gap ?? 5;
+  const allowRotation = options?.allowRotation ?? true;
+  const showLabels = options?.showLabels ?? true;
+
+  // Use bed-based packing if bed size is specified
+  if (options?.bedWidth && options?.bedHeight) {
+    const beds = packPanelsIntoBeds(
+      collection.panels,
+      options.bedWidth,
+      options.bedHeight,
+      gap,
+      allowRotation,
+      showLabels
+    );
+
+    if (beds.length === 0) {
+      return generatePackedBedSVG({ items: [], width: 100, height: 100 }, 0, 1, kerf, showLabels);
+    }
+
+    // For single bed, just return it
+    if (beds.length === 1) {
+      return generatePackedBedSVG(beds[0], 0, 1, kerf, showLabels);
+    }
+
+    // For multiple beds, stack them vertically with a separator
+    const bedSeparator = 20;
+    let totalHeight = 0;
+    let maxWidth = 0;
+
+    for (const bed of beds) {
+      totalHeight += bed.height + bedSeparator;
+      maxWidth = Math.max(maxWidth, bed.width);
+    }
+
+    let svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="${maxWidth}mm"
+     height="${totalHeight}mm"
+     viewBox="0 0 ${maxWidth} ${totalHeight}">
+  <title>Boxen Export - ${beds.length} Beds</title>
+`;
+
+    let currentY = 0;
+    for (let i = 0; i < beds.length; i++) {
+      const bed = beds[i];
+
+      // Add bed boundary rectangle (dashed)
+      svg += `  <rect x="0" y="${currentY}" width="${bed.width}" height="${bed.height}"
+        stroke="red" stroke-width="0.5" stroke-dasharray="5,5" fill="none" />
+  <text x="5" y="${currentY + 10}" font-size="4" fill="red" stroke="red">Bed ${i + 1}</text>
+`;
+
+      // Add panels in this bed
+      for (const item of bed.items) {
+        const panelW = item.panel.width;
+        const panelH = item.panel.height;
+        const offsetX = panelW / 2;
+        const offsetY = panelH / 2;
+
+        let outlinePath: string;
+        let holePaths: string[] = [];
+
+        if (item.rotated) {
+          const rotatedOutline = item.panel.outline.points.map(p => ({
+            x: p.y,
+            y: -p.x,
+          }));
+          outlinePath = pathPointsToSVGPath(rotatedOutline, panelH / 2, panelW / 2);
+
+          for (const hole of item.panel.holes) {
+            const rotatedHole = hole.path.points.map(p => ({
+              x: p.y,
+              y: -p.x,
+            }));
+            holePaths.push(pathPointsToSVGPath(rotatedHole, panelH / 2, panelW / 2));
+          }
+        } else {
+          outlinePath = pathPointsToSVGPath(item.panel.outline.points, offsetX, offsetY);
+
+          for (const hole of item.panel.holes) {
+            holePaths.push(pathPointsToSVGPath(hole.path.points, offsetX, offsetY));
+          }
+        }
+
+        const displayWidth = item.rotated ? panelH : panelW;
+        const displayHeight = item.rotated ? panelW : panelH;
+
+        svg += `  <g transform="translate(${item.x}, ${currentY + item.y})" stroke="#000" stroke-width="0.1" fill="none">
+    <path d="${outlinePath}" />
+`;
+
+        for (const holePath of holePaths) {
+          svg += `    <path d="${holePath}" />\n`;
+        }
+
+        if (showLabels) {
+          const rotatedIndicator = item.rotated ? ' (R)' : '';
+          svg += `    <text x="${displayWidth / 2}" y="${displayHeight + LABEL_PADDING - 1}"
+          text-anchor="middle" font-size="2" fill="red" stroke="red">
+      ${item.panel.label || item.panel.id}${rotatedIndicator}
+    </text>
+`;
+        }
+        svg += `  </g>
+`;
+      }
+
+      currentY += bed.height + bedSeparator;
+    }
+
+    svg += '</svg>';
+    return svg;
+  }
+
+  // Auto-size packing (no bed size specified)
+  const packed = packPanelsAuto(collection.panels, gap, showLabels);
+
+  if (packed.items.length === 0) {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" viewBox="0 0 100 100">
+  <title>Boxen Export - No Pieces</title>
+</svg>`;
+  }
+
+  return generatePackedBedSVG(packed, 0, 1, kerf, showLabels);
+};
+
+// Generate multiple SVG files for multiple beds
+export const generateMultipleBedSVGs = (
+  collection: PanelCollection,
+  options: BedExportOptions
+): string[] => {
+  const gap = options?.gap ?? 5;
+  const allowRotation = options?.allowRotation ?? true;
+  const kerf = options?.kerf ?? 0;
+  const showLabels = options?.showLabels ?? true;
+
+  if (!options.bedWidth || !options.bedHeight) {
+    // No bed size - return single auto-packed SVG
+    return [generateAllPanelPathsSVG(collection, kerf, options)];
+  }
+
+  const beds = packPanelsIntoBeds(
+    collection.panels,
+    options.bedWidth,
+    options.bedHeight,
+    gap,
+    allowRotation,
+    showLabels
+  );
+
+  return beds.map((bed, i) => generatePackedBedSVG(bed, i, beds.length, kerf, showLabels));
 };
 
 // =============================================================================
@@ -605,7 +1091,7 @@ export const generateSubdivisionPanelSVG = (
 
   svg += `  </g>
   <text x="${svgWidth / 2}" y="${svgHeight - 2}"
-        text-anchor="middle" font-size="3" fill="#666">
+        text-anchor="middle" font-size="3" fill="red" stroke="red">
     DIV-${axisLabel}@${posLabel}mm - ${panel.width.toFixed(1)}mm x ${panel.height.toFixed(1)}mm
   </text>
 </svg>`;
@@ -892,7 +1378,7 @@ export const generateFaceSVG = (
 
   svg += `  </g>
   <text x="${svgWidth / 2}" y="${svgHeight - 2}"
-        text-anchor="middle" font-size="3" fill="#666">
+        text-anchor="middle" font-size="3" fill="red" stroke="red">
     ${faceId.toUpperCase()} - ${dims.width}mm x ${dims.height}mm
   </text>
 </svg>`;
@@ -989,7 +1475,7 @@ export const generateAllFacesSVG = (
     }
 
     svg += `    <text x="${item.width / 2}" y="${item.height - 2}"
-          text-anchor="middle" font-size="3" fill="#666">
+          text-anchor="middle" font-size="3" fill="red" stroke="red">
       ${item.label} - ${item.dims.width.toFixed(1)}mm x ${item.dims.height.toFixed(1)}mm
     </text>
   </g>

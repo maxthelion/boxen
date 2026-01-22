@@ -315,7 +315,7 @@ export const getAllSubdivisions = (root: Void): Subdivision[] => {
         id: node.id + '-split',
         axis: node.splitAxis,
         position: node.splitPosition,
-        bounds: parentBounds,
+        bounds: parentBounds,  // Bounds of the parent void (where the divider can move)
       });
     }
 
@@ -1289,7 +1289,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const updateVoidPosition = (node: Void): Void => {
         if (node.id === parent.id) {
           // This is the parent - update its children
-          const newChildren = parent.children.map((child, idx) => {
+          const newChildren = parent.children.map((child) => {
             if (child.id === voidId) {
               // Update this void's splitPosition
               return { ...child, splitPosition: clampedPosition };
@@ -1324,7 +1324,14 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
                 break;
             }
 
-            return { ...child, bounds: newBounds };
+            // Recursively update nested children's bounds if they exist
+            let updatedChildren = child.children;
+            if (child.children.length > 0) {
+              // Recalculate nested children bounds based on the new parent bounds
+              updatedChildren = recalculateNestedBounds(child.children, newBounds, child.splitAxis);
+            }
+
+            return { ...child, bounds: newBounds, children: updatedChildren };
           });
 
           return { ...node, children: recalculatedChildren };
@@ -1334,6 +1341,49 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           ...node,
           children: node.children.map(updateVoidPosition),
         };
+      };
+
+      // Helper to recalculate nested void bounds when their parent's bounds change
+      const recalculateNestedBounds = (children: Void[], parentBounds: Bounds, splitAxis?: 'x' | 'y' | 'z'): Void[] => {
+        if (!splitAxis || children.length === 0) return children;
+
+        const dimStart = splitAxis === 'x' ? parentBounds.x : splitAxis === 'y' ? parentBounds.y : parentBounds.z;
+        const dimEnd = splitAxis === 'x' ? parentBounds.x + parentBounds.w :
+                       splitAxis === 'y' ? parentBounds.y + parentBounds.h :
+                       parentBounds.z + parentBounds.d;
+
+        return children.map((child, idx) => {
+          // Calculate region for this child
+          const regionStart = idx === 0
+            ? dimStart
+            : (children[idx - 1].splitPosition ?? dimStart) + mt / 2;
+
+          const regionEnd = child.splitPosition
+            ? child.splitPosition - mt / 2
+            : dimEnd;
+
+          const regionSize = regionEnd - regionStart;
+
+          let newBounds: Bounds;
+          switch (splitAxis) {
+            case 'x':
+              newBounds = { ...parentBounds, x: regionStart, w: regionSize };
+              break;
+            case 'y':
+              newBounds = { ...parentBounds, y: regionStart, h: regionSize };
+              break;
+            case 'z':
+              newBounds = { ...parentBounds, z: regionStart, d: regionSize };
+              break;
+          }
+
+          // Recursively update this child's children
+          const updatedChildren = child.children.length > 0
+            ? recalculateNestedBounds(child.children, newBounds, child.splitAxis)
+            : child.children;
+
+          return { ...child, bounds: newBounds, children: updatedChildren };
+        });
       };
 
       const newRootVoid = updateVoidPosition(state.rootVoid);

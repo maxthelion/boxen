@@ -383,6 +383,73 @@ body {
   font-size: 0.875rem;
 }
 
+/* Export Settings */
+.export-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: #1a1a2e;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+}
+
+.export-setting-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.export-setting-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.export-setting-row label span {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.export-setting-row select,
+.export-setting-row input[type="number"] {
+  background: #252545;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 0.5rem;
+  color: #e0e0e0;
+  font-size: 0.875rem;
+  width: 100%;
+}
+
+.export-setting-row select:focus,
+.export-setting-row input:focus {
+  outline: none;
+  border-color: #4a90d9;
+}
+
+.custom-bed-size {
+  padding-left: 1rem;
+  border-left: 2px solid #333;
+}
+
+.checkbox-label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.5rem !important;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #4a90d9;
+}
+
+.checkbox-label span {
+  font-size: 0.875rem !important;
+  color: #e0e0e0 !important;
+}
+
 .export-section h4 {
   font-size: 0.75rem;
   color: #888;

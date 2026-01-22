@@ -100,6 +100,114 @@ export const getFaceEdges = (faceId: FaceId): EdgeInfo[] => {
   }
 };
 
+// Get which edge of the adjacent face corresponds to this face's edge
+// For example: top face's right edge connects to right face's top edge
+export const getAdjacentEdgePosition = (
+  faceId: FaceId,
+  edgePosition: 'top' | 'bottom' | 'left' | 'right'
+): 'top' | 'bottom' | 'left' | 'right' => {
+  // This mapping defines which edge of the adjacent face connects back to this face
+  // Derived from getFaceEdges: if face A's edge X connects to face B,
+  // then face B's edge Y connects back to face A (found by looking up B in getFaceEdges)
+  const mapping: Record<FaceId, Record<string, 'top' | 'bottom' | 'left' | 'right'>> = {
+    front: { top: 'bottom', bottom: 'top', left: 'right', right: 'left' },
+    back: { top: 'top', bottom: 'bottom', left: 'right', right: 'left' },
+    left: { top: 'left', bottom: 'left', left: 'right', right: 'left' },
+    right: { top: 'right', bottom: 'right', left: 'right', right: 'left' },
+    top: { top: 'top', bottom: 'top', left: 'top', right: 'top' },
+    bottom: { top: 'bottom', bottom: 'bottom', left: 'bottom', right: 'bottom' },
+  };
+  return mapping[faceId][edgePosition];
+};
+
+// Get the extension value from an adjacent face's edge that connects to this face
+const getAdjacentFaceExtension = (
+  faceId: FaceId,
+  edgePosition: 'top' | 'bottom' | 'left' | 'right',
+  existingPanels?: PanelPath[]
+): number => {
+  if (!existingPanels) return 0;
+
+  const edges = getFaceEdges(faceId);
+  const edgeInfo = edges.find(e => e.position === edgePosition);
+  if (!edgeInfo) return 0;
+
+  const adjacentFaceId = edgeInfo.adjacentFaceId;
+  const adjacentPanel = existingPanels.find(p => p.source.faceId === adjacentFaceId);
+  if (!adjacentPanel) return 0;
+
+  const adjacentEdgePosition = getAdjacentEdgePosition(faceId, edgePosition);
+  return adjacentPanel.edgeExtensions[adjacentEdgePosition] || 0;
+};
+
+// Get extensions from adjacent face that affect each end of this edge
+// When an adjacent face contracts its perpendicular edges, it affects the shared edge length
+const getAdjacentFacePerpendicularExtensions = (
+  faceId: FaceId,
+  edgePosition: 'top' | 'bottom' | 'left' | 'right',
+  existingPanels?: PanelPath[]
+): { startExt: number; endExt: number } => {
+  if (!existingPanels) return { startExt: 0, endExt: 0 };
+
+  const edges = getFaceEdges(faceId);
+  const edgeInfo = edges.find(e => e.position === edgePosition);
+  if (!edgeInfo) return { startExt: 0, endExt: 0 };
+
+  const adjacentFaceId = edgeInfo.adjacentFaceId;
+  const adjacentPanel = existingPanels.find(p => p.source.faceId === adjacentFaceId);
+  if (!adjacentPanel) return { startExt: 0, endExt: 0 };
+
+  // Map which edges of the adjacent face affect the start/end of this edge
+  // This depends on the geometric relationship between the faces
+  const perpMapping: Record<FaceId, Record<string, { start: 'top' | 'bottom' | 'left' | 'right'; end: 'top' | 'bottom' | 'left' | 'right' }>> = {
+    // For front face edges, which adjacent face edges affect start/end
+    front: {
+      top: { start: 'left', end: 'right' },      // top edge: left corner to right corner
+      bottom: { start: 'left', end: 'right' },
+      left: { start: 'top', end: 'bottom' },     // left edge: top corner to bottom corner
+      right: { start: 'top', end: 'bottom' },
+    },
+    back: {
+      top: { start: 'right', end: 'left' },      // back is mirrored
+      bottom: { start: 'right', end: 'left' },
+      left: { start: 'top', end: 'bottom' },
+      right: { start: 'top', end: 'bottom' },
+    },
+    left: {
+      top: { start: 'left', end: 'right' },
+      bottom: { start: 'left', end: 'right' },
+      left: { start: 'top', end: 'bottom' },
+      right: { start: 'top', end: 'bottom' },
+    },
+    right: {
+      top: { start: 'right', end: 'left' },      // right face orientation
+      bottom: { start: 'right', end: 'left' },
+      left: { start: 'top', end: 'bottom' },
+      right: { start: 'top', end: 'bottom' },
+    },
+    top: {
+      top: { start: 'left', end: 'right' },
+      bottom: { start: 'left', end: 'right' },
+      left: { start: 'top', end: 'bottom' },
+      right: { start: 'top', end: 'bottom' },
+    },
+    bottom: {
+      top: { start: 'left', end: 'right' },
+      bottom: { start: 'left', end: 'right' },
+      left: { start: 'bottom', end: 'top' },     // bottom face is flipped
+      right: { start: 'bottom', end: 'top' },
+    },
+  };
+
+  const mapping = perpMapping[faceId]?.[edgePosition];
+  if (!mapping) return { startExt: 0, endExt: 0 };
+
+  return {
+    startExt: adjacentPanel.edgeExtensions[mapping.start] || 0,
+    endExt: adjacentPanel.edgeExtensions[mapping.end] || 0,
+  };
+};
+
 // =============================================================================
 // Edge Status Utilities - Determine which edges are locked (finger joints) vs unlocked (straight)
 // =============================================================================
@@ -248,7 +356,8 @@ const generateFacePanelOutline = (
   faceId: FaceId,
   faces: Face[],
   config: BoxConfig,
-  edgeExtensions: EdgeExtensions = defaultEdgeExtensions
+  edgeExtensions: EdgeExtensions = defaultEdgeExtensions,
+  existingPanels?: PanelPath[]
 ): PathPoint[] => {
   const dims = getFaceDimensions(faceId, config);
   const edges = getFaceEdges(faceId);
@@ -256,6 +365,24 @@ const generateFacePanelOutline = (
 
   const halfW = dims.width / 2;
   const halfH = dims.height / 2;
+
+  // Check if adjacent face has any contraction that affects the shared edge
+  // This includes both the connecting edge AND perpendicular edges that shorten the overlap
+  const getAdjacentContractions = (position: 'top' | 'bottom' | 'left' | 'right'): { direct: number; startPerp: number; endPerp: number } => {
+    const directExt = getAdjacentFaceExtension(faceId, position, existingPanels);
+    const perpExts = getAdjacentFacePerpendicularExtensions(faceId, position, existingPanels);
+    return {
+      direct: directExt,
+      startPerp: perpExts.startExt,
+      endPerp: perpExts.endExt,
+    };
+  };
+
+  // Check if adjacent face has any contraction (direct or perpendicular)
+  const adjacentHasAnyContraction = (position: 'top' | 'bottom' | 'left' | 'right'): boolean => {
+    const contractions = getAdjacentContractions(position);
+    return contractions.direct < 0 || contractions.startPerp < 0 || contractions.endPerp < 0;
+  };
 
   // Determine which edges have tabs extending outward (locked edges)
   const edgeHasTabs = (position: 'top' | 'bottom' | 'left' | 'right'): boolean => {
@@ -273,6 +400,13 @@ const generateFacePanelOutline = (
     return !(adjacentFace?.solid ?? false);
   };
 
+  // Check if edge should have finger joints (may be partial if adjacent has perpendicular contraction)
+  const edgeHasFingers = (position: 'top' | 'bottom' | 'left' | 'right'): boolean => {
+    const edgeInfo = edges.find(e => e.position === position)!;
+    const adjacentFace = faces.find(f => f.id === edgeInfo.adjacentFaceId);
+    return adjacentFace?.solid ?? false;
+  };
+
   const topHasTabs = edgeHasTabs('top');
   const bottomHasTabs = edgeHasTabs('bottom');
   const leftHasTabs = edgeHasTabs('left');
@@ -284,55 +418,106 @@ const generateFacePanelOutline = (
   const extLeft = edgeIsUnlocked('left') ? edgeExtensions.left : 0;
   const extRight = edgeIsUnlocked('right') ? edgeExtensions.right : 0;
 
-  // Corners inset where tabs extend outward, with extensions applied
-  const corners: Record<string, Point> = {
+  // Original corners (without extensions) - used for finger pattern calculation
+  // This ensures fingers maintain their original spacing regardless of extensions
+  const originalCorners: Record<string, Point> = {
     topLeft: {
-      x: -halfW + (leftHasTabs ? materialThickness : 0) - extLeft,
-      y: halfH - (topHasTabs ? materialThickness : 0) + extTop
+      x: -halfW + (leftHasTabs ? materialThickness : 0),
+      y: halfH - (topHasTabs ? materialThickness : 0)
     },
     topRight: {
-      x: halfW - (rightHasTabs ? materialThickness : 0) + extRight,
-      y: halfH - (topHasTabs ? materialThickness : 0) + extTop
+      x: halfW - (rightHasTabs ? materialThickness : 0),
+      y: halfH - (topHasTabs ? materialThickness : 0)
     },
     bottomRight: {
-      x: halfW - (rightHasTabs ? materialThickness : 0) + extRight,
-      y: -halfH + (bottomHasTabs ? materialThickness : 0) - extBottom
+      x: halfW - (rightHasTabs ? materialThickness : 0),
+      y: -halfH + (bottomHasTabs ? materialThickness : 0)
     },
     bottomLeft: {
-      x: -halfW + (leftHasTabs ? materialThickness : 0) - extLeft,
-      y: -halfH + (bottomHasTabs ? materialThickness : 0) - extBottom
+      x: -halfW + (leftHasTabs ? materialThickness : 0),
+      y: -halfH + (bottomHasTabs ? materialThickness : 0)
     },
   };
 
+  // Actual corners (with extensions) - used for panel outline
+  const corners: Record<string, Point> = {
+    topLeft: {
+      x: originalCorners.topLeft.x - extLeft,
+      y: originalCorners.topLeft.y + extTop
+    },
+    topRight: {
+      x: originalCorners.topRight.x + extRight,
+      y: originalCorners.topRight.y + extTop
+    },
+    bottomRight: {
+      x: originalCorners.bottomRight.x + extRight,
+      y: originalCorners.bottomRight.y - extBottom
+    },
+    bottomLeft: {
+      x: originalCorners.bottomLeft.x - extLeft,
+      y: originalCorners.bottomLeft.y - extBottom
+    },
+  };
+
+  // Edge configs with both actual and original corners
   const edgeConfigs = [
-    { start: corners.topLeft, end: corners.topRight, edgeInfo: edges.find((e) => e.position === 'top')! },
-    { start: corners.topRight, end: corners.bottomRight, edgeInfo: edges.find((e) => e.position === 'right')! },
-    { start: corners.bottomRight, end: corners.bottomLeft, edgeInfo: edges.find((e) => e.position === 'bottom')! },
-    { start: corners.bottomLeft, end: corners.topLeft, edgeInfo: edges.find((e) => e.position === 'left')! },
+    {
+      start: corners.topLeft, end: corners.topRight,
+      originalStart: originalCorners.topLeft, originalEnd: originalCorners.topRight,
+      edgeInfo: edges.find((e) => e.position === 'top')!,
+      startExt: { perpendicular: extLeft, parallel: extTop },
+      endExt: { perpendicular: extRight, parallel: extTop }
+    },
+    {
+      start: corners.topRight, end: corners.bottomRight,
+      originalStart: originalCorners.topRight, originalEnd: originalCorners.bottomRight,
+      edgeInfo: edges.find((e) => e.position === 'right')!,
+      startExt: { perpendicular: extTop, parallel: extRight },
+      endExt: { perpendicular: extBottom, parallel: extRight }
+    },
+    {
+      start: corners.bottomRight, end: corners.bottomLeft,
+      originalStart: originalCorners.bottomRight, originalEnd: originalCorners.bottomLeft,
+      edgeInfo: edges.find((e) => e.position === 'bottom')!,
+      startExt: { perpendicular: extRight, parallel: extBottom },
+      endExt: { perpendicular: extLeft, parallel: extBottom }
+    },
+    {
+      start: corners.bottomLeft, end: corners.topLeft,
+      originalStart: originalCorners.bottomLeft, originalEnd: originalCorners.topLeft,
+      edgeInfo: edges.find((e) => e.position === 'left')!,
+      startExt: { perpendicular: extBottom, parallel: extLeft },
+      endExt: { perpendicular: extTop, parallel: extLeft }
+    },
   ];
 
   const outlinePoints: PathPoint[] = [];
 
-  for (const { start, end, edgeInfo } of edgeConfigs) {
+  for (const { start, end, originalStart, originalEnd, edgeInfo, startExt, endExt } of edgeConfigs) {
     const adjacentFace = faces.find((f) => f.id === edgeInfo.adjacentFaceId);
     const isSolidAdjacent = adjacentFace?.solid ?? false;
-    const tabOutResult = isSolidAdjacent ? shouldTabOut(faceId, edgeInfo.adjacentFaceId, assembly) : null;
+    const hasFingers = edgeHasFingers(edgeInfo.position);
+    const tabOutResult = (isSolidAdjacent && hasFingers) ? shouldTabOut(faceId, edgeInfo.adjacentFaceId, assembly) : null;
 
     let points: Point[];
 
-    if (tabOutResult !== null) {
-      const edgeLength = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+    if (tabOutResult !== null && hasFingers) {
+      // Generate fingers based on ORIGINAL edge length to maintain consistent spacing
+      const originalEdgeLength = Math.sqrt(
+        Math.pow(originalEnd.x - originalStart.x, 2) +
+        Math.pow(originalEnd.y - originalStart.y, 2)
+      );
 
       // Calculate corner inset for adjusted gap multiplier
-      // Use Math.max: prioritize correct alignment on the closed/inset side
       const isHorizontalEdge = edgeInfo.position === 'top' || edgeInfo.position === 'bottom';
       const cornerInset = isHorizontalEdge
         ? Math.max(leftHasTabs ? materialThickness : 0, rightHasTabs ? materialThickness : 0)
         : Math.max(topHasTabs ? materialThickness : 0, bottomHasTabs ? materialThickness : 0);
       const adjustedGapMultiplier = Math.max(0, fingerGap - cornerInset / fingerWidth);
 
-      points = generateFingerJointPath(start, end, {
-        edgeLength,
+      // Generate finger pattern based on original corners
+      const fingerPoints = generateFingerJointPath(originalStart, originalEnd, {
+        edgeLength: originalEdgeLength,
         fingerWidth,
         materialThickness,
         isTabOut: tabOutResult,
@@ -340,6 +525,73 @@ const generateFacePanelOutline = (
         yUp: true,
         cornerGapMultiplier: adjustedGapMultiplier,
       });
+
+      // Check if perpendicular edges have negative extensions (contractions)
+      // that would clip the finger pattern
+      const startContraction = startExt.perpendicular < 0 ? Math.abs(startExt.perpendicular) : 0;
+      const endContraction = endExt.perpendicular < 0 ? Math.abs(endExt.perpendicular) : 0;
+
+      if (startContraction > 0 || endContraction > 0) {
+        // Clip the finger pattern where adjacent edges are contracted
+        // Filter out points that fall outside the actual edge bounds
+        const isVertical = edgeInfo.position === 'left' || edgeInfo.position === 'right';
+
+        const clippedPoints: Point[] = [];
+        for (let i = 0; i < fingerPoints.length; i++) {
+          const p = fingerPoints[i];
+          let inBounds = true;
+
+          if (isVertical) {
+            // Vertical edge: check Y bounds
+            const minY = Math.min(start.y, end.y);
+            const maxY = Math.max(start.y, end.y);
+            inBounds = p.y >= minY - 0.01 && p.y <= maxY + 0.01;
+          } else {
+            // Horizontal edge: check X bounds
+            const minX = Math.min(start.x, end.x);
+            const maxX = Math.max(start.x, end.x);
+            inBounds = p.x >= minX - 0.01 && p.x <= maxX + 0.01;
+          }
+
+          if (inBounds) {
+            clippedPoints.push(p);
+          } else if (clippedPoints.length > 0) {
+            // Add the boundary point if we're transitioning out of bounds
+            const lastInBounds = clippedPoints[clippedPoints.length - 1];
+            if (isVertical) {
+              const boundaryY = p.y < Math.min(start.y, end.y) ? Math.min(start.y, end.y) : Math.max(start.y, end.y);
+              if (Math.abs(lastInBounds.y - boundaryY) > 0.01) {
+                clippedPoints.push({ x: lastInBounds.x, y: boundaryY });
+              }
+            } else {
+              const boundaryX = p.x < Math.min(start.x, end.x) ? Math.min(start.x, end.x) : Math.max(start.x, end.x);
+              if (Math.abs(lastInBounds.x - boundaryX) > 0.01) {
+                clippedPoints.push({ x: boundaryX, y: lastInBounds.y });
+              }
+            }
+          }
+        }
+
+        // Ensure the path starts and ends at the actual corners
+        if (clippedPoints.length > 0) {
+          // Add start corner if needed
+          const firstPoint = clippedPoints[0];
+          if (Math.abs(firstPoint.x - start.x) > 0.01 || Math.abs(firstPoint.y - start.y) > 0.01) {
+            clippedPoints.unshift(start);
+          }
+          // Add end corner if needed
+          const lastPoint = clippedPoints[clippedPoints.length - 1];
+          if (Math.abs(lastPoint.x - end.x) > 0.01 || Math.abs(lastPoint.y - end.y) > 0.01) {
+            clippedPoints.push(end);
+          }
+          points = clippedPoints;
+        } else {
+          // All fingers clipped, just use straight edge
+          points = [start, end];
+        }
+      } else {
+        points = fingerPoints;
+      }
     } else {
       points = [start, end];
     }
@@ -548,17 +800,18 @@ const generateDividerSlotHoles = (
             slotLength = bounds.d;
             isHorizontal = false;
             // Vertical slot runs in Z direction (mapped to local Y) - offset based on bounds.z
-            // Top face: local Y corresponds to -Z (front is negative Y)
+            // Top face rotation [-π/2, 0, 0]: local Y → world -Z
+            // So negative slotY = positive world Z (toward front)
             slotCenterOffset = -((bounds.z + bounds.d / 2) - depth / 2);
-            // For top: start=front (negative local Y), end=back
+            // For top: start=front (positive local Y maps to back), end=back
             startInset = meetsFront && isFaceSolid('front') ? materialThickness : 0;
             endInset = meetsBack && isFaceSolid('back') ? materialThickness : 0;
-            // X-axis divider meeting top: slot runs front-to-back
-            // In divider's 2D: "left" is back, "right" is front
             extensionStart = getExtForEdge('right', meetsFront && isFaceSolid('front'));
             extensionEnd = getExtForEdge('left', meetsBack && isFaceSolid('back'));
           } else if (axis === 'z') {
-            slotY = position - depth / 2;
+            // Top face rotation [-π/2, 0, 0]: local Y → world -Z
+            // To place slot at world Z = position, need slotY = -(position - depth/2)
+            slotY = -(position - depth / 2);
             slotLength = bounds.w;
             isHorizontal = true;
             // Horizontal slot runs in X direction - offset based on bounds.x
@@ -577,15 +830,18 @@ const generateDividerSlotHoles = (
             slotLength = bounds.d;
             isHorizontal = false;
             // Vertical slot runs in Z direction (mapped to local Y) - offset based on bounds.z
-            // Bottom face: local Y corresponds to -Z (back is negative Y)
-            slotCenterOffset = -((bounds.z + bounds.d / 2) - depth / 2);
-            // For bottom: start=back (negative local Y), end=front
+            // Bottom face rotation [π/2, 0, 0]: local Y → world +Z
+            // So positive slotY = positive world Z (toward front)
+            slotCenterOffset = (bounds.z + bounds.d / 2) - depth / 2;
+            // For bottom: start=back (negative local Y), end=front (positive local Y)
             startInset = meetsBack && isFaceSolid('back') ? materialThickness : 0;
             endInset = meetsFront && isFaceSolid('front') ? materialThickness : 0;
             extensionStart = getExtForEdge('left', meetsBack && isFaceSolid('back'));
             extensionEnd = getExtForEdge('right', meetsFront && isFaceSolid('front'));
           } else if (axis === 'z') {
-            slotY = -(position - depth / 2);
+            // Bottom face rotation [π/2, 0, 0]: local Y → world +Z
+            // To place slot at world Z = position, need slotY = position - depth/2
+            slotY = position - depth / 2;
             slotLength = bounds.w;
             isHorizontal = true;
             // Horizontal slot runs in X direction - offset based on bounds.x
@@ -866,7 +1122,7 @@ const generateFacePanel = (
 
   const extensions = existingExtensions ?? defaultEdgeExtensions;
   const dims = getFaceDimensions(faceId, config);
-  const outlinePoints = generateFacePanelOutline(faceId, faces, config, extensions);
+  const outlinePoints = generateFacePanelOutline(faceId, faces, config, extensions, existingPanels);
   const dividerHoles = generateDividerSlotHoles(faceId, faces, rootVoid, config, existingPanels);
   const lidHoles = generateLidSlotHoles(faceId, faces, config);
   const { position, rotation } = getFaceTransform(faceId, config, scale);
