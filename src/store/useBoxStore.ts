@@ -493,7 +493,12 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   selectVoid: (voidId, additive = false) =>
     set((state) => {
       if (voidId === null) {
-        return { selectedVoidIds: new Set<string>() };
+        return {
+          selectedVoidIds: new Set<string>(),
+          selectedSubAssemblyIds: new Set<string>(),
+          selectedPanelIds: new Set<string>(),
+          selectedAssemblyId: null,
+        };
       }
       const newSet = new Set(additive ? state.selectedVoidIds : []);
       if (newSet.has(voidId)) {
@@ -501,21 +506,27 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       } else {
         newSet.add(voidId);
       }
+      // When selecting a void (not additive), clear all other selection types
+      if (additive) {
+        return { selectedVoidIds: newSet };
+      }
       return {
         selectedVoidIds: newSet,
-        // Clear other selection types if not additive
-        ...(additive ? {} : {
-          selectedSubAssemblyIds: new Set<string>(),
-          selectedPanelIds: new Set<string>(),
-          selectedAssemblyId: null,
-        }),
+        selectedSubAssemblyIds: new Set<string>(),
+        selectedPanelIds: new Set<string>(),
+        selectedAssemblyId: null,
       };
     }),
 
   selectPanel: (panelId, additive = false) =>
     set((state) => {
       if (panelId === null) {
-        return { selectedPanelIds: new Set<string>() };
+        return {
+          selectedPanelIds: new Set<string>(),
+          selectedVoidIds: new Set<string>(),
+          selectedSubAssemblyIds: new Set<string>(),
+          selectedAssemblyId: null,
+        };
       }
       const newSet = new Set(additive ? state.selectedPanelIds : []);
       if (newSet.has(panelId)) {
@@ -523,14 +534,15 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       } else {
         newSet.add(panelId);
       }
+      // When selecting a panel (not additive), clear all other selection types
+      if (additive) {
+        return { selectedPanelIds: newSet };
+      }
       return {
         selectedPanelIds: newSet,
-        // Clear other selection types if not additive
-        ...(additive ? {} : {
-          selectedVoidIds: new Set<string>(),
-          selectedSubAssemblyIds: new Set<string>(),
-          selectedAssemblyId: null,
-        }),
+        selectedVoidIds: new Set<string>(),
+        selectedSubAssemblyIds: new Set<string>(),
+        selectedAssemblyId: null,
       };
     }),
 
@@ -546,7 +558,12 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   selectSubAssembly: (subAssemblyId, additive = false) =>
     set((state) => {
       if (subAssemblyId === null) {
-        return { selectedSubAssemblyIds: new Set<string>() };
+        return {
+          selectedSubAssemblyIds: new Set<string>(),
+          selectedVoidIds: new Set<string>(),
+          selectedPanelIds: new Set<string>(),
+          selectedAssemblyId: null,
+        };
       }
       const newSet = new Set(additive ? state.selectedSubAssemblyIds : []);
       if (newSet.has(subAssemblyId)) {
@@ -554,14 +571,15 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       } else {
         newSet.add(subAssemblyId);
       }
+      // When selecting a sub-assembly (not additive), clear all other selection types
+      if (additive) {
+        return { selectedSubAssemblyIds: newSet };
+      }
       return {
         selectedSubAssemblyIds: newSet,
-        // Clear other selection types if not additive
-        ...(additive ? {} : {
-          selectedVoidIds: new Set<string>(),
-          selectedPanelIds: new Set<string>(),
-          selectedAssemblyId: null,
-        }),
+        selectedVoidIds: new Set<string>(),
+        selectedPanelIds: new Set<string>(),
+        selectedAssemblyId: null,
       };
     }),
 
@@ -856,11 +874,20 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const updateSubAssemblyInVoid = (v: Void): Void => {
         if (v.subAssembly?.id === subAssemblyId) {
           const newClearance = Math.max(0, clearance);
-          const innerWidth = v.bounds.w - (newClearance * 2);
-          const innerHeight = v.bounds.h - (newClearance * 2);
-          const innerDepth = v.bounds.d - (newClearance * 2);
+          const mt = v.subAssembly.materialThickness;
+          const faceOffsets = v.subAssembly.faceOffsets || { left: 0, right: 0, top: 0, bottom: 0, front: 0, back: 0 };
 
-          if (innerWidth <= 0 || innerHeight <= 0 || innerDepth <= 0) {
+          // Calculate outer dimensions (space available after clearance + face offsets)
+          const outerWidth = v.bounds.w - (newClearance * 2) + faceOffsets.left + faceOffsets.right;
+          const outerHeight = v.bounds.h - (newClearance * 2) + faceOffsets.top + faceOffsets.bottom;
+          const outerDepth = v.bounds.d - (newClearance * 2) + faceOffsets.front + faceOffsets.back;
+
+          // Calculate interior dimensions (outer minus walls on each side)
+          const interiorWidth = outerWidth - (2 * mt);
+          const interiorHeight = outerHeight - (2 * mt);
+          const interiorDepth = outerDepth - (2 * mt);
+
+          if (interiorWidth <= 0 || interiorHeight <= 0 || interiorDepth <= 0) {
             return v; // Invalid clearance
           }
 
@@ -871,7 +898,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
               clearance: newClearance,
               rootVoid: {
                 ...v.subAssembly.rootVoid,
-                bounds: { x: 0, y: 0, z: 0, w: innerWidth, h: innerHeight, d: innerDepth },
+                bounds: { x: 0, y: 0, z: 0, w: interiorWidth, h: interiorHeight, d: interiorDepth },
                 children: [], // Reset children when clearance changes
               },
             },
@@ -1502,6 +1529,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           const offsetPanel = {
             ...panel,
             id: `subasm-${subAssembly.id}-${panel.id}`,
+            source: {
+              ...panel.source,
+              subAssemblyId: subAssembly.id,
+            },
             position: [
               panel.position[0] + offsetX,
               panel.position[1] + offsetY,

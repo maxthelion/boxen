@@ -8,6 +8,7 @@ const faceOrder: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
 export const AssemblyProperties: React.FC = () => {
   const {
     selectedAssemblyId,
+    selectedSubAssemblyIds,
     config,
     faces,
     rootVoid,
@@ -23,12 +24,16 @@ export const AssemblyProperties: React.FC = () => {
     setSubAssemblyLidInset,
   } = useBoxStore();
 
-  if (!selectedAssemblyId) {
+  // Use selectedAssemblyId if set, otherwise use first selected sub-assembly
+  const effectiveAssemblyId = selectedAssemblyId ??
+    (selectedSubAssemblyIds.size > 0 ? Array.from(selectedSubAssemblyIds)[0] : null);
+
+  if (!effectiveAssemblyId) {
     return null;
   }
 
   // Main assembly selected
-  if (selectedAssemblyId === 'main') {
+  if (effectiveAssemblyId === 'main') {
     return (
       <Panel title="Assembly Properties">
         <div className="assembly-properties">
@@ -198,7 +203,7 @@ export const AssemblyProperties: React.FC = () => {
 
   // Sub-assembly selected
   const subAssemblies = getAllSubAssemblies(rootVoid);
-  const subAssemblyData = subAssemblies.find(s => s.subAssembly.id === selectedAssemblyId);
+  const subAssemblyData = subAssemblies.find(s => s.subAssembly.id === effectiveAssemblyId);
 
   if (!subAssemblyData) {
     return (

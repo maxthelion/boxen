@@ -519,8 +519,10 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
   return (
     <div className="tree-node">
       <div
-        className={`tree-node-content subassembly ${isSelected ? 'selected' : ''} ${isHidden ? 'hidden' : ''} ${isIsolated ? 'isolated' : ''}`}
+        className={`tree-node-content subassembly ${isSelected || isAssemblySelected ? 'selected' : ''} ${isAssemblyHovered ? 'hovered' : ''} ${isHidden ? 'hidden' : ''} ${isIsolated ? 'isolated' : ''}`}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        onMouseEnter={() => onHoverAssembly(subAssembly.id)}
+        onMouseLeave={() => onHoverAssembly(null)}
       >
         <span
           className="tree-node-main"

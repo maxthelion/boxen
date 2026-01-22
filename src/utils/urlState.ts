@@ -1,4 +1,4 @@
-import { BoxConfig, Face, Void, AssemblyConfig, defaultAssemblyConfig, EdgeExtensions, defaultEdgeExtensions } from '../types';
+import { BoxConfig, Face, Void, AssemblyConfig, defaultAssemblyConfig, EdgeExtensions, defaultEdgeExtensions, SubAssembly, FaceOffsets, defaultFaceOffsets } from '../types';
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
 
 // Compact serialization format for URL storage
@@ -24,12 +24,23 @@ interface SerializedAssembly {
   ln?: [string, number];  // lid negative [tabDirection, inset] if not default
 }
 
+interface SerializedSubAssembly {
+  id: string;
+  cl: number;             // clearance
+  fo?: [number, number, number, number, number, number];  // faceOffsets [front, back, left, right, top, bottom] if non-zero
+  f: number;              // faces bitmap
+  rv: SerializedVoid;     // rootVoid
+  mt: number;             // materialThickness
+  a?: SerializedAssembly; // assembly config
+}
+
 interface SerializedVoid {
   id: string;
   b: [number, number, number, number, number, number];  // bounds [x, y, z, w, h, d]
   ch?: SerializedVoid[];  // children
   sa?: 'x' | 'y' | 'z';   // splitAxis
   sp?: number;            // splitPosition
+  sub?: SerializedSubAssembly;  // subAssembly
 }
 
 // Face order for bitmap encoding
@@ -58,6 +69,53 @@ const deserializeFaces = (bitmap: number): Face[] => {
   }));
 };
 
+// Serialize face offsets (only if non-zero)
+const serializeFaceOffsets = (fo: FaceOffsets): [number, number, number, number, number, number] | undefined => {
+  if (fo.front === 0 && fo.back === 0 && fo.left === 0 && fo.right === 0 && fo.top === 0 && fo.bottom === 0) {
+    return undefined;
+  }
+  return [r(fo.front), r(fo.back), r(fo.left), r(fo.right), r(fo.top), r(fo.bottom)];
+};
+
+// Deserialize face offsets
+const deserializeFaceOffsets = (sfo?: [number, number, number, number, number, number]): FaceOffsets => {
+  if (!sfo) return { ...defaultFaceOffsets };
+  return {
+    front: sfo[0],
+    back: sfo[1],
+    left: sfo[2],
+    right: sfo[3],
+    top: sfo[4],
+    bottom: sfo[5],
+  };
+};
+
+// Serialize sub-assembly
+const serializeSubAssembly = (sub: SubAssembly): SerializedSubAssembly => {
+  return {
+    id: sub.id,
+    cl: r(sub.clearance),
+    fo: serializeFaceOffsets(sub.faceOffsets),
+    f: serializeFaces(sub.faces),
+    rv: serializeVoid(sub.rootVoid),
+    mt: r(sub.materialThickness),
+    a: serializeAssembly(sub.assembly),
+  };
+};
+
+// Deserialize sub-assembly
+const deserializeSubAssembly = (ssub: SerializedSubAssembly): SubAssembly => {
+  return {
+    id: ssub.id,
+    clearance: ssub.cl,
+    faceOffsets: deserializeFaceOffsets(ssub.fo),
+    faces: deserializeFaces(ssub.f),
+    rootVoid: deserializeVoid(ssub.rv),
+    materialThickness: ssub.mt,
+    assembly: deserializeAssembly(ssub.a),
+  };
+};
+
 // Serialize void tree
 const serializeVoid = (v: Void): SerializedVoid => {
   const result: SerializedVoid = {
@@ -74,13 +132,16 @@ const serializeVoid = (v: Void): SerializedVoid => {
   if (v.splitPosition !== undefined) {
     result.sp = r(v.splitPosition);
   }
+  if (v.subAssembly) {
+    result.sub = serializeSubAssembly(v.subAssembly);
+  }
 
   return result;
 };
 
 // Deserialize void tree
 const deserializeVoid = (sv: SerializedVoid): Void => {
-  return {
+  const result: Void = {
     id: sv.id,
     bounds: {
       x: sv.b[0],
@@ -94,6 +155,12 @@ const deserializeVoid = (sv: SerializedVoid): Void => {
     splitAxis: sv.sa,
     splitPosition: sv.sp,
   };
+
+  if (sv.sub) {
+    result.subAssembly = deserializeSubAssembly(sv.sub);
+  }
+
+  return result;
 };
 
 // Serialize assembly config (only non-default values)

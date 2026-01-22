@@ -226,17 +226,10 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
   );
 };
 
-// Helper to get assembly ID from panel ID
-const getAssemblyIdFromPanel = (panelId: string): string => {
-  // subasm-{id}-face-xxx or subasm-{id}-divider-xxx → sub-assembly id
-  // face-xxx or divider-xxx → 'main'
-  if (panelId.startsWith('subasm-')) {
-    const parts = panelId.split('-');
-    if (parts.length >= 2) {
-      return parts[1];
-    }
-  }
-  return 'main';
+// Helper to get assembly ID from panel source
+const getAssemblyIdFromPanel = (panel: PanelPath): string => {
+  // Use source.subAssemblyId if set, otherwise it's 'main'
+  return panel.source.subAssemblyId ?? 'main';
 };
 
 // Render all panels from a collection
@@ -259,6 +252,7 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
   const hoveredPanelId = useBoxStore((state) => state.hoveredPanelId);
   const hoveredAssemblyId = useBoxStore((state) => state.hoveredAssemblyId);
   const selectedAssemblyId = useBoxStore((state) => state.selectedAssemblyId);
+  const selectedSubAssemblyIds = useBoxStore((state) => state.selectedSubAssemblyIds);
   const setHoveredPanel = useBoxStore((state) => state.setHoveredPanel);
 
   if (!panelCollection) {
@@ -273,14 +267,16 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
         if (hiddenFaceIds.has(panel.id)) return null;
 
         const isDivider = panel.source.type === 'divider';
-        const isSubAssemblyPanel = panel.id.startsWith('subasm-');
+        const isSubAssemblyPanel = !!panel.source.subAssemblyId;
 
         // Get this panel's parent assembly
-        const panelAssemblyId = getAssemblyIdFromPanel(panel.id);
+        const panelAssemblyId = getAssemblyIdFromPanel(panel);
 
         // Check if this panel or its assembly is selected/hovered
         const isPanelSelected = selectedPanelIds.has(panel.id);
-        const isAssemblySelected = selectedAssemblyId === panelAssemblyId;
+        // Assembly can be selected via selectAssembly (selectedAssemblyId) or selectSubAssembly (selectedSubAssemblyIds)
+        const isAssemblySelected = selectedAssemblyId === panelAssemblyId ||
+          (panelAssemblyId !== 'main' && selectedSubAssemblyIds.has(panelAssemblyId));
         const isPanelHovered = hoveredPanelId === panel.id;
         const isAssemblyHovered = hoveredAssemblyId === panelAssemblyId;
 
@@ -290,7 +286,8 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
         const isHovered = isPanelHovered || isAssemblyHovered;
 
         // Color based on panel type
-        const color = isSubAssemblyPanel ? '#9b59b6' : isDivider ? '#f39c12' : '#3498db';
+        // Sub-assembly: teal, Divider: orange, Main box: blue
+        const color = isSubAssemblyPanel ? '#1abc9c' : isDivider ? '#f39c12' : '#3498db';
 
         return (
           <PanelPathRenderer

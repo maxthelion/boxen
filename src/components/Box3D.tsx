@@ -133,6 +133,36 @@ const findParentSubAssemblyOffset = (
   return undefined as any; // Not found in this branch
 };
 
+// Find the parent sub-assembly of a void and return the sub-assembly + parent bounds
+const findParentSubAssemblyInfo = (
+  root: { id: string; bounds: Bounds; children: any[]; subAssembly?: any },
+  voidId: string,
+  parentSubAssembly?: { subAssembly: any; parentBounds: Bounds }
+): { subAssembly: any; parentBounds: Bounds } | null => {
+  // Check if this void is the target
+  if (root.id === voidId) {
+    return parentSubAssembly || null;
+  }
+
+  // Check children
+  for (const child of root.children) {
+    const result = findParentSubAssemblyInfo(child, voidId, parentSubAssembly);
+    if (result !== undefined) return result;
+  }
+
+  // Check inside sub-assembly
+  if (root.subAssembly) {
+    const result = findParentSubAssemblyInfo(
+      root.subAssembly.rootVoid,
+      voidId,
+      { subAssembly: root.subAssembly, parentBounds: root.bounds }
+    );
+    if (result !== undefined) return result;
+  }
+
+  return undefined as any; // Not found in this branch
+};
+
 // Divider intersection with a face - used for cutting slots
 export interface DividerIntersection {
   subdivisionId: string;
@@ -486,12 +516,59 @@ export const Box3D: React.FC = () => {
   // Get preview void bounds if preview is active, with insets for panel thickness
   const previewVoid = subdivisionPreview ? findVoid(rootVoid, subdivisionPreview.voidId) : null;
 
-  // Calculate offset for sub-assembly voids (if the preview void is inside a sub-assembly)
+  // Calculate offset for preview voids to convert from void coordinates to centered world coordinates
+  // This needs to account for: main wall thickness, sub-assembly position, and main box center
   const previewOffset = useMemo(() => {
     if (!subdivisionPreview) return { x: 0, y: 0, z: 0 };
-    const offset = findParentSubAssemblyOffset(rootVoid, subdivisionPreview.voidId);
-    return offset || { x: 0, y: 0, z: 0 };
-  }, [rootVoid, subdivisionPreview]);
+
+    const mainCenterX = config.width / 2;
+    const mainCenterY = config.height / 2;
+    const mainCenterZ = config.depth / 2;
+
+    // Find the sub-assembly that contains this void
+    const subAssemblyInfo = findParentSubAssemblyInfo(rootVoid, subdivisionPreview.voidId);
+
+    if (!subAssemblyInfo) {
+      // Void is in main box - offset accounts for main wall thickness and center
+      // Void coords start at interior corner (0,0,0), which is at (materialThickness, materialThickness, materialThickness) in exterior coords
+      return {
+        x: config.materialThickness - mainCenterX,
+        y: config.materialThickness - mainCenterY,
+        z: config.materialThickness - mainCenterZ,
+      };
+    }
+
+    const { subAssembly, parentBounds } = subAssemblyInfo;
+
+    // Sub-assembly outer dimensions
+    const subOuterW = subAssembly.rootVoid.bounds.w + 2 * subAssembly.materialThickness;
+    const subOuterH = subAssembly.rootVoid.bounds.h + 2 * subAssembly.materialThickness;
+    const subOuterD = subAssembly.rootVoid.bounds.d + 2 * subAssembly.materialThickness;
+
+    const offsets = subAssembly.faceOffsets || { left: 0, right: 0, top: 0, bottom: 0, front: 0, back: 0 };
+
+    // Sub-assembly center in main interior coordinates
+    const subCenterX = parentBounds.x + subAssembly.clearance - offsets.left + subOuterW / 2;
+    const subCenterY = parentBounds.y + subAssembly.clearance - offsets.bottom + subOuterH / 2;
+    const subCenterZ = parentBounds.z + subAssembly.clearance - offsets.back + subOuterD / 2;
+
+    // Sub-assembly interior dimensions
+    const subInteriorW = subAssembly.rootVoid.bounds.w;
+    const subInteriorH = subAssembly.rootVoid.bounds.h;
+    const subInteriorD = subAssembly.rootVoid.bounds.d;
+
+    // Offset to convert from sub-assembly interior coordinates to main-box-centered world coordinates
+    // Interior coords (0,0,0) is the interior corner of the sub-assembly
+    // This corner is at: main wall thickness + sub-assembly position + sub-assembly wall thickness
+    // = mainMaterialThickness + (subCenter - subOuterSize/2 + subMaterialThickness)
+    // = mainMaterialThickness + subCenter - subInteriorSize/2 - subMaterialThickness + subMaterialThickness
+    // = mainMaterialThickness + subCenter - subInteriorSize/2
+    return {
+      x: config.materialThickness + subCenterX - subInteriorW / 2 - mainCenterX,
+      y: config.materialThickness + subCenterY - subInteriorH / 2 - mainCenterY,
+      z: config.materialThickness + subCenterZ - subInteriorD / 2 - mainCenterZ,
+    };
+  }, [rootVoid, subdivisionPreview, config]);
 
   // Find the sub-assembly that contains this void (for face solid checks)
   const previewSubAssembly = useMemo(() => {
@@ -571,18 +648,10 @@ export const Box3D: React.FC = () => {
             selectPanel(panelId, e?.shiftKey);
           } : undefined}
           onPanelDoubleClick={selectionMode === null ? (panelId) => {
-            // Extract assembly ID from panel ID
-            // subasm-{id}-face-xxx or subasm-{id}-divider-xxx → select sub-assembly
-            // face-xxx or divider-xxx → select main assembly
-            if (panelId.startsWith('subasm-')) {
-              const parts = panelId.split('-');
-              if (parts.length >= 2) {
-                const subAssemblyId = parts[1];
-                selectAssembly(subAssemblyId);
-              }
-            } else {
-              selectAssembly('main');
-            }
+            // Look up panel to get its assembly from source
+            const panel = panelCollection.panels.find(p => p.id === panelId);
+            const assemblyId = panel?.source.subAssemblyId ?? 'main';
+            selectAssembly(assemblyId);
           } : undefined}
           hiddenFaceIds={hiddenFaceIds}
         />
@@ -743,28 +812,29 @@ export const Box3D: React.FC = () => {
         let rotation: [number, number, number];
         let size: [number, number];
 
-        // Apply offset for sub-assembly voids
+        // Apply offset for converting void coords to centered world coords
+        // The offset already includes the main center subtraction
         const offsetX = previewOffset.x;
         const offsetY = previewOffset.y;
         const offsetZ = previewOffset.z;
 
-        const centerX = (bounds.x + bounds.w / 2 + offsetX - boxCenter.x) * scale;
-        const centerY = (bounds.y + bounds.h / 2 + offsetY - boxCenter.y) * scale;
-        const centerZ = (bounds.z + bounds.d / 2 + offsetZ - boxCenter.z) * scale;
+        const centerX = (bounds.x + bounds.w / 2 + offsetX) * scale;
+        const centerY = (bounds.y + bounds.h / 2 + offsetY) * scale;
+        const centerZ = (bounds.z + bounds.d / 2 + offsetZ) * scale;
 
         switch (subdivisionPreview.axis) {
           case 'x':
-            position = [(pos + offsetX - boxCenter.x) * scale, centerY, centerZ];
+            position = [(pos + offsetX) * scale, centerY, centerZ];
             rotation = [0, Math.PI / 2, 0];
             size = [bounds.d * scale, bounds.h * scale];
             break;
           case 'y':
-            position = [centerX, (pos + offsetY - boxCenter.y) * scale, centerZ];
+            position = [centerX, (pos + offsetY) * scale, centerZ];
             rotation = [Math.PI / 2, 0, 0];
             size = [bounds.w * scale, bounds.d * scale];
             break;
           case 'z':
-            position = [centerX, centerY, (pos + offsetZ - boxCenter.z) * scale];
+            position = [centerX, centerY, (pos + offsetZ) * scale];
             rotation = [0, 0, 0];
             size = [bounds.w * scale, bounds.h * scale];
             break;
