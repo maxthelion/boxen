@@ -537,8 +537,8 @@ export const Box3D: React.FC = () => {
             }
           }
         }
-        const isSelectedPanel = selectionMode === 'panel' && selectedPanelIds.has(`face-${faceConfig.id}`);
-        const isSelectedAssembly = selectionMode === 'assembly' && selectedAssemblyId === 'main';
+        const isSelectedPanel = selectedPanelIds.has(`face-${faceConfig.id}`);
+        const isSelectedAssembly = selectedAssemblyId === 'main';
         const isPanelMode = selectionMode === 'panel';
         const isAssemblyMode = selectionMode === 'assembly';
 
@@ -621,7 +621,7 @@ export const Box3D: React.FC = () => {
             break;
         }
 
-        const isSelected = selectionMode === 'panel' && selectedPanelIds.has(`sub-${sub.id}`);
+        const isSelected = selectedPanelIds.has(`sub-${sub.id}`);
         const isPanelMode = selectionMode === 'panel';
 
         return (

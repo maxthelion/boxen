@@ -120,33 +120,31 @@ export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter })
       {/* Magenta wireframe outline - always visible */}
       <primitive object={lineSegments} />
 
-      {/* Interactive mesh - only in void selection mode */}
-      {isVoidMode && (
-        <mesh
-          ref={meshRef}
-          scale={[0.95, 0.95, 0.95]}
-          onClick={(e) => {
-            e.stopPropagation();
-            selectVoid(voidId, e.shiftKey);
-          }}
-          onPointerOver={(e) => {
-            e.stopPropagation();
-            setHoveredVoid(voidId);
-            document.body.style.cursor = 'pointer';
-          }}
-          onPointerOut={() => {
-            setHoveredVoid(null);
-            document.body.style.cursor = 'auto';
-          }}
-        >
-          <boxGeometry args={[insetBounds.w, insetBounds.h, insetBounds.d]} />
-          <meshStandardMaterial
-            color={isSelected ? '#4a90d9' : isHovered ? '#6ab04c' : '#95a5a6'}
-            transparent
-            opacity={isSelected ? 0.6 : isHovered ? 0.4 : 0.2}
-          />
-        </mesh>
-      )}
+      {/* Interactive mesh - click only in void mode, but always show selection/hover */}
+      <mesh
+        ref={meshRef}
+        scale={[0.95, 0.95, 0.95]}
+        onClick={isVoidMode ? (e) => {
+          e.stopPropagation();
+          selectVoid(voidId, e.shiftKey);
+        } : undefined}
+        onPointerOver={isVoidMode ? (e) => {
+          e.stopPropagation();
+          setHoveredVoid(voidId);
+          document.body.style.cursor = 'pointer';
+        } : undefined}
+        onPointerOut={isVoidMode ? () => {
+          setHoveredVoid(null);
+          document.body.style.cursor = 'auto';
+        } : undefined}
+      >
+        <boxGeometry args={[insetBounds.w, insetBounds.h, insetBounds.d]} />
+        <meshStandardMaterial
+          color={isSelected ? '#4a90d9' : isHovered ? '#6ab04c' : '#95a5a6'}
+          transparent
+          opacity={isSelected ? 0.6 : isHovered ? 0.4 : 0.2}
+        />
+      </mesh>
     </group>
   );
 };
