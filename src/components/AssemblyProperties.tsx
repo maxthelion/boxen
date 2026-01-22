@@ -209,14 +209,13 @@ export const AssemblyProperties: React.FC = () => {
   }
 
   const { subAssembly, bounds } = subAssemblyData;
-  const typeNames = { drawer: 'Drawer', insert: 'Insert', tray: 'Tray' };
 
   return (
     <Panel title="Assembly Properties">
       <div className="assembly-properties">
         <div className="property-header">
           <span className="property-icon">◫</span>
-          <span className="property-title">{typeNames[subAssembly.type]}</span>
+          <span className="property-title">Nested Box</span>
         </div>
 
         <div className="property-section">

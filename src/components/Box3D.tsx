@@ -70,14 +70,67 @@ const getFaceConfigs = (scaledThickness: number): {
   ];
 };
 
-// Find a void by ID
-const findVoid = (root: { id: string; bounds: Bounds; children: any[] }, id: string): { bounds: Bounds } | null => {
+// Find a void by ID (including inside sub-assemblies)
+const findVoid = (root: { id: string; bounds: Bounds; children: any[]; subAssembly?: any }, id: string): { bounds: Bounds } | null => {
   if (root.id === id) return root;
   for (const child of root.children) {
     const found = findVoid(child, id);
     if (found) return found;
   }
+  // Also search inside sub-assembly's void structure
+  if (root.subAssembly) {
+    const found = findVoid(root.subAssembly.rootVoid, id);
+    if (found) return found;
+  }
   return null;
+};
+
+// Find the parent sub-assembly of a void (if any) and return its world offset
+const findParentSubAssemblyOffset = (
+  root: { id: string; bounds: Bounds; children: any[]; subAssembly?: any },
+  voidId: string,
+  subAssemblyInfo?: { bounds: Bounds; clearance: number; materialThickness: number; faceOffsets?: { left: number; right: number; top: number; bottom: number; front: number; back: number } }
+): { x: number; y: number; z: number } | null => {
+  // Check if this void is the target
+  if (root.id === voidId) {
+    if (subAssemblyInfo) {
+      // This void is inside a sub-assembly, return the offset
+      const { bounds, clearance, materialThickness, faceOffsets } = subAssemblyInfo;
+      const offsets = faceOffsets || { left: 0, right: 0, top: 0, bottom: 0, front: 0, back: 0 };
+      const subOuterW = root.bounds.w + 2 * materialThickness;
+      const subOuterH = root.bounds.h + 2 * materialThickness;
+      const subOuterD = root.bounds.d + 2 * materialThickness;
+      return {
+        x: bounds.x + clearance - offsets.left + subOuterW / 2 - root.bounds.w / 2 - materialThickness,
+        y: bounds.y + clearance - offsets.bottom + subOuterH / 2 - root.bounds.h / 2 - materialThickness,
+        z: bounds.z + clearance - offsets.back + subOuterD / 2 - root.bounds.d / 2 - materialThickness,
+      };
+    }
+    return null; // Void is in main box, no offset needed
+  }
+
+  // Check children
+  for (const child of root.children) {
+    const result = findParentSubAssemblyOffset(child, voidId, subAssemblyInfo);
+    if (result !== undefined) return result;
+  }
+
+  // Check inside sub-assembly
+  if (root.subAssembly) {
+    const result = findParentSubAssemblyOffset(
+      root.subAssembly.rootVoid,
+      voidId,
+      {
+        bounds: root.bounds,
+        clearance: root.subAssembly.clearance,
+        materialThickness: root.subAssembly.materialThickness,
+        faceOffsets: root.subAssembly.faceOffsets,
+      }
+    );
+    if (result !== undefined) return result;
+  }
+
+  return undefined as any; // Not found in this branch
 };
 
 // Divider intersection with a face - used for cutting slots
@@ -400,7 +453,7 @@ const getLidIntersections = (
 };
 
 export const Box3D: React.FC = () => {
-  const { config, faces, rootVoid, subdivisionPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, panelCollection } = useBoxStore();
+  const { config, faces, rootVoid, subdivisionPreview, subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, panelCollection } = useBoxStore();
   const { width, height, depth } = config;
 
   // Auto-generate panels when dirty
@@ -433,28 +486,55 @@ export const Box3D: React.FC = () => {
   // Get preview void bounds if preview is active, with insets for panel thickness
   const previewVoid = subdivisionPreview ? findVoid(rootVoid, subdivisionPreview.voidId) : null;
 
+  // Calculate offset for sub-assembly voids (if the preview void is inside a sub-assembly)
+  const previewOffset = useMemo(() => {
+    if (!subdivisionPreview) return { x: 0, y: 0, z: 0 };
+    const offset = findParentSubAssemblyOffset(rootVoid, subdivisionPreview.voidId);
+    return offset || { x: 0, y: 0, z: 0 };
+  }, [rootVoid, subdivisionPreview]);
+
+  // Find the sub-assembly that contains this void (for face solid checks)
+  const previewSubAssembly = useMemo(() => {
+    if (!subdivisionPreview) return null;
+    for (const { subAssembly } of subAssemblies) {
+      if (findVoid(subAssembly.rootVoid, subdivisionPreview.voidId)) {
+        return subAssembly;
+      }
+    }
+    return null;
+  }, [subdivisionPreview, subAssemblies]);
+
   // Calculate inset bounds for preview (accounting for solid outer faces)
   const previewInsetBounds = useMemo(() => {
     if (!previewVoid) return null;
     const { bounds } = previewVoid;
     const tolerance = 0.01;
-    const mt = config.materialThickness;
 
-    // Check which edges are at outer boundaries
+    // Use sub-assembly's material thickness and faces if inside one
+    const mt = previewSubAssembly?.materialThickness ?? config.materialThickness;
+    const previewFaces = previewSubAssembly?.faces ?? faces;
+
+    // For sub-assembly voids, check against the sub-assembly's interior dimensions
+    // The sub-assembly rootVoid bounds represent the interior space
+    const containerW = previewSubAssembly?.rootVoid.bounds.w ?? width;
+    const containerH = previewSubAssembly?.rootVoid.bounds.h ?? height;
+    const containerD = previewSubAssembly?.rootVoid.bounds.d ?? depth;
+
+    // Check which edges are at outer boundaries (of the containing box/sub-assembly)
     const atLeft = bounds.x < tolerance;
-    const atRight = Math.abs(bounds.x + bounds.w - width) < tolerance;
+    const atRight = Math.abs(bounds.x + bounds.w - containerW) < tolerance;
     const atBottom = bounds.y < tolerance;
-    const atTop = Math.abs(bounds.y + bounds.h - height) < tolerance;
+    const atTop = Math.abs(bounds.y + bounds.h - containerH) < tolerance;
     const atBack = bounds.z < tolerance;
-    const atFront = Math.abs(bounds.z + bounds.d - depth) < tolerance;
+    const atFront = Math.abs(bounds.z + bounds.d - containerD) < tolerance;
 
-    // Check which faces are solid
-    const leftSolid = faces.find(f => f.id === 'left')?.solid ?? false;
-    const rightSolid = faces.find(f => f.id === 'right')?.solid ?? false;
-    const bottomSolid = faces.find(f => f.id === 'bottom')?.solid ?? false;
-    const topSolid = faces.find(f => f.id === 'top')?.solid ?? false;
-    const backSolid = faces.find(f => f.id === 'back')?.solid ?? false;
-    const frontSolid = faces.find(f => f.id === 'front')?.solid ?? false;
+    // Check which faces are solid (from main box or sub-assembly)
+    const leftSolid = previewFaces.find(f => f.id === 'left')?.solid ?? false;
+    const rightSolid = previewFaces.find(f => f.id === 'right')?.solid ?? false;
+    const bottomSolid = previewFaces.find(f => f.id === 'bottom')?.solid ?? false;
+    const topSolid = previewFaces.find(f => f.id === 'top')?.solid ?? false;
+    const backSolid = previewFaces.find(f => f.id === 'back')?.solid ?? false;
+    const frontSolid = previewFaces.find(f => f.id === 'front')?.solid ?? false;
 
     // Calculate insets
     const insetLeft = (atLeft && leftSolid) ? mt : 0;
@@ -487,8 +567,22 @@ export const Box3D: React.FC = () => {
         <PanelCollectionRenderer
           scale={scale}
           selectedPanelIds={selectedPanelIds}
-          onPanelClick={selectionMode === 'panel' ? (panelId, e) => {
+          onPanelClick={(selectionMode === 'panel' || selectionMode === null) ? (panelId, e) => {
             selectPanel(panelId, e?.shiftKey);
+          } : undefined}
+          onPanelDoubleClick={selectionMode === null ? (panelId) => {
+            // Extract assembly ID from panel ID
+            // subasm-{id}-face-xxx or subasm-{id}-divider-xxx → select sub-assembly
+            // face-xxx or divider-xxx → select main assembly
+            if (panelId.startsWith('subasm-')) {
+              const parts = panelId.split('-');
+              if (parts.length >= 2) {
+                const subAssemblyId = parts[1];
+                selectAssembly(subAssemblyId);
+              }
+            } else {
+              selectAssembly('main');
+            }
           } : undefined}
           hiddenFaceIds={hiddenFaceIds}
         />
@@ -649,23 +743,28 @@ export const Box3D: React.FC = () => {
         let rotation: [number, number, number];
         let size: [number, number];
 
-        const centerX = (bounds.x + bounds.w / 2 - boxCenter.x) * scale;
-        const centerY = (bounds.y + bounds.h / 2 - boxCenter.y) * scale;
-        const centerZ = (bounds.z + bounds.d / 2 - boxCenter.z) * scale;
+        // Apply offset for sub-assembly voids
+        const offsetX = previewOffset.x;
+        const offsetY = previewOffset.y;
+        const offsetZ = previewOffset.z;
+
+        const centerX = (bounds.x + bounds.w / 2 + offsetX - boxCenter.x) * scale;
+        const centerY = (bounds.y + bounds.h / 2 + offsetY - boxCenter.y) * scale;
+        const centerZ = (bounds.z + bounds.d / 2 + offsetZ - boxCenter.z) * scale;
 
         switch (subdivisionPreview.axis) {
           case 'x':
-            position = [(pos - boxCenter.x) * scale, centerY, centerZ];
+            position = [(pos + offsetX - boxCenter.x) * scale, centerY, centerZ];
             rotation = [0, Math.PI / 2, 0];
             size = [bounds.d * scale, bounds.h * scale];
             break;
           case 'y':
-            position = [centerX, (pos - boxCenter.y) * scale, centerZ];
+            position = [centerX, (pos + offsetY - boxCenter.y) * scale, centerZ];
             rotation = [Math.PI / 2, 0, 0];
             size = [bounds.w * scale, bounds.d * scale];
             break;
           case 'z':
-            position = [centerX, centerY, (pos - boxCenter.z) * scale];
+            position = [centerX, centerY, (pos + offsetZ - boxCenter.z) * scale];
             rotation = [0, 0, 0];
             size = [bounds.w * scale, bounds.h * scale];
             break;
@@ -682,6 +781,37 @@ export const Box3D: React.FC = () => {
           </mesh>
         );
       })}
+
+      {/* Sub-assembly creation preview (wireframe box) */}
+      {subAssemblyPreview && (() => {
+        const { bounds } = subAssemblyPreview;
+        const centerX = (bounds.x + bounds.w / 2 - boxCenter.x) * scale;
+        const centerY = (bounds.y + bounds.h / 2 - boxCenter.y) * scale;
+        const centerZ = (bounds.z + bounds.d / 2 - boxCenter.z) * scale;
+        const scaledW = bounds.w * scale;
+        const scaledH = bounds.h * scale;
+        const scaledD = bounds.d * scale;
+
+        return (
+          <group position={[centerX, centerY, centerZ]}>
+            {/* Wireframe outline */}
+            <lineSegments>
+              <edgesGeometry args={[new THREE.BoxGeometry(scaledW, scaledH, scaledD)]} />
+              <lineBasicMaterial color="#2ecc71" linewidth={2} />
+            </lineSegments>
+            {/* Semi-transparent fill */}
+            <mesh>
+              <boxGeometry args={[scaledW, scaledH, scaledD]} />
+              <meshStandardMaterial
+                color="#2ecc71"
+                transparent
+                opacity={0.15}
+                depthWrite={false}
+              />
+            </mesh>
+          </group>
+        );
+      })()}
 
       {/* Void cells (leaf voids are selectable) - filtered by visibility */}
       {leafVoids

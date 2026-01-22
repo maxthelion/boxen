@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssemblyType, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions } from '../types';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets } from '../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
 
@@ -203,21 +203,32 @@ const initialFaces = (): { id: FaceId; solid: boolean }[] => [
   { id: 'bottom', solid: true },
 ];
 
-// Find a void by ID in the tree
+// Find a void by ID in the tree (including inside sub-assemblies)
 const findVoid = (root: Void, id: string): Void | null => {
   if (root.id === id) return root;
   for (const child of root.children) {
     const found = findVoid(child, id);
     if (found) return found;
   }
+  // Also search inside sub-assembly's void structure
+  if (root.subAssembly) {
+    const found = findVoid(root.subAssembly.rootVoid, id);
+    if (found) return found;
+  }
   return null;
 };
 
-// Find parent of a void
+// Find parent of a void (including inside sub-assemblies)
 const findParent = (root: Void, id: string): Void | null => {
   for (const child of root.children) {
     if (child.id === id) return root;
     const found = findParent(child, id);
+    if (found) return found;
+  }
+  // Also search inside sub-assembly's void structure
+  if (root.subAssembly) {
+    if (root.subAssembly.rootVoid.id === id) return root.subAssembly.rootVoid;
+    const found = findParent(root.subAssembly.rootVoid, id);
     if (found) return found;
   }
   return null;
@@ -260,49 +271,24 @@ export const getVoidAncestorIds = (root: Void, targetId: string): string[] => {
 };
 
 // Check if a void should be visible given the visibility settings
+// Visibility is now managed by adding/removing from hiddenVoidIds during isolate
 export const isVoidVisible = (
   voidId: string,
-  rootVoid: Void,
+  _rootVoid: Void,
   hiddenVoidIds: Set<string>,
-  isolatedVoidId: string | null
+  _isolatedVoidId: string | null
 ): boolean => {
-  // If explicitly hidden, not visible
-  if (hiddenVoidIds.has(voidId)) return false;
-
-  // If no isolation, visible (unless hidden)
-  if (!isolatedVoidId) return true;
-
-  // If this is the isolated void, visible
-  if (voidId === isolatedVoidId) return true;
-
-  // Check if this void is an ancestor of the isolated void
-  const ancestorIds = getVoidAncestorIds(rootVoid, isolatedVoidId);
-  if (ancestorIds.includes(voidId)) return true;
-
-  // Check if this void is a descendant of the isolated void
-  const isolatedVoid = findVoid(rootVoid, isolatedVoidId);
-  if (isolatedVoid) {
-    const subtreeIds = getVoidSubtreeIds(isolatedVoid);
-    if (subtreeIds.includes(voidId)) return true;
-  }
-
-  return false;
+  return !hiddenVoidIds.has(voidId);
 };
 
 // Check if a sub-assembly should be visible given the visibility settings
+// Visibility is now managed by adding/removing from hiddenSubAssemblyIds during isolate
 export const isSubAssemblyVisible = (
   subAssemblyId: string,
   hiddenSubAssemblyIds: Set<string>,
-  isolatedSubAssemblyId: string | null
+  _isolatedSubAssemblyId: string | null
 ): boolean => {
-  // If explicitly hidden, not visible
-  if (hiddenSubAssemblyIds.has(subAssemblyId)) return false;
-
-  // If no isolation, visible (unless hidden)
-  if (!isolatedSubAssemblyId) return true;
-
-  // If this is the isolated sub-assembly, visible
-  return subAssemblyId === isolatedSubAssemblyId;
+  return !hiddenSubAssemblyIds.has(subAssemblyId);
 };
 
 // Get all subdivisions (non-leaf voids have split info)
@@ -409,7 +395,7 @@ export const getAllSubAssemblies = (root: Void): { voidId: string; subAssembly: 
   return result;
 };
 
-// Update a void in the tree immutably
+// Update a void in the tree immutably (including inside sub-assemblies)
 const updateVoidInTree = (root: Void, id: string, updater: (v: Void) => Void): Void => {
   if (root.id === id) {
     return updater(cloneVoid(root));
@@ -418,6 +404,11 @@ const updateVoidInTree = (root: Void, id: string, updater: (v: Void) => Void): V
     ...root,
     bounds: { ...root.bounds },
     children: root.children.map(child => updateVoidInTree(child, id, updater)),
+    // Also update inside sub-assembly's void structure
+    subAssembly: root.subAssembly ? {
+      ...root.subAssembly,
+      rootVoid: updateVoidInTree(root.subAssembly.rootVoid, id, updater),
+    } : undefined,
   };
 };
 
@@ -433,7 +424,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   },
   faces: initialFaces(),
   rootVoid: createSimpleRootVoid(100, 100, 100),
-  selectionMode: 'assembly' as SelectionMode,
+  selectionMode: null as SelectionMode,
   selectedVoidIds: new Set<string>(),
   selectedSubAssemblyIds: new Set<string>(),
   selectedPanelIds: new Set<string>(),
@@ -441,12 +432,18 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // Hover state
   hoveredVoidId: null,
   hoveredPanelId: null,
+  hoveredAssemblyId: null,
   subdivisionPreview: null,
+  subAssemblyPreview: null,
   hiddenVoidIds: new Set<string>(),
   isolatedVoidId: null,
+  isolateHiddenVoidIds: new Set<string>(),
   hiddenSubAssemblyIds: new Set<string>(),
   isolatedSubAssemblyId: null,
+  isolateHiddenSubAssemblyIds: new Set<string>(),
   hiddenFaceIds: new Set<string>(),
+  isolatedPanelId: null,
+  isolateHiddenFaceIds: new Set<string>(),
   panelCollection: null,
   panelsDirty: true,  // Start dirty so panels get generated on first use
 
@@ -463,9 +460,13 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         subdivisionPreview: null,
         hiddenVoidIds: new Set<string>(),
         isolatedVoidId: null,
+        isolateHiddenVoidIds: new Set<string>(),
         hiddenSubAssemblyIds: new Set<string>(),
         isolatedSubAssemblyId: null,
+        isolateHiddenSubAssemblyIds: new Set<string>(),
         hiddenFaceIds: new Set<string>(),
+        isolatedPanelId: null,
+        isolateHiddenFaceIds: new Set<string>(),
         panelsDirty: true,  // Mark panels as needing regeneration
       };
     }),
@@ -578,8 +579,14 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   setHoveredPanel: (panelId) =>
     set({ hoveredPanelId: panelId }),
 
+  setHoveredAssembly: (assemblyId) =>
+    set({ hoveredAssemblyId: assemblyId }),
+
   setSubdivisionPreview: (preview) =>
     set({ subdivisionPreview: preview }),
+
+  setSubAssemblyPreview: (preview) =>
+    set({ subAssemblyPreview: preview }),
 
   applySubdivision: () =>
     set((state) => {
@@ -708,58 +715,72 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       subdivisionPreview: null,
       hiddenVoidIds: new Set<string>(),
       isolatedVoidId: null,
+      isolateHiddenVoidIds: new Set<string>(),
       hiddenSubAssemblyIds: new Set<string>(),
       isolatedSubAssemblyId: null,
+      isolateHiddenSubAssemblyIds: new Set<string>(),
       hiddenFaceIds: new Set<string>(),
+      isolatedPanelId: null,
+      isolateHiddenFaceIds: new Set<string>(),
       panelsDirty: true,  // Mark panels as needing regeneration
     })),
 
   // Sub-assembly actions
-  createSubAssembly: (voidId, type) =>
+  createSubAssembly: (voidId, options) =>
     set((state) => {
       const targetVoid = findVoid(state.rootVoid, voidId);
       if (!targetVoid || targetVoid.children.length > 0 || targetVoid.subAssembly) {
         return state; // Can't create sub-assembly in non-leaf void or if one already exists
       }
 
-      const clearance = 2; // Default 2mm clearance
+      const clearance = options?.clearance ?? 2; // Default 2mm clearance
+      const assemblyAxis = options?.assemblyAxis ?? 'y'; // Default Y axis
+      const faceOffsets = options?.faceOffsets ?? { front: 0, back: 0, left: 0, right: 0, top: 0, bottom: 0 };
       const { bounds } = targetVoid;
+      const mt = state.config.materialThickness;
 
-      // Calculate inner dimensions (accounting for clearance on all sides)
-      const innerWidth = bounds.w - (clearance * 2);
-      const innerHeight = bounds.h - (clearance * 2);
-      const innerDepth = bounds.d - (clearance * 2);
+      // Calculate outer dimensions (space available after clearance + face offsets)
+      // Face offsets adjust individual sides: positive = outset, negative = inset
+      const outerWidth = bounds.w - (clearance * 2) + faceOffsets.left + faceOffsets.right;
+      const outerHeight = bounds.h - (clearance * 2) + faceOffsets.top + faceOffsets.bottom;
+      const outerDepth = bounds.d - (clearance * 2) + faceOffsets.front + faceOffsets.back;
 
-      if (innerWidth <= 0 || innerHeight <= 0 || innerDepth <= 0) {
+      // Calculate interior dimensions (outer minus walls on each side)
+      const interiorWidth = outerWidth - (2 * mt);
+      const interiorHeight = outerHeight - (2 * mt);
+      const interiorDepth = outerDepth - (2 * mt);
+
+      if (interiorWidth <= 0 || interiorHeight <= 0 || interiorDepth <= 0) {
         return state; // Void too small for sub-assembly
       }
 
-      // Create sub-assembly with default faces based on type
+      // Create sub-assembly with all faces solid by default (like main box)
       const defaultFaces: Face[] = [
-        { id: 'front', solid: type === 'drawer' ? true : true },
+        { id: 'front', solid: true },
         { id: 'back', solid: true },
         { id: 'left', solid: true },
         { id: 'right', solid: true },
-        { id: 'top', solid: type === 'drawer' ? false : type === 'tray' ? false : true },
+        { id: 'top', solid: true },
         { id: 'bottom', solid: true },
       ];
 
       const subAssembly: SubAssembly = {
         id: generateId(),
-        type,
         clearance,
+        faceOffsets,
         faces: defaultFaces,
-        materialThickness: state.config.materialThickness,
+        materialThickness: mt,
         rootVoid: {
           id: 'sub-root-' + generateId(),
-          bounds: { x: 0, y: 0, z: 0, w: innerWidth, h: innerHeight, d: innerDepth },
+          // rootVoid stores INTERIOR dimensions (outer - 2*materialThickness)
+          bounds: { x: 0, y: 0, z: 0, w: interiorWidth, h: interiorHeight, d: interiorDepth },
           children: [],
         },
-        // Default assembly config for sub-assemblies: Y axis with tabs-out
+        // Assembly config with provided axis
         assembly: {
-          assemblyAxis: 'y',
+          assemblyAxis,
           lids: {
-            positive: { enabled: type !== 'tray' && type !== 'drawer', tabDirection: 'tabs-out', inset: 0 },
+            positive: { enabled: true, tabDirection: 'tabs-out', inset: 0 },
             negative: { enabled: true, tabDirection: 'tabs-out', inset: 0 },
           },
         },
@@ -776,6 +797,23 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         selectedSubAssemblyIds: new Set([subAssembly.id]),
         subdivisionPreview: null,
         panelsDirty: true,  // Mark panels as needing regeneration
+      };
+    }),
+
+  purgeVoid: (voidId) =>
+    set((state) => {
+      const newRootVoid = updateVoidInTree(state.rootVoid, voidId, (v) => ({
+        ...v,
+        children: [],
+        subAssembly: undefined,
+      }));
+
+      return {
+        rootVoid: newRootVoid,
+        selectedVoidIds: new Set<string>(),
+        selectedSubAssemblyIds: new Set<string>(),
+        subdivisionPreview: null,
+        panelsDirty: true,
       };
     }),
 
@@ -880,7 +918,96 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     }),
 
   setIsolatedVoid: (voidId) =>
-    set({ isolatedVoidId: voidId }),
+    set((state) => {
+      // Un-isolating: restore visibility of elements hidden by isolate
+      if (voidId === null) {
+        const newHiddenVoidIds = new Set(state.hiddenVoidIds);
+        const newHiddenFaceIds = new Set(state.hiddenFaceIds);
+        const newHiddenSubAssemblyIds = new Set(state.hiddenSubAssemblyIds);
+
+        // Remove only the IDs that were hidden by the isolate action
+        for (const id of state.isolateHiddenVoidIds) {
+          newHiddenVoidIds.delete(id);
+        }
+        for (const id of state.isolateHiddenFaceIds) {
+          newHiddenFaceIds.delete(id);
+        }
+        for (const id of state.isolateHiddenSubAssemblyIds) {
+          newHiddenSubAssemblyIds.delete(id);
+        }
+
+        return {
+          isolatedVoidId: null,
+          hiddenVoidIds: newHiddenVoidIds,
+          isolateHiddenVoidIds: new Set<string>(),
+          hiddenFaceIds: newHiddenFaceIds,
+          isolateHiddenFaceIds: new Set<string>(),
+          hiddenSubAssemblyIds: newHiddenSubAssemblyIds,
+          isolateHiddenSubAssemblyIds: new Set<string>(),
+        };
+      }
+
+      // Isolating: hide everything except the isolated void and its descendants
+      const isolatedVoid = findVoid(state.rootVoid, voidId);
+      if (!isolatedVoid) return state;
+
+      // Get all void IDs that should remain visible (isolated + descendants)
+      const visibleVoidIds = new Set(getVoidSubtreeIds(isolatedVoid));
+
+      // Get all void IDs in the tree
+      const allVoidIds = getVoidSubtreeIds(state.rootVoid);
+
+      // Build new hidden sets
+      const newHiddenVoidIds = new Set(state.hiddenVoidIds);
+      const newIsolateHiddenVoidIds = new Set<string>();
+      const newHiddenFaceIds = new Set(state.hiddenFaceIds);
+      const newIsolateHiddenFaceIds = new Set<string>();
+      const newHiddenSubAssemblyIds = new Set(state.hiddenSubAssemblyIds);
+      const newIsolateHiddenSubAssemblyIds = new Set<string>();
+
+      // Hide voids that should not be visible, and their divider panels
+      for (const id of allVoidIds) {
+        if (!visibleVoidIds.has(id) && !state.hiddenVoidIds.has(id)) {
+          newHiddenVoidIds.add(id);
+          newIsolateHiddenVoidIds.add(id);
+          // Also hide the divider panel for this void (if it has one)
+          const dividerId = `divider-${id}-split`;
+          if (!state.hiddenFaceIds.has(dividerId)) {
+            newHiddenFaceIds.add(dividerId);
+            newIsolateHiddenFaceIds.add(dividerId);
+          }
+        }
+      }
+
+      // Hide face panels for main box (since we're isolating a void, not main box)
+      const mainFaceIds = ['face-front', 'face-back', 'face-left', 'face-right', 'face-top', 'face-bottom'];
+      for (const faceId of mainFaceIds) {
+        if (!state.hiddenFaceIds.has(faceId)) {
+          newHiddenFaceIds.add(faceId);
+          newIsolateHiddenFaceIds.add(faceId);
+        }
+      }
+
+      // Hide sub-assemblies that are not in the isolated subtree
+      const allSubAssemblies = getAllSubAssemblies(state.rootVoid);
+      for (const { subAssembly, voidId: parentVoidId } of allSubAssemblies) {
+        // Sub-assembly is visible only if its parent void is in the visible subtree
+        if (!visibleVoidIds.has(parentVoidId) && !state.hiddenSubAssemblyIds.has(subAssembly.id)) {
+          newHiddenSubAssemblyIds.add(subAssembly.id);
+          newIsolateHiddenSubAssemblyIds.add(subAssembly.id);
+        }
+      }
+
+      return {
+        isolatedVoidId: voidId,
+        hiddenVoidIds: newHiddenVoidIds,
+        isolateHiddenVoidIds: newIsolateHiddenVoidIds,
+        hiddenFaceIds: newHiddenFaceIds,
+        isolateHiddenFaceIds: newIsolateHiddenFaceIds,
+        hiddenSubAssemblyIds: newHiddenSubAssemblyIds,
+        isolateHiddenSubAssemblyIds: newIsolateHiddenSubAssemblyIds,
+      };
+    }),
 
   // Sub-assembly visibility actions
   toggleSubAssemblyVisibility: (subAssemblyId) =>
@@ -895,7 +1022,86 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     }),
 
   setIsolatedSubAssembly: (subAssemblyId) =>
-    set({ isolatedSubAssemblyId: subAssemblyId }),
+    set((state) => {
+      // Un-isolating: restore visibility of elements hidden by isolate
+      if (subAssemblyId === null) {
+        const newHiddenVoidIds = new Set(state.hiddenVoidIds);
+        const newHiddenFaceIds = new Set(state.hiddenFaceIds);
+        const newHiddenSubAssemblyIds = new Set(state.hiddenSubAssemblyIds);
+
+        // Remove only the IDs that were hidden by the isolate action
+        for (const id of state.isolateHiddenVoidIds) {
+          newHiddenVoidIds.delete(id);
+        }
+        for (const id of state.isolateHiddenFaceIds) {
+          newHiddenFaceIds.delete(id);
+        }
+        for (const id of state.isolateHiddenSubAssemblyIds) {
+          newHiddenSubAssemblyIds.delete(id);
+        }
+
+        return {
+          isolatedSubAssemblyId: null,
+          hiddenVoidIds: newHiddenVoidIds,
+          isolateHiddenVoidIds: new Set<string>(),
+          hiddenFaceIds: newHiddenFaceIds,
+          isolateHiddenFaceIds: new Set<string>(),
+          hiddenSubAssemblyIds: newHiddenSubAssemblyIds,
+          isolateHiddenSubAssemblyIds: new Set<string>(),
+        };
+      }
+
+      // Isolating: hide everything except the isolated sub-assembly
+      const newHiddenVoidIds = new Set(state.hiddenVoidIds);
+      const newIsolateHiddenVoidIds = new Set<string>();
+      const newHiddenFaceIds = new Set(state.hiddenFaceIds);
+      const newIsolateHiddenFaceIds = new Set<string>();
+      const newHiddenSubAssemblyIds = new Set(state.hiddenSubAssemblyIds);
+      const newIsolateHiddenSubAssemblyIds = new Set<string>();
+
+      // Hide all voids and their divider panels
+      const allVoidIds = getVoidSubtreeIds(state.rootVoid);
+      for (const id of allVoidIds) {
+        if (!state.hiddenVoidIds.has(id)) {
+          newHiddenVoidIds.add(id);
+          newIsolateHiddenVoidIds.add(id);
+          // Also hide the divider panel for this void (if it has one)
+          const dividerId = `divider-${id}-split`;
+          if (!state.hiddenFaceIds.has(dividerId)) {
+            newHiddenFaceIds.add(dividerId);
+            newIsolateHiddenFaceIds.add(dividerId);
+          }
+        }
+      }
+
+      // Hide all main box face panels
+      const mainFaceIds = ['face-front', 'face-back', 'face-left', 'face-right', 'face-top', 'face-bottom'];
+      for (const faceId of mainFaceIds) {
+        if (!state.hiddenFaceIds.has(faceId)) {
+          newHiddenFaceIds.add(faceId);
+          newIsolateHiddenFaceIds.add(faceId);
+        }
+      }
+
+      // Hide all other sub-assemblies
+      const allSubAssemblies = getAllSubAssemblies(state.rootVoid);
+      for (const { subAssembly } of allSubAssemblies) {
+        if (subAssembly.id !== subAssemblyId && !state.hiddenSubAssemblyIds.has(subAssembly.id)) {
+          newHiddenSubAssemblyIds.add(subAssembly.id);
+          newIsolateHiddenSubAssemblyIds.add(subAssembly.id);
+        }
+      }
+
+      return {
+        isolatedSubAssemblyId: subAssemblyId,
+        hiddenVoidIds: newHiddenVoidIds,
+        isolateHiddenVoidIds: newIsolateHiddenVoidIds,
+        hiddenFaceIds: newHiddenFaceIds,
+        isolateHiddenFaceIds: newIsolateHiddenFaceIds,
+        hiddenSubAssemblyIds: newHiddenSubAssemblyIds,
+        isolateHiddenSubAssemblyIds: newIsolateHiddenSubAssemblyIds,
+      };
+    }),
 
   // Face panel visibility actions
   toggleFaceVisibility: (faceId) =>
@@ -907,6 +1113,109 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         newHiddenFaceIds.add(faceId);
       }
       return { hiddenFaceIds: newHiddenFaceIds };
+    }),
+
+  setIsolatedPanel: (panelId) =>
+    set((state) => {
+      // Un-isolating: restore visibility of elements hidden by isolate
+      if (panelId === null) {
+        const newHiddenVoidIds = new Set(state.hiddenVoidIds);
+        const newHiddenFaceIds = new Set(state.hiddenFaceIds);
+        const newHiddenSubAssemblyIds = new Set(state.hiddenSubAssemblyIds);
+
+        // Remove only the IDs that were hidden by the isolate action
+        for (const id of state.isolateHiddenVoidIds) {
+          newHiddenVoidIds.delete(id);
+        }
+        for (const id of state.isolateHiddenFaceIds) {
+          newHiddenFaceIds.delete(id);
+        }
+        for (const id of state.isolateHiddenSubAssemblyIds) {
+          newHiddenSubAssemblyIds.delete(id);
+        }
+
+        return {
+          isolatedPanelId: null,
+          hiddenVoidIds: newHiddenVoidIds,
+          isolateHiddenVoidIds: new Set<string>(),
+          hiddenFaceIds: newHiddenFaceIds,
+          isolateHiddenFaceIds: new Set<string>(),
+          hiddenSubAssemblyIds: newHiddenSubAssemblyIds,
+          isolateHiddenSubAssemblyIds: new Set<string>(),
+        };
+      }
+
+      // Isolating: hide everything except the isolated panel
+      const newHiddenVoidIds = new Set(state.hiddenVoidIds);
+      const newIsolateHiddenVoidIds = new Set<string>();
+      const newHiddenFaceIds = new Set(state.hiddenFaceIds);
+      const newIsolateHiddenFaceIds = new Set<string>();
+      const newHiddenSubAssemblyIds = new Set(state.hiddenSubAssemblyIds);
+      const newIsolateHiddenSubAssemblyIds = new Set<string>();
+
+      // Hide all voids
+      const allVoidIds = getVoidSubtreeIds(state.rootVoid);
+      for (const id of allVoidIds) {
+        if (!state.hiddenVoidIds.has(id)) {
+          newHiddenVoidIds.add(id);
+          newIsolateHiddenVoidIds.add(id);
+        }
+      }
+
+      // Hide all face panels except the isolated one
+      const mainFaceIds = ['face-front', 'face-back', 'face-left', 'face-right', 'face-top', 'face-bottom'];
+      for (const faceId of mainFaceIds) {
+        if (faceId !== panelId && !state.hiddenFaceIds.has(faceId)) {
+          newHiddenFaceIds.add(faceId);
+          newIsolateHiddenFaceIds.add(faceId);
+        }
+      }
+
+      // Hide all divider panels except the isolated one
+      const getAllDividerIds = (node: Void): string[] => {
+        const ids: string[] = [];
+        for (const child of node.children) {
+          if (child.splitAxis) {
+            ids.push(`divider-${child.id}-split`);
+          }
+          ids.push(...getAllDividerIds(child));
+        }
+        return ids;
+      };
+      const allDividerIds = getAllDividerIds(state.rootVoid);
+      for (const dividerId of allDividerIds) {
+        if (dividerId !== panelId && !state.hiddenFaceIds.has(dividerId)) {
+          newHiddenFaceIds.add(dividerId);
+          newIsolateHiddenFaceIds.add(dividerId);
+        }
+      }
+
+      // Hide all sub-assemblies and their panels
+      const allSubAssemblies = getAllSubAssemblies(state.rootVoid);
+      for (const { subAssembly } of allSubAssemblies) {
+        if (!state.hiddenSubAssemblyIds.has(subAssembly.id)) {
+          newHiddenSubAssemblyIds.add(subAssembly.id);
+          newIsolateHiddenSubAssemblyIds.add(subAssembly.id);
+        }
+        // Also hide sub-assembly face panels
+        for (const face of subAssembly.faces) {
+          const subFaceId = `subasm-${subAssembly.id}-face-${face.id}`;
+          if (subFaceId !== panelId && !state.hiddenFaceIds.has(subFaceId)) {
+            newHiddenFaceIds.add(subFaceId);
+            newIsolateHiddenFaceIds.add(subFaceId);
+          }
+        }
+      }
+
+      return {
+        isolatedPanelId: panelId,
+        hiddenVoidIds: newHiddenVoidIds,
+        isolateHiddenVoidIds: newIsolateHiddenVoidIds,
+        hiddenFaceIds: newHiddenFaceIds,
+        isolateHiddenFaceIds: newIsolateHiddenFaceIds,
+        hiddenSubAssemblyIds: newHiddenSubAssemblyIds,
+        isolateHiddenSubAssemblyIds: newIsolateHiddenSubAssemblyIds,
+      };
     }),
 
   // Assembly config actions for main box
@@ -1138,6 +1447,70 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         1,  // Scale factor (1 = mm)
         state.panelCollection?.panels
       );
+
+      // Generate panels for all sub-assemblies
+      const subAssemblies = getAllSubAssemblies(state.rootVoid);
+      for (const { subAssembly, bounds: parentBounds } of subAssemblies) {
+        // Create a BoxConfig for the sub-assembly
+        // Note: width/height/depth must be INTERIOR dimensions (like main box config)
+        // The panel generator positions faces based on interior dimensions
+        const subConfig = {
+          width: subAssembly.rootVoid.bounds.w,
+          height: subAssembly.rootVoid.bounds.h,
+          depth: subAssembly.rootVoid.bounds.d,
+          materialThickness: subAssembly.materialThickness,
+          fingerWidth: state.config.fingerWidth,
+          fingerGap: state.config.fingerGap,
+          assembly: subAssembly.assembly,
+        };
+
+        // Generate panels for this sub-assembly
+        const subCollection = generatePanelCollection(
+          subAssembly.faces,
+          subAssembly.rootVoid,
+          subConfig,
+          1
+        );
+
+        // Calculate sub-assembly center position relative to main box center
+        const mainCenterX = state.config.width / 2;
+        const mainCenterY = state.config.height / 2;
+        const mainCenterZ = state.config.depth / 2;
+
+        // Outer dimensions = interior + 2*materialThickness
+        const subOuterW = subConfig.width + 2 * subAssembly.materialThickness;
+        const subOuterH = subConfig.height + 2 * subAssembly.materialThickness;
+        const subOuterD = subConfig.depth + 2 * subAssembly.materialThickness;
+
+        // Get face offsets (default to 0 if not set)
+        const offsets = subAssembly.faceOffsets || { left: 0, right: 0, top: 0, bottom: 0, front: 0, back: 0 };
+
+        // Sub-assembly is positioned inside the parent void with clearance
+        // Face offsets shift the base position: positive offset extends outward from clearance boundary
+        // Bottom-left-back corner is at (clearance - offset) from parent origin
+        const subCenterX = parentBounds.x + subAssembly.clearance - offsets.left + subOuterW / 2;
+        const subCenterY = parentBounds.y + subAssembly.clearance - offsets.bottom + subOuterH / 2;
+        const subCenterZ = parentBounds.z + subAssembly.clearance - offsets.back + subOuterD / 2;
+
+        // Offset from main box center (panels are centered at origin)
+        const offsetX = subCenterX - mainCenterX;
+        const offsetY = subCenterY - mainCenterY;
+        const offsetZ = subCenterZ - mainCenterZ;
+
+        // Add sub-assembly panels to main collection with adjusted positions and IDs
+        for (const panel of subCollection.panels) {
+          const offsetPanel = {
+            ...panel,
+            id: `subasm-${subAssembly.id}-${panel.id}`,
+            position: [
+              panel.position[0] + offsetX,
+              panel.position[1] + offsetY,
+              panel.position[2] + offsetZ,
+            ] as [number, number, number],
+          };
+          collection.panels.push(offsetPanel);
+        }
+      }
 
       return {
         panelCollection: collection,

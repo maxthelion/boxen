@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { useBoxStore, getAllSubdivisions } from '../store/useBoxStore';
+import { useBoxStore, getAllSubdivisions, getAllSubAssemblies } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
-import { FaceId } from '../types';
+import { FaceId, Face, AssemblyConfig } from '../types';
 import {
   getFaceEdgeStatuses,
   getDividerEdgeStatuses,
@@ -213,6 +213,104 @@ const EdgeControls: React.FC<EdgeControlsProps> = ({ edge, value, status, onChan
   );
 };
 
+const faceNames: Record<string, string> = {
+  front: 'Front',
+  back: 'Back',
+  left: 'Left',
+  right: 'Right',
+  top: 'Top',
+  bottom: 'Bottom',
+};
+
+const axisNames: Record<string, string> = {
+  x: 'Vertical (X)',
+  y: 'Horizontal (Y)',
+  z: 'Vertical (Z)',
+};
+
+const axisLabels: Record<string, string> = {
+  x: 'X Position (left/right)',
+  y: 'Y Position (up/down)',
+  z: 'Z Position (front/back)',
+};
+
+// Calculate face panel dimensions
+const getFaceDimensions = (
+  faceId: FaceId,
+  width: number,
+  height: number,
+  depth: number,
+  materialThickness: number
+): { panelWidth: number; panelHeight: number } => {
+  switch (faceId) {
+    case 'front':
+    case 'back':
+      return { panelWidth: width, panelHeight: height };
+    case 'left':
+    case 'right':
+      return { panelWidth: depth, panelHeight: height };
+    case 'top':
+    case 'bottom':
+      return { panelWidth: width, panelHeight: depth };
+    default:
+      return { panelWidth: 0, panelHeight: 0 };
+  }
+};
+
+// Calculate divider panel dimensions and which faces it meets
+const getDividerDimensions = (
+  axis: 'x' | 'y' | 'z',
+  bounds: { x: number; y: number; z: number; w: number; h: number; d: number },
+  containerDims: { width: number; height: number; depth: number },
+  faces: Face[]
+): {
+  panelWidth: number;
+  panelHeight: number;
+  meetsTop: boolean;
+  meetsBottom: boolean;
+  meetsLeft: boolean;
+  meetsRight: boolean;
+} => {
+  const isFaceSolid = (faceId: FaceId) => faces.find((f) => f.id === faceId)?.solid ?? false;
+  const tolerance = 0.01;
+
+  let panelWidth = 0;
+  let panelHeight = 0;
+  let meetsTop = false;
+  let meetsBottom = false;
+  let meetsLeft = false;
+  let meetsRight = false;
+
+  switch (axis) {
+    case 'x':
+      panelWidth = bounds.d;
+      panelHeight = bounds.h;
+      meetsTop = isFaceSolid('top') && bounds.y + bounds.h >= containerDims.height - tolerance;
+      meetsBottom = isFaceSolid('bottom') && bounds.y <= tolerance;
+      meetsLeft = isFaceSolid('back') && bounds.z <= tolerance;
+      meetsRight = isFaceSolid('front') && bounds.z + bounds.d >= containerDims.depth - tolerance;
+      break;
+    case 'y':
+      panelWidth = bounds.w;
+      panelHeight = bounds.d;
+      meetsTop = isFaceSolid('back') && bounds.z <= tolerance;
+      meetsBottom = isFaceSolid('front') && bounds.z + bounds.d >= containerDims.depth - tolerance;
+      meetsLeft = isFaceSolid('left') && bounds.x <= tolerance;
+      meetsRight = isFaceSolid('right') && bounds.x + bounds.w >= containerDims.width - tolerance;
+      break;
+    case 'z':
+      panelWidth = bounds.w;
+      panelHeight = bounds.h;
+      meetsTop = isFaceSolid('top') && bounds.y + bounds.h >= containerDims.height - tolerance;
+      meetsBottom = isFaceSolid('bottom') && bounds.y <= tolerance;
+      meetsLeft = isFaceSolid('left') && bounds.x <= tolerance;
+      meetsRight = isFaceSolid('right') && bounds.x + bounds.w >= containerDims.width - tolerance;
+      break;
+  }
+
+  return { panelWidth, panelHeight, meetsTop, meetsBottom, meetsLeft, meetsRight };
+};
+
 export const PanelProperties: React.FC = () => {
   const {
     selectedPanelIds,
@@ -220,6 +318,7 @@ export const PanelProperties: React.FC = () => {
     config,
     rootVoid,
     toggleFace,
+    toggleSubAssemblyFace,
     panelCollection,
     setEdgeExtension,
     setDividerPosition,
@@ -229,7 +328,6 @@ export const PanelProperties: React.FC = () => {
 
   // Get the first selected panel ID (for multi-select, show properties of the first one)
   const selectedPanelId = selectedPanelIds.size > 0 ? Array.from(selectedPanelIds)[0] : null;
-  const selectionCount = selectedPanelIds.size;
 
   // Get the selected panel from panelCollection
   const selectedPanel = useMemo(() => {
@@ -237,87 +335,91 @@ export const PanelProperties: React.FC = () => {
     return panelCollection.panels.find((p) => p.id === selectedPanelId) ?? null;
   }, [panelCollection, selectedPanelId]);
 
-  if (!selectedPanelId) {
+  // Get sub-assembly data if this is a sub-assembly panel
+  const subAssemblyData = useMemo(() => {
+    if (!selectedPanel?.source.subAssemblyId) return null;
+    const subAssemblies = getAllSubAssemblies(rootVoid);
+    return subAssemblies.find((s) => s.subAssembly.id === selectedPanel.source.subAssemblyId) ?? null;
+  }, [selectedPanel, rootVoid]);
+
+  if (!selectedPanelId || !selectedPanel) {
     return null;
   }
 
-  // Parse the panel ID to determine type
-  const isFacePanel = selectedPanelId.startsWith('face-');
-  const isDividerPanel = selectedPanelId.startsWith('divider-');
+  const { source } = selectedPanel;
+  const isSubAssembly = !!source.subAssemblyId;
 
-  if (isFacePanel) {
-    const faceId = selectedPanelId.replace('face-', '') as FaceId;
-    const face = faces.find((f) => f.id === faceId);
+  // Determine which faces and config to use
+  const activeFaces = isSubAssembly && subAssemblyData
+    ? subAssemblyData.subAssembly.faces
+    : faces;
+  const activeConfig = isSubAssembly && subAssemblyData
+    ? {
+        width: subAssemblyData.subAssembly.rootVoid.bounds.w + 2 * subAssemblyData.subAssembly.materialThickness,
+        height: subAssemblyData.subAssembly.rootVoid.bounds.h + 2 * subAssemblyData.subAssembly.materialThickness,
+        depth: subAssemblyData.subAssembly.rootVoid.bounds.d + 2 * subAssemblyData.subAssembly.materialThickness,
+        materialThickness: subAssemblyData.subAssembly.materialThickness,
+        assembly: subAssemblyData.subAssembly.assembly,
+      }
+    : config;
+  const activeRootVoid = isSubAssembly && subAssemblyData
+    ? subAssemblyData.subAssembly.rootVoid
+    : rootVoid;
+
+  const edgeExtensions = selectedPanel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
+
+  const handleEdgeExtensionChange = (value: number) => {
+    if (selectedEdge && selectedPanel) {
+      setEdgeExtension(selectedPanel.id, selectedEdge, value);
+    }
+  };
+
+  // Handle face panels
+  if (source.type === 'face' && source.faceId) {
+    const faceId = source.faceId;
+    const face = activeFaces.find((f) => f.id === faceId);
 
     if (!face) return null;
 
-    // Calculate face dimensions
-    let panelWidth = 0;
-    let panelHeight = 0;
+    const { panelWidth, panelHeight } = getFaceDimensions(
+      faceId,
+      activeConfig.width,
+      activeConfig.height,
+      activeConfig.depth,
+      activeConfig.materialThickness
+    );
 
-    switch (faceId) {
-      case 'front':
-      case 'back':
-        panelWidth = config.width;
-        panelHeight = config.height;
-        break;
-      case 'left':
-      case 'right':
-        panelWidth = config.depth;
-        panelHeight = config.height;
-        break;
-      case 'top':
-      case 'bottom':
-        panelWidth = config.width;
-        panelHeight = config.depth;
-        break;
-    }
-
-    const faceNames: Record<string, string> = {
-      front: 'Front',
-      back: 'Back',
-      left: 'Left',
-      right: 'Right',
-      top: 'Top',
-      bottom: 'Bottom',
-    };
-
-    // Get edge statuses for this face
-    const edgeStatuses = getFaceEdgeStatuses(faceId, faces, config.assembly);
-    const edgeExtensions = selectedPanel?.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
+    const edgeStatuses = getFaceEdgeStatuses(faceId, activeFaces, activeConfig.assembly);
 
     const selectedEdgeStatus = selectedEdge
       ? edgeStatuses.find((e) => e.position === selectedEdge)?.status ?? 'locked'
       : null;
 
-    const handleEdgeExtensionChange = (value: number) => {
-      if (selectedEdge && selectedPanel) {
-        setEdgeExtension(selectedPanel.id, selectedEdge, value);
-      }
-    };
+    const titleSuffix = isSubAssembly ? ' (Nested)' : '';
+    const typeLabel = isSubAssembly ? 'Sub-Assembly Face' : 'Outer Face';
 
     return (
       <Panel title="Panel Properties">
         <div className="panel-properties">
           <div className="property-header">
             <span className="property-icon">▬</span>
-            <span className="property-title">{faceNames[faceId]} Face</span>
+            <span className="property-title">{faceNames[faceId]} Face{titleSuffix}</span>
           </div>
 
           <div className="property-group">
             <div className="property-row">
               <span className="property-label">Type:</span>
-              <span className="property-value">Outer Face</span>
+              <span className="property-value">{typeLabel}</span>
             </div>
             <div className="property-row">
               <span className="property-label">Dimensions:</span>
               <span className="property-value">
-                {panelWidth} x {panelHeight} mm
+                {panelWidth.toFixed(1)} x {panelHeight.toFixed(1)} mm
               </span>
             </div>
             <div className="property-row">
               <span className="property-label">Thickness:</span>
-              <span className="property-value">{config.materialThickness} mm</span>
+              <span className="property-value">{activeConfig.materialThickness} mm</span>
             </div>
           </div>
 
@@ -326,7 +428,13 @@ export const PanelProperties: React.FC = () => {
               <input
                 type="checkbox"
                 checked={face.solid}
-                onChange={() => toggleFace(face.id)}
+                onChange={() => {
+                  if (isSubAssembly && source.subAssemblyId) {
+                    toggleSubAssemblyFace(source.subAssemblyId, faceId);
+                  } else {
+                    toggleFace(faceId);
+                  }
+                }}
               />
               <span>Solid (include in cut)</span>
             </label>
@@ -362,102 +470,51 @@ export const PanelProperties: React.FC = () => {
     );
   }
 
-  if (isDividerPanel) {
-    const dividerId = selectedPanelId.replace('divider-', '');
-    const subdivisions = getAllSubdivisions(rootVoid);
-    const subdivision = subdivisions.find((s) => s.id === dividerId + '-split' || s.id + '-split' === dividerId);
+  // Handle divider panels
+  if (source.type === 'divider' && source.subdivisionId && source.axis) {
+    const subdivisions = getAllSubdivisions(activeRootVoid);
+    const subdivision = subdivisions.find((s) => s.id === source.subdivisionId);
 
-    // Try alternate matching
-    const sub = subdivision || subdivisions.find((s) => dividerId.includes(s.id.replace('-split', '')));
+    if (!subdivision) return null;
 
-    if (!sub) return null;
+    const { axis, position, bounds } = subdivision;
 
-    const { axis, position, bounds } = sub;
-
-    // Calculate panel dimensions and which faces it meets
-    let panelWidth = 0;
-    let panelHeight = 0;
-    let meetsTop = false;
-    let meetsBottom = false;
-    let meetsLeft = false;
-    let meetsRight = false;
-
-    const isFaceSolid = (faceId: FaceId) => faces.find((f) => f.id === faceId)?.solid ?? false;
-    const tolerance = 0.01;
-
-    switch (axis) {
-      case 'x':
-        panelWidth = bounds.d;
-        panelHeight = bounds.h;
-        meetsTop = isFaceSolid('top') && bounds.y + bounds.h >= config.height - tolerance;
-        meetsBottom = isFaceSolid('bottom') && bounds.y <= tolerance;
-        meetsLeft = isFaceSolid('back') && bounds.z <= tolerance;
-        meetsRight = isFaceSolid('front') && bounds.z + bounds.d >= config.depth - tolerance;
-        break;
-      case 'y':
-        panelWidth = bounds.w;
-        panelHeight = bounds.d;
-        meetsTop = isFaceSolid('back') && bounds.z <= tolerance;
-        meetsBottom = isFaceSolid('front') && bounds.z + bounds.d >= config.depth - tolerance;
-        meetsLeft = isFaceSolid('left') && bounds.x <= tolerance;
-        meetsRight = isFaceSolid('right') && bounds.x + bounds.w >= config.width - tolerance;
-        break;
-      case 'z':
-        panelWidth = bounds.w;
-        panelHeight = bounds.h;
-        meetsTop = isFaceSolid('top') && bounds.y + bounds.h >= config.height - tolerance;
-        meetsBottom = isFaceSolid('bottom') && bounds.y <= tolerance;
-        meetsLeft = isFaceSolid('left') && bounds.x <= tolerance;
-        meetsRight = isFaceSolid('right') && bounds.x + bounds.w >= config.width - tolerance;
-        break;
-    }
-
-    const axisNames: Record<string, string> = {
-      x: 'Vertical (X)',
-      y: 'Horizontal (Y)',
-      z: 'Vertical (Z)',
+    const containerDims = {
+      width: activeRootVoid.bounds.w,
+      height: activeRootVoid.bounds.h,
+      depth: activeRootVoid.bounds.d,
     };
 
-    const axisLabels: Record<string, string> = {
-      x: 'X Position (left/right)',
-      y: 'Y Position (up/down)',
-      z: 'Z Position (front/back)',
-    };
+    const { panelWidth, panelHeight, meetsTop, meetsBottom, meetsLeft, meetsRight } =
+      getDividerDimensions(axis, bounds, containerDims, activeFaces);
+
+    const edgeStatuses = getDividerEdgeStatuses(meetsTop, meetsBottom, meetsLeft, meetsRight);
+
+    const selectedEdgeStatus = selectedEdge
+      ? edgeStatuses.find((e) => e.position === selectedEdge)?.status ?? 'locked'
+      : null;
 
     // Calculate position bounds based on parent void
     const parentDimStart = axis === 'x' ? bounds.x : axis === 'y' ? bounds.y : bounds.z;
     const parentDimEnd = axis === 'x' ? bounds.x + bounds.w :
                          axis === 'y' ? bounds.y + bounds.h :
                          bounds.z + bounds.d;
-    // Include some margin for the divider thickness
-    const mt = config.materialThickness;
+    const mt = activeConfig.materialThickness;
     const minPosition = parentDimStart + mt;
     const maxPosition = parentDimEnd - mt;
 
-    // Get edge statuses for this divider
-    const edgeStatuses = getDividerEdgeStatuses(meetsTop, meetsBottom, meetsLeft, meetsRight);
-    const edgeExtensions = selectedPanel?.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
-
-    const selectedEdgeStatus = selectedEdge
-      ? edgeStatuses.find((e) => e.position === selectedEdge)?.status ?? 'locked'
-      : null;
-
-    const handleEdgeExtensionChange = (value: number) => {
-      if (selectedEdge && selectedPanel) {
-        setEdgeExtension(selectedPanel.id, selectedEdge, value);
-      }
-    };
-
     const handlePositionChange = (newPosition: number) => {
-      setDividerPosition(sub.id, newPosition);
+      setDividerPosition(subdivision.id, newPosition);
     };
+
+    const titleSuffix = isSubAssembly ? ' (Nested)' : '';
 
     return (
       <Panel title="Panel Properties">
         <div className="panel-properties">
           <div className="property-header">
             <span className="property-icon">▤</span>
-            <span className="property-title">Divider Panel</span>
+            <span className="property-title">Divider Panel{titleSuffix}</span>
           </div>
 
           <div className="property-group">
@@ -473,50 +530,61 @@ export const PanelProperties: React.FC = () => {
             </div>
             <div className="property-row">
               <span className="property-label">Thickness:</span>
-              <span className="property-value">{config.materialThickness} mm</span>
+              <span className="property-value">{activeConfig.materialThickness} mm</span>
             </div>
           </div>
 
-          <div className="property-section">
-            <h4>{axisLabels[axis]}</h4>
-            <div className="position-controls">
-              <div className="position-slider-row">
-                <input
-                  type="range"
-                  className="position-slider"
-                  min={minPosition}
-                  max={maxPosition}
-                  step={0.5}
-                  value={position}
-                  onChange={(e) => handlePositionChange(parseFloat(e.target.value))}
-                />
-              </div>
-              <div className="position-input-row">
-                <button
-                  className="position-btn"
-                  onClick={() => handlePositionChange(position - 1)}
-                  disabled={position <= minPosition}
-                >
-                  -
-                </button>
-                <input
-                  type="number"
-                  className="position-input"
-                  value={position.toFixed(1)}
-                  onChange={(e) => handlePositionChange(parseFloat(e.target.value) || position)}
-                  step={0.5}
-                />
-                <button
-                  className="position-btn"
-                  onClick={() => handlePositionChange(position + 1)}
-                  disabled={position >= maxPosition}
-                >
-                  +
-                </button>
-                <span className="position-unit">mm</span>
+          {!isSubAssembly && (
+            <div className="property-section">
+              <h4>{axisLabels[axis]}</h4>
+              <div className="position-controls">
+                <div className="position-slider-row">
+                  <input
+                    type="range"
+                    className="position-slider"
+                    min={minPosition}
+                    max={maxPosition}
+                    step={0.5}
+                    value={position}
+                    onChange={(e) => handlePositionChange(parseFloat(e.target.value))}
+                  />
+                </div>
+                <div className="position-input-row">
+                  <button
+                    className="position-btn"
+                    onClick={() => handlePositionChange(position - 1)}
+                    disabled={position <= minPosition}
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    className="position-input"
+                    value={position.toFixed(1)}
+                    onChange={(e) => handlePositionChange(parseFloat(e.target.value) || position)}
+                    step={0.5}
+                  />
+                  <button
+                    className="position-btn"
+                    onClick={() => handlePositionChange(position + 1)}
+                    disabled={position >= maxPosition}
+                  >
+                    +
+                  </button>
+                  <span className="position-unit">mm</span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {isSubAssembly && (
+            <div className="property-group">
+              <div className="property-row">
+                <span className="property-label">Position:</span>
+                <span className="property-value">{position.toFixed(1)} mm</span>
+              </div>
+            </div>
+          )}
 
           <div className="property-section">
             <h4>Edge Status</h4>
@@ -539,73 +607,6 @@ export const PanelProperties: React.FC = () => {
               onChange={handleEdgeExtensionChange}
             />
           )}
-        </div>
-      </Panel>
-    );
-  }
-
-  // Handle legacy sub- prefix for backwards compatibility
-  if (selectedPanelId.startsWith('sub-')) {
-    const subId = selectedPanelId.replace('sub-', '');
-    const subdivisions = getAllSubdivisions(rootVoid);
-    const subdivision = subdivisions.find((s) => s.id === subId);
-
-    if (!subdivision) return null;
-
-    const { axis, position, bounds } = subdivision;
-
-    let panelWidth = 0;
-    let panelHeight = 0;
-
-    switch (axis) {
-      case 'x':
-        panelWidth = bounds.d;
-        panelHeight = bounds.h;
-        break;
-      case 'y':
-        panelWidth = bounds.w;
-        panelHeight = bounds.d;
-        break;
-      case 'z':
-        panelWidth = bounds.w;
-        panelHeight = bounds.h;
-        break;
-    }
-
-    const axisNames: Record<string, string> = {
-      x: 'Vertical (X)',
-      y: 'Horizontal (Y)',
-      z: 'Vertical (Z)',
-    };
-
-    return (
-      <Panel title="Panel Properties">
-        <div className="panel-properties">
-          <div className="property-header">
-            <span className="property-icon">▤</span>
-            <span className="property-title">Subdivision Panel</span>
-          </div>
-
-          <div className="property-group">
-            <div className="property-row">
-              <span className="property-label">Type:</span>
-              <span className="property-value">{axisNames[axis]} Divider</span>
-            </div>
-            <div className="property-row">
-              <span className="property-label">Position:</span>
-              <span className="property-value">{position.toFixed(1)} mm</span>
-            </div>
-            <div className="property-row">
-              <span className="property-label">Dimensions:</span>
-              <span className="property-value">
-                {panelWidth.toFixed(1)} x {panelHeight.toFixed(1)} mm
-              </span>
-            </div>
-            <div className="property-row">
-              <span className="property-label">Thickness:</span>
-              <span className="property-value">{config.materialThickness} mm</span>
-            </div>
-          </div>
         </div>
       </Panel>
     );

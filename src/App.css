@@ -300,6 +300,162 @@ body {
   color: white;
 }
 
+.purge-btn {
+  width: 100%;
+  padding: 0.5rem;
+  background: #e67e2230;
+  border: 1px solid #e67e22;
+  border-radius: 4px;
+  color: #e67e22;
+  cursor: pointer;
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.purge-btn:hover {
+  background: #e67e22;
+  color: white;
+}
+
+/* Create Assembly Form */
+.create-assembly-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: #252545;
+  padding: 0.75rem;
+  border-radius: 6px;
+}
+
+.create-assembly-form .form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.create-assembly-form label {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.create-assembly-form input[type="number"] {
+  width: 70px;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  color: #e0e0e0;
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.create-assembly-form select {
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  color: #e0e0e0;
+  font-size: 0.75rem;
+  flex: 1;
+}
+
+.face-offsets-section {
+  border-top: 1px solid #333;
+  padding-top: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.face-offsets-section .section-label {
+  display: block;
+  font-size: 0.75rem;
+  color: #888;
+  margin-bottom: 0.25rem;
+}
+
+.face-offsets-section .offset-hint {
+  font-size: 0.625rem;
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.offset-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.offset-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.offset-btn {
+  width: 24px;
+  height: 24px;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.offset-btn:hover {
+  background: #4a90d9;
+  border-color: #4a90d9;
+}
+
+.offset-input {
+  width: 50px;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 0.25rem 0.35rem;
+  color: #e0e0e0;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.confirm-buttons button {
+  flex: 1;
+  padding: 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.apply-btn {
+  background: #2ecc71;
+  border: 1px solid #2ecc71;
+  color: white;
+}
+
+.apply-btn:hover {
+  background: #27ae60;
+}
+
+.cancel-btn {
+  background: transparent;
+  border: 1px solid #666;
+  color: #888;
+}
+
+.cancel-btn:hover {
+  background: #333;
+  color: #e0e0e0;
+}
+
 .hint {
   font-size: 0.75rem;
   color: #666;

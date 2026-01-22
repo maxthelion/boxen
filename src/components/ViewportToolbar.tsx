@@ -5,36 +5,48 @@ import { SelectionMode } from '../types';
 export const ViewportToolbar: React.FC = () => {
   const { selectionMode, setSelectionMode } = useBoxStore();
 
-  const tools: { mode: SelectionMode; label: string; icon: string; tooltip: string }[] = [
+  // Non-null modes for the filter buttons
+  type FilterMode = 'assembly' | 'void' | 'panel';
+
+  const tools: { mode: FilterMode; label: string; icon: string; tooltip: string }[] = [
     {
       mode: 'assembly',
       label: 'Assembly',
       icon: '◫',
-      tooltip: 'Select assemblies to edit dimensions and faces',
+      tooltip: 'Filter: select only assemblies',
     },
     {
       mode: 'void',
       label: 'Void',
       icon: '⬚',
-      tooltip: 'Select voids to subdivide',
+      tooltip: 'Filter: select only voids',
     },
     {
       mode: 'panel',
       label: 'Panel',
       icon: '▬',
-      tooltip: 'Select panels to edit properties',
+      tooltip: 'Filter: select only panels',
     },
   ];
+
+  const handleToolClick = (mode: FilterMode) => {
+    // Toggle: if already active, turn off (set to null)
+    if (selectionMode === mode) {
+      setSelectionMode(null);
+    } else {
+      setSelectionMode(mode);
+    }
+  };
 
   return (
     <div className="viewport-toolbar">
       <div className="toolbar-group">
-        <span className="toolbar-label">Select:</span>
+        <span className="toolbar-label">Filter:</span>
         {tools.map((tool) => (
           <button
             key={tool.mode}
             className={`toolbar-btn ${selectionMode === tool.mode ? 'active' : ''}`}
-            onClick={() => setSelectionMode(tool.mode)}
+            onClick={() => handleToolClick(tool.mode)}
             title={tool.tooltip}
           >
             <span className="toolbar-icon">{tool.icon}</span>

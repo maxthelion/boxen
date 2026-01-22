@@ -90,7 +90,7 @@ export interface BoxConfig {
 
 export type FaceId = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 
-export type SelectionMode = 'void' | 'panel' | 'assembly';
+export type SelectionMode = 'void' | 'panel' | 'assembly' | null;
 
 export interface Face {
   id: FaceId;
@@ -106,15 +106,36 @@ export interface Bounds {
   d: number;
 }
 
-// Sub-assembly types (drawer, insert, etc.)
-export type SubAssemblyType = 'drawer' | 'insert' | 'tray';
+// Per-face offsets for sub-assembly positioning
+// Positive = outset (extend beyond clearance), Negative = inset (retract from clearance)
+// Only meaningful for faces that border open parent faces
+export interface FaceOffsets {
+  front: number;
+  back: number;
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+export const defaultFaceOffsets: FaceOffsets = {
+  front: 0, back: 0, left: 0, right: 0, top: 0, bottom: 0,
+};
+
+// Options for creating a sub-assembly
+export interface CreateSubAssemblyOptions {
+  clearance?: number;         // Base clearance from void walls (mm)
+  assemblyAxis?: AssemblyAxis; // Axis for lids
+  faceOffsets?: FaceOffsets;  // Per-face offset adjustments
+}
 
 // A sub-assembly is a nested box that fits inside a void
+// It has 6 faces just like the main box, each can be open or closed
 export interface SubAssembly {
   id: string;
-  type: SubAssemblyType;
-  clearance: number;  // Gap between sub-assembly and parent void (mm)
-  faces: Face[];      // Which faces are solid/open
+  clearance: number;  // Base gap between sub-assembly and parent void (mm)
+  faceOffsets: FaceOffsets;  // Per-face offset adjustments (mm)
+  faces: Face[];      // Which faces are solid/open (same as main box)
   rootVoid: Void;     // Sub-assembly's internal void structure
   materialThickness: number;
   assembly: AssemblyConfig;  // Assembly configuration for this sub-assembly
@@ -151,6 +172,15 @@ export interface SubdivisionPreview {
   positions: number[];  // Absolute positions of preview planes
 }
 
+// Preview state for showing potential sub-assembly before creating
+export interface SubAssemblyPreview {
+  voidId: string;
+  bounds: Bounds;  // The calculated bounds of the sub-assembly
+  clearance: number;
+  assemblyAxis: AssemblyAxis;
+  faceOffsets: FaceOffsets;
+}
+
 export interface BoxState {
   config: BoxConfig;
   faces: Face[];
@@ -164,15 +194,21 @@ export interface BoxState {
   // Hover state - synchronized between tree and 3D view
   hoveredVoidId: string | null;
   hoveredPanelId: string | null;
+  hoveredAssemblyId: string | null;  // 'main' or sub-assembly id
   subdivisionPreview: SubdivisionPreview | null;
+  subAssemblyPreview: SubAssemblyPreview | null;
   // Visibility controls for voids
   hiddenVoidIds: Set<string>;  // Set of void IDs that are hidden
-  isolatedVoidId: string | null;  // If set, only show this void and its ancestors/descendants
+  isolatedVoidId: string | null;  // If set, only show this void and its descendants
+  isolateHiddenVoidIds: Set<string>;  // Void IDs hidden specifically by the isolate action (for restore)
   // Visibility controls for sub-assemblies
   hiddenSubAssemblyIds: Set<string>;  // Set of sub-assembly IDs that are hidden
   isolatedSubAssemblyId: string | null;  // If set, only show this sub-assembly
-  // Visibility controls for face panels
-  hiddenFaceIds: Set<string>;  // Set of face panel IDs that are hidden (e.g., 'face-front', 'subasm-xxx-face-top')
+  isolateHiddenSubAssemblyIds: Set<string>;  // Sub-assembly IDs hidden by isolate action
+  // Visibility controls for face panels (includes dividers)
+  hiddenFaceIds: Set<string>;  // Set of face panel IDs that are hidden (e.g., 'face-front', 'subasm-xxx-face-top', 'divider-void-1-split')
+  isolatedPanelId: string | null;  // If set, only show this panel
+  isolateHiddenFaceIds: Set<string>;  // Face IDs hidden by isolate action
   // Generated panel paths - the source of truth for geometry
   panelCollection: PanelCollection | null;
   // Flag indicating panels need regeneration (config changed since last generate)
@@ -192,7 +228,9 @@ export interface BoxActions {
   // Hover actions - synchronized between tree and 3D view
   setHoveredVoid: (voidId: string | null) => void;
   setHoveredPanel: (panelId: string | null) => void;
+  setHoveredAssembly: (assemblyId: string | null) => void;
   setSubdivisionPreview: (preview: SubdivisionPreview | null) => void;
+  setSubAssemblyPreview: (preview: SubAssemblyPreview | null) => void;
   applySubdivision: () => void;  // Apply the current preview
   removeVoid: (voidId: string) => void;
   resetVoids: () => void;
@@ -201,10 +239,11 @@ export interface BoxActions {
   setLidTabDirection: (side: 'positive' | 'negative', direction: LidTabDirection) => void;
   setLidInset: (side: 'positive' | 'negative', inset: number) => void;
   // Sub-assembly actions
-  createSubAssembly: (voidId: string, type: SubAssemblyType) => void;
+  createSubAssembly: (voidId: string, options?: CreateSubAssemblyOptions) => void;
   toggleSubAssemblyFace: (subAssemblyId: string, faceId: FaceId) => void;
   setSubAssemblyClearance: (subAssemblyId: string, clearance: number) => void;
   removeSubAssembly: (voidId: string) => void;
+  purgeVoid: (voidId: string) => void;  // Remove all children and sub-assemblies
   // Assembly config actions for sub-assemblies
   setSubAssemblyAxis: (subAssemblyId: string, axis: AssemblyAxis) => void;
   setSubAssemblyLidTabDirection: (subAssemblyId: string, side: 'positive' | 'negative', direction: LidTabDirection) => void;
@@ -215,8 +254,9 @@ export interface BoxActions {
   // Visibility actions for sub-assemblies
   toggleSubAssemblyVisibility: (subAssemblyId: string) => void;
   setIsolatedSubAssembly: (subAssemblyId: string | null) => void;
-  // Visibility actions for face panels
+  // Visibility actions for face panels (includes dividers)
   toggleFaceVisibility: (faceId: string) => void;
+  setIsolatedPanel: (panelId: string | null) => void;
   // Panel path actions
   generatePanels: () => void;                    // Generate panel paths from current config
   clearPanels: () => void;                       // Clear generated panels

@@ -106,14 +106,20 @@ export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter })
     return { lineGeometry: geometry, lineMaterial: material };
   }, [size[0], size[1], size[2], canvasSize.width, canvasSize.height]);
 
-  if (!visible) {
-    return null;
-  }
-
   // Create LineSegments2 instance
   const lineSegments = useMemo(() => {
     return new LineSegments2(lineGeometry, lineMaterial);
   }, [lineGeometry, lineMaterial]);
+
+  // Only render void if:
+  // 1. Void selection mode is active, OR
+  // 2. This void is selected, OR
+  // 3. This void is hovered (from tree or 3D view)
+  const shouldRender = visible && (isVoidMode || isSelected || isHovered);
+
+  if (!shouldRender) {
+    return null;
+  }
 
   return (
     <group position={position}>

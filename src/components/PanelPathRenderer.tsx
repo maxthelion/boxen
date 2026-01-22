@@ -9,6 +9,7 @@ interface PanelPathRendererProps {
   isSelected: boolean;
   isHovered?: boolean;
   onClick?: (event?: React.MouseEvent) => void;
+  onDoubleClick?: (event?: React.MouseEvent) => void;
   onHover?: (hovered: boolean) => void;
   color?: string;
   selectedColor?: string;
@@ -130,6 +131,7 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
   isSelected,
   isHovered = false,
   onClick,
+  onDoubleClick,
   onHover,
   color = '#3498db',
   selectedColor = '#9b59b6',
@@ -175,6 +177,12 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
     onClick(nativeEvent);
   } : undefined;
 
+  const handleDoubleClick = onDoubleClick ? (e: any) => {
+    e.stopPropagation?.();
+    const nativeEvent = e.nativeEvent || e;
+    onDoubleClick(nativeEvent);
+  } : undefined;
+
   const handlePointerOver = onHover ? (e: any) => {
     e.stopPropagation?.();
     onHover(true);
@@ -195,6 +203,7 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
       <mesh
         geometry={geometry}
         onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
       >
@@ -217,11 +226,25 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
   );
 };
 
+// Helper to get assembly ID from panel ID
+const getAssemblyIdFromPanel = (panelId: string): string => {
+  // subasm-{id}-face-xxx or subasm-{id}-divider-xxx → sub-assembly id
+  // face-xxx or divider-xxx → 'main'
+  if (panelId.startsWith('subasm-')) {
+    const parts = panelId.split('-');
+    if (parts.length >= 2) {
+      return parts[1];
+    }
+  }
+  return 'main';
+};
+
 // Render all panels from a collection
 interface PanelCollectionRendererProps {
   scale: number;
   selectedPanelIds: Set<string>;
   onPanelClick?: (panelId: string, event?: React.MouseEvent) => void;
+  onPanelDoubleClick?: (panelId: string, event?: React.MouseEvent) => void;
   hiddenFaceIds?: Set<string>;
 }
 
@@ -229,10 +252,13 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
   scale,
   selectedPanelIds,
   onPanelClick,
+  onPanelDoubleClick,
   hiddenFaceIds = new Set(),
 }) => {
   const panelCollection = useBoxStore((state) => state.panelCollection);
   const hoveredPanelId = useBoxStore((state) => state.hoveredPanelId);
+  const hoveredAssemblyId = useBoxStore((state) => state.hoveredAssemblyId);
+  const selectedAssemblyId = useBoxStore((state) => state.selectedAssemblyId);
   const setHoveredPanel = useBoxStore((state) => state.setHoveredPanel);
 
   if (!panelCollection) {
@@ -247,19 +273,37 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
         if (hiddenFaceIds.has(panel.id)) return null;
 
         const isDivider = panel.source.type === 'divider';
-        const isHovered = hoveredPanelId === panel.id;
+        const isSubAssemblyPanel = panel.id.startsWith('subasm-');
+
+        // Get this panel's parent assembly
+        const panelAssemblyId = getAssemblyIdFromPanel(panel.id);
+
+        // Check if this panel or its assembly is selected/hovered
+        const isPanelSelected = selectedPanelIds.has(panel.id);
+        const isAssemblySelected = selectedAssemblyId === panelAssemblyId;
+        const isPanelHovered = hoveredPanelId === panel.id;
+        const isAssemblyHovered = hoveredAssemblyId === panelAssemblyId;
+
+        // Panel is "selected" if directly selected OR its assembly is selected
+        const isSelected = isPanelSelected || isAssemblySelected;
+        // Panel is "hovered" if directly hovered OR its assembly is hovered
+        const isHovered = isPanelHovered || isAssemblyHovered;
+
+        // Color based on panel type
+        const color = isSubAssemblyPanel ? '#9b59b6' : isDivider ? '#f39c12' : '#3498db';
 
         return (
           <PanelPathRenderer
             key={panel.id}
             panel={panel}
             scale={scale}
-            isSelected={selectedPanelIds.has(panel.id)}
+            isSelected={isSelected}
             isHovered={isHovered}
             onClick={onPanelClick ? (e) => onPanelClick(panel.id, e) : undefined}
+            onDoubleClick={onPanelDoubleClick ? (e) => onPanelDoubleClick(panel.id, e) : undefined}
             onHover={(hovered) => setHoveredPanel(hovered ? panel.id : null)}
-            color={isDivider ? '#f39c12' : '#3498db'}
-            selectedColor={isDivider ? '#9b59b6' : '#9b59b6'}
+            color={color}
+            selectedColor={'#9b59b6'}
           />
         );
       })}
