@@ -1,4 +1,5 @@
 import { BoxConfig, Face, Void, AssemblyConfig, defaultAssemblyConfig, EdgeExtensions, defaultEdgeExtensions } from '../types';
+import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
 
 // Compact serialization format for URL storage
 interface SerializedState {
@@ -34,6 +35,9 @@ interface SerializedVoid {
 // Face order for bitmap encoding
 const FACE_ORDER = ['front', 'back', 'left', 'right', 'top', 'bottom'] as const;
 
+// Round number to 2 decimal places to save space
+const r = (n: number): number => Math.round(n * 100) / 100;
+
 // Serialize faces to a bitmap (1 = solid, 0 = open)
 const serializeFaces = (faces: Face[]): number => {
   let bitmap = 0;
@@ -58,7 +62,7 @@ const deserializeFaces = (bitmap: number): Face[] => {
 const serializeVoid = (v: Void): SerializedVoid => {
   const result: SerializedVoid = {
     id: v.id,
-    b: [v.bounds.x, v.bounds.y, v.bounds.z, v.bounds.w, v.bounds.h, v.bounds.d],
+    b: [r(v.bounds.x), r(v.bounds.y), r(v.bounds.z), r(v.bounds.w), r(v.bounds.h), r(v.bounds.d)],
   };
 
   if (v.children && v.children.length > 0) {
@@ -68,7 +72,7 @@ const serializeVoid = (v: Void): SerializedVoid => {
     result.sa = v.splitAxis;
   }
   if (v.splitPosition !== undefined) {
-    result.sp = v.splitPosition;
+    result.sp = r(v.splitPosition);
   }
 
   return result;
@@ -178,12 +182,12 @@ export const serializeProject = (state: ProjectState): string => {
   const serialized: SerializedState = {
     v: 1,
     c: {
-      w: state.config.width,
-      h: state.config.height,
-      d: state.config.depth,
-      mt: state.config.materialThickness,
-      fw: state.config.fingerWidth,
-      fg: state.config.fingerGap,
+      w: r(state.config.width),
+      h: r(state.config.height),
+      d: r(state.config.depth),
+      mt: r(state.config.materialThickness),
+      fw: r(state.config.fingerWidth),
+      fg: r(state.config.fingerGap),
       a: serializeAssembly(state.config.assembly),
     },
     f: serializeFaces(state.faces),
@@ -191,15 +195,23 @@ export const serializeProject = (state: ProjectState): string => {
     e: serializeExtensions(state.edgeExtensions),
   };
 
-  // Convert to JSON and base64 encode
+  // Convert to JSON and compress with lz-string
   const json = JSON.stringify(serialized);
-  const encoded = btoa(encodeURIComponent(json));
-  return encoded;
+  const compressed = compressToEncodedURIComponent(json);
+  return compressed;
 };
 
+// Try to deserialize with lz-string first, fall back to old base64 format
 export const deserializeProject = (encoded: string): ProjectState | null => {
   try {
-    const json = decodeURIComponent(atob(encoded));
+    // Try lz-string decompression first
+    let json = decompressFromEncodedURIComponent(encoded);
+
+    // Fall back to old base64 format if lz-string fails
+    if (!json) {
+      json = decodeURIComponent(atob(encoded));
+    }
+
     const serialized: SerializedState = JSON.parse(json);
 
     // Version check for future compatibility
