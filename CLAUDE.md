@@ -27,9 +27,13 @@ src/
 │   └── useBoxStore.ts      # Zustand store with all state and actions
 ├── types.ts          # TypeScript type definitions
 └── utils/
+    ├── edgeMating.test.ts  # Edge mating verification tests
+    ├── fingerJoints.ts     # Finger joint pattern generation
     ├── panelGenerator.ts   # Core panel generation with finger joints
+    ├── projectStorage.ts   # Project persistence
     ├── svgExport.ts        # SVG export for laser cutting
-    └── urlState.ts         # URL state serialization
+    ├── urlState.ts         # URL state serialization
+    └── voidOperations.ts   # Void tree operations
 ```
 
 ## Key Concepts
@@ -54,6 +58,8 @@ Finger joints connect panels at intersections. The system determines:
 - Which panel has "tabs out" (protruding fingers)
 - Which panel has "slots" (receiving holes)
 - Based on assembly axis and wall priority
+
+**World-Space Alignment**: Mating edges must generate finger patterns from the same world-space anchor. Since edges traverse in different directions (top: left→right, bottom: right→left), the panel generator swaps direction for "reversed" edges (bottom, right) and flips `isTabOut` to maintain correct protrusion direction. This ensures tabs on one panel align precisely with slots on the mating panel.
 
 ### Assembly Configuration
 - `assemblyAxis`: Primary axis ('x', 'y', or 'z') for lid orientation

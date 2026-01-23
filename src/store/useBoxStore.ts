@@ -446,6 +446,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   isolateHiddenFaceIds: new Set<string>(),
   panelCollection: null,
   panelsDirty: true,  // Start dirty so panels get generated on first use
+  showDebugAnchors: false,
 
   setConfig: (newConfig) =>
     set((state) => {
@@ -1965,4 +1966,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
     return getShareUrl(projectState);
   },
+
+  toggleDebugAnchors: () =>
+    set((state) => ({
+      showDebugAnchors: !state.showDebugAnchors,
+    })),
 }));

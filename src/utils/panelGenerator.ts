@@ -12,14 +12,94 @@ import {
   PanelCollection,
   PanelSource,
   AssemblyConfig,
+  AssemblyFingerData,
   EdgeExtensions,
   getFaceRole,
   getLidSide,
   getWallPriority,
+  getEdgeAxis,
   defaultEdgeExtensions,
 } from '../types';
-import { generateFingerJointPath, Point } from './fingerJoints';
+import { generateFingerJointPath, generateFingerJointPathV2, Point } from './fingerJoints';
+import { calculateAssemblyFingerPoints } from './fingerPoints';
+import { getEdgeGender, getAdjacentFace } from './genderRules';
 import { getAllSubdivisions } from '../store/useBoxStore';
+
+// Helper to get edge axis position range for finger system
+// Returns [startPos, endPos] along the axis where:
+// - startPos corresponds to the 2D edge start point
+// - endPos corresponds to the 2D edge end point
+// This accounts for the fact that edges follow a clockwise pattern around each face,
+// so bottom/right edges run in the negative direction along their axis.
+const getEdgeAxisPositions = (
+  faceId: FaceId,
+  edgePosition: 'top' | 'bottom' | 'left' | 'right',
+  config: BoxConfig,
+  lowHasTabs: boolean,   // Does the LOW end of the axis have tabs (left/bottom side)
+  highHasTabs: boolean   // Does the HIGH end of the axis have tabs (right/top side)
+): { startPos: number; endPos: number } => {
+  const { width, height, depth, materialThickness } = config;
+  const mt = materialThickness;
+
+  // Get the axis for this edge
+  const axis = getEdgeAxis(faceId, edgePosition);
+
+  // Calculate the low and high positions along the axis
+  // lowPos = left/bottom side of axis (negative direction)
+  // highPos = right/top side of axis (positive direction)
+  let lowPos: number;
+  let highPos: number;
+
+  switch (axis) {
+    case 'x': {
+      const maxJoint = width - 2 * mt;
+      lowPos = lowHasTabs ? 0 : -mt;
+      highPos = highHasTabs ? maxJoint : maxJoint + mt;
+      break;
+    }
+    case 'y': {
+      const maxJoint = height - 2 * mt;
+      lowPos = lowHasTabs ? 0 : -mt;
+      highPos = highHasTabs ? maxJoint : maxJoint + mt;
+      break;
+    }
+    case 'z': {
+      const maxJoint = depth - 2 * mt;
+      lowPos = lowHasTabs ? 0 : -mt;
+      highPos = highHasTabs ? maxJoint : maxJoint + mt;
+      break;
+    }
+  }
+
+  // Edges follow clockwise pattern in 2D:
+  // - top edge: left-to-right (low to high along axis)
+  // - right edge: top-to-bottom (high to low along axis)
+  // - bottom edge: right-to-left (high to low along axis)
+  // - left edge: bottom-to-top (low to high along axis)
+  // So for bottom/right edges, we need to swap the positions
+  const runsNegative = edgePosition === 'bottom' || edgePosition === 'right';
+
+  if (runsNegative) {
+    // 2D edge start is at high position, end is at low position
+    return { startPos: highPos, endPos: lowPos };
+  } else {
+    // 2D edge start is at low position, end is at high position
+    return { startPos: lowPos, endPos: highPos };
+  }
+};
+
+// Helper to get the outward direction for an edge
+// Outward means away from the panel center, in 2D panel space
+const getEdgeOutwardDirection = (
+  edgePosition: 'top' | 'bottom' | 'left' | 'right'
+): Point => {
+  switch (edgePosition) {
+    case 'top': return { x: 0, y: 1 };
+    case 'bottom': return { x: 0, y: -1 };
+    case 'left': return { x: -1, y: 0 };
+    case 'right': return { x: 1, y: 0 };
+  }
+};
 
 // =============================================================================
 // Helpers
@@ -357,7 +437,8 @@ const generateFacePanelOutline = (
   faces: Face[],
   config: BoxConfig,
   edgeExtensions: EdgeExtensions = defaultEdgeExtensions,
-  existingPanels?: PanelPath[]
+  existingPanels?: PanelPath[],
+  fingerData?: AssemblyFingerData | null
 ): PathPoint[] => {
   const dims = getFaceDimensions(faceId, config);
   const edges = getFaceEdges(faceId);
@@ -412,15 +493,21 @@ const generateFacePanelOutline = (
   const leftHasTabs = edgeHasTabs('left');
   const rightHasTabs = edgeHasTabs('right');
 
+  // Check which adjacent faces are solid (for outline calculation)
+  const topIsSolid = edgeHasFingers('top');
+  const bottomIsSolid = edgeHasFingers('bottom');
+  const leftIsSolid = edgeHasFingers('left');
+  const rightIsSolid = edgeHasFingers('right');
+
   // Calculate extension amounts (only apply to unlocked edges)
   const extTop = edgeIsUnlocked('top') ? edgeExtensions.top : 0;
   const extBottom = edgeIsUnlocked('bottom') ? edgeExtensions.bottom : 0;
   const extLeft = edgeIsUnlocked('left') ? edgeExtensions.left : 0;
   const extRight = edgeIsUnlocked('right') ? edgeExtensions.right : 0;
 
-  // Original corners (without extensions) - used for finger pattern calculation
-  // This ensures fingers maintain their original spacing regardless of extensions
-  const originalCorners: Record<string, Point> = {
+  // Finger corners - ALWAYS use full insets for consistent finger alignment
+  // This ensures fingers on perpendicular edges don't shift when a face is removed
+  const fingerCorners: Record<string, Point> = {
     topLeft: {
       x: -halfW + (leftHasTabs ? materialThickness : 0),
       y: halfH - (topHasTabs ? materialThickness : 0)
@@ -439,52 +526,53 @@ const generateFacePanelOutline = (
     },
   };
 
-  // Actual corners (with extensions) - used for panel outline
-  const corners: Record<string, Point> = {
+  // Outline corners - account for open faces (no inset where face is removed)
+  // When an adjacent face is removed, the edge extends to the full dimension
+  const outlineCorners: Record<string, Point> = {
     topLeft: {
-      x: originalCorners.topLeft.x - extLeft,
-      y: originalCorners.topLeft.y + extTop
+      x: -halfW + (leftIsSolid && leftHasTabs ? materialThickness : 0) - extLeft,
+      y: halfH - (topIsSolid && topHasTabs ? materialThickness : 0) + extTop
     },
     topRight: {
-      x: originalCorners.topRight.x + extRight,
-      y: originalCorners.topRight.y + extTop
+      x: halfW - (rightIsSolid && rightHasTabs ? materialThickness : 0) + extRight,
+      y: halfH - (topIsSolid && topHasTabs ? materialThickness : 0) + extTop
     },
     bottomRight: {
-      x: originalCorners.bottomRight.x + extRight,
-      y: originalCorners.bottomRight.y - extBottom
+      x: halfW - (rightIsSolid && rightHasTabs ? materialThickness : 0) + extRight,
+      y: -halfH + (bottomIsSolid && bottomHasTabs ? materialThickness : 0) - extBottom
     },
     bottomLeft: {
-      x: originalCorners.bottomLeft.x - extLeft,
-      y: originalCorners.bottomLeft.y - extBottom
+      x: -halfW + (leftIsSolid && leftHasTabs ? materialThickness : 0) - extLeft,
+      y: -halfH + (bottomIsSolid && bottomHasTabs ? materialThickness : 0) - extBottom
     },
   };
 
-  // Edge configs with both actual and original corners
+  // Edge configs with both outline corners (for panel shape) and finger corners (for finger calculation)
   const edgeConfigs = [
     {
-      start: corners.topLeft, end: corners.topRight,
-      originalStart: originalCorners.topLeft, originalEnd: originalCorners.topRight,
+      start: outlineCorners.topLeft, end: outlineCorners.topRight,
+      fingerStart: fingerCorners.topLeft, fingerEnd: fingerCorners.topRight,
       edgeInfo: edges.find((e) => e.position === 'top')!,
       startExt: { perpendicular: extLeft, parallel: extTop },
       endExt: { perpendicular: extRight, parallel: extTop }
     },
     {
-      start: corners.topRight, end: corners.bottomRight,
-      originalStart: originalCorners.topRight, originalEnd: originalCorners.bottomRight,
+      start: outlineCorners.topRight, end: outlineCorners.bottomRight,
+      fingerStart: fingerCorners.topRight, fingerEnd: fingerCorners.bottomRight,
       edgeInfo: edges.find((e) => e.position === 'right')!,
       startExt: { perpendicular: extTop, parallel: extRight },
       endExt: { perpendicular: extBottom, parallel: extRight }
     },
     {
-      start: corners.bottomRight, end: corners.bottomLeft,
-      originalStart: originalCorners.bottomRight, originalEnd: originalCorners.bottomLeft,
+      start: outlineCorners.bottomRight, end: outlineCorners.bottomLeft,
+      fingerStart: fingerCorners.bottomRight, fingerEnd: fingerCorners.bottomLeft,
       edgeInfo: edges.find((e) => e.position === 'bottom')!,
       startExt: { perpendicular: extRight, parallel: extBottom },
       endExt: { perpendicular: extLeft, parallel: extBottom }
     },
     {
-      start: corners.bottomLeft, end: corners.topLeft,
-      originalStart: originalCorners.bottomLeft, originalEnd: originalCorners.topLeft,
+      start: outlineCorners.bottomLeft, end: outlineCorners.topLeft,
+      fingerStart: fingerCorners.bottomLeft, fingerEnd: fingerCorners.topLeft,
       edgeInfo: edges.find((e) => e.position === 'left')!,
       startExt: { perpendicular: extBottom, parallel: extLeft },
       endExt: { perpendicular: extTop, parallel: extLeft }
@@ -493,106 +581,78 @@ const generateFacePanelOutline = (
 
   const outlinePoints: PathPoint[] = [];
 
-  for (const { start, end, originalStart, originalEnd, edgeInfo, startExt, endExt } of edgeConfigs) {
+  for (const { start, end, fingerStart, fingerEnd, edgeInfo, startExt, endExt } of edgeConfigs) {
     const adjacentFace = faces.find((f) => f.id === edgeInfo.adjacentFaceId);
     const isSolidAdjacent = adjacentFace?.solid ?? false;
     const hasFingers = edgeHasFingers(edgeInfo.position);
-    const tabOutResult = (isSolidAdjacent && hasFingers) ? shouldTabOut(faceId, edgeInfo.adjacentFaceId, assembly) : null;
 
     let points: Point[];
 
-    if (tabOutResult !== null && hasFingers) {
-      // Generate fingers based on ORIGINAL edge length to maintain consistent spacing
-      const originalEdgeLength = Math.sqrt(
-        Math.pow(originalEnd.x - originalStart.x, 2) +
-        Math.pow(originalEnd.y - originalStart.y, 2)
-      );
+    // Use pre-calculated assembly finger points for aligned finger joints
+    if (fingerData && isSolidAdjacent && hasFingers) {
+      const gender = getEdgeGender(faceId, edgeInfo.position, faces, assembly);
 
-      // Calculate corner inset for adjusted gap multiplier
-      const isHorizontalEdge = edgeInfo.position === 'top' || edgeInfo.position === 'bottom';
-      const cornerInset = isHorizontalEdge
-        ? Math.max(leftHasTabs ? materialThickness : 0, rightHasTabs ? materialThickness : 0)
-        : Math.max(topHasTabs ? materialThickness : 0, bottomHasTabs ? materialThickness : 0);
-      const adjustedGapMultiplier = Math.max(0, fingerGap - cornerInset / fingerWidth);
+      if (gender !== null) {
+        const axis = getEdgeAxis(faceId, edgeInfo.position);
+        const axisFingerPoints = fingerData[axis];
+        const outwardDirection = getEdgeOutwardDirection(edgeInfo.position);
 
-      // Generate finger pattern based on original corners
-      const fingerPoints = generateFingerJointPath(originalStart, originalEnd, {
-        edgeLength: originalEdgeLength,
-        fingerWidth,
-        materialThickness,
-        isTabOut: tabOutResult,
-        kerf: 0,
-        yUp: true,
-        cornerGapMultiplier: adjustedGapMultiplier,
-      });
-
-      // Check if perpendicular edges have negative extensions (contractions)
-      // that would clip the finger pattern
-      const startContraction = startExt.perpendicular < 0 ? Math.abs(startExt.perpendicular) : 0;
-      const endContraction = endExt.perpendicular < 0 ? Math.abs(endExt.perpendicular) : 0;
-
-      if (startContraction > 0 || endContraction > 0) {
-        // Clip the finger pattern where adjacent edges are contracted
-        // Filter out points that fall outside the actual edge bounds
-        const isVertical = edgeInfo.position === 'left' || edgeInfo.position === 'right';
-
-        const clippedPoints: Point[] = [];
-        for (let i = 0; i < fingerPoints.length; i++) {
-          const p = fingerPoints[i];
-          let inBounds = true;
-
-          if (isVertical) {
-            // Vertical edge: check Y bounds
-            const minY = Math.min(start.y, end.y);
-            const maxY = Math.max(start.y, end.y);
-            inBounds = p.y >= minY - 0.01 && p.y <= maxY + 0.01;
-          } else {
-            // Horizontal edge: check X bounds
-            const minX = Math.min(start.x, end.x);
-            const maxX = Math.max(start.x, end.x);
-            inBounds = p.x >= minX - 0.01 && p.x <= maxX + 0.01;
-          }
-
-          if (inBounds) {
-            clippedPoints.push(p);
-          } else if (clippedPoints.length > 0) {
-            // Add the boundary point if we're transitioning out of bounds
-            const lastInBounds = clippedPoints[clippedPoints.length - 1];
-            if (isVertical) {
-              const boundaryY = p.y < Math.min(start.y, end.y) ? Math.min(start.y, end.y) : Math.max(start.y, end.y);
-              if (Math.abs(lastInBounds.y - boundaryY) > 0.01) {
-                clippedPoints.push({ x: lastInBounds.x, y: boundaryY });
-              }
-            } else {
-              const boundaryX = p.x < Math.min(start.x, end.x) ? Math.min(start.x, end.x) : Math.max(start.x, end.x);
-              if (Math.abs(lastInBounds.x - boundaryX) > 0.01) {
-                clippedPoints.push({ x: boundaryX, y: lastInBounds.y });
-              }
-            }
-          }
-        }
-
-        // Ensure the path starts and ends at the actual corners
-        if (clippedPoints.length > 0) {
-          // Add start corner if needed
-          const firstPoint = clippedPoints[0];
-          if (Math.abs(firstPoint.x - start.x) > 0.01 || Math.abs(firstPoint.y - start.y) > 0.01) {
-            clippedPoints.unshift(start);
-          }
-          // Add end corner if needed
-          const lastPoint = clippedPoints[clippedPoints.length - 1];
-          if (Math.abs(lastPoint.x - end.x) > 0.01 || Math.abs(lastPoint.y - end.y) > 0.01) {
-            clippedPoints.push(end);
-          }
-          points = clippedPoints;
+        // Determine which perpendicular edges have tabs at low/high ends of the axis
+        // This is independent of edge direction - it's about physical position on the axis:
+        // - Horizontal edges (X axis): low=left, high=right
+        // - Vertical edges (Y axis): low=bottom, high=top
+        const isHorizontalEdge = edgeInfo.position === 'top' || edgeInfo.position === 'bottom';
+        let lowHasTabs: boolean;
+        let highHasTabs: boolean;
+        if (isHorizontalEdge) {
+          lowHasTabs = leftHasTabs;   // Low end of X axis = left side
+          highHasTabs = rightHasTabs; // High end of X axis = right side
         } else {
-          // All fingers clipped, just use straight edge
-          points = [start, end];
+          lowHasTabs = bottomHasTabs; // Low end of Y axis = bottom side
+          highHasTabs = topHasTabs;   // High end of Y axis = top side
         }
+
+        const { startPos, endPos } = getEdgeAxisPositions(faceId, edgeInfo.position, config, lowHasTabs, highHasTabs);
+
+        // Use fingerStart/fingerEnd for finger pattern generation (consistent alignment)
+        // Then handle any difference from outline corners as straight segments
+        const fingerPathPoints = generateFingerJointPathV2(fingerStart, fingerEnd, {
+          fingerPoints: axisFingerPoints,
+          gender,
+          materialThickness,
+          edgeStartPos: startPos,
+          edgeEndPos: endPos,
+          yUp: true,
+          outwardDirection,
+        });
+
+        // If outline corners differ from finger corners, add straight segments
+        const adjustedPoints: Point[] = [];
+
+        // Add segment from outline start to finger start if different
+        const startDiffX = Math.abs(start.x - fingerStart.x);
+        const startDiffY = Math.abs(start.y - fingerStart.y);
+        if (startDiffX > 0.01 || startDiffY > 0.01) {
+          adjustedPoints.push(start);
+        }
+
+        // Add all finger path points
+        adjustedPoints.push(...fingerPathPoints);
+
+        // Add segment from finger end to outline end if different
+        const endDiffX = Math.abs(end.x - fingerEnd.x);
+        const endDiffY = Math.abs(end.y - fingerEnd.y);
+        if (endDiffX > 0.01 || endDiffY > 0.01) {
+          adjustedPoints.push(end);
+        }
+
+        points = adjustedPoints;
       } else {
-        points = fingerPoints;
+        // Gender is null = straight edge
+        points = [start, end];
       }
     } else {
+      // No finger data or not a solid adjacent face - straight edge
       points = [start, end];
     }
 
@@ -636,7 +696,8 @@ const generateDividerSlotHoles = (
   faces: Face[],
   rootVoid: Void,
   config: BoxConfig,
-  existingPanels?: PanelPath[]
+  existingPanels?: PanelPath[],
+  fingerData?: AssemblyFingerData | null
 ): PanelHole[] => {
   const holes: PanelHole[] = [];
   const { materialThickness, fingerWidth, fingerGap, width, height, depth, assembly } = config;
@@ -868,94 +929,210 @@ const generateDividerSlotHoles = (
         break;
     }
 
-    // Generate finger slot holes
+    // Generate finger slot holes using V2 finger points for alignment
     if (slotX !== null || slotY !== null) {
-      // Calculate effective length (after subtracting insets)
-      const effectiveLength = slotLength - startInset - endInset;
-      const halfSlotLength = slotLength / 2;
+      // Determine which assembly axis the slot runs along
+      // This is based on face orientation and divider axis
+      let slotAxis: 'x' | 'y' | 'z';
+      let axisDim: number;
 
-      // Use Math.max of corner insets for gap adjustment (matches FaceWithFingers)
-      const cornerGapBase = fingerWidth * fingerGap;
-      const maxInset = Math.max(startInset, endInset);
-      const adjustedCornerGap = Math.max(0, cornerGapBase - maxInset);
+      if (isHorizontal) {
+        // Horizontal slot - determine axis based on face
+        if (faceId === 'left' || faceId === 'right') {
+          slotAxis = 'z';  // Horizontal slots on left/right run along Z
+          axisDim = depth;
+        } else {
+          slotAxis = 'x';  // Horizontal slots on front/back/top/bottom run along X
+          axisDim = width;
+        }
+      } else {
+        // Vertical slot - determine axis based on face
+        if (faceId === 'top' || faceId === 'bottom') {
+          slotAxis = 'z';  // Vertical slots on top/bottom run along Z
+          axisDim = depth;
+        } else {
+          slotAxis = 'y';  // Vertical slots on front/back/left/right run along Y
+          axisDim = height;
+        }
+      }
 
-      // Usable length for fingers (based on original, not extended)
-      const usableLength = effectiveLength - (adjustedCornerGap * 2);
+      const maxJoint = axisDim - 2 * materialThickness;
+      const halfPanelDim = (axisDim - 2 * materialThickness) / 2;
 
-      if (usableLength < fingerWidth) continue;  // Too short for slots
+      // Use V2 finger points if available
+      if (fingerData && fingerData[slotAxis]) {
+        const axisFingerPoints = fingerData[slotAxis];
+        const { points: transitionPoints, innerOffset, fingerLength } = axisFingerPoints;
 
-      // Calculate number of fingers - must be odd for symmetry
-      let numFingers = Math.max(1, Math.floor(usableLength / fingerWidth));
-      if (numFingers % 2 === 0) numFingers++;  // Ensure odd for symmetry
+        if (fingerLength > 0 && maxJoint > 2 * innerOffset) {
+          // Calculate the axis position range for this slot based on divider bounds
+          // Void bounds are in absolute box coordinates (0 to dim)
+          // Finger points use 0-based coords where 0 = interior surface (at mt from outer wall)
+          //
+          // Key insight: Same logic as getEdgeAxisInfo for divider panels:
+          // - If at wall AND meets solid face: use 0 or maxJoint
+          // - If at wall AND open face: use -mt or maxJoint + mt
+          // - If not at wall: use actual position
+          const tolerance = 0.01;
+          let boundsStart: number;  // Low end of divider along slot axis
+          let boundsEnd: number;    // High end of divider along slot axis
 
-      const actualFingerWidth = usableLength / numFingers;
-
-      // Pattern offset: how much the start has moved due to extension
-      // Negative extension = shrink = start moved inward = positive offset (skip into pattern)
-      const patternOffset = -extensionStart;
-
-      // Actual slot region bounds (with extensions applied)
-      const actualHalfLength = halfSlotLength + extensionStart + (extensionEnd - extensionStart) / 2;
-      const actualStart = -halfSlotLength - extensionStart;
-      const actualEnd = halfSlotLength + extensionEnd;
-
-      // Starting position for finger region in original pattern
-      const fingerRegionStart = -halfSlotLength + startInset + adjustedCornerGap;
-
-      for (let i = 0; i < numFingers; i++) {
-        if (i % 2 === 0) {
-          // Calculate slot position in original pattern coordinates
-          const patternStart = fingerRegionStart + i * actualFingerWidth;
-          const patternEnd = patternStart + actualFingerWidth;
-
-          // Convert to actual coordinates (apply offset)
-          const slotStart = patternStart;
-          const slotEnd = patternEnd;
-
-          // Skip slots entirely outside actual bounds
-          if (slotEnd < actualStart || slotStart > actualEnd) continue;
-
-          // Clip slot to actual bounds
-          const clippedStart = Math.max(slotStart, actualStart);
-          const clippedEnd = Math.min(slotEnd, actualEnd);
-
-          // Skip if clipped slot is too small
-          if (clippedEnd - clippedStart < 0.1) continue;
-
-          // Apply center offset to position slots within sub-void bounds
-          const offsetStart = clippedStart + slotCenterOffset;
-          const offsetEnd = clippedEnd + slotCenterOffset;
-
-          let holePoints: PathPoint[];
-          if (isHorizontal) {
-            // Horizontal slot
-            const y = slotY!;
-            holePoints = [
-              { x: offsetStart, y: y - materialThickness / 2 },
-              { x: offsetEnd, y: y - materialThickness / 2 },
-              { x: offsetEnd, y: y + materialThickness / 2 },
-              { x: offsetStart, y: y + materialThickness / 2 },
-            ];
+          if (slotAxis === 'x') {
+            const atLowWall = bounds.x <= materialThickness + tolerance;
+            const atHighWall = bounds.x + bounds.w >= width - materialThickness - tolerance;
+            // startInset > 0 means divider meets solid face at low end
+            boundsStart = atLowWall ? (startInset > 0 ? 0 : -materialThickness) : (bounds.x - materialThickness);
+            boundsEnd = atHighWall ? (endInset > 0 ? maxJoint : maxJoint + materialThickness) : (bounds.x + bounds.w - materialThickness);
+          } else if (slotAxis === 'y') {
+            const atLowWall = bounds.y <= materialThickness + tolerance;
+            const atHighWall = bounds.y + bounds.h >= height - materialThickness - tolerance;
+            boundsStart = atLowWall ? (startInset > 0 ? 0 : -materialThickness) : (bounds.y - materialThickness);
+            boundsEnd = atHighWall ? (endInset > 0 ? maxJoint : maxJoint + materialThickness) : (bounds.y + bounds.h - materialThickness);
           } else {
-            // Vertical slot
-            const x = slotX!;
-            holePoints = [
-              { x: x - materialThickness / 2, y: offsetStart },
-              { x: x + materialThickness / 2, y: offsetStart },
-              { x: x + materialThickness / 2, y: offsetEnd },
-              { x: x - materialThickness / 2, y: offsetEnd },
-            ];
+            const atLowWall = bounds.z <= materialThickness + tolerance;
+            const atHighWall = bounds.z + bounds.d >= depth - materialThickness + tolerance;
+            boundsStart = atLowWall ? (startInset > 0 ? 0 : -materialThickness) : (bounds.z - materialThickness);
+            boundsEnd = atHighWall ? (endInset > 0 ? maxJoint : maxJoint + materialThickness) : (bounds.z + bounds.d - materialThickness);
           }
 
-          holes.push({
-            id: `divider-slot-${sub.id}-${i}`,
-            type: 'slot',
-            path: { points: holePoints, closed: true },
-            source: {
-              type: 'divider-slot',
-              sourceId: sub.id,
-            },
-          });
+          // Apply divider edge extensions to the bounds range
+          // Extensions: positive = outward (grow), negative = inward (shrink)
+          // If extensionStart < 0 (shrinking), boundsStart increases (slot starts later)
+          // If extensionEnd < 0 (shrinking), boundsEnd decreases (slot ends earlier)
+          boundsStart -= extensionStart;
+          boundsEnd += extensionEnd;
+
+          // The effective range accounts for corner insets
+          // When meeting solid face, start at 0 (not -mt + mt = 0)
+          const effectiveLow = startInset > 0 ? Math.max(0, boundsStart) : boundsStart;
+          const effectiveHigh = endInset > 0 ? Math.min(maxJoint, boundsEnd) : boundsEnd;
+
+          // Generate slots at finger positions (where divider tabs will be)
+          // Finger pattern: starts with finger (OUT) at innerOffset, alternates at each transition
+          // Slots go where fingers are (even-indexed sections: 0, 2, 4, ...)
+
+          // Create section boundaries including start/end
+          const allBoundaries = [innerOffset, ...transitionPoints, maxJoint - innerOffset];
+
+          let slotIndex = 0;
+          for (let i = 0; i < allBoundaries.length - 1; i++) {
+            if (i % 2 === 0) {  // Finger section (where divider tabs go)
+              const sectionStart = allBoundaries[i];
+              const sectionEnd = allBoundaries[i + 1];
+
+              // Only include COMPLETE finger sections fully within the effective range
+              // Partial fingers/slots are not allowed - skip if section extends beyond range
+              if (sectionStart < effectiveLow || sectionEnd > effectiveHigh) continue;
+
+              // No clipping - section is fully within range
+              const clippedStart = sectionStart;
+              const clippedEnd = sectionEnd;
+
+              // Convert from 0-based axis coords to 2D panel coords (centered)
+              // 0-based coords: 0 to maxJoint
+              // 2D panel coords: -halfPanelDim to +halfPanelDim
+              const panel2DStart = clippedStart - maxJoint / 2;
+              const panel2DEnd = clippedEnd - maxJoint / 2;
+
+              // Apply slotCenterOffset for dividers that don't span full axis
+              const offsetStart = panel2DStart + slotCenterOffset;
+              const offsetEnd = panel2DEnd + slotCenterOffset;
+
+              let holePoints: PathPoint[];
+              if (isHorizontal) {
+                const y = slotY!;
+                holePoints = [
+                  { x: offsetStart, y: y - materialThickness / 2 },
+                  { x: offsetEnd, y: y - materialThickness / 2 },
+                  { x: offsetEnd, y: y + materialThickness / 2 },
+                  { x: offsetStart, y: y + materialThickness / 2 },
+                ];
+              } else {
+                const x = slotX!;
+                holePoints = [
+                  { x: x - materialThickness / 2, y: offsetStart },
+                  { x: x + materialThickness / 2, y: offsetStart },
+                  { x: x + materialThickness / 2, y: offsetEnd },
+                  { x: x - materialThickness / 2, y: offsetEnd },
+                ];
+              }
+
+              holes.push({
+                id: `divider-slot-${sub.id}-${slotIndex}`,
+                type: 'slot',
+                path: { points: holePoints, closed: true },
+                source: {
+                  type: 'divider-slot',
+                  sourceId: sub.id,
+                },
+              });
+              slotIndex++;
+            }
+          }
+        }
+      } else {
+        // Fallback to V1 calculation if no finger data
+        const effectiveLength = slotLength - startInset - endInset;
+        const halfSlotLength = slotLength / 2;
+        const cornerGapBase = fingerWidth * fingerGap;
+        const maxInset = Math.max(startInset, endInset);
+        const adjustedCornerGap = Math.max(0, cornerGapBase - maxInset);
+        const usableLength = effectiveLength - (adjustedCornerGap * 2);
+
+        if (usableLength < fingerWidth) continue;
+
+        let numFingers = Math.max(1, Math.floor(usableLength / fingerWidth));
+        if (numFingers % 2 === 0) numFingers++;
+
+        const actualFingerWidth = usableLength / numFingers;
+        const actualStart = -halfSlotLength - extensionStart;
+        const actualEnd = halfSlotLength + extensionEnd;
+        const fingerRegionStart = -halfSlotLength + startInset + adjustedCornerGap;
+
+        for (let i = 0; i < numFingers; i++) {
+          if (i % 2 === 0) {
+            const patternStart = fingerRegionStart + i * actualFingerWidth;
+            const patternEnd = patternStart + actualFingerWidth;
+
+            if (patternEnd < actualStart || patternStart > actualEnd) continue;
+
+            const clippedStart = Math.max(patternStart, actualStart);
+            const clippedEnd = Math.min(patternEnd, actualEnd);
+
+            if (clippedEnd - clippedStart < 0.1) continue;
+
+            const offsetStart = clippedStart + slotCenterOffset;
+            const offsetEnd = clippedEnd + slotCenterOffset;
+
+            let holePoints: PathPoint[];
+            if (isHorizontal) {
+              const y = slotY!;
+              holePoints = [
+                { x: offsetStart, y: y - materialThickness / 2 },
+                { x: offsetEnd, y: y - materialThickness / 2 },
+                { x: offsetEnd, y: y + materialThickness / 2 },
+                { x: offsetStart, y: y + materialThickness / 2 },
+              ];
+            } else {
+              const x = slotX!;
+              holePoints = [
+                { x: x - materialThickness / 2, y: offsetStart },
+                { x: x + materialThickness / 2, y: offsetStart },
+                { x: x + materialThickness / 2, y: offsetEnd },
+                { x: x - materialThickness / 2, y: offsetEnd },
+              ];
+            }
+
+            holes.push({
+              id: `divider-slot-${sub.id}-${i}`,
+              type: 'slot',
+              path: { points: holePoints, closed: true },
+              source: {
+                type: 'divider-slot',
+                sourceId: sub.id,
+              },
+            });
+          }
         }
       }
     }
@@ -1128,16 +1305,17 @@ const generateFacePanel = (
   config: BoxConfig,
   scale: number = 1,
   existingExtensions?: EdgeExtensions,
-  existingPanels?: PanelPath[]
+  existingPanels?: PanelPath[],
+  fingerData?: AssemblyFingerData | null
 ): PanelPath | null => {
   const face = faces.find((f) => f.id === faceId);
   if (!face || !face.solid) return null;
 
   const extensions = existingExtensions ?? defaultEdgeExtensions;
   const dims = getFaceDimensions(faceId, config);
-  const outlinePoints = generateFacePanelOutline(faceId, faces, config, extensions, existingPanels);
-  const dividerHoles = generateDividerSlotHoles(faceId, faces, rootVoid, config, existingPanels);
-  const lidHoles = generateLidSlotHoles(faceId, faces, config);
+  const outlinePoints = generateFacePanelOutline(faceId, faces, config, extensions, existingPanels, fingerData);
+  const dividerHoles = generateDividerSlotHoles(faceId, faces, rootVoid, config, existingPanels, fingerData);
+  const lidHoles = generateLidSlotHoles(faceId, faces, config, fingerData);
   const { position, rotation } = getFaceTransform(faceId, config, scale);
 
   const source: PanelSource = {
@@ -1382,7 +1560,8 @@ const generateDividerPanel = (
   config: BoxConfig,
   scale: number = 1,
   existingExtensions?: EdgeExtensions,
-  allSubdivisions?: { id: string; axis: 'x' | 'y' | 'z'; position: number; bounds: any }[]
+  allSubdivisions?: { id: string; axis: 'x' | 'y' | 'z'; position: number; bounds: any }[],
+  fingerData?: AssemblyFingerData | null
 ): PanelPath => {
   const { materialThickness, fingerWidth, fingerGap, width, height, depth, assembly } = config;
   const { bounds, axis, position } = subdivision;
@@ -1592,63 +1771,258 @@ const generateDividerPanel = (
   // Bottom edge: goes right→left. If right is unlocked, right extension affects start
   // Left edge: goes bottom→top. If bottom is unlocked, bottom extension affects start
 
+  // Determine which axis finger points to use for each edge based on divider orientation
+  // and calculate axis positions for V2 finger generation.
+  //
+  // IMPORTANT: Axis positions use a 0-based coordinate system matching face panels:
+  // - 0 = start of finger region (at interior wall, after corner inset)
+  // - maxJoint = end of finger region
+  // - -mt or maxJoint + mt when perpendicular edge is open (extends beyond finger region)
+  //
+  // The perpendicular meetsFace flags determine whether corners are inset (same as face panels).
+  const getEdgeAxisInfo = (edgePos: 'top' | 'bottom' | 'left' | 'right'): {
+    axis: 'x' | 'y' | 'z';
+    startPos: number;
+    endPos: number;
+  } => {
+    const isHorizontal = edgePos === 'top' || edgePos === 'bottom';
+    const mt = materialThickness;
+    const tolerance = 0.001;
+
+    // Calculate maxJoint for each axis
+    const maxJointX = width - 2 * mt;
+    const maxJointY = height - 2 * mt;
+    const maxJointZ = depth - 2 * mt;
+
+    // Helper to calculate axis positions using the same 0-based system as face panels
+    const calcAxisPositions = (
+      boundsLow: number,      // bounds.x/y/z (in box coords)
+      boundsSize: number,     // bounds.w/h/d
+      maxJoint: number,       // maxJoint for this axis
+      axisDim: number,        // width/height/depth
+      meetsLow: boolean,      // meetsFace at low end (left/bottom/back)
+      meetsHigh: boolean      // meetsFace at high end (right/top/front)
+    ): { startPos: number; endPos: number } => {
+      // Check if divider reaches each wall (interior surface at mt from outer edge)
+      const atLowWall = boundsLow <= mt + tolerance;
+      const atHighWall = boundsLow + boundsSize >= axisDim - mt - tolerance;
+
+      let startPos: number;
+      let endPos: number;
+
+      // Low end (left/bottom side of axis) - same logic as face panels
+      if (atLowWall) {
+        // Divider is at the wall - use face panel logic
+        // meetsLow = true means perpendicular face is solid, corner is inset, use 0
+        // meetsLow = false means perpendicular face is open, panel extends to edge, use -mt
+        startPos = meetsLow ? 0 : -mt;
+      } else {
+        // Divider doesn't reach the wall - use actual position in 0-based coords
+        startPos = boundsLow - mt;
+      }
+
+      // High end (right/top side of axis) - same logic as face panels
+      if (atHighWall) {
+        // Divider is at the wall - use face panel logic
+        endPos = meetsHigh ? maxJoint : maxJoint + mt;
+      } else {
+        // Divider doesn't reach the wall - use actual position in 0-based coords
+        endPos = boundsLow + boundsSize - mt;
+      }
+
+      return { startPos, endPos };
+    };
+
+    // Map divider axis + edge position to assembly axis and bounds positions
+    switch (axis) {
+      case 'x': // YZ plane divider - width=depth(Z), height=height(Y)
+        if (isHorizontal) {
+          // Horizontal edges run along Z axis
+          const { startPos, endPos } = calcAxisPositions(
+            bounds.z, bounds.d, maxJointZ, depth,
+            meetsFaceLeft, meetsFaceRight  // "left/right" in 2D = back/front in Z
+          );
+          return { axis: 'z', startPos, endPos };
+        } else {
+          // Vertical edges run along Y axis
+          const { startPos, endPos } = calcAxisPositions(
+            bounds.y, bounds.h, maxJointY, height,
+            meetsFaceBottom, meetsFaceTop  // bottom/top in 2D = bottom/top in Y
+          );
+          return { axis: 'y', startPos, endPos };
+        }
+      case 'y': // XZ plane divider - width=width(X), height=depth(Z)
+        if (isHorizontal) {
+          // Horizontal edges run along X axis
+          const { startPos, endPos } = calcAxisPositions(
+            bounds.x, bounds.w, maxJointX, width,
+            meetsFaceLeft, meetsFaceRight  // left/right in 2D = left/right in X
+          );
+          return { axis: 'x', startPos, endPos };
+        } else {
+          // Vertical edges run along Z axis
+          const { startPos, endPos } = calcAxisPositions(
+            bounds.z, bounds.d, maxJointZ, depth,
+            meetsFaceBottom, meetsFaceTop  // bottom/top in 2D = back/front in Z
+          );
+          return { axis: 'z', startPos, endPos };
+        }
+      case 'z': // XY plane divider - width=width(X), height=height(Y)
+      default:
+        if (isHorizontal) {
+          // Horizontal edges run along X axis
+          const { startPos, endPos } = calcAxisPositions(
+            bounds.x, bounds.w, maxJointX, width,
+            meetsFaceLeft, meetsFaceRight  // left/right in 2D = left/right in X
+          );
+          return { axis: 'x', startPos, endPos };
+        } else {
+          // Vertical edges run along Y axis
+          const { startPos, endPos } = calcAxisPositions(
+            bounds.y, bounds.h, maxJointY, height,
+            meetsFaceBottom, meetsFaceTop  // bottom/top in 2D = bottom/top in Y
+          );
+          return { axis: 'y', startPos, endPos };
+        }
+    }
+  };
+
   const edgeConfigs = [
     {
       start: corners.topLeft, end: corners.topRight,
       hasTabs: meetsTop, position: 'top' as const,
+      meetsFace: meetsFaceTop,
       originalLength: origTopLength,
       // Top edge goes left→right, left extension affects start
       // Negative extension = shrink = positive offset
       patternOffset: !meetsLeft ? -extLeft : 0,
+      axisInfo: getEdgeAxisInfo('top'),
     },
     {
       start: corners.topRight, end: corners.bottomRight,
       hasTabs: meetsRight, position: 'right' as const,
+      meetsFace: meetsFaceRight,
       originalLength: origRightLength,
       // Right edge goes top→bottom, top extension affects start
       patternOffset: !meetsTop ? -extTop : 0,
+      axisInfo: getEdgeAxisInfo('right'),
     },
     {
       start: corners.bottomRight, end: corners.bottomLeft,
       hasTabs: meetsBottom, position: 'bottom' as const,
+      meetsFace: meetsFaceBottom,
       originalLength: origBottomLength,
       // Bottom edge goes right→left, right extension affects start
       patternOffset: !meetsRight ? -extRight : 0,
+      axisInfo: getEdgeAxisInfo('bottom'),
     },
     {
       start: corners.bottomLeft, end: corners.topLeft,
       hasTabs: meetsLeft, position: 'left' as const,
+      meetsFace: meetsFaceLeft,
       originalLength: origLeftLength,
       // Left edge goes bottom→top, bottom extension affects start
       patternOffset: !meetsBottom ? -extBottom : 0,
+      axisInfo: getEdgeAxisInfo('left'),
     },
   ];
 
   const outlinePoints: PathPoint[] = [];
 
-  for (const { start, end, hasTabs, position: edgePosition, originalLength, patternOffset } of edgeConfigs) {
-    const actualLength = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
-
+  for (const { start, end, hasTabs, position: edgePosition, meetsFace, originalLength, patternOffset, axisInfo } of edgeConfigs) {
     let points: Point[];
-    if (hasTabs) {
-      // Calculate corner inset for adjusted gap multiplier
-      const isHorizontalEdge = edgePosition === 'top' || edgePosition === 'bottom';
-      const cornerInset = isHorizontalEdge
-        ? Math.max(meetsLeft ? materialThickness : 0, meetsRight ? materialThickness : 0)
-        : Math.max(meetsTop ? materialThickness : 0, meetsBottom ? materialThickness : 0);
-      const adjustedGapMultiplier = Math.max(0, fingerGap - cornerInset / fingerWidth);
 
-      points = generateFingerJointPath(start, end, {
-        edgeLength: actualLength,
-        fingerWidth,
-        materialThickness,
-        isTabOut: true,
-        kerf: 0,
-        yUp: true,
-        cornerGapMultiplier: adjustedGapMultiplier,
-        originalLength: originalLength,
-        patternOffset: patternOffset,
-      });
+    if (hasTabs) {
+      // Use V2 finger generation for edges meeting outer faces (for alignment with face slots)
+      if (meetsFace && fingerData) {
+        const axisFingerPoints = fingerData[axisInfo.axis];
+        const outwardDirection = getEdgeOutwardDirection(edgePosition);
+
+        // For bottom/right edges, the 2D path runs in the negative direction
+        // so we need to swap start/end positions
+        const runsNegative = edgePosition === 'bottom' || edgePosition === 'right';
+
+        // Adjust axis positions for edge extensions
+        // Extensions on perpendicular edges affect where this edge starts/ends along its axis
+        // The axis positions are in the 0-based finger coordinate system
+        let axisLowAdjust = 0;   // Adjustment to low end of axis (bottom/left/back)
+        let axisHighAdjust = 0;  // Adjustment to high end of axis (top/right/front)
+
+        // Determine which perpendicular extensions affect this edge based on divider orientation
+        // and which axis the edge runs along
+        if (axis === 'x') {
+          // X-axis divider (YZ plane): horizontal=Z, vertical=Y
+          if (edgePosition === 'top' || edgePosition === 'bottom') {
+            // Horizontal edge runs along Z: left/right extensions affect Z range
+            axisLowAdjust = extLeft;   // Left in 2D = back in Z
+            axisHighAdjust = extRight; // Right in 2D = front in Z
+          } else {
+            // Vertical edge runs along Y: top/bottom extensions affect Y range
+            axisLowAdjust = extBottom;
+            axisHighAdjust = extTop;
+          }
+        } else if (axis === 'y') {
+          // Y-axis divider (XZ plane): horizontal=X, vertical=Z
+          if (edgePosition === 'top' || edgePosition === 'bottom') {
+            // Horizontal edge runs along X: left/right extensions affect X range
+            axisLowAdjust = extLeft;
+            axisHighAdjust = extRight;
+          } else {
+            // Vertical edge runs along Z: top/bottom extensions affect Z range
+            axisLowAdjust = extBottom; // Bottom in 2D = back in Z
+            axisHighAdjust = extTop;   // Top in 2D = front in Z
+          }
+        } else {
+          // Z-axis divider (XY plane): horizontal=X, vertical=Y
+          if (edgePosition === 'top' || edgePosition === 'bottom') {
+            // Horizontal edge runs along X: left/right extensions affect X range
+            axisLowAdjust = extLeft;
+            axisHighAdjust = extRight;
+          } else {
+            // Vertical edge runs along Y: top/bottom extensions affect Y range
+            axisLowAdjust = extBottom;
+            axisHighAdjust = extTop;
+          }
+        }
+
+        // Apply adjustments to axis positions
+        // Positive extension = edge extends further = axis range increases
+        const adjustedStartPos = axisInfo.startPos - axisLowAdjust;
+        const adjustedEndPos = axisInfo.endPos + axisHighAdjust;
+
+        const edgeStartPos = runsNegative ? adjustedEndPos : adjustedStartPos;
+        const edgeEndPos = runsNegative ? adjustedStartPos : adjustedEndPos;
+
+        points = generateFingerJointPathV2(start, end, {
+          fingerPoints: axisFingerPoints,
+          gender: 'male', // Dividers always have tabs (male) going into face slots
+          materialThickness,
+          edgeStartPos,
+          edgeEndPos,
+          yUp: true,
+          outwardDirection,
+        });
+      } else {
+        // Use V1 for edges meeting other dividers (no alignment requirement)
+        const actualLength = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+        const isHorizontalEdge = edgePosition === 'top' || edgePosition === 'bottom';
+        const cornerInset = isHorizontalEdge
+          ? Math.max(meetsLeft ? materialThickness : 0, meetsRight ? materialThickness : 0)
+          : Math.max(meetsTop ? materialThickness : 0, meetsBottom ? materialThickness : 0);
+        const adjustedGapMultiplier = Math.max(0, fingerGap - cornerInset / fingerWidth);
+
+        points = generateFingerJointPath(start, end, {
+          edgeLength: actualLength,
+          fingerWidth,
+          materialThickness,
+          isTabOut: true,
+          kerf: 0,
+          yUp: true,
+          cornerGapMultiplier: adjustedGapMultiplier,
+          originalLength: originalLength,
+          patternOffset: patternOffset,
+        });
+      }
     } else {
       points = [start, end];
     }
@@ -1733,6 +2107,9 @@ export const generatePanelCollection = (
 ): PanelCollection => {
   const panels: PanelPath[] = [];
 
+  // Calculate assembly-level finger points for aligned finger joints
+  const fingerData = calculateAssemblyFingerPoints(config);
+
   // Helper to get existing extensions for a panel
   const getExistingExtensions = (panelId: string): EdgeExtensions | undefined => {
     if (!existingPanels) return undefined;
@@ -1746,7 +2123,7 @@ export const generatePanelCollection = (
   const subdivisions = getAllSubdivisions(rootVoid);
   for (const sub of subdivisions) {
     const panelId = `divider-${sub.id}`;
-    const panel = generateDividerPanel(sub, faces, config, scale, getExistingExtensions(panelId), subdivisions);
+    const panel = generateDividerPanel(sub, faces, config, scale, getExistingExtensions(panelId), subdivisions, fingerData);
     dividerPanels.push(panel);
   }
 
@@ -1754,7 +2131,7 @@ export const generatePanelCollection = (
   const faceIds: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
   for (const faceId of faceIds) {
     const panelId = `face-${faceId}`;
-    const panel = generateFacePanel(faceId, faces, rootVoid, config, scale, getExistingExtensions(panelId), dividerPanels);
+    const panel = generateFacePanel(faceId, faces, rootVoid, config, scale, getExistingExtensions(panelId), dividerPanels, fingerData);
     if (panel) {
       panels.push(panel);
     }

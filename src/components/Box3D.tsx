@@ -483,7 +483,7 @@ const getLidIntersections = (
 };
 
 export const Box3D: React.FC = () => {
-  const { config, faces, rootVoid, subdivisionPreview, subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, panelCollection } = useBoxStore();
+  const { config, faces, rootVoid, subdivisionPreview, subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, panelCollection, showDebugAnchors } = useBoxStore();
   const { width, height, depth } = config;
 
   // Auto-generate panels when dirty
@@ -529,12 +529,12 @@ export const Box3D: React.FC = () => {
     const subAssemblyInfo = findParentSubAssemblyInfo(rootVoid, subdivisionPreview.voidId);
 
     if (!subAssemblyInfo) {
-      // Void is in main box - offset accounts for main wall thickness and center
-      // Void coords start at interior corner (0,0,0), which is at (materialThickness, materialThickness, materialThickness) in exterior coords
+      // Void is in main box - offset just centers the coordinates
+      // Void coords use exterior dimensions (0 to width), so we just need to subtract the center
       return {
-        x: config.materialThickness - mainCenterX,
-        y: config.materialThickness - mainCenterY,
-        z: config.materialThickness - mainCenterZ,
+        x: -mainCenterX,
+        y: -mainCenterY,
+        z: -mainCenterZ,
       };
     }
 
@@ -629,7 +629,26 @@ export const Box3D: React.FC = () => {
       h: bounds.h - insetBottom - insetTop,
       d: bounds.d - insetBack - insetFront,
     };
-  }, [previewVoid, config.materialThickness, width, height, depth, faces]);
+  }, [previewVoid, config.materialThickness, width, height, depth, faces, previewSubAssembly]);
+
+  // Calculate the 8 box corner anchor points (inset by half material thickness)
+  // This represents the center of the panel material at each corner.
+  const halfMT = scaledThickness / 2;
+  const anchorCorners = useMemo(() => {
+    const hx = scaledW / 2 - halfMT;
+    const hy = scaledH / 2 - halfMT;
+    const hz = scaledD / 2 - halfMT;
+    return [
+      { x: -hx, y: -hy, z: -hz },
+      { x: hx, y: -hy, z: -hz },
+      { x: -hx, y: hy, z: -hz },
+      { x: hx, y: hy, z: -hz },
+      { x: -hx, y: -hy, z: hz },
+      { x: hx, y: -hy, z: hz },
+      { x: -hx, y: hy, z: hz },
+      { x: hx, y: hy, z: hz },
+    ];
+  }, [scaledW, scaledH, scaledD, halfMT]);
 
   return (
     <group>
@@ -638,6 +657,14 @@ export const Box3D: React.FC = () => {
         <edgesGeometry args={[new THREE.BoxGeometry(scaledW, scaledH, scaledD)]} />
         <lineBasicMaterial color="#ff0000" linewidth={2} />
       </lineSegments>
+
+      {/* Debug anchor spheres at box corners (inset by half material thickness) */}
+      {showDebugAnchors && anchorCorners.map((corner, idx) => (
+        <mesh key={`anchor-${idx}`} position={[corner.x, corner.y, corner.z]}>
+          <sphereGeometry args={[2, 16, 16]} />
+          <meshStandardMaterial color="#ff6600" />
+        </mesh>
+      ))}
 
       {/* Render panels from stored paths when enabled and available */}
       {USE_STORED_PATHS && panelCollection && (

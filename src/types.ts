@@ -213,6 +213,8 @@ export interface BoxState {
   panelCollection: PanelCollection | null;
   // Flag indicating panels need regeneration (config changed since last generate)
   panelsDirty: boolean;
+  // Debug visualization toggles
+  showDebugAnchors: boolean;
 }
 
 export interface BoxActions {
@@ -279,6 +281,8 @@ export interface BoxActions {
   loadFromUrl: () => boolean;  // Returns true if state was loaded
   saveToUrl: () => void;
   getShareableUrl: () => string;
+  // Debug visualization
+  toggleDebugAnchors: () => void;
 }
 
 // Subdivision panel - a physical divider piece to be cut
@@ -455,4 +459,62 @@ export const createCirclePath = (radius: number, centerX = 0, centerY = 0, segme
     });
   }
   return { points, closed: true };
+};
+
+// =============================================================================
+// Finger Joint System v2 - Assembly-level finger point generation
+// =============================================================================
+
+// Joint gender determines whether an edge has tabs (male) or slots (female)
+export type JointGender = 'male' | 'female';
+
+// Finger points for one axis of an assembly
+export interface AxisFingerPoints {
+  axis: 'x' | 'y' | 'z';
+  points: number[];           // Transition positions along axis (from negative end after MT inset)
+  innerOffset: number;        // Distance from MT-inset edge to first finger transition
+  fingerLength: number;       // Actual finger/hole length used (may differ from config due to remainder distribution)
+  maxJointLength: number;     // axis_length - 2*MT
+}
+
+// Assembly-level finger point data for all 3 axes
+export interface AssemblyFingerData {
+  x: AxisFingerPoints;
+  y: AxisFingerPoints;
+  z: AxisFingerPoints;
+}
+
+// Configuration for finger point calculation
+export interface FingerPointConfig {
+  materialThickness: number;
+  fingerLength: number;       // Target finger length
+  minDistance: number;        // Minimum gap from bounding box corner to first finger
+}
+
+// Helper: Get the axis dimension from box config
+export const getAxisDimension = (axis: 'x' | 'y' | 'z', config: BoxConfig): number => {
+  switch (axis) {
+    case 'x': return config.width;
+    case 'y': return config.height;
+    case 'z': return config.depth;
+  }
+};
+
+// Helper: Get which axis an edge is parallel to based on face and edge position
+export const getEdgeAxis = (
+  faceId: FaceId,
+  edgePosition: 'top' | 'bottom' | 'left' | 'right'
+): 'x' | 'y' | 'z' => {
+  // Edge axis mapping: which assembly axis each edge runs parallel to
+  // Front/back faces are in XY plane, left/right in YZ plane, top/bottom in XZ plane
+  // For top/bottom faces: in 2D layout, top/bottom edges run along X, left/right run along Z
+  const edgeAxes: Record<FaceId, Record<string, 'x' | 'y' | 'z'>> = {
+    front:  { top: 'x', bottom: 'x', left: 'y', right: 'y' },
+    back:   { top: 'x', bottom: 'x', left: 'y', right: 'y' },
+    left:   { top: 'z', bottom: 'z', left: 'y', right: 'y' },
+    right:  { top: 'z', bottom: 'z', left: 'y', right: 'y' },
+    top:    { top: 'x', bottom: 'x', left: 'z', right: 'z' },
+    bottom: { top: 'x', bottom: 'x', left: 'z', right: 'z' },
+  };
+  return edgeAxes[faceId][edgePosition];
 };

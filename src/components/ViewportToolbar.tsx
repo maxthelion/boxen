@@ -1,9 +1,8 @@
 import React from 'react';
 import { useBoxStore } from '../store/useBoxStore';
-import { SelectionMode } from '../types';
 
 export const ViewportToolbar: React.FC = () => {
-  const { selectionMode, setSelectionMode } = useBoxStore();
+  const { selectionMode, setSelectionMode, showDebugAnchors, toggleDebugAnchors } = useBoxStore();
 
   // Non-null modes for the filter buttons
   type FilterMode = 'assembly' | 'void' | 'panel';
@@ -53,6 +52,17 @@ export const ViewportToolbar: React.FC = () => {
             <span className="toolbar-text">{tool.label}</span>
           </button>
         ))}
+      </div>
+      <div className="toolbar-group">
+        <span className="toolbar-label">Debug:</span>
+        <button
+          className={`toolbar-btn ${showDebugAnchors ? 'active' : ''}`}
+          onClick={toggleDebugAnchors}
+          title="Show finger joint anchor points"
+        >
+          <span className="toolbar-icon">●</span>
+          <span className="toolbar-text">Anchors</span>
+        </button>
       </div>
     </div>
   );

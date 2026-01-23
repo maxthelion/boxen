@@ -552,6 +552,13 @@ describe('Panel Generator', () => {
   describe('Open Face - No Joints', () => {
     it('divider has no finger tabs on edge meeting open face', () => {
       const config = createBasicConfig();
+      // First generate with all solid faces
+      const allSolidFaces = createAllSolidFaces();
+      const rootVoidSolid = createSubdividedRootVoid(config, 'x', 50);
+      const collectionSolid = generatePanelCollection(allSolidFaces, rootVoidSolid, config);
+      const dividerSolid = collectionSolid.panels.find(p => p.source.type === 'divider');
+
+      // Now generate with open top face
       const faces: Face[] = [
         { id: 'front', solid: true },
         { id: 'back', solid: true },
@@ -571,8 +578,49 @@ describe('Panel Generator', () => {
       const topPanel = collection.panels.find(p => p.source.faceId === 'top');
       expect(topPanel).toBeUndefined();
 
-      // Divider should have straight edge on top (no finger tabs toward open face)
-      // This means fewer outline points than if all faces were solid
+      // Divider with open top should have a straight top edge (no finger joints)
+      expect(dividerSolid).toBeDefined();
+
+      // For an X-axis divider (YZ plane), the top edge is at max Y in local coords
+      // Check that the top edge is straight (points 0 and 1 should be at maxY, with same Y)
+      const points = dividerPanel!.outline.points;
+      const maxY = Math.max(...points.map(p => p.y));
+
+      // The outline starts at topLeft, goes to topRight for the top edge
+      // A straight top edge means points 0 and 1 are both at maxY and nothing in between
+      expect(Math.abs(points[0].y - maxY)).toBeLessThan(0.01);
+      expect(Math.abs(points[1].y - maxY)).toBeLessThan(0.01);
+      // Point 2 should be on the right edge, at a lower Y
+      expect(points[2].y).toBeLessThan(maxY - 1);
+    });
+
+    it('z-axis divider has straight left edge when left face is open', () => {
+      const config = createBasicConfig();
+
+      // First generate with all solid faces
+      const allSolidFaces = createAllSolidFaces();
+      const rootVoidSolid = createSubdividedRootVoid(config, 'z', 30);
+      const collectionSolid = generatePanelCollection(allSolidFaces, rootVoidSolid, config);
+      const dividerSolid = collectionSolid.panels.find(p => p.source.type === 'divider');
+
+      // Now generate with open left face
+      const faces: Face[] = [
+        { id: 'front', solid: true },
+        { id: 'back', solid: true },
+        { id: 'left', solid: false }, // Open left
+        { id: 'right', solid: true },
+        { id: 'top', solid: true },
+        { id: 'bottom', solid: true },
+      ];
+      const rootVoid = createSubdividedRootVoid(config, 'z', 30);
+      const collection = generatePanelCollection(faces, rootVoid, config);
+      const dividerPanel = collection.panels.find(p => p.source.type === 'divider');
+
+      expect(dividerPanel).toBeDefined();
+      expect(dividerSolid).toBeDefined();
+
+      // Divider with open left should have FEWER outline points because the left edge is straight
+      expect(dividerPanel!.outline.points.length).toBeLessThan(dividerSolid!.outline.points.length);
     });
 
     it('open face is not generated', () => {

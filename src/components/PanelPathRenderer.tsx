@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect, useRef } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { PanelPath, PathPoint } from '../types';
 import { useBoxStore } from '../store/useBoxStore';
@@ -243,6 +243,7 @@ const getAssemblyIdFromPanel = (panel: PanelPath): string => {
   // Use source.subAssemblyId if set, otherwise it's 'main'
   return panel.source.subAssemblyId ?? 'main';
 };
+
 
 // Render all panels from a collection
 interface PanelCollectionRendererProps {
