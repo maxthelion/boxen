@@ -1,8 +1,288 @@
 import React, { useMemo, useCallback, useState, useEffect } from 'react';
-import { useBoxStore, getAllSubdivisions, calculatePreviewPositions } from '../store/useBoxStore';
+import { useBoxStore, getAllSubdivisions, calculatePreviewPositions, getMainInteriorVoid } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
-import { Void, Face, AssemblyAxis, FaceId, FaceOffsets, defaultFaceOffsets, Bounds } from '../types';
+import { Void, Face, AssemblyAxis, FaceId, FaceOffsets, defaultFaceOffsets, Bounds, PanelPath } from '../types';
+
+// Get the normal axis for a face (the axis perpendicular to the face plane)
+const getFaceNormalAxis = (faceId: FaceId): 'x' | 'y' | 'z' => {
+  switch (faceId) {
+    case 'left':
+    case 'right':
+      return 'x';  // Left/right faces are in YZ plane, normal is X
+    case 'top':
+    case 'bottom':
+      return 'y';  // Top/bottom faces are in XZ plane, normal is Y
+    case 'front':
+    case 'back':
+      return 'z';  // Front/back faces are in XY plane, normal is Z
+  }
+};
+
+// Get the normal axis for any panel (face or divider)
+const getPanelNormalAxis = (panel: PanelPath): 'x' | 'y' | 'z' | null => {
+  if (panel.source.type === 'face' && panel.source.faceId) {
+    return getFaceNormalAxis(panel.source.faceId);
+  }
+  if (panel.source.type === 'divider' && panel.source.axis) {
+    // Divider's axis IS its normal axis (e.g., axis 'x' means it's a YZ plane, normal to X)
+    return panel.source.axis;
+  }
+  return null;
+};
+
+// Get the axes perpendicular to a normal axis (valid for subdivision)
+const getPerpendicularAxes = (normalAxis: 'x' | 'y' | 'z'): ('x' | 'y' | 'z')[] => {
+  switch (normalAxis) {
+    case 'x': return ['y', 'z'];
+    case 'y': return ['x', 'z'];
+    case 'z': return ['x', 'y'];
+  }
+};
+
+// Get panel description for display
+const getPanelDescription = (panel: PanelPath): string => {
+  if (panel.source.type === 'face' && panel.source.faceId) {
+    const labels: Record<FaceId, string> = {
+      front: 'Front', back: 'Back', left: 'Left',
+      right: 'Right', top: 'Top', bottom: 'Bottom',
+    };
+    return labels[panel.source.faceId];
+  }
+  if (panel.source.type === 'divider') {
+    return 'Divider';
+  }
+  return 'Panel';
+};
+
+// Extract void ID from subdivision ID (removes '-split' suffix)
+const getVoidIdFromSubdivisionId = (subdivisionId: string): string => {
+  return subdivisionId.replace('-split', '');
+};
+
+// Find the parent void of a child void by the child's ID
+const findParentVoid = (root: Void, childVoidId: string): Void | null => {
+  for (const child of root.children) {
+    if (child.id === childVoidId) {
+      return root;
+    }
+  }
+  for (const child of root.children) {
+    const found = findParentVoid(child, childVoidId);
+    if (found) return found;
+  }
+  if (root.subAssembly) {
+    const found = findParentVoid(root.subAssembly.rootVoid, childVoidId);
+    if (found) return found;
+  }
+  return null;
+};
+
+// Find a leaf void between two parallel panels
+// TODO: Future enhancement - allow non-adjacent parallel panels to create "spanning" dividers
+// that cross multiple voids. This would be useful for creating crossed/grid structures where
+// a divider needs to span several existing voids. Would require:
+// 1. Detecting all voids between the two selected panels
+// 2. Creating a single divider panel that spans all those voids
+// 3. Updating each void with appropriate subdivision info
+// 4. Generating proper finger joints where the spanning divider crosses existing dividers
+const findVoidBetweenPanels = (
+  panel1: PanelPath,
+  panel2: PanelPath,
+  rootVoid: Void
+): Void | null => {
+  // Case 1: Both are face panels (opposite faces)
+  if (panel1.source.type === 'face' && panel2.source.type === 'face') {
+    const mainVoid = getMainInteriorVoid(rootVoid);
+    if (mainVoid.children.length === 0 && !mainVoid.subAssembly) {
+      return mainVoid;
+    }
+    return null;
+  }
+
+  // Case 2: Both are dividers - find the void between them
+  if (panel1.source.type === 'divider' && panel2.source.type === 'divider') {
+    const subId1 = panel1.source.subdivisionId;
+    const subId2 = panel2.source.subdivisionId;
+    if (!subId1 || !subId2) return null;
+
+    // Extract void IDs from subdivision IDs
+    const voidId1 = getVoidIdFromSubdivisionId(subId1);
+    const voidId2 = getVoidIdFromSubdivisionId(subId2);
+
+    // Find their common parent
+    const parent1 = findParentVoid(rootVoid, voidId1);
+    const parent2 = findParentVoid(rootVoid, voidId2);
+
+    if (!parent1 || !parent2) return null;
+
+    // If same parent, look for a leaf void between the two subdivision positions
+    if (parent1.id === parent2.id) {
+      const childIds = parent1.children.map(c => c.id);
+      const idx1 = childIds.indexOf(voidId1);
+      const idx2 = childIds.indexOf(voidId2);
+
+      if (idx1 === -1 || idx2 === -1) return null;
+
+      const minIdx = Math.min(idx1, idx2);
+      const maxIdx = Math.max(idx1, idx2);
+
+      // If they're adjacent, there's exactly one void between them
+      // The divider at index i is between children[i-1] and children[i]
+      // So if we select dividers at indices i and j (i<j), the void between is children[i]
+      // But wait - children[i] has the split info for divider at position i
+      // Actually: child at idx has splitPosition = position of divider BEFORE it
+      // So if idx1=1, idx2=2: divider1 is between [0] and [1], divider2 is between [1] and [2]
+      // The void between them is children[minIdx] which is the lower-indexed child
+      if (maxIdx - minIdx === 1) {
+        const voidBetween = parent1.children[minIdx];
+        if (voidBetween && voidBetween.children.length === 0 && !voidBetween.subAssembly) {
+          return voidBetween;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Case 3: One face, one divider - find void bounded by both
+  if ((panel1.source.type === 'face' && panel2.source.type === 'divider') ||
+      (panel1.source.type === 'divider' && panel2.source.type === 'face')) {
+    const facePanel = panel1.source.type === 'face' ? panel1 : panel2;
+    const dividerPanel = panel1.source.type === 'divider' ? panel1 : panel2;
+
+    const subId = dividerPanel.source.subdivisionId;
+    if (!subId) return null;
+
+    const faceId = facePanel.source.faceId;
+    const dividerAxis = dividerPanel.source.axis;
+
+    if (!faceId || !dividerAxis) return null;
+
+    // The face and divider must be on the same axis (both perpendicular to that axis)
+    // Face normals: left/right -> x, top/bottom -> y, front/back -> z
+    const faceAxis = (faceId === 'left' || faceId === 'right') ? 'x' :
+                     (faceId === 'top' || faceId === 'bottom') ? 'y' : 'z';
+
+    if (faceAxis !== dividerAxis) return null;
+
+    // For face + divider on the same axis, we need to find the void at the main interior level
+    // The face bounds the outer box, so the divider must be a direct child of main interior
+    const mainInterior = getMainInteriorVoid(rootVoid);
+
+    // The divider's void must be a direct child of main interior
+    const voidId = getVoidIdFromSubdivisionId(subId);
+    const childIds = mainInterior.children.map(c => c.id);
+    const dividerIdx = childIds.indexOf(voidId);
+
+    // If divider is not a direct child of main interior, reject
+    if (dividerIdx === -1) return null;
+
+    // Determine if the face is at the "low" or "high" end of the axis
+    const isLowFace = faceId === 'left' || faceId === 'bottom' || faceId === 'back';
+    const isHighFace = faceId === 'right' || faceId === 'top' || faceId === 'front';
+
+    // Validate that the divider is actually adjacent to the face
+    // The divider at index i is at the LOW boundary of children[i], so:
+    // - children[i] is the void to the HIGH side of that divider
+    // - children[i-1] is the void to the LOW side of that divider
+    //
+    // For high face (e.g., Right): we need the divider's HIGH-side void to touch the face
+    //   This means children[i] must be the last child, so dividerIdx must be last
+    // For low face (e.g., Left): we need the divider's LOW-side void to touch the face
+    //   This means children[i-1] must be the first child (children[0]), so dividerIdx must be 1
+    if (isHighFace && dividerIdx !== mainInterior.children.length - 1) return null;
+    if (isLowFace && dividerIdx !== 1) return null;
+
+    // After validation:
+    // - For high face: void between divider and face is children[dividerIdx] (the last child)
+    // - For low face: void between face and divider is children[dividerIdx - 1] = children[0]
+    const targetIdx = isLowFace ? dividerIdx - 1 : dividerIdx;
+
+    if (targetIdx < 0 || targetIdx >= mainInterior.children.length) return null;
+
+    const targetVoid = mainInterior.children[targetIdx];
+
+    if (targetVoid && targetVoid.children.length === 0 && !targetVoid.subAssembly) {
+      return targetVoid;
+    }
+    return null;
+  }
+
+  return null;
+};
+
+interface TwoPanelSubdivisionInfo {
+  isValid: boolean;
+  panels: PanelPath[];
+  panelDescriptions: string[];
+  validAxes: ('x' | 'y' | 'z')[];
+  normalAxis: 'x' | 'y' | 'z';
+  targetVoid: Void | null;
+}
+
+// Analyze two selected panels for subdivision potential
+const analyzeTwoPanelSelection = (
+  selectedPanelIds: Set<string>,
+  panelCollection: { panels: PanelPath[] } | null,
+  rootVoid: Void
+): TwoPanelSubdivisionInfo => {
+  const invalid: TwoPanelSubdivisionInfo = {
+    isValid: false,
+    panels: [],
+    panelDescriptions: [],
+    validAxes: [],
+    normalAxis: 'x',
+    targetVoid: null,
+  };
+
+  if (selectedPanelIds.size !== 2 || !panelCollection) {
+    return invalid;
+  }
+
+  const panelIds = Array.from(selectedPanelIds);
+  const panels = panelIds
+    .map(id => panelCollection.panels.find(p => p.id === id))
+    .filter((p): p is PanelPath => p !== undefined);
+
+  if (panels.length !== 2) {
+    return invalid;
+  }
+
+  // Get normal axes for both panels
+  const axis1 = getPanelNormalAxis(panels[0]);
+  const axis2 = getPanelNormalAxis(panels[1]);
+
+  // Both must have a valid normal axis and they must match (parallel panels)
+  if (!axis1 || !axis2 || axis1 !== axis2) {
+    return invalid;
+  }
+
+  // Must be from main assembly (not sub-assembly) for now
+  if (panels.some(p => p.source.subAssemblyId)) {
+    return invalid;
+  }
+
+  const normalAxis = axis1;
+  const validAxes = getPerpendicularAxes(normalAxis);
+
+  // Find the void between the two panels
+  const targetVoid = findVoidBetweenPanels(panels[0], panels[1], rootVoid);
+
+  if (!targetVoid) {
+    return invalid;
+  }
+
+  const panelDescriptions = panels.map(getPanelDescription);
+
+  return {
+    isValid: true,
+    panels,
+    panelDescriptions,
+    validAxes,
+    normalAxis,
+    targetVoid,
+  };
+};
 
 // Find a void by ID in the tree (including inside sub-assemblies)
 const findVoid = (root: Void, id: string): Void | null => {
@@ -42,6 +322,8 @@ const getValidAxes = (faces: Face[]): { x: boolean; y: boolean; z: boolean } => 
 export const SubdivisionControls: React.FC = () => {
   const {
     selectedVoidIds,
+    selectedPanelIds,
+    panelCollection,
     rootVoid,
     faces,
     config,
@@ -54,6 +336,7 @@ export const SubdivisionControls: React.FC = () => {
     removeSubAssembly,
     selectSubAssembly,
     purgeVoid,
+    selectVoid,
   } = useBoxStore();
 
   // Get the single selected void ID (this component only shows when exactly 1 is selected)
@@ -81,6 +364,12 @@ export const SubdivisionControls: React.FC = () => {
     if (!selectedVoidId) return null;
     return findVoid(rootVoid, selectedVoidId);
   }, [selectedVoidId, rootVoid]);
+
+  // Analyze two-panel selection for subdivision
+  const twoPanelInfo = useMemo(() =>
+    analyzeTwoPanelSelection(selectedPanelIds, panelCollection, rootVoid),
+    [selectedPanelIds, panelCollection, rootVoid]
+  );
 
   const isLeafVoid = selectedVoid && selectedVoid.children.length === 0 && !selectedVoid.subAssembly;
   const hasSubAssembly = selectedVoid?.subAssembly !== undefined;
@@ -162,16 +451,20 @@ export const SubdivisionControls: React.FC = () => {
 
   // Update the count (number of divisions) in the current preview
   const updatePreviewCount = useCallback((newCount: number) => {
-    if (!subdivisionPreview || !selectedVoid) return;
+    if (!subdivisionPreview) return;
+
+    // Use selectedVoid or twoPanelInfo.targetVoid (for two-panel mode)
+    const targetVoid = selectedVoid || twoPanelInfo.targetVoid;
+    if (!targetVoid) return;
 
     const count = Math.max(1, Math.min(20, newCount));
-    const positions = calculatePreviewPositions(selectedVoid.bounds, subdivisionPreview.axis, count);
+    const positions = calculatePreviewPositions(targetVoid.bounds, subdivisionPreview.axis, count);
     setSubdivisionPreview({
       ...subdivisionPreview,
       count,
       positions,
     });
-  }, [subdivisionPreview, selectedVoid, setSubdivisionPreview]);
+  }, [subdivisionPreview, selectedVoid, twoPanelInfo.targetVoid, setSubdivisionPreview]);
 
   // Cancel the current preview
   const cancelPreview = useCallback(() => {
@@ -202,6 +495,42 @@ export const SubdivisionControls: React.FC = () => {
   // Handle mouse leave (clear hover preview only if not in edit mode)
   const handleAxisLeave = useCallback(() => {
     if (isEditingPreview) return; // Don't clear if in edit mode
+    setSubdivisionPreview(null);
+  }, [isEditingPreview, setSubdivisionPreview]);
+
+  // Start editing from two-panel selection
+  const startTwoPanelSubdivision = useCallback((axis: 'x' | 'y' | 'z') => {
+    if (!twoPanelInfo.isValid || !twoPanelInfo.targetVoid) return;
+
+    const targetVoidId = twoPanelInfo.targetVoid.id;
+    const positions = calculatePreviewPositions(twoPanelInfo.targetVoid.bounds, axis, 1);
+
+    // Set up preview (don't select void - applySubdivision uses preview.voidId)
+    setSubdivisionPreview({
+      voidId: targetVoidId,
+      axis,
+      count: 1,
+      positions,
+    });
+    setIsEditingPreview(true);
+  }, [twoPanelInfo, setSubdivisionPreview]);
+
+  // Hover handler for two-panel mode
+  const handleTwoPanelAxisHover = useCallback((axis: 'x' | 'y' | 'z') => {
+    if (!twoPanelInfo.isValid || !twoPanelInfo.targetVoid || isEditingPreview) return;
+
+    const positions = calculatePreviewPositions(twoPanelInfo.targetVoid.bounds, axis, 1);
+    setSubdivisionPreview({
+      voidId: twoPanelInfo.targetVoid.id,
+      axis,
+      count: 1,
+      positions,
+    });
+  }, [twoPanelInfo, isEditingPreview, setSubdivisionPreview]);
+
+  // Leave handler for two-panel mode
+  const handleTwoPanelAxisLeave = useCallback(() => {
+    if (isEditingPreview) return;
     setSubdivisionPreview(null);
   }, [isEditingPreview, setSubdivisionPreview]);
 
@@ -259,9 +588,116 @@ export const SubdivisionControls: React.FC = () => {
     return labels[faceId];
   };
 
+  // Get axis label for display
+  const getAxisDisplayLabel = (axis: 'x' | 'y' | 'z'): string => {
+    switch (axis) {
+      case 'x': return 'X (Left-Right)';
+      case 'y': return 'Y (Top-Bottom)';
+      case 'z': return 'Z (Front-Back)';
+    }
+  };
+
+  // Get panel pair description
+  const getPanelPairDescription = (descriptions: string[]): string => {
+    if (descriptions.length === 2) {
+      return `${descriptions[0]} & ${descriptions[1]}`;
+    }
+    return descriptions.join(' & ');
+  };
+
   return (
     <Panel title="Subdivisions">
-      {selectedVoidId && selectedVoid ? (
+      {/* Two-panel subdivision mode */}
+      {twoPanelInfo.isValid && !isEditingPreview && (
+        <div className="subdivision-controls">
+          <div className="control-section">
+            <h4>Subdivide Between Panels</h4>
+            <p className="hint">
+              {getPanelPairDescription(twoPanelInfo.panelDescriptions)} selected
+            </p>
+            <div className="button-row">
+              {twoPanelInfo.validAxes.map(axis => (
+                <button
+                  key={axis}
+                  onClick={() => startTwoPanelSubdivision(axis)}
+                  onMouseEnter={() => handleTwoPanelAxisHover(axis)}
+                  onMouseLeave={handleTwoPanelAxisLeave}
+                  title={`Split with divider along ${axis.toUpperCase()} axis`}
+                >
+                  {axis.toUpperCase()} Axis
+                </button>
+              ))}
+            </div>
+            <p className="axis-hint">
+              Only axes perpendicular to selected panels are available
+            </p>
+          </div>
+          {twoPanelInfo.targetVoid && (
+            <div className="void-info">
+              <p>
+                Target void: {twoPanelInfo.targetVoid.bounds.w.toFixed(1)} x {twoPanelInfo.targetVoid.bounds.h.toFixed(1)} x {twoPanelInfo.targetVoid.bounds.d.toFixed(1)} mm
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Editing mode (after axis selected - works for both two-panel and single-void) */}
+      {isEditingPreview && subdivisionPreview && (
+        <div className="subdivision-controls">
+          <div className="control-section">
+            <h4>Configure {getAxisDisplayLabel(subdivisionPreview.axis)} subdivision</h4>
+
+            <div className="preview-config">
+              <div className="count-control">
+                <label>Number of divisions:</label>
+                <div className="count-buttons">
+                  <button
+                    onClick={() => updatePreviewCount(subdivisionPreview.count - 1)}
+                    disabled={subdivisionPreview.count <= 1}
+                  >
+                    -
+                  </button>
+                  <NumberInput
+                    value={subdivisionPreview.count}
+                    onChange={(v) => updatePreviewCount(Math.round(v))}
+                    min={1}
+                    max={20}
+                  />
+                  <button
+                    onClick={() => updatePreviewCount(subdivisionPreview.count + 1)}
+                    disabled={subdivisionPreview.count >= 20}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <p className="preview-info">
+                This will create {subdivisionPreview.count + 1} cells
+              </p>
+
+              <div className="confirm-buttons">
+                <button
+                  className="apply-btn"
+                  onClick={confirmSubdivision}
+                >
+                  Apply
+                </button>
+                <button
+                  className="cancel-btn"
+                  onClick={cancelPreview}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Single void selection mode (original behavior) */}
+      {selectedVoidId && selectedVoid && !twoPanelInfo.isValid ? (
         <div className="subdivision-controls">
           {hasSubAssembly ? (
             // Void contains a sub-assembly
@@ -426,57 +862,8 @@ export const SubdivisionControls: React.FC = () => {
                     )}
                   </div>
                 </>
-              ) : subdivisionPreview ? (
-                // Step 2: Adjust count and confirm
-                <div className="control-section">
-                  <h4>Configure {getAxisLabel(subdivisionPreview.axis)} subdivision</h4>
-
-                  <div className="preview-config">
-                    <div className="count-control">
-                      <label>Number of divisions:</label>
-                      <div className="count-buttons">
-                        <button
-                          onClick={() => updatePreviewCount(subdivisionPreview.count - 1)}
-                          disabled={subdivisionPreview.count <= 1}
-                        >
-                          -
-                        </button>
-                        <NumberInput
-                          value={subdivisionPreview.count}
-                          onChange={(v) => updatePreviewCount(Math.round(v))}
-                          min={1}
-                          max={20}
-                        />
-                        <button
-                          onClick={() => updatePreviewCount(subdivisionPreview.count + 1)}
-                          disabled={subdivisionPreview.count >= 20}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </div>
-
-                    <p className="preview-info">
-                      This will create {subdivisionPreview.count + 1} cells
-                    </p>
-
-                    <div className="confirm-buttons">
-                      <button
-                        className="apply-btn"
-                        onClick={confirmSubdivision}
-                      >
-                        Apply
-                      </button>
-                      <button
-                        className="cancel-btn"
-                        onClick={cancelPreview}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                </div>
               ) : null}
+              {/* Note: Editing UI (count adjustment) is now shown by the unified section above */}
 
               <div className="void-info">
                 <p>
@@ -499,9 +886,15 @@ export const SubdivisionControls: React.FC = () => {
             </div>
           )}
         </div>
-      ) : (
-        <p className="hint">Click on a void in the 3D view to select it</p>
-      )}
+      ) : !twoPanelInfo.isValid && !isEditingPreview ? (
+        <p className="hint">
+          {selectedPanelIds.size === 2
+            ? 'Selected panels must be opposite faces (e.g., Front & Back) to subdivide between them'
+            : selectedPanelIds.size === 1
+            ? 'Select another opposite panel (Shift+click) to subdivide between them, or select a void'
+            : 'Select a void or two opposite panels to subdivide'}
+        </p>
+      ) : null}
 
       {subdivisions.length > 0 && (
         <div className="control-section">

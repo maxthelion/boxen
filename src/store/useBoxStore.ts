@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets } from '../types';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, SplitPositionMode, ViewMode } from '../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
 
@@ -234,6 +234,124 @@ const findParent = (root: Void, id: string): Void | null => {
   return null;
 };
 
+// Recalculate void bounds when dimensions change
+// For percentage-based subdivisions, recalculates splitPosition from splitPercentage
+// For absolute subdivisions, clamps position to valid range
+const recalculateVoidBounds = (
+  node: Void,
+  parentBounds: Bounds,
+  materialThickness: number
+): Void => {
+  // If this node has no children, just update its bounds to match parent
+  if (node.children.length === 0) {
+    return {
+      ...node,
+      bounds: { ...parentBounds },
+    };
+  }
+
+  // This node has children - they were created by subdivisions
+  // Find the split axis from the first child that has one
+  const firstChildWithSplit = node.children.find(c => c.splitAxis);
+  if (!firstChildWithSplit || !firstChildWithSplit.splitAxis) {
+    // Children exist but no split info (e.g., lid inset children) - preserve structure
+    return {
+      ...node,
+      bounds: { ...parentBounds },
+      children: node.children.map(child => {
+        // For lid inset voids, recalculate their bounds based on position
+        if (child.lidInsetSide || child.isMainInterior) {
+          // These are handled separately, just preserve them
+          return child;
+        }
+        return recalculateVoidBounds(child, child.bounds, materialThickness);
+      }),
+    };
+  }
+
+  const axis = firstChildWithSplit.splitAxis;
+  const mt = materialThickness;
+
+  // Get dimension info for this axis
+  const parentStart = axis === 'x' ? parentBounds.x : axis === 'y' ? parentBounds.y : parentBounds.z;
+  const parentSize = axis === 'x' ? parentBounds.w : axis === 'y' ? parentBounds.h : parentBounds.d;
+  const parentEnd = parentStart + parentSize;
+
+  // Recalculate split positions for children
+  // Children are ordered from low to high along the split axis
+  // Only children after the first have splitPosition (child 0 doesn't have a divider before it)
+  const newChildren: Void[] = [];
+  const splitPositions: number[] = [];
+
+  for (let i = 0; i < node.children.length; i++) {
+    const child = node.children[i];
+
+    if (child.splitAxis && child.splitPosition !== undefined) {
+      let newPosition: number;
+
+      if (child.splitPositionMode === 'percentage' && child.splitPercentage !== undefined) {
+        // Calculate new position from percentage
+        newPosition = parentStart + child.splitPercentage * parentSize;
+      } else {
+        // Absolute mode - keep the position but clamp to valid range
+        // Calculate valid range: after previous divider + mt, before end - mt
+        const minPos = (splitPositions.length > 0 ? splitPositions[splitPositions.length - 1] : parentStart) + mt;
+        const maxPos = parentEnd - mt;
+        newPosition = Math.max(minPos, Math.min(maxPos, child.splitPosition));
+      }
+
+      splitPositions.push(newPosition);
+    }
+  }
+
+  // Now create new children with updated bounds
+  for (let i = 0; i < node.children.length; i++) {
+    const child = node.children[i];
+
+    // Calculate region bounds for this child
+    const regionStart = i === 0
+      ? parentStart
+      : splitPositions[i - 1] + mt / 2;
+
+    const regionEnd = i === node.children.length - 1
+      ? parentEnd
+      : splitPositions[i] - mt / 2;
+
+    const regionSize = regionEnd - regionStart;
+
+    let childBounds: Bounds;
+    switch (axis) {
+      case 'x':
+        childBounds = { ...parentBounds, x: regionStart, w: regionSize };
+        break;
+      case 'y':
+        childBounds = { ...parentBounds, y: regionStart, h: regionSize };
+        break;
+      case 'z':
+        childBounds = { ...parentBounds, z: regionStart, d: regionSize };
+        break;
+    }
+
+    // Recursively update this child
+    const updatedChild = recalculateVoidBounds(
+      {
+        ...child,
+        splitPosition: i > 0 ? splitPositions[i - 1] : child.splitPosition,
+      },
+      childBounds,
+      materialThickness
+    );
+
+    newChildren.push(updatedChild);
+  }
+
+  return {
+    ...node,
+    bounds: { ...parentBounds },
+    children: newChildren,
+  };
+};
+
 // Get all leaf voids (voids with no children - these are selectable)
 export const getLeafVoids = (root: Void): Void[] => {
   if (root.children.length === 0) {
@@ -302,6 +420,8 @@ export const getAllSubdivisions = (root: Void): Subdivision[] => {
         axis: node.splitAxis,
         position: node.splitPosition,
         bounds: parentBounds,  // Bounds of the parent void (where the divider can move)
+        positionMode: node.splitPositionMode,
+        percentage: node.splitPercentage,
       });
     }
 
@@ -447,28 +567,127 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   panelCollection: null,
   panelsDirty: true,  // Start dirty so panels get generated on first use
   showDebugAnchors: false,
+  // 2D Sketch View state
+  viewMode: '3d',
+  sketchPanelId: null,
 
   setConfig: (newConfig) =>
     set((state) => {
       const config = { ...state.config, ...newConfig };
+      const oldConfig = state.config;
+
+      // Check if assembly structure changes (requires reset)
+      const assemblyStructureChanged =
+        config.assembly.assemblyAxis !== oldConfig.assembly.assemblyAxis ||
+        config.assembly.lids.positive.inset !== oldConfig.assembly.lids.positive.inset ||
+        config.assembly.lids.negative.inset !== oldConfig.assembly.lids.negative.inset;
+
+      // Check if dimensions changed
+      const dimensionsChanged =
+        config.width !== oldConfig.width ||
+        config.height !== oldConfig.height ||
+        config.depth !== oldConfig.depth;
+
+      // If assembly structure changes, reset everything
+      if (assemblyStructureChanged) {
+        return {
+          config,
+          rootVoid: createRootVoidWithInsets(config.width, config.height, config.depth, config.assembly),
+          selectedVoidIds: new Set<string>(),
+          selectedSubAssemblyIds: new Set<string>(),
+          selectedPanelIds: new Set<string>(),
+          selectedAssemblyId: null,
+          subdivisionPreview: null,
+          hiddenVoidIds: new Set<string>(),
+          isolatedVoidId: null,
+          isolateHiddenVoidIds: new Set<string>(),
+          hiddenSubAssemblyIds: new Set<string>(),
+          isolatedSubAssemblyId: null,
+          isolateHiddenSubAssemblyIds: new Set<string>(),
+          hiddenFaceIds: new Set<string>(),
+          isolatedPanelId: null,
+          isolateHiddenFaceIds: new Set<string>(),
+          panelsDirty: true,
+        };
+      }
+
+      // If dimensions changed, preserve subdivisions and recalculate bounds
+      if (dimensionsChanged) {
+        const newRootBounds: Bounds = { x: 0, y: 0, z: 0, w: config.width, h: config.height, d: config.depth };
+
+        // Get the main interior void (where user subdivisions live)
+        const mainInterior = getMainInteriorVoid(state.rootVoid);
+        const hasInsets = mainInterior.id !== state.rootVoid.id;
+
+        let newRootVoid: Void;
+
+        if (hasInsets) {
+          // Has lid insets - need to rebuild root structure with new dimensions
+          // but preserve the children of the main interior void
+          const positiveInset = config.assembly.lids.positive.inset;
+          const negativeInset = config.assembly.lids.negative.inset;
+          const axis = config.assembly.assemblyAxis;
+
+          // Calculate new main interior bounds
+          let mainBounds: Bounds;
+          switch (axis) {
+            case 'y':
+              mainBounds = {
+                x: 0, y: negativeInset, z: 0,
+                w: config.width, h: config.height - positiveInset - negativeInset, d: config.depth,
+              };
+              break;
+            case 'x':
+              mainBounds = {
+                x: negativeInset, y: 0, z: 0,
+                w: config.width - positiveInset - negativeInset, h: config.height, d: config.depth,
+              };
+              break;
+            case 'z':
+              mainBounds = {
+                x: 0, y: 0, z: negativeInset,
+                w: config.width, h: config.height, d: config.depth - positiveInset - negativeInset,
+              };
+              break;
+          }
+
+          // Recalculate the main interior's children
+          const recalculatedMainInterior = recalculateVoidBounds(
+            { ...mainInterior, bounds: mainBounds },
+            mainBounds,
+            config.materialThickness
+          );
+
+          // Rebuild the root with lid caps and recalculated main interior
+          newRootVoid = createRootVoidWithInsets(
+            config.width, config.height, config.depth, config.assembly
+          );
+          // Replace the main interior's children with the recalculated ones
+          const newMainInterior = newRootVoid.children.find(c => c.isMainInterior);
+          if (newMainInterior) {
+            newMainInterior.children = recalculatedMainInterior.children;
+          }
+        } else {
+          // No lid insets - recalculate directly from root
+          newRootVoid = recalculateVoidBounds(
+            { ...state.rootVoid, bounds: newRootBounds },
+            newRootBounds,
+            config.materialThickness
+          );
+        }
+
+        return {
+          config,
+          rootVoid: newRootVoid,
+          subdivisionPreview: null,
+          panelsDirty: true,
+        };
+      }
+
+      // Only non-structural config changes (materialThickness, fingerWidth, etc.)
       return {
         config,
-        rootVoid: createRootVoidWithInsets(config.width, config.height, config.depth, config.assembly),
-        selectedVoidIds: new Set<string>(),
-        selectedSubAssemblyIds: new Set<string>(),
-        selectedPanelIds: new Set<string>(),
-        selectedAssemblyId: null,
-        subdivisionPreview: null,
-        hiddenVoidIds: new Set<string>(),
-        isolatedVoidId: null,
-        isolateHiddenVoidIds: new Set<string>(),
-        hiddenSubAssemblyIds: new Set<string>(),
-        isolatedSubAssemblyId: null,
-        isolateHiddenSubAssemblyIds: new Set<string>(),
-        hiddenFaceIds: new Set<string>(),
-        isolatedPanelId: null,
-        isolateHiddenFaceIds: new Set<string>(),
-        panelsDirty: true,  // Mark panels as needing regeneration
+        panelsDirty: true,
       };
     }),
 
@@ -682,12 +901,20 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
             break;
         }
 
+        // Calculate percentage for this split position
+        let splitPercentage: number | undefined;
+        if (splitPos !== undefined) {
+          splitPercentage = (splitPos - dimStart) / dimSize;
+        }
+
         children.push({
           id: generateId(),
           bounds: childBounds,
           children: [],
           splitAxis,
           splitPosition: splitPos,
+          splitPositionMode: splitPos !== undefined ? 'percentage' : undefined,
+          splitPercentage,
         });
       }
 
@@ -1355,6 +1582,18 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       };
     }),
 
+  setFeetConfig: (feetConfig) =>
+    set((state) => ({
+      config: {
+        ...state.config,
+        assembly: {
+          ...state.config.assembly,
+          feet: feetConfig,
+        },
+      },
+      panelsDirty: true,
+    })),
+
   // Assembly config actions for sub-assemblies
   setSubAssemblyAxis: (subAssemblyId, axis) =>
     set((state) => {
@@ -1750,10 +1989,19 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const updateVoidPosition = (node: Void): Void => {
         if (node.id === parent.id) {
           // This is the parent - update its children
+          const parentSize = axis === 'x' ? parent.bounds.w :
+                             axis === 'y' ? parent.bounds.h : parent.bounds.d;
+
           const newChildren = parent.children.map((child) => {
             if (child.id === voidId) {
-              // Update this void's splitPosition
-              return { ...child, splitPosition: clampedPosition };
+              // Calculate new percentage from position
+              const newPercentage = (clampedPosition - parentStart) / parentSize;
+              // Update this void's splitPosition and percentage
+              return {
+                ...child,
+                splitPosition: clampedPosition,
+                splitPercentage: newPercentage,
+              };
             }
             return child;
           });
@@ -1864,6 +2112,43 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       };
     }),
 
+  setDividerPositionMode: (subdivisionId, mode) =>
+    set((state) => {
+      // The subdivision ID is like "abc123-split", the void ID is "abc123"
+      const voidId = subdivisionId.replace('-split', '');
+
+      // Find the void that has this split position
+      const targetVoid = findVoid(state.rootVoid, voidId);
+      if (!targetVoid || !targetVoid.splitPosition || !targetVoid.splitAxis) {
+        return state;
+      }
+
+      // Find the parent to calculate percentage if switching to percentage mode
+      const parent = findParent(state.rootVoid, voidId);
+      if (!parent) return state;
+
+      const axis = targetVoid.splitAxis;
+      const parentStart = axis === 'x' ? parent.bounds.x :
+                          axis === 'y' ? parent.bounds.y : parent.bounds.z;
+      const parentSize = axis === 'x' ? parent.bounds.w :
+                         axis === 'y' ? parent.bounds.h : parent.bounds.d;
+
+      // Calculate percentage from current position
+      const percentage = (targetVoid.splitPosition - parentStart) / parentSize;
+
+      // Update the void in the tree
+      const newRootVoid = updateVoidInTree(state.rootVoid, voidId, (v) => ({
+        ...v,
+        splitPositionMode: mode,
+        splitPercentage: percentage,
+      }));
+
+      return {
+        rootVoid: newRootVoid,
+        panelsDirty: true,
+      };
+    }),
+
   // URL state management
   loadFromUrl: () => {
     const loaded = loadFromUrl();
@@ -1971,4 +2256,25 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     set((state) => ({
       showDebugAnchors: !state.showDebugAnchors,
     })),
+
+  // 2D Sketch View actions
+  setViewMode: (mode) =>
+    set({ viewMode: mode }),
+
+  enterSketchView: (panelId) =>
+    set({
+      viewMode: '2d',
+      sketchPanelId: panelId,
+      // Select the panel being edited
+      selectedPanelIds: new Set([panelId]),
+      selectedVoidIds: new Set<string>(),
+      selectedSubAssemblyIds: new Set<string>(),
+      selectedAssemblyId: null,
+    }),
+
+  exitSketchView: () =>
+    set({
+      viewMode: '3d',
+      sketchPanelId: null,
+    }),
 }));

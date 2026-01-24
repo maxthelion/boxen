@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useBoxStore, getAllSubdivisions, getAllSubAssemblies } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
-import { FaceId, Face, AssemblyConfig } from '../types';
+import { FaceId, Face, AssemblyConfig, SplitPositionMode } from '../types';
 import {
   getFaceEdgeStatuses,
   getDividerEdgeStatuses,
@@ -322,6 +322,8 @@ export const PanelProperties: React.FC = () => {
     panelCollection,
     setEdgeExtension,
     setDividerPosition,
+    setDividerPositionMode,
+    enterSketchView,
   } = useBoxStore();
 
   const [selectedEdge, setSelectedEdge] = useState<EdgePosition | null>(null);
@@ -465,6 +467,15 @@ export const PanelProperties: React.FC = () => {
               )}
             </>
           )}
+
+          <div className="panel-actions">
+            <button
+              className="edit-2d-btn"
+              onClick={() => enterSketchView(selectedPanel.id)}
+            >
+              Edit in 2D
+            </button>
+          </div>
         </div>
       </Panel>
     );
@@ -575,6 +586,24 @@ export const PanelProperties: React.FC = () => {
                   <span className="position-unit">mm</span>
                 </div>
               </div>
+              <div className="position-mode-toggle">
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={subdivision.positionMode === 'percentage'}
+                    onChange={(e) => setDividerPositionMode(
+                      subdivision.id,
+                      e.target.checked ? 'percentage' : 'absolute'
+                    )}
+                  />
+                  <span className="toggle-text">Scale with box dimensions</span>
+                </label>
+                {subdivision.positionMode === 'percentage' && subdivision.percentage !== undefined && (
+                  <span className="percentage-display">
+                    ({(subdivision.percentage * 100).toFixed(1)}%)
+                  </span>
+                )}
+              </div>
             </div>
           )}
 
@@ -608,6 +637,15 @@ export const PanelProperties: React.FC = () => {
               onChange={handleEdgeExtensionChange}
             />
           )}
+
+          <div className="panel-actions">
+            <button
+              className="edit-2d-btn"
+              onClick={() => enterSketchView(selectedPanel.id)}
+            >
+              Edit in 2D
+            </button>
+          </div>
         </div>
       </Panel>
     );

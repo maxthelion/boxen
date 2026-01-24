@@ -11,6 +11,20 @@ export interface LidConfig {
   inset: number;                 // Inset from outer dimension (mm), 0 = flush with outer
 }
 
+// Feet configuration for assembly
+export interface FeetConfig {
+  enabled: boolean;
+  height: number;       // How far feet extend downward (mm)
+  inset: number;        // Distance from corners (mm), 0 = at corners
+}
+
+// Default feet config
+export const defaultFeetConfig: FeetConfig = {
+  enabled: false,
+  height: 15,
+  inset: 5,
+};
+
 // Assembly configuration for a box or sub-assembly
 export interface AssemblyConfig {
   assemblyAxis: AssemblyAxis;
@@ -18,6 +32,7 @@ export interface AssemblyConfig {
     positive: LidConfig;  // top (Y), right (X), or front (Z)
     negative: LidConfig;  // bottom (Y), left (X), or back (Z)
   };
+  feet?: FeetConfig;    // Optional feet configuration
 }
 
 // Helper: Get the role of a face (wall or lid) based on assembly axis
@@ -92,6 +107,9 @@ export type FaceId = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 
 export type SelectionMode = 'void' | 'panel' | 'assembly' | null;
 
+// View mode for switching between 3D and 2D editing
+export type ViewMode = '3d' | '2d';
+
 export interface Face {
   id: FaceId;
   solid: boolean;
@@ -141,6 +159,9 @@ export interface SubAssembly {
   assembly: AssemblyConfig;  // Assembly configuration for this sub-assembly
 }
 
+// Position mode for subdivisions
+export type SplitPositionMode = 'absolute' | 'percentage';
+
 // Hierarchical void structure - subdivisions create child voids
 export interface Void {
   id: string;
@@ -150,6 +171,8 @@ export interface Void {
   // If this void was created by splitting a parent:
   splitAxis?: 'x' | 'y' | 'z';
   splitPosition?: number;  // Absolute position in box coordinates where the split occurred
+  splitPositionMode?: SplitPositionMode;  // 'absolute' = fixed position, 'percentage' = scales with dimensions
+  splitPercentage?: number;  // 0.0 to 1.0 - position as percentage of parent void dimension (along split axis)
   // If this void is a lid inset cap (space between inset lid and outer edge):
   lidInsetSide?: 'positive' | 'negative';
   // If this is the main interior void (when lid insets exist):
@@ -162,6 +185,8 @@ export interface Subdivision {
   axis: 'x' | 'y' | 'z';
   position: number;  // Absolute position in mm
   bounds: Bounds;    // The bounds of the parent void at time of split
+  positionMode?: SplitPositionMode;  // Position mode (absolute or percentage)
+  percentage?: number;  // Position as percentage of parent void (0.0 to 1.0)
 }
 
 // Preview state for showing potential subdivisions before confirming
@@ -215,6 +240,9 @@ export interface BoxState {
   panelsDirty: boolean;
   // Debug visualization toggles
   showDebugAnchors: boolean;
+  // 2D Sketch View state
+  viewMode: ViewMode;
+  sketchPanelId: string | null;  // Panel being edited in 2D view
 }
 
 export interface BoxActions {
@@ -240,6 +268,7 @@ export interface BoxActions {
   setAssemblyAxis: (axis: AssemblyAxis) => void;
   setLidTabDirection: (side: 'positive' | 'negative', direction: LidTabDirection) => void;
   setLidInset: (side: 'positive' | 'negative', inset: number) => void;
+  setFeetConfig: (feetConfig: FeetConfig) => void;
   // Sub-assembly actions
   createSubAssembly: (voidId: string, options?: CreateSubAssemblyOptions) => void;
   toggleSubAssemblyFace: (subAssemblyId: string, faceId: FaceId) => void;
@@ -277,12 +306,20 @@ export interface BoxActions {
     subdivisionId: string,
     newPosition: number
   ) => void;
+  setDividerPositionMode: (
+    subdivisionId: string,
+    mode: SplitPositionMode
+  ) => void;
   // URL state management
   loadFromUrl: () => boolean;  // Returns true if state was loaded
   saveToUrl: () => void;
   getShareableUrl: () => string;
   // Debug visualization
   toggleDebugAnchors: () => void;
+  // 2D Sketch View actions
+  setViewMode: (mode: ViewMode) => void;
+  enterSketchView: (panelId: string) => void;
+  exitSketchView: () => void;
 }
 
 // Subdivision panel - a physical divider piece to be cut
@@ -367,6 +404,15 @@ export const defaultEdgeExtensions: EdgeExtensions = {
   top: 0, bottom: 0, left: 0, right: 0
 };
 
+// Corner finish types
+export type CornerFinishType = 'none' | 'chamfer' | 'fillet';
+
+export interface CornerFinish {
+  cornerId: string;
+  type: CornerFinishType;
+  radius: number;
+}
+
 // A panel with its 2D path geometry and 3D positioning
 export interface PanelPath {
   id: string;
@@ -392,6 +438,9 @@ export interface PanelPath {
 
   // Edge extensions (V1 - only for straight edges)
   edgeExtensions: EdgeExtensions;
+
+  // Corner finishes (chamfers, fillets)
+  cornerFinishes?: CornerFinish[];
 }
 
 // Augmentation types that can be added to panels

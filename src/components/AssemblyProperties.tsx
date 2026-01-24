@@ -2,7 +2,7 @@ import React from 'react';
 import { useBoxStore, getAllSubAssemblies } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
-import { FaceId, AssemblyAxis, LidTabDirection, getLidFaceId } from '../types';
+import { FaceId, AssemblyAxis, LidTabDirection, getLidFaceId, defaultFeetConfig } from '../types';
 
 const faceOrder: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
 
@@ -23,6 +23,7 @@ export const AssemblyProperties: React.FC = () => {
     setSubAssemblyAxis,
     setSubAssemblyLidTabDirection,
     setSubAssemblyLidInset,
+    setFeetConfig,
   } = useBoxStore();
 
   // Use selectedAssemblyId if set, otherwise use first selected sub-assembly
@@ -189,6 +190,57 @@ export const AssemblyProperties: React.FC = () => {
                 </label>
               </div>
             </div>
+          </div>
+
+          <div className="property-section">
+            <h4>Feet</h4>
+            <div className="form-grid">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={config.assembly.feet?.enabled ?? false}
+                  onChange={(e) => setFeetConfig({
+                    ...defaultFeetConfig,
+                    ...config.assembly.feet,
+                    enabled: e.target.checked,
+                  })}
+                />
+                <span>Add feet to box</span>
+              </label>
+            </div>
+            {config.assembly.feet?.enabled && (
+              <div className="form-grid">
+                <label>
+                  <span>Height (mm)</span>
+                  <NumberInput
+                    value={config.assembly.feet.height}
+                    onChange={(v) => setFeetConfig({
+                      ...config.assembly.feet!,
+                      height: v,
+                    })}
+                    min={5}
+                    max={100}
+                    step={5}
+                  />
+                </label>
+                <label>
+                  <span>Inset from corners (mm)</span>
+                  <NumberInput
+                    value={config.assembly.feet.inset}
+                    onChange={(v) => setFeetConfig({
+                      ...config.assembly.feet!,
+                      inset: v,
+                    })}
+                    min={0}
+                    max={50}
+                    step={1}
+                  />
+                </label>
+              </div>
+            )}
+            {config.assembly.feet?.enabled && (
+              <p className="hint">Feet extend wall panels below the bottom face.</p>
+            )}
           </div>
         </div>
       </Panel>

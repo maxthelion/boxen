@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { BoxTree } from './components/BoxTree';
 import { Viewport3D, Viewport3DHandle } from './components/Viewport3D';
+import { SketchView2D } from './components/SketchView2D';
 import { SubdivisionControls } from './components/SubdivisionControls';
 import { PanelProperties } from './components/PanelProperties';
 import { AssemblyProperties } from './components/AssemblyProperties';
@@ -11,8 +12,50 @@ import { SaveProjectModal } from './components/SaveProjectModal';
 import { useBoxStore } from './store/useBoxStore';
 import { saveProject, loadProject, captureThumbnail } from './utils/projectStorage';
 import { ProjectState } from './utils/urlState';
-import { defaultEdgeExtensions, EdgeExtensions } from './types';
+import { defaultEdgeExtensions, EdgeExtensions, FaceId, PanelPath } from './types';
 import './App.css';
+
+// Get the normal axis for any panel (face or divider)
+const getPanelNormalAxis = (panel: PanelPath): 'x' | 'y' | 'z' | null => {
+  if (panel.source.type === 'face' && panel.source.faceId) {
+    const faceNormals: Record<FaceId, 'x' | 'y' | 'z'> = {
+      left: 'x', right: 'x',
+      top: 'y', bottom: 'y',
+      front: 'z', back: 'z',
+    };
+    return faceNormals[panel.source.faceId];
+  }
+  if (panel.source.type === 'divider' && panel.source.axis) {
+    return panel.source.axis;
+  }
+  return null;
+};
+
+// Check if two selected panels can potentially be subdivided between
+// This is a quick check - detailed validation happens in SubdivisionControls
+const canSubdivideBetweenPanels = (
+  selectedPanelIds: Set<string>,
+  panelCollection: { panels: PanelPath[] } | null
+): boolean => {
+  if (selectedPanelIds.size !== 2 || !panelCollection) return false;
+
+  const panelIds = Array.from(selectedPanelIds);
+  const panels = panelIds
+    .map(id => panelCollection.panels.find(p => p.id === id))
+    .filter((p): p is PanelPath => p !== undefined);
+
+  if (panels.length !== 2) return false;
+
+  // Both must be from main assembly (not sub-assembly)
+  if (panels.some(p => p.source.subAssemblyId)) return false;
+
+  // Get normal axes for both panels
+  const axis1 = getPanelNormalAxis(panels[0]);
+  const axis2 = getPanelNormalAxis(panels[1]);
+
+  // Both must have valid normal axes and they must match (parallel panels)
+  return axis1 !== null && axis1 === axis2;
+};
 
 function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -31,6 +74,7 @@ function App() {
     selectedPanelIds,
     selectedAssemblyId,
     selectedSubAssemblyIds,
+    viewMode,
     loadFromUrl,
     getShareableUrl,
     saveToUrl,
@@ -195,10 +239,21 @@ function App() {
     window.history.replaceState(null, '', url.toString());
   };
 
+  // Check if two parallel panels are selected (for subdivision)
+  const showTwoPanelSubdivision = useMemo(() =>
+    canSubdivideBetweenPanels(selectedPanelIds, panelCollection),
+    [selectedPanelIds, panelCollection]
+  );
+
   // Determine what to show in the right sidebar based on selection
   const renderRightSidebar = () => {
     // Void selected - show subdivision controls (only for single selection)
     if (selectedVoidIds.size === 1) {
+      return <SubdivisionControls />;
+    }
+
+    // Two opposite panels selected - show subdivision controls
+    if (showTwoPanelSubdivision) {
       return <SubdivisionControls />;
     }
 
@@ -268,7 +323,11 @@ function App() {
         </aside>
 
         <section className="viewport">
-          <Viewport3D ref={viewportRef} />
+          {viewMode === '3d' ? (
+            <Viewport3D ref={viewportRef} />
+          ) : (
+            <SketchView2D />
+          )}
         </section>
 
         <aside className="sidebar right-sidebar">

@@ -1031,12 +1031,13 @@ const generateDividerSlotHoles = (
               // Convert from 0-based axis coords to 2D panel coords (centered)
               // 0-based coords: 0 to maxJoint
               // 2D panel coords: -halfPanelDim to +halfPanelDim
-              const panel2DStart = clippedStart - maxJoint / 2;
-              const panel2DEnd = clippedEnd - maxJoint / 2;
-
-              // Apply slotCenterOffset for dividers that don't span full axis
-              const offsetStart = panel2DStart + slotCenterOffset;
-              const offsetEnd = panel2DEnd + slotCenterOffset;
+              // Note: Do NOT apply slotCenterOffset here. The finger positions are already
+              // in absolute coordinates (0 to maxJoint), and the effectiveLow/effectiveHigh
+              // range already accounts for where the divider actually extends.
+              // Adding slotCenterOffset would double-count the offset, causing slots to
+              // appear outside the panel bounds for nested subdivisions.
+              const offsetStart = clippedStart - maxJoint / 2;
+              const offsetEnd = clippedEnd - maxJoint / 2;
 
               let holePoints: PathPoint[];
               if (isHorizontal) {
@@ -1311,7 +1312,44 @@ const generateFacePanel = (
   const face = faces.find((f) => f.id === faceId);
   if (!face || !face.solid) return null;
 
-  const extensions = existingExtensions ?? defaultEdgeExtensions;
+  let extensions = existingExtensions ?? defaultEdgeExtensions;
+
+  // Apply feet extension to wall panels
+  const feetConfig = config.assembly.feet;
+  if (feetConfig?.enabled && feetConfig.height > 0) {
+    // Only apply feet to wall faces (not lids)
+    const isWall = getFaceRole(faceId, config.assembly.assemblyAxis) === 'wall';
+    if (isWall) {
+      // Determine which edge of this panel corresponds to the bottom of the box
+      // For Y axis assembly: walls are front/back/left/right, their bottom edge is at y=0
+      // The "bottom" edge of the panel in local coords is the one that touches the bottom face
+      let feetEdge: 'top' | 'bottom' | 'left' | 'right' | null = null;
+
+      switch (config.assembly.assemblyAxis) {
+        case 'y':
+          // For Y axis, walls have their bottom at the bottom edge
+          feetEdge = 'bottom';
+          break;
+        case 'x':
+          // For X axis, left/right are lids; front/back walls have bottom at bottom edge
+          feetEdge = 'bottom';
+          break;
+        case 'z':
+          // For Z axis, front/back are lids; left/right/top/bottom are walls
+          // This gets complex - simplify by only applying feet to Y-axis assembly
+          feetEdge = null;
+          break;
+      }
+
+      if (feetEdge) {
+        extensions = {
+          ...extensions,
+          [feetEdge]: (extensions[feetEdge] ?? 0) + feetConfig.height,
+        };
+      }
+    }
+  }
+
   const dims = getFaceDimensions(faceId, config);
   const outlinePoints = generateFacePanelOutline(faceId, faces, config, extensions, existingPanels, fingerData);
   const dividerHoles = generateDividerSlotHoles(faceId, faces, rootVoid, config, existingPanels, fingerData);
@@ -1323,13 +1361,17 @@ const generateFacePanel = (
     faceId,
   };
 
+  // Calculate actual dimensions including all extensions
+  const actualWidth = dims.width + (extensions.left ?? 0) + (extensions.right ?? 0);
+  const actualHeight = dims.height + (extensions.top ?? 0) + (extensions.bottom ?? 0);
+
   return {
     id: `face-${faceId}`,
     source,
     outline: { points: outlinePoints, closed: true },
     holes: [...dividerHoles, ...lidHoles],
-    width: dims.width,
-    height: dims.height,
+    width: actualWidth,
+    height: actualHeight,
     thickness: config.materialThickness,
     position,
     rotation,

@@ -4,6 +4,12 @@
   padding: 0;
 }
 
+html, body {
+  overflow: hidden;
+  width: 100%;
+  max-width: 100vw;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
   background: #0f0f1a;
@@ -14,6 +20,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  width: 100vw;
+  max-width: 100vw;
   overflow: hidden;
 }
 
@@ -22,8 +30,10 @@ body {
   padding: 0.75rem 1.5rem;
   border-bottom: 1px solid #333;
   display: flex;
-  align-items: baseline;
+  justify-content: space-between;
+  align-items: center;
   gap: 1rem;
+  flex-shrink: 0;
 }
 
 .app-header h1 {
@@ -41,12 +51,16 @@ body {
   display: flex;
   flex: 1;
   overflow: hidden;
+  width: 100%;
+  max-width: 100%;
 }
 
 .sidebar {
-  width: 300px;
+  width: 280px;
+  flex-shrink: 0;
   background: #16213e;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 1rem;
   display: flex;
   flex-direction: column;
@@ -63,7 +77,9 @@ body {
 
 .viewport {
   flex: 1;
+  min-width: 0;
   position: relative;
+  overflow: hidden;
 }
 
 .viewport-container {
@@ -1265,6 +1281,7 @@ body {
 .header-menu {
   display: flex;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .header-btn {
@@ -1744,6 +1761,41 @@ body {
   font-size: 0.75rem;
 }
 
+.position-mode-toggle {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: #b0b0b0;
+}
+
+.toggle-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: #4a90d9;
+  cursor: pointer;
+}
+
+.toggle-text {
+  user-select: none;
+}
+
+.percentage-display {
+  font-size: 0.75rem;
+  color: #666;
+  margin-left: 1.5rem;
+}
+
 /* Header Button Variants */
 .header-btn.secondary {
   background: #252545;
@@ -2021,4 +2073,151 @@ body {
   background: #333;
   color: #666;
   cursor: not-allowed;
+}
+
+/* SketchView2D - 2D Panel Editor */
+.sketch-view-2d {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: #0d0d1a;
+  position: relative;
+}
+
+.sketch-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  background: #1a1a2e;
+  border-bottom: 1px solid #333;
+  z-index: 10;
+}
+
+.sketch-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.sketch-panel-name {
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.sketch-panel-dims {
+  color: #888;
+  font-size: 0.85rem;
+  font-family: monospace;
+}
+
+.sketch-toolbar-right {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.sketch-btn {
+  padding: 0.4rem 0.8rem;
+  background: #252545;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sketch-btn:hover {
+  background: #353565;
+  border-color: #555;
+}
+
+.sketch-btn-close {
+  background: #4a3030;
+  border-color: #664040;
+}
+
+.sketch-btn-close:hover {
+  background: #5a4040;
+}
+
+.sketch-canvas {
+  flex: 1;
+  width: 100%;
+  background: #0a0a15;
+}
+
+.sketch-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #888;
+  gap: 1rem;
+}
+
+.sketch-legend {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  background: rgba(26, 26, 46, 0.9);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #aaa;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.legend-color {
+  width: 12px;
+  height: 3px;
+  border-radius: 1px;
+}
+
+.legend-line {
+  width: 16px;
+  height: 0;
+}
+
+/* Panel Actions */
+.panel-actions {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #333;
+}
+
+.edit-2d-btn {
+  width: 100%;
+  padding: 0.6rem 1rem;
+  background: #2a4a6a;
+  border: 1px solid #3a6a9a;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.edit-2d-btn:hover {
+  background: #3a5a7a;
+  border-color: #4a7aaa;
+}
+
+.legend-info {
+  font-size: 0.7rem;
+  color: #777;
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid #333;
 }
