@@ -15,14 +15,16 @@ export interface LidConfig {
 export interface FeetConfig {
   enabled: boolean;
   height: number;       // How far feet extend downward (mm)
-  inset: number;        // Distance from corners (mm), 0 = at corners
+  width: number;        // Width of each foot (mm)
+  inset: number;        // Distance from panel edge to outer edge of foot (mm)
 }
 
 // Default feet config
 export const defaultFeetConfig: FeetConfig = {
   enabled: false,
   height: 15,
-  inset: 5,
+  width: 20,
+  inset: 0,
 };
 
 // Assembly configuration for a box or sub-assembly
@@ -372,7 +374,7 @@ export interface PanelHole {
   path: Path;
   // Source info - what created this hole
   source?: {
-    type: 'divider-slot' | 'lid-slot' | 'decorative' | 'functional';
+    type: 'divider-slot' | 'lid-slot' | 'extension-slot' | 'decorative' | 'functional';
     sourceId?: string;  // ID of divider/lid that created this slot
   };
 }

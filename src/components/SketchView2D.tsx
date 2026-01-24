@@ -288,21 +288,34 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   }, [panel, faces, config.assembly, rootVoid]);
 
   // Get edge segments for rendering
+  // IMPORTANT: Use original dimensions (without extensions) for edge classification
+  // because the outline points are generated from original dims + extensions at corners
   const edgeSegments = useMemo(() => {
     if (!panel) return null;
-    return getEdgeSegments(panel.outline.points, panel.width, panel.height);
+    const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
+    const originalWidth = panel.width - (ext.left ?? 0) - (ext.right ?? 0);
+    const originalHeight = panel.height - (ext.top ?? 0) - (ext.bottom ?? 0);
+    return getEdgeSegments(panel.outline.points, originalWidth, originalHeight);
   }, [panel]);
 
-  // Get conceptual boundary (straight lines at panel edges)
+  // Get conceptual boundary (straight lines at ORIGINAL panel edges, before extensions)
   const conceptualBoundary = useMemo(() => {
     if (!panel) return null;
-    return getConceptualBoundary(panel.width, panel.height);
+    // Calculate original dimensions by subtracting extensions
+    const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
+    const originalWidth = panel.width - (ext.left ?? 0) - (ext.right ?? 0);
+    const originalHeight = panel.height - (ext.top ?? 0) - (ext.bottom ?? 0);
+    return getConceptualBoundary(originalWidth, originalHeight);
   }, [panel]);
 
   // Get joint segments (perpendicular parts of finger joints)
+  // Use original dimensions like edgeSegments
   const jointSegments = useMemo(() => {
     if (!panel) return [];
-    return getJointSegments(panel.outline.points, panel.width, panel.height);
+    const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
+    const originalWidth = panel.width - (ext.left ?? 0) - (ext.right ?? 0);
+    const originalHeight = panel.height - (ext.top ?? 0) - (ext.bottom ?? 0);
+    return getJointSegments(panel.outline.points, originalWidth, originalHeight);
   }, [panel]);
 
   // Get editable areas (safe zones for cutouts)
@@ -317,14 +330,14 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     return detectMainCorners(panel.width, panel.height, config.materialThickness);
   }, [panel, config.materialThickness]);
 
-  // Count locked vs unlocked edges for display
+  // Count edge types for display
   const lockedCount = edgeStatuses.filter(e => e.status === 'locked').length;
-  const unlockedCount = edgeStatuses.filter(e => e.status === 'unlocked').length;
+  const editableCount = edgeStatuses.filter(e => e.status !== 'locked').length;
 
-  // Check if an edge is editable
+  // Check if an edge is editable (unlocked or outward-only)
   const isEdgeEditable = useCallback((edge: EdgePosition): boolean => {
     const status = edgeStatuses.find(e => e.position === edge);
-    return status?.status === 'unlocked';
+    return status?.status !== 'locked';
   }, [edgeStatuses]);
 
   // Convert screen coordinates to SVG coordinates
@@ -629,7 +642,8 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           {conceptualBoundary && (['top', 'bottom', 'left', 'right'] as EdgePosition[]).map(edge => {
             const boundary = conceptualBoundary[edge];
             const status = edgeStatuses.find(e => e.position === edge);
-            const hasJoints = status?.status === 'locked';
+            // Edges with joints: locked (male/tabs) or outward-only (female/slots)
+            const hasJoints = status?.status === 'locked' || status?.status === 'outward-only';
 
             // Only show conceptual boundary if this edge has joints (difference from actual)
             if (!hasJoints) return null;
@@ -787,7 +801,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           <span>Corner (chamfer/fillet)</span>
         </div>
         <div className="legend-info">
-          {lockedCount} locked, {unlockedCount} editable
+          {lockedCount} locked, {editableCount} editable
         </div>
         {hoveredEdge && (
           <div className="legend-info">

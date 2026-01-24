@@ -295,31 +295,35 @@ const getAdjacentFacePerpendicularExtensions = (
 export interface EdgeStatusInfo {
   position: 'top' | 'bottom' | 'left' | 'right';
   adjacentFaceId?: FaceId;
-  status: 'locked' | 'unlocked';  // unlocked = straight edge only
+  // locked = male joint (tabs out), cannot move
+  // outward-only = female joint (slots), can extend outward only
+  // unlocked = open face (straight edge), can move in or out
+  status: 'locked' | 'outward-only' | 'unlocked';
 }
 
-// For divider panels - edge is unlocked only if it's straight (meets open face)
+// For divider panels - dividers always have slots (female joints), never tabs
 export const getDividerEdgeStatuses = (
   meetsTop: boolean,    // meets solid top face
   meetsBottom: boolean,
   meetsLeft: boolean,
   meetsRight: boolean
 ): EdgeStatusInfo[] => {
-  // V1: Edge is LOCKED if it has tabs (meets solid face)
-  // Edge is UNLOCKED only if straight (meets open face)
+  // Dividers always have slots (female joints) where they meet solid faces
+  // They can always extend outward on those edges
+  // Edges meeting open faces are unlocked (straight edge)
   return [
-    { position: 'top', status: meetsTop ? 'locked' : 'unlocked' },
-    { position: 'bottom', status: meetsBottom ? 'locked' : 'unlocked' },
-    { position: 'left', status: meetsLeft ? 'locked' : 'unlocked' },
-    { position: 'right', status: meetsRight ? 'locked' : 'unlocked' },
+    { position: 'top', status: meetsTop ? 'outward-only' : 'unlocked' },
+    { position: 'bottom', status: meetsBottom ? 'outward-only' : 'unlocked' },
+    { position: 'left', status: meetsLeft ? 'outward-only' : 'unlocked' },
+    { position: 'right', status: meetsRight ? 'outward-only' : 'unlocked' },
   ];
 };
 
-// For face panels - edge is unlocked only if adjacent face is open
+// For face panels - determine edge status based on joint type
 export const getFaceEdgeStatuses = (
   faceId: FaceId,
   faces: Face[],
-  _assembly: AssemblyConfig  // Reserved for V2: may need for tab direction logic
+  assembly: AssemblyConfig
 ): EdgeStatusInfo[] => {
   const edges = getFaceEdges(faceId);
 
@@ -327,12 +331,34 @@ export const getFaceEdgeStatuses = (
     const adjacentFace = faces.find((f) => f.id === edge.adjacentFaceId);
     const isSolidAdjacent = adjacentFace?.solid ?? false;
 
-    // V1: Edge is LOCKED if adjacent face is solid (has finger joint)
-    // Edge is UNLOCKED only if adjacent face is open (straight edge)
+    // If adjacent face is open, edge is unlocked (straight edge)
+    if (!isSolidAdjacent) {
+      return {
+        position: edge.position,
+        adjacentFaceId: edge.adjacentFaceId,
+        status: 'unlocked' as const,
+      };
+    }
+
+    // Adjacent face is solid - check if this edge has tabs (male) or slots (female)
+    const tabsOut = shouldTabOut(faceId, edge.adjacentFaceId, assembly);
+
+    // tabsOut === true: male joint (tabs extending out) - locked
+    // tabsOut === false: female joint (slots receiving tabs) - outward-only
+    // tabsOut === null: straight edge (e.g., inset lid) - unlocked
+    let status: 'locked' | 'outward-only' | 'unlocked';
+    if (tabsOut === true) {
+      status = 'locked';
+    } else if (tabsOut === false) {
+      status = 'outward-only';
+    } else {
+      status = 'unlocked';
+    }
+
     return {
       position: edge.position,
       adjacentFaceId: edge.adjacentFaceId,
-      status: isSolidAdjacent ? 'locked' : 'unlocked',
+      status,
     };
   });
 };
@@ -392,6 +418,11 @@ const getFaceTransform = (
     return (assembly.lids[side].inset || 0) * scale;
   };
 
+  // Note: Wall panels with feet extend downward from their original position.
+  // The 2D panel geometry has feet extending below -halfH, with center at (0,0).
+  // No 3D position offset is needed - the panel is already correctly positioned
+  // with top at +halfH and bottom extending down with feet.
+
   switch (faceId) {
     case 'front':
       return {
@@ -429,6 +460,73 @@ const getFaceTransform = (
 };
 
 // =============================================================================
+// Feet Path Generation
+// =============================================================================
+
+/**
+ * Generate a feet path for an edge
+ * Creates two feet at the corners with a gap in the middle
+ *
+ * The path goes (for bottom edge, right to left):
+ * 1. Down from start corner by (materialThickness + feetHeight)
+ * 2. Horizontal for foot width
+ * 3. Up by feetHeight (back to materialThickness level)
+ * 4. Horizontal across gap to other foot
+ * 5. Down by feetHeight
+ * 6. Horizontal for foot width
+ * 7. Up to end corner
+ */
+const generateFeetPath = (
+  startX: number,      // X position of start corner (right side for bottom edge)
+  endX: number,        // X position of end corner (left side for bottom edge)
+  baseY: number,       // Y position of the finger joint edge (original panel bottom)
+  feetConfig: { height: number; width: number; inset: number },
+  materialThickness: number
+): Point[] => {
+  const { height: feetHeight, width: footWidth, inset } = feetConfig;
+
+  // The feet extend from baseY down
+  // First extend by materialThickness to clear the joint, then by feetHeight for the feet
+  const jointClearanceY = baseY - materialThickness;  // Level where joint is cleared
+  const feetBottomY = jointClearanceY - feetHeight;   // Bottom of feet
+
+  // Foot positions (accounting for inset from panel edges)
+  // For bottom edge going right to left: startX is positive (right), endX is negative (left)
+  const rightFootOuterX = startX - inset;
+  const rightFootInnerX = rightFootOuterX - footWidth;
+  const leftFootInnerX = endX + inset + footWidth;
+  const leftFootOuterX = endX + inset;
+
+  // Generate the path points
+  const points: Point[] = [];
+
+  // Start at right corner, at the joint level (finger pattern ends here)
+  // 1. Go down to feet bottom at right foot outer edge
+  points.push({ x: rightFootOuterX, y: baseY });
+  points.push({ x: rightFootOuterX, y: feetBottomY });
+
+  // 2. Go left along feet bottom for foot width
+  points.push({ x: rightFootInnerX, y: feetBottomY });
+
+  // 3. Go up to joint clearance level
+  points.push({ x: rightFootInnerX, y: jointClearanceY });
+
+  // 4. Go left across the gap to left foot inner edge
+  points.push({ x: leftFootInnerX, y: jointClearanceY });
+
+  // 5. Go down to feet bottom
+  points.push({ x: leftFootInnerX, y: feetBottomY });
+
+  // 6. Go left along feet bottom for foot width
+  points.push({ x: leftFootOuterX, y: feetBottomY });
+
+  // 7. Go up to joint level at left corner
+  points.push({ x: leftFootOuterX, y: baseY });
+
+  return points;
+};
+
+// =============================================================================
 // Face Panel Generation
 // =============================================================================
 
@@ -438,7 +536,9 @@ const generateFacePanelOutline = (
   config: BoxConfig,
   edgeExtensions: EdgeExtensions = defaultEdgeExtensions,
   existingPanels?: PanelPath[],
-  fingerData?: AssemblyFingerData | null
+  fingerData?: AssemblyFingerData | null,
+  feetEdge?: 'top' | 'bottom' | 'left' | 'right' | null,  // Which edge has feet
+  feetConfig?: { height: number; width: number; inset: number } | null
 ): PathPoint[] => {
   const dims = getFaceDimensions(faceId, config);
   const edges = getFaceEdges(faceId);
@@ -499,14 +599,34 @@ const generateFacePanelOutline = (
   const leftIsSolid = edgeHasFingers('left');
   const rightIsSolid = edgeHasFingers('right');
 
-  // Calculate extension amounts (only apply to unlocked edges)
-  const extTop = edgeIsUnlocked('top') ? edgeExtensions.top : 0;
-  const extBottom = edgeIsUnlocked('bottom') ? edgeExtensions.bottom : 0;
-  const extLeft = edgeIsUnlocked('left') ? edgeExtensions.left : 0;
-  const extRight = edgeIsUnlocked('right') ? edgeExtensions.right : 0;
+  // Calculate extension amounts based on edge type:
+  // - Open edge (no adjacent solid face): can extend in any direction
+  // - Female joint (has slots, not tabs): can extend outward only (positive extension)
+  // - Male joint (has tabs): cannot extend
+  const getExtension = (position: 'top' | 'bottom' | 'left' | 'right', ext: number): number => {
+    const isOpen = edgeIsUnlocked(position);
+    const hasTabs = edgeHasTabs(position);
+
+    // Open face - can extend in any direction
+    if (isOpen) return ext;
+
+    // Female joint (solid adjacent, but slots not tabs) - can extend outward only
+    // Positive extensions are outward for all edges
+    if (!hasTabs && ext > 0) return ext;
+
+    // Male joint or negative extension on female joint - no extension
+    return 0;
+  };
+
+  const extTop = getExtension('top', edgeExtensions.top);
+  const extBottom = getExtension('bottom', edgeExtensions.bottom);
+  const extLeft = getExtension('left', edgeExtensions.left);
+  const extRight = getExtension('right', edgeExtensions.right);
 
   // Finger corners - ALWAYS use full insets for consistent finger alignment
   // This ensures fingers on perpendicular edges don't shift when a face is removed
+  // NOTE: These must NOT include extensions - finger positions must be consistent
+  // across all panels for proper joint alignment
   const fingerCorners: Record<string, Point> = {
     topLeft: {
       x: -halfW + (leftHasTabs ? materialThickness : 0),
@@ -586,10 +706,16 @@ const generateFacePanelOutline = (
     const isSolidAdjacent = adjacentFace?.solid ?? false;
     const hasFingers = edgeHasFingers(edgeInfo.position);
 
+    // Check if this edge has been extended outward (parallel extension > 0)
+    // When extended, the outline should be straight - finger joints become slot holes
+    const hasParallelExtension = (startExt.parallel > 0) || (endExt.parallel > 0);
+    const parallelExt = startExt.parallel > 0 ? startExt.parallel : endExt.parallel;
+
     let points: Point[];
 
     // Use pre-calculated assembly finger points for aligned finger joints
-    if (fingerData && isSolidAdjacent && hasFingers) {
+    // BUT NOT if the edge has been extended (those get slot holes instead)
+    if (fingerData && isSolidAdjacent && hasFingers && !hasParallelExtension) {
       const gender = getEdgeGender(faceId, edgeInfo.position, faces, assembly);
 
       if (gender !== null) {
@@ -627,6 +753,7 @@ const generateFacePanelOutline = (
         });
 
         // If outline corners differ from finger corners, add straight segments
+        // When connecting to an extended edge, add step transitions to full width
         const adjustedPoints: Point[] = [];
 
         // Add segment from outline start to finger start if different
@@ -651,6 +778,9 @@ const generateFacePanelOutline = (
         // Gender is null = straight edge
         points = [start, end];
       }
+    } else if (hasParallelExtension) {
+      // Edge with extension - straight edge (finger joints become slot holes)
+      points = [start, end];
     } else {
       // No finger data or not a solid adjacent face - straight edge
       points = [start, end];
@@ -684,6 +814,58 @@ const generateFacePanelOutline = (
       for (let i = 1; i < points.length; i++) {
         outlinePoints.push(points[i]);
       }
+    }
+  }
+
+  // Post-process: Insert feet path if needed
+  // The feet replace the bottom edge segment (from bottomRight to bottomLeft)
+  if (feetEdge === 'bottom' && feetConfig) {
+    // Find the bottom corners in the outline
+    // bottomRight is around index where right edge ends / bottom edge starts
+    // bottomLeft is around index where bottom edge ends / left edge starts
+    const baseY = fingerCorners.bottomRight.y;
+
+    // Find the approximate bottomRight and bottomLeft positions
+    const bottomRightX = fingerCorners.bottomRight.x;
+    const bottomLeftX = fingerCorners.bottomLeft.x;
+
+    // Find indices of points near bottom corners
+    let bottomRightIdx = -1;
+    let bottomLeftIdx = -1;
+    const tolerance = 0.1;
+
+    for (let i = 0; i < outlinePoints.length; i++) {
+      const p = outlinePoints[i];
+      // Look for points at the bottom Y level
+      if (Math.abs(p.y - baseY) < tolerance) {
+        if (Math.abs(p.x - bottomRightX) < tolerance && bottomRightIdx === -1) {
+          bottomRightIdx = i;
+        }
+        if (Math.abs(p.x - bottomLeftX) < tolerance) {
+          bottomLeftIdx = i;
+        }
+      }
+    }
+
+    // If we found both corners, replace the segment between them with feet path
+    if (bottomRightIdx !== -1 && bottomLeftIdx !== -1 && bottomRightIdx < bottomLeftIdx) {
+      const feetPath = generateFeetPath(
+        bottomRightX,
+        bottomLeftX,
+        baseY,
+        feetConfig,
+        materialThickness
+      );
+
+      // Remove the old bottom segment and insert feet path
+      const beforeBottom = outlinePoints.slice(0, bottomRightIdx);
+      const afterBottom = outlinePoints.slice(bottomLeftIdx + 1);
+
+      // Rebuild outline: before + feet path + after
+      outlinePoints.length = 0;
+      outlinePoints.push(...beforeBottom);
+      outlinePoints.push(...feetPath);
+      outlinePoints.push(...afterBottom);
     }
   }
 
@@ -1299,6 +1481,178 @@ const generateLidSlotHoles = (
   return holes;
 };
 
+// Generate slot holes for edges that have been extended outward
+// When an edge is extended (e.g., for feet or via 2D editor), the finger pattern
+// becomes slot holes at the original edge position instead of being part of the outline
+const generateExtensionSlotHoles = (
+  faceId: FaceId,
+  faces: Face[],
+  config: BoxConfig,
+  edgeExtensions: EdgeExtensions,
+  fingerData?: AssemblyFingerData | null
+): PanelHole[] => {
+  const holes: PanelHole[] = [];
+  if (!fingerData) return holes;
+
+  const { materialThickness, assembly } = config;
+  const dims = getFaceDimensions(faceId, config);
+  const edges = getFaceEdges(faceId);
+  const halfW = dims.width / 2;
+  const halfH = dims.height / 2;
+
+  // Get extensions
+  const extTop = edgeExtensions.top ?? 0;
+  const extBottom = edgeExtensions.bottom ?? 0;
+  const extLeft = edgeExtensions.left ?? 0;
+  const extRight = edgeExtensions.right ?? 0;
+
+  // Check which perpendicular edges have tabs
+  const edgeHasTabs = (position: 'top' | 'bottom' | 'left' | 'right'): boolean => {
+    const edgeInfo = edges.find(e => e.position === position)!;
+    const adjacentFace = faces.find(f => f.id === edgeInfo.adjacentFaceId);
+    const isSolidAdjacent = adjacentFace?.solid ?? false;
+    const tabOut = shouldTabOut(faceId, edgeInfo.adjacentFaceId, assembly);
+    return isSolidAdjacent && tabOut === true;
+  };
+
+  const topHasTabs = edgeHasTabs('top');
+  const bottomHasTabs = edgeHasTabs('bottom');
+  const leftHasTabs = edgeHasTabs('left');
+  const rightHasTabs = edgeHasTabs('right');
+
+  // Process each edge
+  for (const edgeInfo of edges) {
+    const position = edgeInfo.position;
+    const adjacentFace = faces.find(f => f.id === edgeInfo.adjacentFaceId);
+    const isSolidAdjacent = adjacentFace?.solid ?? false;
+
+    // Get extension for this edge
+    const extension = edgeExtensions[position] ?? 0;
+
+    // Check if this edge is male (tabs-out) or female (slots-in)
+    // We only need slot holes for female edges - male edges lose their tabs when extended
+    // and the connection breaks (the adjacent panel would need to change, not us)
+    const tabOut = shouldTabOut(faceId, edgeInfo.adjacentFaceId, assembly);
+    // Female edge: adjacent face is solid AND we're NOT tabbing out (we receive tabs)
+    // Also need to handle tabOut === null (inset lid case) - treat as needing holes if there's extension
+    const isFemaleEdge = isSolidAdjacent && (tabOut === false || tabOut === null);
+
+    // Only generate slot holes if:
+    // 1. The edge has a positive outward extension
+    // 2. The adjacent face is solid (there would have been finger joints)
+    // 3. The edge is female (receiving tabs from adjacent panel)
+    if (extension <= 0 || !isSolidAdjacent || !isFemaleEdge) continue;
+
+    // Get the axis and finger data for this edge
+    const axis = getEdgeAxis(faceId, position);
+    const axisFingerPoints = fingerData[axis];
+    if (!axisFingerPoints) continue;
+
+    const { points: transitionPoints, innerOffset, fingerLength } = axisFingerPoints;
+    if (fingerLength <= 0) continue;
+
+    // Determine which perpendicular edges have tabs
+    const isHorizontalEdge = position === 'top' || position === 'bottom';
+    let lowHasTabs: boolean;
+    let highHasTabs: boolean;
+    if (isHorizontalEdge) {
+      lowHasTabs = leftHasTabs;
+      highHasTabs = rightHasTabs;
+    } else {
+      lowHasTabs = bottomHasTabs;
+      highHasTabs = topHasTabs;
+    }
+
+    // Calculate the edge positions in axis coordinates
+    const { startPos, endPos } = getEdgeAxisPositions(faceId, position, config, lowHasTabs, highHasTabs);
+    // Normalize to minPos/maxPos since edge direction varies (bottom/right edges run in negative direction)
+    const minPos = Math.min(startPos, endPos);
+    const maxPos = Math.max(startPos, endPos);
+
+    // Calculate the slot position (perpendicular to the edge, at the original edge position)
+    // The original edge position is at ±halfW or ±halfH minus the extension
+    // But actually, slots should be inset by materialThickness/2 from the original edge
+    let slotPosition: number;
+    switch (position) {
+      case 'top':
+        // Original top edge was at halfH, now extended to halfH + extTop
+        // Slot center should be at the original edge position: halfH - mt/2 (for mt-wide slot centered on edge)
+        slotPosition = halfH - materialThickness / 2;
+        break;
+      case 'bottom':
+        slotPosition = -halfH + materialThickness / 2;
+        break;
+      case 'right':
+        slotPosition = halfW - materialThickness / 2;
+        break;
+      case 'left':
+        slotPosition = -halfW + materialThickness / 2;
+        break;
+    }
+
+    // Determine axis dimension for calculating maxJoint
+    let axisDim: number;
+    switch (axis) {
+      case 'x': axisDim = config.width; break;
+      case 'y': axisDim = config.height; break;
+      case 'z': axisDim = config.depth; break;
+    }
+    const maxJoint = axisDim - 2 * materialThickness;
+
+    // Create section boundaries
+    const allBoundaries = [innerOffset, ...transitionPoints, maxJoint - innerOffset];
+
+    // Generate slots at finger positions (even-indexed sections where tabs go)
+    let slotIndex = 0;
+    for (let i = 0; i < allBoundaries.length - 1; i++) {
+      if (i % 2 === 0) {  // Finger/tab section
+        const sectionStart = allBoundaries[i];
+        const sectionEnd = allBoundaries[i + 1];
+
+        // Check if section is within the edge range (using normalized min/max)
+        if (sectionStart < minPos || sectionEnd > maxPos) continue;
+
+        // Convert from axis coords (0 to maxJoint) to 2D panel coords (centered)
+        const halfPanelDim = isHorizontalEdge ? halfW - materialThickness : halfH - materialThickness;
+        const offsetStart = sectionStart - maxJoint / 2;
+        const offsetEnd = sectionEnd - maxJoint / 2;
+
+        let holePoints: PathPoint[];
+        if (isHorizontalEdge) {
+          // Horizontal edge (top/bottom): slot runs horizontally
+          holePoints = [
+            { x: offsetStart, y: slotPosition - materialThickness / 2 },
+            { x: offsetEnd, y: slotPosition - materialThickness / 2 },
+            { x: offsetEnd, y: slotPosition + materialThickness / 2 },
+            { x: offsetStart, y: slotPosition + materialThickness / 2 },
+          ];
+        } else {
+          // Vertical edge (left/right): slot runs vertically
+          holePoints = [
+            { x: slotPosition - materialThickness / 2, y: offsetStart },
+            { x: slotPosition + materialThickness / 2, y: offsetStart },
+            { x: slotPosition + materialThickness / 2, y: offsetEnd },
+            { x: slotPosition - materialThickness / 2, y: offsetEnd },
+          ];
+        }
+
+        holes.push({
+          id: `extension-slot-${faceId}-${position}-${slotIndex}`,
+          type: 'slot',
+          path: { points: holePoints, closed: true },
+          source: {
+            type: 'extension-slot',
+            sourceId: `${faceId}-${position}`,
+          },
+        });
+        slotIndex++;
+      }
+    }
+  }
+
+  return holes;
+};
+
 const generateFacePanel = (
   faceId: FaceId,
   faces: Face[],
@@ -1312,48 +1666,41 @@ const generateFacePanel = (
   const face = faces.find((f) => f.id === faceId);
   if (!face || !face.solid) return null;
 
-  let extensions = existingExtensions ?? defaultEdgeExtensions;
+  const extensions = existingExtensions ?? defaultEdgeExtensions;
 
-  // Apply feet extension to wall panels
+  // Determine if this panel should have feet
   const feetConfig = config.assembly.feet;
-  if (feetConfig?.enabled && feetConfig.height > 0) {
-    // Only apply feet to wall faces (not lids)
-    const isWall = getFaceRole(faceId, config.assembly.assemblyAxis) === 'wall';
-    if (isWall) {
-      // Determine which edge of this panel corresponds to the bottom of the box
-      // For Y axis assembly: walls are front/back/left/right, their bottom edge is at y=0
-      // The "bottom" edge of the panel in local coords is the one that touches the bottom face
-      let feetEdge: 'top' | 'bottom' | 'left' | 'right' | null = null;
+  const isWall = getFaceRole(faceId, config.assembly.assemblyAxis) === 'wall';
+  const shouldHaveFeet = feetConfig?.enabled && feetConfig.height > 0 && isWall &&
+    (config.assembly.assemblyAxis === 'y' || config.assembly.assemblyAxis === 'x');
 
-      switch (config.assembly.assemblyAxis) {
-        case 'y':
-          // For Y axis, walls have their bottom at the bottom edge
-          feetEdge = 'bottom';
-          break;
-        case 'x':
-          // For X axis, left/right are lids; front/back walls have bottom at bottom edge
-          feetEdge = 'bottom';
-          break;
-        case 'z':
-          // For Z axis, front/back are lids; left/right/top/bottom are walls
-          // This gets complex - simplify by only applying feet to Y-axis assembly
-          feetEdge = null;
-          break;
-      }
-
-      if (feetEdge) {
-        extensions = {
-          ...extensions,
-          [feetEdge]: (extensions[feetEdge] ?? 0) + feetConfig.height,
-        };
-      }
-    }
-  }
+  // Determine feet edge (bottom edge for Y and X axis assemblies)
+  const feetEdge = shouldHaveFeet ? 'bottom' as const : null;
+  const feetParams = shouldHaveFeet && feetConfig ? {
+    height: feetConfig.height,
+    width: feetConfig.width,
+    inset: feetConfig.inset,
+  } : null;
 
   const dims = getFaceDimensions(faceId, config);
-  const outlinePoints = generateFacePanelOutline(faceId, faces, config, extensions, existingPanels, fingerData);
+
+  // Calculate feet extension FIRST so we can use it for slot hole generation
+  const feetExtension = shouldHaveFeet && feetConfig ? (config.materialThickness + feetConfig.height) : 0;
+
+  // Create extensions that include feet for slot hole generation
+  const extensionsWithFeet: EdgeExtensions = shouldHaveFeet ? {
+    ...extensions,
+    bottom: (extensions.bottom ?? 0) + feetExtension,
+  } : { ...extensions };
+
+  const outlinePoints = generateFacePanelOutline(
+    faceId, faces, config, extensions, existingPanels, fingerData,
+    feetEdge, feetParams
+  );
   const dividerHoles = generateDividerSlotHoles(faceId, faces, rootVoid, config, existingPanels, fingerData);
   const lidHoles = generateLidSlotHoles(faceId, faces, config, fingerData);
+  // Pass extensionsWithFeet so slot holes are generated for feet edge
+  const extensionHoles = generateExtensionSlotHoles(faceId, faces, config, extensionsWithFeet, fingerData);
   const { position, rotation } = getFaceTransform(faceId, config, scale);
 
   const source: PanelSource = {
@@ -1361,15 +1708,15 @@ const generateFacePanel = (
     faceId,
   };
 
-  // Calculate actual dimensions including all extensions
+  // Calculate actual dimensions including all extensions and feet
   const actualWidth = dims.width + (extensions.left ?? 0) + (extensions.right ?? 0);
-  const actualHeight = dims.height + (extensions.top ?? 0) + (extensions.bottom ?? 0);
+  const actualHeight = dims.height + (extensions.top ?? 0) + (extensions.bottom ?? 0) + feetExtension;
 
   return {
     id: `face-${faceId}`,
     source,
     outline: { points: outlinePoints, closed: true },
-    holes: [...dividerHoles, ...lidHoles],
+    holes: [...dividerHoles, ...lidHoles, ...extensionHoles],
     width: actualWidth,
     height: actualHeight,
     thickness: config.materialThickness,
@@ -1377,7 +1724,7 @@ const generateFacePanel = (
     rotation,
     label: faceId.toUpperCase(),
     visible: true,
-    edgeExtensions: { ...extensions },
+    edgeExtensions: extensionsWithFeet,
   };
 };
 

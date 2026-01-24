@@ -101,8 +101,15 @@ export const getEditableAreas = (
   config: BoxConfig
 ): EditableArea[] => {
   const { materialThickness } = config;
-  const halfW = panel.width / 2;
-  const halfH = panel.height / 2;
+
+  // Calculate original dimensions (without extensions)
+  const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
+  const originalWidth = panel.width - (ext.left ?? 0) - (ext.right ?? 0);
+  const originalHeight = panel.height - (ext.top ?? 0) - (ext.bottom ?? 0);
+
+  // Use original dimensions for positioning (panel outline uses original dims + extensions)
+  const halfW = originalWidth / 2;
+  const halfH = originalHeight / 2;
 
   let edgeInfos: EdgeInfo[];
 
@@ -130,12 +137,12 @@ export const getEditableAreas = (
   const leftMargin = edgeInfos.find(e => e.position === 'left')?.margin ?? materialThickness;
   const rightMargin = edgeInfos.find(e => e.position === 'right')?.margin ?? materialThickness;
 
-  // Calculate the main editable area
+  // Calculate the main editable area (based on original dimensions)
   const mainArea: EditableArea = {
     x: -halfW + leftMargin,
     y: -halfH + bottomMargin,
-    width: panel.width - leftMargin - rightMargin,
-    height: panel.height - topMargin - bottomMargin,
+    width: originalWidth - leftMargin - rightMargin,
+    height: originalHeight - topMargin - bottomMargin,
     label: 'Safe zone',
   };
 
@@ -159,7 +166,7 @@ export const getEditableAreas = (
             stripArea = {
               x: -halfW + leftMargin,
               y: halfH - materialThickness, // Top strip
-              width: panel.width - leftMargin - rightMargin,
+              width: originalWidth - leftMargin - rightMargin,
               height: materialThickness,
               label: 'Top edge (open)',
             };
@@ -170,7 +177,7 @@ export const getEditableAreas = (
             stripArea = {
               x: -halfW + leftMargin,
               y: -halfH,
-              width: panel.width - leftMargin - rightMargin,
+              width: originalWidth - leftMargin - rightMargin,
               height: materialThickness,
               label: 'Bottom edge (open)',
             };
@@ -182,7 +189,7 @@ export const getEditableAreas = (
               x: -halfW,
               y: -halfH + bottomMargin,
               width: materialThickness,
-              height: panel.height - topMargin - bottomMargin,
+              height: originalHeight - topMargin - bottomMargin,
               label: 'Left edge (open)',
             };
           }
@@ -193,7 +200,7 @@ export const getEditableAreas = (
               x: halfW - materialThickness,
               y: -halfH + bottomMargin,
               width: materialThickness,
-              height: panel.height - topMargin - bottomMargin,
+              height: originalHeight - topMargin - bottomMargin,
               label: 'Right edge (open)',
             };
           }
@@ -204,6 +211,57 @@ export const getEditableAreas = (
       // Instead of adding separate strips, we've already handled this above
       // by setting margin to 0
     }
+  }
+
+  // Add editable areas for extended edges
+  // The extended portion is outside the original joint area and is safe to edit
+  const extTop = ext.top ?? 0;
+  const extBottom = ext.bottom ?? 0;
+  const extLeft = ext.left ?? 0;
+  const extRight = ext.right ?? 0;
+
+  // Top extension area
+  if (extTop > 0) {
+    areas.push({
+      x: -halfW + leftMargin,
+      y: halfH, // Start from original top edge
+      width: originalWidth - leftMargin - rightMargin,
+      height: extTop,
+      label: 'Extended top',
+    });
+  }
+
+  // Bottom extension area
+  if (extBottom > 0) {
+    areas.push({
+      x: -halfW + leftMargin,
+      y: -halfH - extBottom, // Start from extended bottom
+      width: originalWidth - leftMargin - rightMargin,
+      height: extBottom,
+      label: 'Extended bottom',
+    });
+  }
+
+  // Left extension area
+  if (extLeft > 0) {
+    areas.push({
+      x: -halfW - extLeft, // Start from extended left
+      y: -halfH + bottomMargin,
+      width: extLeft,
+      height: originalHeight - topMargin - bottomMargin,
+      label: 'Extended left',
+    });
+  }
+
+  // Right extension area
+  if (extRight > 0) {
+    areas.push({
+      x: halfW, // Start from original right edge
+      y: -halfH + bottomMargin,
+      width: extRight,
+      height: originalHeight - topMargin - bottomMargin,
+      label: 'Extended right',
+    });
   }
 
   return areas;

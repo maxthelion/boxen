@@ -224,7 +224,20 @@ export const AssemblyProperties: React.FC = () => {
                   />
                 </label>
                 <label>
-                  <span>Inset from corners (mm)</span>
+                  <span>Foot width (mm)</span>
+                  <NumberInput
+                    value={config.assembly.feet.width}
+                    onChange={(v) => setFeetConfig({
+                      ...config.assembly.feet!,
+                      width: v,
+                    })}
+                    min={10}
+                    max={100}
+                    step={5}
+                  />
+                </label>
+                <label>
+                  <span>Inset from edge (mm)</span>
                   <NumberInput
                     value={config.assembly.feet.inset}
                     onChange={(v) => setFeetConfig({
