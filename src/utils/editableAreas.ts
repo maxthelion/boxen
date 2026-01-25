@@ -215,53 +215,140 @@ export const getEditableAreas = (
 
   // Add editable areas for extended edges
   // The extended portion is outside the original joint area and is safe to edit
+  // Extensions have NO joints on their perpendicular edges, so we use full width
+  // The actual bounds are computed from the panel outline to account for notching
   const extTop = ext.top ?? 0;
   const extBottom = ext.bottom ?? 0;
   const extLeft = ext.left ?? 0;
   const extRight = ext.right ?? 0;
 
-  // Top extension area
+  // Helper to get actual bounds of an extension region from the panel outline
+  const getExtensionBounds = (
+    direction: 'top' | 'bottom' | 'left' | 'right'
+  ): { minX: number; maxX: number; minY: number; maxY: number } | null => {
+    if (!panel.outline?.points?.length) return null;
+
+    // Filter points in the extension region
+    let extPoints: { x: number; y: number }[];
+    switch (direction) {
+      case 'top':
+        extPoints = panel.outline.points.filter(p => p.y > halfH + 0.01);
+        break;
+      case 'bottom':
+        extPoints = panel.outline.points.filter(p => p.y < -halfH - 0.01);
+        break;
+      case 'left':
+        extPoints = panel.outline.points.filter(p => p.x < -halfW - 0.01);
+        break;
+      case 'right':
+        extPoints = panel.outline.points.filter(p => p.x > halfW + 0.01);
+        break;
+    }
+
+    if (extPoints.length === 0) return null;
+
+    return {
+      minX: Math.min(...extPoints.map(p => p.x)),
+      maxX: Math.max(...extPoints.map(p => p.x)),
+      minY: Math.min(...extPoints.map(p => p.y)),
+      maxY: Math.max(...extPoints.map(p => p.y)),
+    };
+  };
+
+  // Top extension area - use actual bounds from outline (accounts for notching)
+  // Where the extension is notched, there's a joint with the adjacent panel's extension,
+  // so we need to add a margin at those notched edges.
   if (extTop > 0) {
-    areas.push({
-      x: -halfW + leftMargin,
-      y: halfH, // Start from original top edge
-      width: originalWidth - leftMargin - rightMargin,
-      height: extTop,
-      label: 'Extended top',
-    });
+    const bounds = getExtensionBounds('top');
+    if (bounds) {
+      // Check if left/right edges are notched (not at full width)
+      const isLeftNotched = bounds.minX > -halfW + 0.01;
+      const isRightNotched = bounds.maxX < halfW - 0.01;
+      // Apply margin where notched (joint with adjacent extension)
+      const leftMarginExt = isLeftNotched ? materialThickness : 0;
+      const rightMarginExt = isRightNotched ? materialThickness : 0;
+
+      const areaX = bounds.minX + leftMarginExt;
+      const areaWidth = (bounds.maxX - rightMarginExt) - areaX;
+      if (areaWidth > 0) {
+        areas.push({
+          x: areaX,
+          y: halfH, // Start from original top edge
+          width: areaWidth,
+          height: bounds.maxY - halfH,
+          label: 'Extended top',
+        });
+      }
+    }
   }
 
   // Bottom extension area
   if (extBottom > 0) {
-    areas.push({
-      x: -halfW + leftMargin,
-      y: -halfH - extBottom, // Start from extended bottom
-      width: originalWidth - leftMargin - rightMargin,
-      height: extBottom,
-      label: 'Extended bottom',
-    });
+    const bounds = getExtensionBounds('bottom');
+    if (bounds) {
+      const isLeftNotched = bounds.minX > -halfW + 0.01;
+      const isRightNotched = bounds.maxX < halfW - 0.01;
+      const leftMarginExt = isLeftNotched ? materialThickness : 0;
+      const rightMarginExt = isRightNotched ? materialThickness : 0;
+
+      const areaX = bounds.minX + leftMarginExt;
+      const areaWidth = (bounds.maxX - rightMarginExt) - areaX;
+      if (areaWidth > 0) {
+        areas.push({
+          x: areaX,
+          y: bounds.minY, // Start from extended bottom
+          width: areaWidth,
+          height: -halfH - bounds.minY,
+          label: 'Extended bottom',
+        });
+      }
+    }
   }
 
   // Left extension area
   if (extLeft > 0) {
-    areas.push({
-      x: -halfW - extLeft, // Start from extended left
-      y: -halfH + bottomMargin,
-      width: extLeft,
-      height: originalHeight - topMargin - bottomMargin,
-      label: 'Extended left',
-    });
+    const bounds = getExtensionBounds('left');
+    if (bounds) {
+      const isTopNotched = bounds.maxY < halfH - 0.01;
+      const isBottomNotched = bounds.minY > -halfH + 0.01;
+      const topMarginExt = isTopNotched ? materialThickness : 0;
+      const bottomMarginExt = isBottomNotched ? materialThickness : 0;
+
+      const areaY = bounds.minY + bottomMarginExt;
+      const areaHeight = (bounds.maxY - topMarginExt) - areaY;
+      if (areaHeight > 0) {
+        areas.push({
+          x: bounds.minX, // Start from extended left
+          y: areaY,
+          width: -halfW - bounds.minX,
+          height: areaHeight,
+          label: 'Extended left',
+        });
+      }
+    }
   }
 
   // Right extension area
   if (extRight > 0) {
-    areas.push({
-      x: halfW, // Start from original right edge
-      y: -halfH + bottomMargin,
-      width: extRight,
-      height: originalHeight - topMargin - bottomMargin,
-      label: 'Extended right',
-    });
+    const bounds = getExtensionBounds('right');
+    if (bounds) {
+      const isTopNotched = bounds.maxY < halfH - 0.01;
+      const isBottomNotched = bounds.minY > -halfH + 0.01;
+      const topMarginExt = isTopNotched ? materialThickness : 0;
+      const bottomMarginExt = isBottomNotched ? materialThickness : 0;
+
+      const areaY = bounds.minY + bottomMarginExt;
+      const areaHeight = (bounds.maxY - topMarginExt) - areaY;
+      if (areaHeight > 0) {
+        areas.push({
+          x: halfW, // Start from original right edge
+          y: areaY,
+          width: bounds.maxX - halfW,
+          height: areaHeight,
+          label: 'Extended right',
+        });
+      }
+    }
   }
 
   return areas;
