@@ -2220,6 +2220,12 @@ body {
   pointer-events: auto;
 }
 
+/* 2D mode: single row layout */
+.sketch-view-2d .editor-toolbar {
+  flex-direction: row;
+  top: 56px;
+}
+
 .editor-toolbar-section {
   background: rgba(26, 26, 46, 0.95);
   border: 1px solid #333;
@@ -2228,6 +2234,21 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* 2D mode: horizontal sections */
+.sketch-view-2d .editor-toolbar-section {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.sketch-view-2d .editor-toolbar-label {
+  writing-mode: horizontal-tb;
+  padding-bottom: 0;
+  padding-right: 4px;
+  border-right: 1px solid #444;
+  margin-right: 4px;
 }
 
 .editor-toolbar-label {
@@ -2287,12 +2308,242 @@ body {
   letter-spacing: 0.3px;
 }
 
-/* Adjust for 2D view - toolbar is inside the sketch container */
-.sketch-view-2d .editor-toolbar {
-  top: 56px; /* Account for sketch toolbar */
-}
-
 /* Adjust for 3D view when there's no main toolbar visible */
 .viewport-container .editor-toolbar {
   top: 48px;
+}
+
+/* ============================================
+   Floating Palette (reusable tool options)
+   ============================================ */
+
+.floating-palette {
+  position: fixed;
+  z-index: 1000;
+  background: rgba(30, 30, 50, 0.95);
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+  user-select: none;
+}
+
+.floating-palette.dragging {
+  opacity: 0.9;
+  cursor: grabbing;
+}
+
+.floating-palette-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: rgba(40, 40, 70, 0.8);
+  border-bottom: 1px solid #444;
+  cursor: grab;
+}
+
+.floating-palette.dragging .floating-palette-header {
+  cursor: grabbing;
+}
+
+.floating-palette-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #ccc;
+  letter-spacing: 0.3px;
+}
+
+.floating-palette-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.floating-palette-close:hover {
+  color: #fff;
+}
+
+.floating-palette-content {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Palette form elements */
+
+.palette-label {
+  display: block;
+  font-size: 0.7rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.palette-slider-input {
+  display: flex;
+  flex-direction: column;
+}
+
+.palette-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.palette-slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #333;
+  border-radius: 2px;
+  outline: none;
+}
+
+.palette-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #6a6aaa;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.palette-slider::-webkit-slider-thumb:hover {
+  background: #8a8acc;
+}
+
+.palette-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: #6a6aaa;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+.palette-number-input {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.palette-input {
+  width: 50px;
+  padding: 4px 6px;
+  background: #252545;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  text-align: right;
+}
+
+.palette-input:focus {
+  outline: none;
+  border-color: #6a6aaa;
+}
+
+.palette-unit {
+  font-size: 0.75rem;
+  color: #666;
+}
+
+/* Toggle buttons */
+
+.palette-toggle-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.palette-toggle-buttons {
+  display: flex;
+  gap: 2px;
+  background: #252545;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.palette-toggle-btn {
+  flex: 1;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: #888;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.palette-toggle-btn:hover {
+  color: #ccc;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.palette-toggle-btn.active {
+  background: #4a4a8a;
+  color: #fff;
+}
+
+/* Action buttons */
+
+.palette-button-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.palette-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.palette-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.palette-btn-primary {
+  background: #4a4a8a;
+  color: #fff;
+}
+
+.palette-btn-primary:hover:not(:disabled) {
+  background: #5a5a9a;
+}
+
+.palette-btn-secondary {
+  background: #353555;
+  color: #ccc;
+}
+
+.palette-btn-secondary:hover:not(:disabled) {
+  background: #454575;
+}
+
+.palette-btn-danger {
+  background: #8a4a4a;
+  color: #fff;
+}
+
+.palette-btn-danger:hover:not(:disabled) {
+  background: #9a5a5a;
 }
