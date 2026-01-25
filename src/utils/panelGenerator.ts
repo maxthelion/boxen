@@ -854,43 +854,75 @@ const generateFacePanelOutline = (
   const leftGoesFullWidth = extLeft > 0 && !topLeftMeetsOnLeft && !bottomLeftMeetsOnLeft;
   const rightGoesFullWidth = extRight > 0 && !topRightMeetsOnRight && !bottomRightMeetsOnRight;
 
+  // Calculate overlap shortening for corners where this panel is the "loser"
+  // When both panels extend the same edge and this panel doesn't have priority,
+  // its extension needs to be shortened by materialThickness to make room for the winner's material
+  const getOverlapShortening = (
+    meetsOnHorizontal: boolean,  // Meeting detected on horizontal edge (top/bottom)
+    meetsOnVertical: boolean,    // Meeting detected on vertical edge (left/right)
+    horizontalExt: number,       // Extension on horizontal edge
+    verticalExt: number          // Extension on vertical edge
+  ): { shortenHorizontal: number; shortenVertical: number } => {
+    // If we meet on horizontal edge (meaning we're the loser there), shorten the horizontal extension
+    const shortenHorizontal = (meetsOnHorizontal && horizontalExt > 0) ? materialThickness : 0;
+    // If we meet on vertical edge (meaning we're the loser there), shorten the vertical extension
+    const shortenVertical = (meetsOnVertical && verticalExt > 0) ? materialThickness : 0;
+    return { shortenHorizontal, shortenVertical };
+  };
+
+  // Get shortening for each corner
+  const topLeftShortening = getOverlapShortening(topLeftMeetsOnTop, topLeftMeetsOnLeft, extTop, extLeft);
+  const topRightShortening = getOverlapShortening(topRightMeetsOnTop, topRightMeetsOnRight, extTop, extRight);
+  const bottomRightShortening = getOverlapShortening(bottomRightMeetsOnBottom, bottomRightMeetsOnRight, extBottom, extRight);
+  const bottomLeftShortening = getOverlapShortening(bottomLeftMeetsOnBottom, bottomLeftMeetsOnLeft, extBottom, extLeft);
+
   // Extension corners - where extended edges end
   // Each corner independently decides whether to go full width based on:
   // 1. Whether there's an extension on the relevant edge(s)
   // 2. Whether THIS SPECIFIC corner has a meeting (not other corners on the same edge)
+  // When there's a meeting and we're the loser, the extension is shortened by materialThickness
+  // to make room for the winner's material in 3D space
   const extCorners: Record<string, Point> = {
     topLeft: {
       // Full width if: (top extends AND no meeting at this corner on top) OR (left extends AND no meeting at this corner on left)
+      // If we lose on left edge, shorten left extension (add to X since left is negative direction)
       x: ((extTop > 0 && !topLeftMeetsOnTop) || (extLeft > 0 && !topLeftMeetsOnLeft))
-        ? -halfW - extLeft
-        : mainCorners.topLeft.x - extLeft,
+        ? -halfW - extLeft + topLeftShortening.shortenVertical
+        : mainCorners.topLeft.x - extLeft + topLeftShortening.shortenVertical,
+      // If we lose on top edge, shorten top extension (subtract from Y since top is positive direction)
       y: ((extTop > 0 && !topLeftMeetsOnTop) || (extLeft > 0 && !topLeftMeetsOnLeft))
-        ? halfH + extTop
-        : mainCorners.topLeft.y + extTop
+        ? halfH + extTop - topLeftShortening.shortenHorizontal
+        : mainCorners.topLeft.y + extTop - topLeftShortening.shortenHorizontal
     },
     topRight: {
+      // If we lose on right edge, shorten right extension (subtract from X since right is positive direction)
       x: ((extTop > 0 && !topRightMeetsOnTop) || (extRight > 0 && !topRightMeetsOnRight))
-        ? halfW + extRight
-        : mainCorners.topRight.x + extRight,
+        ? halfW + extRight - topRightShortening.shortenVertical
+        : mainCorners.topRight.x + extRight - topRightShortening.shortenVertical,
+      // If we lose on top edge, shorten top extension
       y: ((extTop > 0 && !topRightMeetsOnTop) || (extRight > 0 && !topRightMeetsOnRight))
-        ? halfH + extTop
-        : mainCorners.topRight.y + extTop
+        ? halfH + extTop - topRightShortening.shortenHorizontal
+        : mainCorners.topRight.y + extTop - topRightShortening.shortenHorizontal
     },
     bottomRight: {
+      // If we lose on right edge, shorten right extension
       x: ((extBottom > 0 && !bottomRightMeetsOnBottom) || (extRight > 0 && !bottomRightMeetsOnRight))
-        ? halfW + extRight
-        : mainCorners.bottomRight.x + extRight,
+        ? halfW + extRight - bottomRightShortening.shortenVertical
+        : mainCorners.bottomRight.x + extRight - bottomRightShortening.shortenVertical,
+      // If we lose on bottom edge, shorten bottom extension (add to Y since bottom is negative direction)
       y: ((extBottom > 0 && !bottomRightMeetsOnBottom) || (extRight > 0 && !bottomRightMeetsOnRight))
-        ? -halfH - extBottom
-        : mainCorners.bottomRight.y - extBottom
+        ? -halfH - extBottom + bottomRightShortening.shortenHorizontal
+        : mainCorners.bottomRight.y - extBottom + bottomRightShortening.shortenHorizontal
     },
     bottomLeft: {
+      // If we lose on left edge, shorten left extension
       x: ((extBottom > 0 && !bottomLeftMeetsOnBottom) || (extLeft > 0 && !bottomLeftMeetsOnLeft))
-        ? -halfW - extLeft
-        : mainCorners.bottomLeft.x - extLeft,
+        ? -halfW - extLeft + bottomLeftShortening.shortenVertical
+        : mainCorners.bottomLeft.x - extLeft + bottomLeftShortening.shortenVertical,
+      // If we lose on bottom edge, shorten bottom extension
       y: ((extBottom > 0 && !bottomLeftMeetsOnBottom) || (extLeft > 0 && !bottomLeftMeetsOnLeft))
-        ? -halfH - extBottom
-        : mainCorners.bottomLeft.y - extBottom
+        ? -halfH - extBottom + bottomLeftShortening.shortenHorizontal
+        : mainCorners.bottomLeft.y - extBottom + bottomLeftShortening.shortenHorizontal
     },
   };
 
