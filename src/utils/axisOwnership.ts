@@ -10,6 +10,19 @@
  * which determines the joint geometry:
  * - Owner panel has a TAB (material extends outward)
  * - Non-owner panel has a SLOT (material is cut inward)
+ *
+ * Physical Constraints:
+ * - Each axis has a physical width equal to materialThickness
+ * - Two parallel axes cannot be placed closer than materialThickness apart
+ *   (there must be material between them for structural integrity)
+ * - The only exception is when axes are at exactly the same position,
+ *   which creates a CROSS JOINT (two dividers intersecting)
+ *
+ * Subdivision Spacing Rules:
+ * - When a void is subdivided, the divider panel creates an axis
+ * - Adjacent voids cannot have subdivisions within materialThickness of this axis
+ * - Subdivisions at exactly the same position merge into a cross joint
+ * - Minimum spacing between non-crossing subdivisions: materialThickness
  */
 
 import { FaceId, Face, AssemblyConfig, EdgeExtensions, JointGender } from '../types';
@@ -531,4 +544,146 @@ const findPerpFaceMatchingEdge = (
   }
 
   return null;
+};
+
+// =============================================================================
+// Axis Spacing Constraints
+// =============================================================================
+
+/**
+ * Minimum distance between parallel axes (subdivision positions)
+ * Two subdivisions must be at least this far apart, or at exactly the same position
+ */
+export const MIN_AXIS_SPACING = (materialThickness: number): number => materialThickness;
+
+/**
+ * Tolerance for considering two positions as "the same" (for cross joints)
+ * If two subdivisions are within this tolerance, they form a cross joint
+ */
+export const CROSS_JOINT_TOLERANCE = 0.001; // mm
+
+/**
+ * Check if two subdivision positions would create a valid configuration
+ * Returns the type of configuration or an error if invalid
+ */
+export type AxisSpacingResult =
+  | { valid: true; type: 'separate' }      // Far enough apart, no interaction
+  | { valid: true; type: 'cross_joint' }   // Same position, forms a cross
+  | { valid: false; reason: 'too_close'; minDistance: number };
+
+export const checkAxisSpacing = (
+  position1: number,
+  position2: number,
+  materialThickness: number
+): AxisSpacingResult => {
+  const distance = Math.abs(position1 - position2);
+  const minSpacing = MIN_AXIS_SPACING(materialThickness);
+
+  // Check if they're at the same position (cross joint)
+  if (distance < CROSS_JOINT_TOLERANCE) {
+    return { valid: true, type: 'cross_joint' };
+  }
+
+  // Check if they're far enough apart
+  if (distance >= minSpacing) {
+    return { valid: true, type: 'separate' };
+  }
+
+  // Too close but not a cross joint
+  return {
+    valid: false,
+    reason: 'too_close',
+    minDistance: minSpacing
+  };
+};
+
+/**
+ * Find valid positions for a new subdivision given existing subdivisions
+ * Returns ranges where a new subdivision can be placed
+ */
+export interface ValidRange {
+  start: number;
+  end: number;
+}
+
+export const findValidSubdivisionRanges = (
+  existingPositions: number[],
+  voidStart: number,
+  voidEnd: number,
+  materialThickness: number
+): ValidRange[] => {
+  if (existingPositions.length === 0) {
+    // No existing subdivisions - entire void is valid
+    return [{ start: voidStart, end: voidEnd }];
+  }
+
+  const minSpacing = MIN_AXIS_SPACING(materialThickness);
+  const sorted = [...existingPositions].sort((a, b) => a - b);
+  const ranges: ValidRange[] = [];
+
+  // Check range before first subdivision
+  const firstExclusion = sorted[0] - minSpacing;
+  if (firstExclusion > voidStart) {
+    ranges.push({ start: voidStart, end: firstExclusion });
+  }
+
+  // Check ranges between subdivisions
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const gapStart = sorted[i] + minSpacing;
+    const gapEnd = sorted[i + 1] - minSpacing;
+    if (gapEnd > gapStart) {
+      ranges.push({ start: gapStart, end: gapEnd });
+    }
+  }
+
+  // Check range after last subdivision
+  const lastExclusion = sorted[sorted.length - 1] + minSpacing;
+  if (lastExclusion < voidEnd) {
+    ranges.push({ start: lastExclusion, end: voidEnd });
+  }
+
+  // Also include the exact positions of existing subdivisions (for cross joints)
+  // These are point ranges (start === end)
+  for (const pos of sorted) {
+    ranges.push({ start: pos, end: pos });
+  }
+
+  return ranges;
+};
+
+/**
+ * Snap a proposed subdivision position to a valid location
+ * Prefers cross joints when close to existing subdivisions
+ */
+export const snapToValidPosition = (
+  proposedPosition: number,
+  existingPositions: number[],
+  voidStart: number,
+  voidEnd: number,
+  materialThickness: number
+): number => {
+  const minSpacing = MIN_AXIS_SPACING(materialThickness);
+
+  // Check if we're close enough to an existing position to snap to cross joint
+  for (const existing of existingPositions) {
+    if (Math.abs(proposedPosition - existing) < minSpacing / 2) {
+      return existing; // Snap to cross joint
+    }
+  }
+
+  // Check if we're in a valid range
+  for (const existing of existingPositions) {
+    const distance = Math.abs(proposedPosition - existing);
+    if (distance < minSpacing && distance >= CROSS_JOINT_TOLERANCE) {
+      // Too close - push away from the existing position
+      if (proposedPosition < existing) {
+        return Math.max(voidStart, existing - minSpacing);
+      } else {
+        return Math.min(voidEnd, existing + minSpacing);
+      }
+    }
+  }
+
+  // Position is valid as-is
+  return Math.max(voidStart, Math.min(voidEnd, proposedPosition));
 };
