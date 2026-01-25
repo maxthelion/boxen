@@ -327,6 +327,12 @@ At 45°: slopeOffset = footHeight (1:1 slope)
 At 60°: slopeOffset ≈ footHeight * 1.73 (steeper)
 At 30°: slopeOffset ≈ footHeight * 0.58 (shallower)
 
+### 6.6 Implementation TODO
+
+- [ ] **Sloped inner edge**: Add `slopeAngle` to feet generation - inner edge of each foot slopes toward panel center
+- [ ] **Corner fillet**: Apply fillet to outer corner of feet (the point furthest from panel body)
+- [ ] **UI controls**: Add slope angle slider and fillet radius input to feet configuration panel
+
 ---
 
 ## Phase 7: Corner Finishing
