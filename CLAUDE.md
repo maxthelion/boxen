@@ -1,5 +1,9 @@
 # Boxen - Laser-Cut Box Designer
 
+## Working with Claude
+
+- **After completing a feature**: When the user approves a feature, ask if they want to commit it to git.
+
 ## Project Overview
 
 Boxen is a web-based 3D parametric box designer for laser cutting. Users can design boxes with configurable dimensions, finger joints, dividers, and sub-assemblies (drawers, trays, inserts). The app generates SVG files for laser cutting.
@@ -19,14 +23,20 @@ src/
 ├── components/       # React components
 │   ├── Box3D.tsx           # Main 3D scene renderer
 │   ├── BoxTree.tsx         # Structure tree navigator
+│   ├── EditorToolbar.tsx   # Tool selection UI (select, pan, chamfer, etc.)
+│   ├── FloatingPalette.tsx # Reusable floating palette for tool options
 │   ├── PanelPathRenderer.tsx   # Renders individual panels in 3D
 │   ├── PanelProperties.tsx # Panel property editor
+│   ├── SketchView2D.tsx    # 2D panel editing view with SVG canvas
 │   ├── SubdivisionControls.tsx # Controls for adding dividers
+│   ├── Viewport3D.tsx      # 3D viewport container
 │   └── UI/                 # Reusable UI components
 ├── store/
 │   └── useBoxStore.ts      # Zustand store with all state and actions
 ├── types.ts          # TypeScript type definitions
 └── utils/
+    ├── cornerFinish.ts     # Chamfer/fillet corner detection and application
+    ├── editableAreas.ts    # Calculate safe zones for panel modifications
     ├── edgeMating.test.ts  # Edge mating verification tests
     ├── fingerJoints.ts     # Finger joint pattern generation
     ├── panelGenerator.ts   # Core panel generation with finger joints
@@ -129,3 +139,45 @@ Run tests with `npm run test:run`.
 - Panels are generated in local 2D coordinates (centered at origin)
 - `position` and `rotation` transform to world space
 - The `transformToWorld()` helper in tests shows the math
+
+## Recent Features
+
+### 2D Sketch View (SketchView2D)
+A dedicated 2D SVG-based editor for panels. Accessed via "Edit in 2D" button in Panel Properties.
+- Pan/zoom with mouse wheel and drag
+- Color-coded edges: blue (locked/joints), orange (editable)
+- Conceptual boundary lines showing original panel edges
+- Editable areas (green) showing safe zones for modifications
+- Edge extension with inset tool (drag edges to extend/contract)
+
+### Two-Plane Subdivision
+Select exactly 2 parallel panels (e.g., front + back) to subdivide the void between them. Only shows subdivision options for the axes perpendicular to both panels.
+
+### Percentage-Based Subdivisions
+Subdivisions can be set to "Scale with dimensions" mode where they maintain their relative position (e.g., 50%) when box dimensions change, rather than staying at an absolute position.
+
+### Assembly Feet
+Bottom panels can have feet that extend downward. When enabled:
+- Wall panels extend below the bottom face
+- Two feet are generated at the corners with a gap between
+- Slot holes are generated for the feet extensions
+
+### Corner Finishing (Chamfer/Fillet)
+Tool for applying chamfers or fillets to panel corners:
+- Activate chamfer tool in EditorToolbar
+- Click corners to select (toggle selection)
+- Floating palette appears with radius slider and chamfer/fillet toggle
+- Select All button for quick multi-corner selection
+
+### EditorToolbar
+Tool selection UI that appears in both 2D and 3D views:
+- Select, Pan tools (both views)
+- Rectangle, Circle, Path, Inset, Chamfer tools (2D only)
+- Mirror toggles for symmetric operations (2D only)
+
+### FloatingPalette
+Reusable component for tool option panels:
+- Draggable by header
+- Auto-positions near selection
+- Closes on Escape or click outside
+- Includes helper components: PaletteSliderInput, PaletteToggleGroup, PaletteButton
