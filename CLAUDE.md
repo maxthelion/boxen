@@ -3,6 +3,7 @@
 ## Working with Claude
 
 - **After completing a feature**: When the user approves a feature, ask if they want to commit it to git.
+- **Planning documents**: Keep plans in the project repo at `docs/` (e.g., `docs/2d-sketch-plan.md`), not in Claude's default plan location (`~/.claude/plans/`). This ensures plans are version-controlled and accessible to everyone.
 
 ## Project Overview
 
