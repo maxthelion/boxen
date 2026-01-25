@@ -795,3 +795,259 @@ describe('Edge Case Scenarios', () => {
     expect(dividerSlots.length).toBeGreaterThanOrEqual(2); // At least 2 slot groups
   });
 });
+
+// =============================================================================
+// Edge Extension Tests
+// =============================================================================
+
+describe('Edge Extensions', () => {
+  const createBasicConfig = (): BoxConfig => ({
+    width: 100,
+    height: 100,
+    depth: 100,
+    materialThickness: 3,
+    fingerWidth: 10,
+    fingerGap: 1.5,
+    assembly: defaultAssemblyConfig,
+  });
+
+  const createAllSolidFaces = (): Face[] => [
+    { id: 'front', solid: true },
+    { id: 'back', solid: true },
+    { id: 'left', solid: true },
+    { id: 'right', solid: true },
+    { id: 'top', solid: true },
+    { id: 'bottom', solid: true },
+  ];
+
+  const createSimpleRootVoid = (config: BoxConfig): Void => ({
+    id: 'root',
+    bounds: { x: 0, y: 0, z: 0, w: config.width, h: config.height, d: config.depth },
+    children: [],
+  });
+
+  /**
+   * Get the bounding box of a panel's outline
+   */
+  const getOutlineBounds = (panel: PanelPath) => {
+    const xs = panel.outline.points.map(p => p.x);
+    const ys = panel.outline.points.map(p => p.y);
+    return {
+      minX: Math.min(...xs),
+      maxX: Math.max(...xs),
+      minY: Math.min(...ys),
+      maxY: Math.max(...ys),
+    };
+  };
+
+  describe('Single Panel Extension', () => {
+    it('panel extends full width when no overlap', () => {
+      const config = createBasicConfig();
+      const faces = createAllSolidFaces();
+      const rootVoid = createSimpleRootVoid(config);
+
+      // First generate without extensions
+      const collectionBase = generatePanelCollection(faces, rootVoid, config);
+      const frontBase = collectionBase.panels.find(p => p.source.faceId === 'front');
+      const baseBounds = getOutlineBounds(frontBase!);
+
+      // Now generate with front extending top by 20mm
+      const existingPanels = collectionBase.panels.map(p =>
+        p.source.faceId === 'front'
+          ? { ...p, edgeExtensions: { top: 20, bottom: 0, left: 0, right: 0 } }
+          : p
+      );
+      const collection = generatePanelCollection(faces, rootVoid, config, 1, existingPanels);
+      const front = collection.panels.find(p => p.source.faceId === 'front');
+      const extBounds = getOutlineBounds(front!);
+
+      // Y should extend by 20mm
+      expect(extBounds.maxY).toBeCloseTo(baseBounds.maxY + 20, 0.1);
+      // X should be full width (no overlap constraint)
+      expect(extBounds.minX).toBeCloseTo(-config.width / 2, 0.1);
+      expect(extBounds.maxX).toBeCloseTo(config.width / 2, 0.1);
+    });
+  });
+
+  describe('Extension Overlap - Notching', () => {
+    it('lower priority panel gets X-notched when both extend same horizontal edge', () => {
+      const config = createBasicConfig();
+      const faces = createAllSolidFaces();
+      const rootVoid = createSimpleRootVoid(config);
+      const mt = config.materialThickness;
+      const halfW = config.width / 2;
+      const halfD = config.depth / 2;
+
+      // Both FRONT and RIGHT extend top edge
+      // FRONT has lower priority number (1) so it has tabs-out (male) - it wins
+      // RIGHT has higher priority number (4) so it has slots (female) - it should be notched
+      const frontExt = 20;
+      const rightExt = 25;
+
+      // Create panels with extensions
+      const collectionBase = generatePanelCollection(faces, rootVoid, config);
+      const existingPanels = collectionBase.panels.map(p => {
+        if (p.source.faceId === 'front') {
+          return { ...p, edgeExtensions: { top: frontExt, bottom: 0, left: 0, right: 0 } };
+        }
+        if (p.source.faceId === 'right') {
+          return { ...p, edgeExtensions: { top: rightExt, bottom: 0, left: 0, right: 0 } };
+        }
+        return p;
+      });
+
+      const collection = generatePanelCollection(faces, rootVoid, config, 1, existingPanels);
+      const front = collection.panels.find(p => p.source.faceId === 'front');
+      const right = collection.panels.find(p => p.source.faceId === 'right');
+
+      // FRONT should go full width at top-right corner (it wins)
+      const frontBounds = getOutlineBounds(front!);
+      expect(frontBounds.maxX).toBeCloseTo(halfW, 0.1); // Full width
+
+      // RIGHT should be notched at its top-left corner (where it meets FRONT)
+      // The notch means: instead of going to X = -halfD, it should be at -halfD + MT
+      const rightPoints = right!.outline.points;
+      const rightTopLeftY = Math.max(...rightPoints.map(p => p.y));
+      const rightTopLeftPoints = rightPoints.filter(p => Math.abs(p.y - rightTopLeftY) < 1);
+
+      // Find the leftmost X coordinate in the extended region (top)
+      const leftmostXInExtension = Math.min(...rightTopLeftPoints.map(p => p.x));
+
+      // RIGHT panel local X axis corresponds to world Z axis
+      // The left edge (X=-halfD) is where it meets FRONT
+      // When notched, it should be at -halfD + MT
+      expect(leftmostXInExtension).toBeCloseTo(-halfD + mt, 0.5);
+    });
+
+    it('both panels extend - winner goes full width, loser gets notched', () => {
+      const config = createBasicConfig();
+      const faces = createAllSolidFaces();
+      const rootVoid = createSimpleRootVoid(config);
+      const mt = config.materialThickness;
+      const halfW = config.width / 2;
+      const halfD = config.depth / 2;
+      const halfH = config.height / 2;
+
+      // FRONT extends top, RIGHT also extends top
+      // FRONT has priority 1, RIGHT has priority 4
+      // So FRONT wins - its extension goes full width
+      // RIGHT should be notched where it meets FRONT
+
+      const frontExt = 20;
+      const rightExt = 20;
+
+      const collectionBase = generatePanelCollection(faces, rootVoid, config);
+      const existingPanels = collectionBase.panels.map(p => {
+        if (p.source.faceId === 'front') {
+          return { ...p, edgeExtensions: { top: frontExt, bottom: 0, left: 0, right: 0 } };
+        }
+        if (p.source.faceId === 'right') {
+          return { ...p, edgeExtensions: { top: rightExt, bottom: 0, left: 0, right: 0 } };
+        }
+        return p;
+      });
+
+      const collection = generatePanelCollection(faces, rootVoid, config, 1, existingPanels);
+      const front = collection.panels.find(p => p.source.faceId === 'front');
+      const right = collection.panels.find(p => p.source.faceId === 'right');
+
+      // FRONT should extend to full height + extension
+      const frontBounds = getOutlineBounds(front!);
+      expect(frontBounds.maxY).toBeCloseTo(halfH + frontExt, 0.5);
+      // FRONT goes full width (it wins priority on both sides)
+      expect(frontBounds.maxX).toBeCloseTo(halfW, 0.5);
+
+      // RIGHT should also extend, but notched where it meets FRONT
+      const rightBounds = getOutlineBounds(right!);
+      expect(rightBounds.maxY).toBeCloseTo(halfH + rightExt, 0.5);
+
+      // RIGHT's left edge in the extension should be notched
+      // For RIGHT panel: local X axis = world Z (depth), local Y = world Y (height)
+      // The left edge (X = -halfD) is where RIGHT meets FRONT
+      const rightPoints = right!.outline.points;
+
+      // Find the top-left corner point of the extended region
+      // This is the point with maximum Y and minimum X in the extension
+      const extendedPoints = rightPoints.filter(p => p.y > halfH + 1); // Points above main body
+      const topLeftExtCorner = extendedPoints.reduce(
+        (best, p) => (p.x < best.x || (p.x === best.x && p.y > best.y)) ? p : best,
+        { x: Infinity, y: -Infinity }
+      );
+
+      // The top-left corner of the extension should be notched: X at -halfD + MT
+      expect(topLeftExtCorner.x).toBeCloseTo(-halfD + mt, 0.5);
+    });
+
+    it('panel without extension is not affected by adjacent panel extension', () => {
+      const config = createBasicConfig();
+      const faces = createAllSolidFaces();
+      const rootVoid = createSimpleRootVoid(config);
+      const halfW = config.width / 2;
+      const halfH = config.height / 2;
+
+      // Only FRONT extends top, RIGHT does not extend
+      const frontExt = 20;
+
+      const collectionBase = generatePanelCollection(faces, rootVoid, config);
+      const existingPanels = collectionBase.panels.map(p => {
+        if (p.source.faceId === 'front') {
+          return { ...p, edgeExtensions: { top: frontExt, bottom: 0, left: 0, right: 0 } };
+        }
+        return p;
+      });
+
+      const collection = generatePanelCollection(faces, rootVoid, config, 1, existingPanels);
+      const front = collection.panels.find(p => p.source.faceId === 'front');
+      const right = collection.panels.find(p => p.source.faceId === 'right');
+
+      // FRONT extends
+      const frontBounds = getOutlineBounds(front!);
+      expect(frontBounds.maxY).toBeCloseTo(halfH + frontExt, 0.5);
+
+      // RIGHT does not extend and should have normal bounds
+      const rightBounds = getOutlineBounds(right!);
+      // RIGHT's height is the box height (100), so Y bounds are around ±50
+      expect(rightBounds.maxY).toBeLessThan(halfH + 1);
+      expect(rightBounds.minY).toBeGreaterThan(-halfH - 1);
+    });
+  });
+
+  describe('Extension L-Shape Transitions', () => {
+    it('creates L-shape when extension meets finger joints', () => {
+      const config = createBasicConfig();
+      const faces = createAllSolidFaces();
+      const rootVoid = createSimpleRootVoid(config);
+      const halfW = config.width / 2;
+      const halfH = config.height / 2;
+      const mt = config.materialThickness;
+
+      // FRONT extends top
+      const frontExt = 20;
+
+      const collectionBase = generatePanelCollection(faces, rootVoid, config);
+      const existingPanels = collectionBase.panels.map(p => {
+        if (p.source.faceId === 'front') {
+          return { ...p, edgeExtensions: { top: frontExt, bottom: 0, left: 0, right: 0 } };
+        }
+        return p;
+      });
+
+      const collection = generatePanelCollection(faces, rootVoid, config, 1, existingPanels);
+      const front = collection.panels.find(p => p.source.faceId === 'front');
+
+      // The panel should have an L-shape transition where the extension meets the main body
+      // Find points at the transition height (around halfH)
+      const points = front!.outline.points;
+
+      // Look for points around the transition between main body and extension
+      const mainBodyMaxY = halfH; // Approximate
+      const transitionPoints = points.filter(
+        p => p.y >= mainBodyMaxY - mt && p.y <= mainBodyMaxY + mt
+      );
+
+      // There should be L-shape transition points at both left and right corners
+      // These create the step from main body width to extension width
+      expect(transitionPoints.length).toBeGreaterThan(0);
+    });
+  });
+});

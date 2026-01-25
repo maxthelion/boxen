@@ -905,10 +905,14 @@ const generateFacePanelOutline = (
 
   const extCorners: Record<string, Point> = {
     topLeft: {
-      // X: Go full width if we win on top or left edge; stay inset if we lose on top
+      // X: Go full width if we win on top or left edge
+      // If we LOSE on horizontal (top) edge while extending, we need to NOTCH (inset by MT)
+      // to make room for the winner's extension material
       x: (extTop > 0 && !topLeftMeetsOnTop) || (extLeft > 0 && !topLeftMeetsOnLeft)
         ? -halfW - extLeft  // Full width (winner)
-        : mainCorners.topLeft.x - extLeft,  // Inset (loser on horizontal, or no extension that wins)
+        : (topLeftMeetsOnTop && extTop > 0)
+          ? -halfW + materialThickness - extLeft  // Notched: inset by MT from outer edge
+          : mainCorners.topLeft.x - extLeft,  // Normal (no extension or no meeting)
       // Y: Extend to top + extTop if we're extending top; stay inset if we lose on left
       y: (extTop > 0)
         ? (topLeftMeetsOnLeft ? mainCorners.topLeft.y + extTop : halfH + extTop)  // Extend Y, inset Y only if lose on left
@@ -917,9 +921,12 @@ const generateFacePanelOutline = (
           : mainCorners.topLeft.y + extTop  // No extension wins, stay at mainCorners
     },
     topRight: {
+      // X: Similar logic - notch if we lose on horizontal (top) edge
       x: (extTop > 0 && !topRightMeetsOnTop) || (extRight > 0 && !topRightMeetsOnRight)
-        ? halfW + extRight
-        : mainCorners.topRight.x + extRight,
+        ? halfW + extRight  // Full width (winner)
+        : (topRightMeetsOnTop && extTop > 0)
+          ? halfW - materialThickness + extRight  // Notched: inset by MT from outer edge
+          : mainCorners.topRight.x + extRight,  // Normal
       y: (extTop > 0)
         ? (topRightMeetsOnRight ? mainCorners.topRight.y + extTop : halfH + extTop)
         : (extRight > 0)
@@ -927,9 +934,12 @@ const generateFacePanelOutline = (
           : mainCorners.topRight.y + extTop
     },
     bottomRight: {
+      // X: Notch if we lose on horizontal (bottom) edge
       x: (extBottom > 0 && !bottomRightMeetsOnBottom) || (extRight > 0 && !bottomRightMeetsOnRight)
-        ? halfW + extRight
-        : mainCorners.bottomRight.x + extRight,
+        ? halfW + extRight  // Full width (winner)
+        : (bottomRightMeetsOnBottom && extBottom > 0)
+          ? halfW - materialThickness + extRight  // Notched: inset by MT from outer edge
+          : mainCorners.bottomRight.x + extRight,  // Normal
       y: (extBottom > 0)
         ? (bottomRightMeetsOnRight ? mainCorners.bottomRight.y - extBottom : -halfH - extBottom)
         : (extRight > 0)
@@ -937,9 +947,12 @@ const generateFacePanelOutline = (
           : mainCorners.bottomRight.y - extBottom
     },
     bottomLeft: {
+      // X: Notch if we lose on horizontal (bottom) edge
       x: (extBottom > 0 && !bottomLeftMeetsOnBottom) || (extLeft > 0 && !bottomLeftMeetsOnLeft)
-        ? -halfW - extLeft
-        : mainCorners.bottomLeft.x - extLeft,
+        ? -halfW - extLeft  // Full width (winner)
+        : (bottomLeftMeetsOnBottom && extBottom > 0)
+          ? -halfW + materialThickness - extLeft  // Notched: inset by MT from outer edge
+          : mainCorners.bottomLeft.x - extLeft,  // Normal
       y: (extBottom > 0)
         ? (bottomLeftMeetsOnLeft ? mainCorners.bottomLeft.y - extBottom : -halfH - extBottom)
         : (extLeft > 0)
@@ -964,6 +977,8 @@ const generateFacePanelOutline = (
         finalY: extCorners.topLeft.y,
         usedMainCornersX: !((extTop > 0 && !topLeftMeetsOnTop) || (extLeft > 0 && !topLeftMeetsOnLeft)),
         usedMainCornersY: !(extTop > 0) && !(extLeft > 0),
+        notchedX: topLeftMeetsOnTop && extTop > 0,  // Notched X due to losing on horizontal edge
+        notchedY: topLeftMeetsOnLeft && extLeft > 0,  // Notched Y due to losing on vertical edge
       },
       {
         corner: 'topRight',
@@ -978,6 +993,8 @@ const generateFacePanelOutline = (
         finalY: extCorners.topRight.y,
         usedMainCornersX: !((extTop > 0 && !topRightMeetsOnTop) || (extRight > 0 && !topRightMeetsOnRight)),
         usedMainCornersY: !(extTop > 0) && !(extRight > 0),
+        notchedX: topRightMeetsOnTop && extTop > 0,
+        notchedY: topRightMeetsOnRight && extRight > 0,
       },
       {
         corner: 'bottomRight',
@@ -992,6 +1009,8 @@ const generateFacePanelOutline = (
         finalY: extCorners.bottomRight.y,
         usedMainCornersX: !((extBottom > 0 && !bottomRightMeetsOnBottom) || (extRight > 0 && !bottomRightMeetsOnRight)),
         usedMainCornersY: !(extBottom > 0) && !(extRight > 0),
+        notchedX: bottomRightMeetsOnBottom && extBottom > 0,
+        notchedY: bottomRightMeetsOnRight && extRight > 0,
       },
       {
         corner: 'bottomLeft',
@@ -1006,6 +1025,8 @@ const generateFacePanelOutline = (
         finalY: extCorners.bottomLeft.y,
         usedMainCornersX: !((extBottom > 0 && !bottomLeftMeetsOnBottom) || (extLeft > 0 && !bottomLeftMeetsOnLeft)),
         usedMainCornersY: !(extBottom > 0) && !(extLeft > 0),
+        notchedX: bottomLeftMeetsOnBottom && extBottom > 0,
+        notchedY: bottomLeftMeetsOnLeft && extLeft > 0,
       },
     ];
 
@@ -3059,13 +3080,17 @@ export const generatePanelCollection = (
   }
 
   // Second pass: generate face panels
-  // Pass ALL panels (dividers + previously generated face panels) so meeting detection works
+  // IMPORTANT: For extension overlap detection, we need to see ALL panels' extensions,
+  // not just the ones generated so far in this pass. Use existingPanels (from previous render)
+  // to look up extensions, which contains all stored extension values.
   const faceIds: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
   const generatedFacePanels: PanelPath[] = [];
   for (const faceId of faceIds) {
     const panelId = `face-${faceId}`;
+    // Use existingPanels (parameter) for extension lookups - has ALL panels' stored extensions
+    // Use allExistingPanels for other purposes like generated geometry
     const allExistingPanels = [...dividerPanels, ...generatedFacePanels];
-    const panel = generateFacePanel(faceId, faces, rootVoid, config, scale, getExistingExtensions(panelId), allExistingPanels, fingerData);
+    const panel = generateFacePanel(faceId, faces, rootVoid, config, scale, getExistingExtensions(panelId), existingPanels ?? allExistingPanels, fingerData);
     if (panel) {
       generatedFacePanels.push(panel);
       panels.push(panel);

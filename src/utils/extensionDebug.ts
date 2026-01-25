@@ -15,6 +15,8 @@ export interface CornerDebugInfo {
   finalY: number;
   usedMainCornersX: boolean;
   usedMainCornersY: boolean;
+  notchedX?: boolean;  // True if X was notched due to losing on horizontal edge
+  notchedY?: boolean;  // True if Y was notched due to losing on vertical edge
 }
 
 export interface PanelDebugInfo {
@@ -125,6 +127,9 @@ export const formatDebugLog = (): string => {
       lines.push(`    goesFullWidth: ${corner.goesFullWidth}`);
       lines.push(`    final: (${corner.finalX.toFixed(2)}, ${corner.finalY.toFixed(2)})`);
       lines.push(`    usedMainCorners: X=${corner.usedMainCornersX}, Y=${corner.usedMainCornersY}`);
+      if (corner.notchedX || corner.notchedY) {
+        lines.push(`    NOTCHED: X=${corner.notchedX ?? false}, Y=${corner.notchedY ?? false}`);
+      }
     }
     lines.push('');
   }
