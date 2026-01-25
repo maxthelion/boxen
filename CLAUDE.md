@@ -181,3 +181,64 @@ Reusable component for tool option panels:
 - Auto-positions near selection
 - Closes on Escape or click outside
 - Includes helper components: PaletteSliderInput, PaletteToggleGroup, PaletteButton
+
+## Debugging Patterns
+
+### Clipboard Debug Output Pattern
+
+For complex multi-step calculations (like extension overlap detection), use this pattern to capture debug information that can be analyzed via clipboard copy:
+
+1. **Create a debug utility file** (e.g., `src/utils/extensionDebug.ts`):
+   ```typescript
+   interface DebugInfo { /* structured data for the calculation */ }
+
+   let currentDebugLog: DebugLog | null = null;
+
+   export const startDebugLog = (): void => {
+     currentDebugLog = { timestamp: new Date().toISOString(), items: [] };
+   };
+
+   export const addDebugItem = (info: DebugInfo): void => {
+     if (currentDebugLog) currentDebugLog.items.push(info);
+   };
+
+   export const formatDebugLog = (): string => {
+     // Format as human-readable text
+   };
+
+   export const hasDebugInfo = (): boolean => {
+     return currentDebugLog !== null && currentDebugLog.items.length > 0;
+   };
+   ```
+
+2. **Call debug functions during calculation**:
+   - Call `startDebugLog()` at the beginning of the calculation
+   - Call `addDebugItem()` at each step with relevant state
+   - Include both inputs and computed intermediate values
+
+3. **Add UI button in App.tsx**:
+   ```typescript
+   const [debugCopyStatus, setDebugCopyStatus] = useState<'idle' | 'copied'>('idle');
+
+   const handleCopyDebug = async () => {
+     const debugText = formatDebugLog();
+     await navigator.clipboard.writeText(debugText);
+     setDebugCopyStatus('copied');
+     setTimeout(() => setDebugCopyStatus('idle'), 2000);
+   };
+
+   // In render - only show when debug info exists:
+   {hasDebugInfo() && (
+     <button onClick={handleCopyDebug}>
+       {debugCopyStatus === 'copied' ? 'Copied!' : 'Debug'}
+     </button>
+   )}
+   ```
+
+4. **Analysis workflow**:
+   - Reproduce the issue in the UI
+   - Click the Debug button to copy info to clipboard
+   - Paste into conversation or text editor for analysis
+   - Look for discrepancies between expected and actual values
+
+**Example**: `src/utils/extensionDebug.ts` captures extension overlap data for each panel including: extensions, perpendicular panel extensions, corner meeting analysis, and final positions. This helped diagnose that panels generated earlier in the sequence couldn't see extensions from panels generated later.
