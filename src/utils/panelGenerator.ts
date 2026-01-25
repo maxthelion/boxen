@@ -200,6 +200,83 @@ export const getAdjacentEdgePosition = (
   return mapping[faceId][edgePosition];
 };
 
+// Determine if this face has priority over the perpendicular face at a meeting corner
+// When two faces both extend the same edge direction and meet, one must give way.
+// Priority rule: front/back (main faces) take priority over left/right (side faces)
+// This matches typical box construction where front/back are full width.
+const hasPriorityOverPerpFace = (
+  faceId: FaceId,
+  perpFaceId: FaceId
+): boolean => {
+  // Priority order: front/back are "primary", left/right are "secondary"
+  const isPrimary = (f: FaceId) => f === 'front' || f === 'back';
+
+  if (isPrimary(faceId) && !isPrimary(perpFaceId)) return true;
+  if (!isPrimary(faceId) && isPrimary(perpFaceId)) return false;
+
+  // Same tier: use alphabetical order as tiebreaker
+  return faceId < perpFaceId;
+};
+
+// Get the perpendicular face ID for a given edge
+const getPerpFaceId = (
+  faceId: FaceId,
+  edgePosition: 'top' | 'bottom' | 'left' | 'right',
+  cornerSide: 'start' | 'end'
+): FaceId | null => {
+  const edges = getFaceEdges(faceId);
+
+  let perpEdgePosition: 'top' | 'bottom' | 'left' | 'right';
+  if (edgePosition === 'top' || edgePosition === 'bottom') {
+    perpEdgePosition = cornerSide === 'start' ? 'left' : 'right';
+  } else {
+    perpEdgePosition = cornerSide === 'start' ? 'bottom' : 'top';
+  }
+
+  const perpEdgeInfo = edges.find(e => e.position === perpEdgePosition);
+  return perpEdgeInfo?.adjacentFaceId || null;
+};
+
+// Get extension values from perpendicular faces on the SAME named edge
+// This is for detecting when two perpendicular panels both extend in the same direction
+// and their extensions meet at a shared corner.
+// For example: Front extends bottom, Left also extends bottom - they meet at bottom-left corner
+// Returns both the extension amount AND the perpendicular face ID for priority checking
+const getPerpendicularFaceExtensionOnSameEdge = (
+  faceId: FaceId,
+  edgePosition: 'top' | 'bottom' | 'left' | 'right',  // The edge being extended
+  cornerSide: 'start' | 'end',  // Which corner of the edge to check
+  existingPanels?: PanelPath[]
+): { extension: number; perpFaceId: FaceId | null } => {
+  if (!existingPanels) return { extension: 0, perpFaceId: null };
+
+  const edges = getFaceEdges(faceId);
+
+  // Determine which perpendicular face to check based on corner
+  // For horizontal edges (top/bottom): start=left side, end=right side
+  // For vertical edges (left/right): start=bottom, end=top (in 2D panel coordinates)
+  let perpEdgePosition: 'top' | 'bottom' | 'left' | 'right';
+  if (edgePosition === 'top' || edgePosition === 'bottom') {
+    perpEdgePosition = cornerSide === 'start' ? 'left' : 'right';
+  } else {
+    perpEdgePosition = cornerSide === 'start' ? 'bottom' : 'top';
+  }
+
+  // Get the face at the perpendicular edge
+  const perpEdgeInfo = edges.find(e => e.position === perpEdgePosition);
+  if (!perpEdgeInfo) return { extension: 0, perpFaceId: null };
+
+  const perpFaceId = perpEdgeInfo.adjacentFaceId;
+  const perpPanel = existingPanels.find(p => p.source.faceId === perpFaceId);
+  if (!perpPanel) return { extension: 0, perpFaceId };
+
+  // Check if that perpendicular panel has an extension on the SAME named edge
+  // The edge name mapping depends on the geometric relationship
+  // This is a simplified mapping - the perpendicular face's edge that would meet
+  // our extension is the same named edge in most cases
+  return { extension: perpPanel.edgeExtensions[edgePosition] || 0, perpFaceId };
+};
+
 // Get the extension value from an adjacent face's edge that connects to this face
 const getAdjacentFaceExtension = (
   faceId: FaceId,
@@ -648,60 +725,272 @@ const generateFacePanelOutline = (
 
   // Outline corners - account for open faces (no inset where face is removed)
   // When an adjacent face is removed, the edge extends to the full dimension
-  const outlineCorners: Record<string, Point> = {
+  // EXTENSION RULE: When an edge is extended, that edge goes to full width (no perpendicular insets)
+  // EXCEPTION: If the perpendicular face ALSO extends the same edge, they meet and need joints
+
+  // Check if perpendicular panels also have extensions on the same edge (would create a meeting)
+  // For top edge: check if left panel has 'top' extension (at start/left corner)
+  //               check if right panel has 'top' extension (at end/right corner)
+  // Each call returns both the extension amount AND the perpendicular face ID for priority checking
+  const leftPanelTopExtResult = getPerpendicularFaceExtensionOnSameEdge(faceId, 'top', 'start', existingPanels);
+  const rightPanelTopExtResult = getPerpendicularFaceExtensionOnSameEdge(faceId, 'top', 'end', existingPanels);
+  const leftPanelBottomExtResult = getPerpendicularFaceExtensionOnSameEdge(faceId, 'bottom', 'start', existingPanels);
+  const rightPanelBottomExtResult = getPerpendicularFaceExtensionOnSameEdge(faceId, 'bottom', 'end', existingPanels);
+  const bottomPanelLeftExtResult = getPerpendicularFaceExtensionOnSameEdge(faceId, 'left', 'start', existingPanels);
+  const topPanelLeftExtResult = getPerpendicularFaceExtensionOnSameEdge(faceId, 'left', 'end', existingPanels);
+  const bottomPanelRightExtResult = getPerpendicularFaceExtensionOnSameEdge(faceId, 'right', 'start', existingPanels);
+  const topPanelRightExtResult = getPerpendicularFaceExtensionOnSameEdge(faceId, 'right', 'end', existingPanels);
+
+  // Extract extension amounts for backward compatibility
+  const leftPanelTopExt = leftPanelTopExtResult.extension;
+  const rightPanelTopExt = rightPanelTopExtResult.extension;
+  const leftPanelBottomExt = leftPanelBottomExtResult.extension;
+  const rightPanelBottomExt = rightPanelBottomExtResult.extension;
+  const bottomPanelLeftExt = bottomPanelLeftExtResult.extension;
+  const topPanelLeftExt = topPanelLeftExtResult.extension;
+  const bottomPanelRightExt = bottomPanelRightExtResult.extension;
+  const topPanelRightExt = topPanelRightExtResult.extension;
+
+  // Helper to get X position for corners
+  // When top or bottom is extended at this corner, skip the left/right inset for that edge
+  // UNLESS the perpendicular panel also has an extension on the same edge (meeting case)
+  const getCornerX = (
+    side: 'left' | 'right',
+    thisEdgeExt: number,  // Extension on the horizontal edge at this corner (extTop or extBottom)
+    perpEdgeExt: number,  // Extension on the perpendicular face's same-named edge
+    ownExt: number        // Extension on this side's edge (extLeft or extRight)
+  ): number => {
+    const baseX = side === 'left' ? -halfW : halfW;
+    const isSolid = side === 'left' ? leftIsSolid : rightIsSolid;
+    const hasTabs = side === 'left' ? leftHasTabs : rightHasTabs;
+    const insetDir = side === 'left' ? 1 : -1;
+    const extDir = side === 'left' ? -1 : 1;
+
+    // Determine if we should skip the inset for full-width extension
+    // Skip inset if: horizontal edge has extension AND perpendicular doesn't have matching extension
+    const hasNonMeetingExtension = thisEdgeExt > 0 && perpEdgeExt <= 0;
+
+    // Apply inset if:
+    // 1. Adjacent face has tabs (normal case)
+    // 2. AND NOT (this edge extends without meeting perpendicular extension)
+    const applyInset = (isSolid && hasTabs) && !hasNonMeetingExtension;
+
+    return baseX + (applyInset ? insetDir * materialThickness : 0) + extDir * ownExt;
+  };
+
+  // Helper to get Y position for corners
+  // When left or right is extended at this corner, skip the top/bottom inset for that edge
+  // UNLESS the perpendicular panel also has an extension on the same edge (meeting case)
+  const getCornerY = (
+    side: 'top' | 'bottom',
+    thisEdgeExt: number,  // Extension on the vertical edge at this corner (extLeft or extRight)
+    perpEdgeExt: number,  // Extension on the perpendicular face's same-named edge
+    ownExt: number        // Extension on this side's edge (extTop or extBottom)
+  ): number => {
+    const baseY = side === 'top' ? halfH : -halfH;
+    const isSolid = side === 'top' ? topIsSolid : bottomIsSolid;
+    const hasTabs = side === 'top' ? topHasTabs : bottomHasTabs;
+    const insetDir = side === 'top' ? -1 : 1;
+    const extDir = side === 'top' ? 1 : -1;
+
+    // Determine if we should skip the inset for full-width extension
+    // Skip inset if: vertical edge has extension AND perpendicular doesn't have matching extension
+    const hasNonMeetingExtension = thisEdgeExt > 0 && perpEdgeExt <= 0;
+
+    // Apply inset if:
+    // 1. Adjacent face has tabs (normal case)
+    // 2. AND NOT (this edge extends without meeting perpendicular extension)
+    const applyInset = (isSolid && hasTabs) && !hasNonMeetingExtension;
+
+    return baseY + (applyInset ? insetDir * materialThickness : 0) + extDir * ownExt;
+  };
+
+  // For L-shaped extensions, we need both the "main body" corners (with insets)
+  // and the "extension" corners (full width). The outline will include step transitions.
+
+  // Main body corners - always apply insets where adjacent face has tabs
+  const mainCorners: Record<string, Point> = {
     topLeft: {
-      x: -halfW + (leftIsSolid && leftHasTabs ? materialThickness : 0) - extLeft,
-      y: halfH - (topIsSolid && topHasTabs ? materialThickness : 0) + extTop
+      x: -halfW + (leftIsSolid && leftHasTabs ? materialThickness : 0),
+      y: halfH - (topIsSolid && topHasTabs ? materialThickness : 0)
     },
     topRight: {
-      x: halfW - (rightIsSolid && rightHasTabs ? materialThickness : 0) + extRight,
-      y: halfH - (topIsSolid && topHasTabs ? materialThickness : 0) + extTop
+      x: halfW - (rightIsSolid && rightHasTabs ? materialThickness : 0),
+      y: halfH - (topIsSolid && topHasTabs ? materialThickness : 0)
     },
     bottomRight: {
-      x: halfW - (rightIsSolid && rightHasTabs ? materialThickness : 0) + extRight,
-      y: -halfH + (bottomIsSolid && bottomHasTabs ? materialThickness : 0) - extBottom
+      x: halfW - (rightIsSolid && rightHasTabs ? materialThickness : 0),
+      y: -halfH + (bottomIsSolid && bottomHasTabs ? materialThickness : 0)
     },
     bottomLeft: {
-      x: -halfW + (leftIsSolid && leftHasTabs ? materialThickness : 0) - extLeft,
-      y: -halfH + (bottomIsSolid && bottomHasTabs ? materialThickness : 0) - extBottom
+      x: -halfW + (leftIsSolid && leftHasTabs ? materialThickness : 0),
+      y: -halfH + (bottomIsSolid && bottomHasTabs ? materialThickness : 0)
     },
   };
 
+  // Check individual corner meeting conditions using the correct perpendicular face for priority
+  // A meeting only affects THIS panel if it does NOT have priority (i.e., it must give way)
+  // Use the perpFaceId from each specific meeting check to determine priority correctly
+  const topLeftMeetsOnTop = extTop > 0 && leftPanelTopExt > 0 &&
+    (leftPanelTopExtResult.perpFaceId ? !hasPriorityOverPerpFace(faceId, leftPanelTopExtResult.perpFaceId) : false);
+  const topRightMeetsOnTop = extTop > 0 && rightPanelTopExt > 0 &&
+    (rightPanelTopExtResult.perpFaceId ? !hasPriorityOverPerpFace(faceId, rightPanelTopExtResult.perpFaceId) : false);
+  const bottomLeftMeetsOnBottom = extBottom > 0 && leftPanelBottomExt > 0 &&
+    (leftPanelBottomExtResult.perpFaceId ? !hasPriorityOverPerpFace(faceId, leftPanelBottomExtResult.perpFaceId) : false);
+  const bottomRightMeetsOnBottom = extBottom > 0 && rightPanelBottomExt > 0 &&
+    (rightPanelBottomExtResult.perpFaceId ? !hasPriorityOverPerpFace(faceId, rightPanelBottomExtResult.perpFaceId) : false);
+  const topLeftMeetsOnLeft = extLeft > 0 && topPanelLeftExt > 0 &&
+    (topPanelLeftExtResult.perpFaceId ? !hasPriorityOverPerpFace(faceId, topPanelLeftExtResult.perpFaceId) : false);
+  const bottomLeftMeetsOnLeft = extLeft > 0 && bottomPanelLeftExt > 0 &&
+    (bottomPanelLeftExtResult.perpFaceId ? !hasPriorityOverPerpFace(faceId, bottomPanelLeftExtResult.perpFaceId) : false);
+  const topRightMeetsOnRight = extRight > 0 && topPanelRightExt > 0 &&
+    (topPanelRightExtResult.perpFaceId ? !hasPriorityOverPerpFace(faceId, topPanelRightExtResult.perpFaceId) : false);
+  const bottomRightMeetsOnRight = extRight > 0 && bottomPanelRightExt > 0 &&
+    (bottomPanelRightExtResult.perpFaceId ? !hasPriorityOverPerpFace(faceId, bottomPanelRightExtResult.perpFaceId) : false);
+
+  // Check if each extension goes full width (no meeting with perpendicular panel where we must give way)
+  const topGoesFullWidth = extTop > 0 && !topLeftMeetsOnTop && !topRightMeetsOnTop;
+  const bottomGoesFullWidth = extBottom > 0 && !bottomLeftMeetsOnBottom && !bottomRightMeetsOnBottom;
+  const leftGoesFullWidth = extLeft > 0 && !topLeftMeetsOnLeft && !bottomLeftMeetsOnLeft;
+  const rightGoesFullWidth = extRight > 0 && !topRightMeetsOnRight && !bottomRightMeetsOnRight;
+
+  // Extension corners - where extended edges end
+  // Each corner independently decides whether to go full width based on:
+  // 1. Whether there's an extension on the relevant edge(s)
+  // 2. Whether THIS SPECIFIC corner has a meeting (not other corners on the same edge)
+  const extCorners: Record<string, Point> = {
+    topLeft: {
+      // Full width if: (top extends AND no meeting at this corner on top) OR (left extends AND no meeting at this corner on left)
+      x: ((extTop > 0 && !topLeftMeetsOnTop) || (extLeft > 0 && !topLeftMeetsOnLeft))
+        ? -halfW - extLeft
+        : mainCorners.topLeft.x - extLeft,
+      y: ((extTop > 0 && !topLeftMeetsOnTop) || (extLeft > 0 && !topLeftMeetsOnLeft))
+        ? halfH + extTop
+        : mainCorners.topLeft.y + extTop
+    },
+    topRight: {
+      x: ((extTop > 0 && !topRightMeetsOnTop) || (extRight > 0 && !topRightMeetsOnRight))
+        ? halfW + extRight
+        : mainCorners.topRight.x + extRight,
+      y: ((extTop > 0 && !topRightMeetsOnTop) || (extRight > 0 && !topRightMeetsOnRight))
+        ? halfH + extTop
+        : mainCorners.topRight.y + extTop
+    },
+    bottomRight: {
+      x: ((extBottom > 0 && !bottomRightMeetsOnBottom) || (extRight > 0 && !bottomRightMeetsOnRight))
+        ? halfW + extRight
+        : mainCorners.bottomRight.x + extRight,
+      y: ((extBottom > 0 && !bottomRightMeetsOnBottom) || (extRight > 0 && !bottomRightMeetsOnRight))
+        ? -halfH - extBottom
+        : mainCorners.bottomRight.y - extBottom
+    },
+    bottomLeft: {
+      x: ((extBottom > 0 && !bottomLeftMeetsOnBottom) || (extLeft > 0 && !bottomLeftMeetsOnLeft))
+        ? -halfW - extLeft
+        : mainCorners.bottomLeft.x - extLeft,
+      y: ((extBottom > 0 && !bottomLeftMeetsOnBottom) || (extLeft > 0 && !bottomLeftMeetsOnLeft))
+        ? -halfH - extBottom
+        : mainCorners.bottomLeft.y - extBottom
+    },
+  };
+
+  // Determine actual outline corners - use extension corners if there's an extension,
+  // otherwise use main corners
+  const outlineCorners: Record<string, Point> = {
+    topLeft: (extTop > 0 || extLeft > 0) ? extCorners.topLeft : mainCorners.topLeft,
+    topRight: (extTop > 0 || extRight > 0) ? extCorners.topRight : mainCorners.topRight,
+    bottomRight: (extBottom > 0 || extRight > 0) ? extCorners.bottomRight : mainCorners.bottomRight,
+    bottomLeft: (extBottom > 0 || extLeft > 0) ? extCorners.bottomLeft : mainCorners.bottomLeft,
+  };
+
+  // Step points for L-shaped transitions
+  // These are needed when an extended edge (full width) connects to a non-extended edge (with inset)
+  const stepPoints: Record<string, { before?: Point; after?: Point }> = {
+    topLeft: {},
+    topRight: {},
+    bottomRight: {},
+    bottomLeft: {},
+  };
+
+  // Bottom-left corner: if bottom extends full width but left doesn't (or has inset)
+  if (bottomGoesFullWidth && extLeft <= 0 && (leftIsSolid && leftHasTabs)) {
+    // Coming from bottom edge (at full width) to left edge (with inset)
+    // Need step: (-halfW, -halfH) -> (-halfW + inset, -halfH) -> up the left edge
+    stepPoints.bottomLeft.after = { x: mainCorners.bottomLeft.x, y: -halfH };
+  }
+  if (leftGoesFullWidth && extBottom <= 0 && (bottomIsSolid && bottomHasTabs)) {
+    // Coming from left edge (at full width) to bottom edge (with inset)
+    stepPoints.bottomLeft.before = { x: -halfW, y: mainCorners.bottomLeft.y };
+  }
+
+  // Bottom-right corner
+  if (bottomGoesFullWidth && extRight <= 0 && (rightIsSolid && rightHasTabs)) {
+    stepPoints.bottomRight.before = { x: mainCorners.bottomRight.x, y: -halfH };
+  }
+  if (rightGoesFullWidth && extBottom <= 0 && (bottomIsSolid && bottomHasTabs)) {
+    stepPoints.bottomRight.after = { x: halfW, y: mainCorners.bottomRight.y };
+  }
+
+  // Top-right corner
+  if (topGoesFullWidth && extRight <= 0 && (rightIsSolid && rightHasTabs)) {
+    stepPoints.topRight.after = { x: mainCorners.topRight.x, y: halfH };
+  }
+  if (rightGoesFullWidth && extTop <= 0 && (topIsSolid && topHasTabs)) {
+    stepPoints.topRight.before = { x: halfW, y: mainCorners.topRight.y };
+  }
+
+  // Top-left corner
+  if (topGoesFullWidth && extLeft <= 0 && (leftIsSolid && leftHasTabs)) {
+    stepPoints.topLeft.before = { x: mainCorners.topLeft.x, y: halfH };
+  }
+  if (leftGoesFullWidth && extTop <= 0 && (topIsSolid && topHasTabs)) {
+    stepPoints.topLeft.after = { x: -halfW, y: mainCorners.topLeft.y };
+  }
+
   // Edge configs with both outline corners (for panel shape) and finger corners (for finger calculation)
+  // Include step point keys for L-shaped transitions
   const edgeConfigs = [
     {
       start: outlineCorners.topLeft, end: outlineCorners.topRight,
       fingerStart: fingerCorners.topLeft, fingerEnd: fingerCorners.topRight,
       edgeInfo: edges.find((e) => e.position === 'top')!,
       startExt: { perpendicular: extLeft, parallel: extTop },
-      endExt: { perpendicular: extRight, parallel: extTop }
+      endExt: { perpendicular: extRight, parallel: extTop },
+      startCorner: 'topLeft' as const,
+      endCorner: 'topRight' as const,
     },
     {
       start: outlineCorners.topRight, end: outlineCorners.bottomRight,
       fingerStart: fingerCorners.topRight, fingerEnd: fingerCorners.bottomRight,
       edgeInfo: edges.find((e) => e.position === 'right')!,
       startExt: { perpendicular: extTop, parallel: extRight },
-      endExt: { perpendicular: extBottom, parallel: extRight }
+      endExt: { perpendicular: extBottom, parallel: extRight },
+      startCorner: 'topRight' as const,
+      endCorner: 'bottomRight' as const,
     },
     {
       start: outlineCorners.bottomRight, end: outlineCorners.bottomLeft,
       fingerStart: fingerCorners.bottomRight, fingerEnd: fingerCorners.bottomLeft,
       edgeInfo: edges.find((e) => e.position === 'bottom')!,
       startExt: { perpendicular: extRight, parallel: extBottom },
-      endExt: { perpendicular: extLeft, parallel: extBottom }
+      endExt: { perpendicular: extLeft, parallel: extBottom },
+      startCorner: 'bottomRight' as const,
+      endCorner: 'bottomLeft' as const,
     },
     {
       start: outlineCorners.bottomLeft, end: outlineCorners.topLeft,
       fingerStart: fingerCorners.bottomLeft, fingerEnd: fingerCorners.topLeft,
       edgeInfo: edges.find((e) => e.position === 'left')!,
       startExt: { perpendicular: extBottom, parallel: extLeft },
-      endExt: { perpendicular: extTop, parallel: extLeft }
+      endExt: { perpendicular: extTop, parallel: extLeft },
+      startCorner: 'bottomLeft' as const,
+      endCorner: 'topLeft' as const,
     },
   ];
 
   const outlinePoints: PathPoint[] = [];
 
-  for (const { start, end, fingerStart, fingerEnd, edgeInfo, startExt, endExt } of edgeConfigs) {
+  for (const { start, end, fingerStart, fingerEnd, edgeInfo, startExt, endExt, startCorner, endCorner } of edgeConfigs) {
     const adjacentFace = faces.find((f) => f.id === edgeInfo.adjacentFaceId);
     const isSolidAdjacent = adjacentFace?.solid ?? false;
     const hasFingers = edgeHasFingers(edgeInfo.position);
@@ -711,7 +1000,12 @@ const generateFacePanelOutline = (
     const hasParallelExtension = (startExt.parallel > 0) || (endExt.parallel > 0);
     const parallelExt = startExt.parallel > 0 ? startExt.parallel : endExt.parallel;
 
+    // Get step points for L-shaped transitions at corners
+    const startStepAfter = stepPoints[startCorner]?.after;
+    const endStepBefore = stepPoints[endCorner]?.before;
+
     let points: Point[];
+    let usedFingerTransitions = false; // Track if adjustedPoints handled L-shape transitions
 
     // Use pre-calculated assembly finger points for aligned finger joints
     // BUT NOT if the edge has been extended (those get slot holes instead)
@@ -752,28 +1046,66 @@ const generateFacePanelOutline = (
           outwardDirection,
         });
 
-        // If outline corners differ from finger corners, add straight segments
-        // When connecting to an extended edge, add step transitions to full width
+        // If outline corners differ from finger corners, add L-shaped step transitions
+        // This happens when an extension goes to full width but fingers stay at inset position
         const adjustedPoints: Point[] = [];
 
-        // Add segment from outline start to finger start if different
-        const startDiffX = Math.abs(start.x - fingerStart.x);
-        const startDiffY = Math.abs(start.y - fingerStart.y);
-        if (startDiffX > 0.01 || startDiffY > 0.01) {
+        // Get actual start/end points of the finger path (may differ from fingerStart/fingerEnd)
+        const fingerPathStart = fingerPathPoints[0];
+        const fingerPathEnd = fingerPathPoints[fingerPathPoints.length - 1];
+
+        const startDiffX = Math.abs(start.x - fingerPathStart.x);
+        const startDiffY = Math.abs(start.y - fingerPathStart.y);
+        const needsStartTransition = startDiffX > 0.01 || startDiffY > 0.01;
+
+        if (needsStartTransition) {
+          // Add start point (extended corner)
           adjustedPoints.push(start);
+
+          // Add intermediate point(s) to create L-shape instead of diagonal
+          // Use actual fingerPathStart coordinates to ensure proper alignment
+          if (isHorizontalEdge) {
+            // Horizontal edge: step along X first (parallel to edge), then Y
+            if (startDiffX > 0.01) {
+              adjustedPoints.push({ x: fingerPathStart.x, y: start.y });
+            }
+          } else {
+            // Vertical edge: step along Y first (parallel to edge), then X
+            if (startDiffY > 0.01) {
+              adjustedPoints.push({ x: start.x, y: fingerPathStart.y });
+            }
+          }
         }
 
         // Add all finger path points
         adjustedPoints.push(...fingerPathPoints);
 
-        // Add segment from finger end to outline end if different
-        const endDiffX = Math.abs(end.x - fingerEnd.x);
-        const endDiffY = Math.abs(end.y - fingerEnd.y);
-        if (endDiffX > 0.01 || endDiffY > 0.01) {
+        // Add L-shaped transition from finger end to outline end
+        const endDiffX = Math.abs(end.x - fingerPathEnd.x);
+        const endDiffY = Math.abs(end.y - fingerPathEnd.y);
+        const needsEndTransition = endDiffX > 0.01 || endDiffY > 0.01;
+
+        if (needsEndTransition) {
+          // Add intermediate point(s) for L-shape
+          // Use actual fingerPathEnd coordinates to ensure proper alignment
+          if (isHorizontalEdge) {
+            // Horizontal edge: step along Y first (perpendicular), then X
+            if (endDiffY > 0.01) {
+              adjustedPoints.push({ x: fingerPathEnd.x, y: end.y });
+            }
+          } else {
+            // Vertical edge: step along X first (perpendicular), then Y
+            if (endDiffX > 0.01) {
+              adjustedPoints.push({ x: end.x, y: fingerPathEnd.y });
+            }
+          }
+
+          // Add end point (extended corner)
           adjustedPoints.push(end);
         }
 
         points = adjustedPoints;
+        usedFingerTransitions = true; // adjustedPoints already handles L-shape transitions
       } else {
         // Gender is null = straight edge
         points = [start, end];
@@ -784,6 +1116,31 @@ const generateFacePanelOutline = (
     } else {
       // No finger data or not a solid adjacent face - straight edge
       points = [start, end];
+    }
+
+    // Insert step points for L-shaped transitions
+    // Only apply when NOT using finger transitions (which already handle L-shapes)
+    if (!usedFingerTransitions) {
+      // Step after start: insert right after the start corner
+      if (startStepAfter) {
+        // Find where to insert (after start point)
+        const newPoints: Point[] = [points[0], startStepAfter];
+        for (let i = 1; i < points.length; i++) {
+          newPoints.push(points[i]);
+        }
+        points = newPoints;
+      }
+      // Step before end: insert right before the end corner
+      if (endStepBefore) {
+        // Insert before the last point
+        const newPoints: Point[] = [];
+        for (let i = 0; i < points.length - 1; i++) {
+          newPoints.push(points[i]);
+        }
+        newPoints.push(endStepBefore);
+        newPoints.push(points[points.length - 1]);
+        points = newPoints;
+      }
     }
 
     // For first edge, add all points including start
@@ -1698,7 +2055,7 @@ const generateFacePanel = (
     feetEdge, feetParams
   );
   const dividerHoles = generateDividerSlotHoles(faceId, faces, rootVoid, config, existingPanels, fingerData);
-  const lidHoles = generateLidSlotHoles(faceId, faces, config, fingerData);
+  const lidHoles = generateLidSlotHoles(faceId, faces, config);
   // Pass extensionsWithFeet so slot holes are generated for feet edge
   const extensionHoles = generateExtensionSlotHoles(faceId, faces, config, extensionsWithFeet, fingerData);
   const { position, rotation } = getFaceTransform(faceId, config, scale);
@@ -2126,22 +2483,59 @@ const generateDividerPanel = (
   };
 
   // Actual corners with extensions applied
+  // EXTENSION RULE: When an edge is extended, that edge goes to full width (no perpendicular insets)
+  // Helper to get X position for corners (same pattern as face panels)
+  const getCornerX = (
+    side: 'left' | 'right',
+    hasTopExt: boolean,
+    hasBottomExt: boolean,
+    ownExt: number
+  ): number => {
+    const baseX = side === 'left' ? -halfW : halfW;
+    const meetsFace = side === 'left' ? meetsFaceLeft : meetsFaceRight;
+    const insetDir = side === 'left' ? 1 : -1;
+    const extDir = side === 'left' ? -1 : 1;
+
+    // Apply inset only if meets face AND no extension on the edges meeting this corner
+    const applyInset = meetsFace && !hasTopExt && !hasBottomExt;
+
+    return baseX + (applyInset ? insetDir * materialThickness : 0) + extDir * ownExt;
+  };
+
+  // Helper to get Y position for corners
+  const getCornerY = (
+    side: 'top' | 'bottom',
+    hasLeftExt: boolean,
+    hasRightExt: boolean,
+    ownExt: number
+  ): number => {
+    const baseY = side === 'top' ? halfH : -halfH;
+    const meetsFace = side === 'top' ? meetsFaceTop : meetsFaceBottom;
+    const insetDir = side === 'top' ? -1 : 1;
+    const extDir = side === 'top' ? 1 : -1;
+
+    // Apply inset only if meets face AND no extension on the edges meeting this corner
+    const applyInset = meetsFace && !hasLeftExt && !hasRightExt;
+
+    return baseY + (applyInset ? insetDir * materialThickness : 0) + extDir * ownExt;
+  };
+
   const corners: Record<string, Point> = {
     topLeft: {
-      x: origCorners.topLeft.x - extLeft,
-      y: origCorners.topLeft.y + extTop,
+      x: getCornerX('left', extTop > 0, false, extLeft),
+      y: getCornerY('top', extLeft > 0, false, extTop),
     },
     topRight: {
-      x: origCorners.topRight.x + extRight,
-      y: origCorners.topRight.y + extTop,
+      x: getCornerX('right', extTop > 0, false, extRight),
+      y: getCornerY('top', false, extRight > 0, extTop),
     },
     bottomRight: {
-      x: origCorners.bottomRight.x + extRight,
-      y: origCorners.bottomRight.y - extBottom,
+      x: getCornerX('right', false, extBottom > 0, extRight),
+      y: getCornerY('bottom', false, extRight > 0, extBottom),
     },
     bottomLeft: {
-      x: origCorners.bottomLeft.x - extLeft,
-      y: origCorners.bottomLeft.y - extBottom,
+      x: getCornerX('left', false, extBottom > 0, extLeft),
+      y: getCornerY('bottom', extLeft > 0, false, extBottom),
     },
   };
 
@@ -2516,12 +2910,16 @@ export const generatePanelCollection = (
     dividerPanels.push(panel);
   }
 
-  // Second pass: generate face panels with divider extension info
+  // Second pass: generate face panels
+  // Pass ALL panels (dividers + previously generated face panels) so meeting detection works
   const faceIds: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
+  const generatedFacePanels: PanelPath[] = [];
   for (const faceId of faceIds) {
     const panelId = `face-${faceId}`;
-    const panel = generateFacePanel(faceId, faces, rootVoid, config, scale, getExistingExtensions(panelId), dividerPanels, fingerData);
+    const allExistingPanels = [...dividerPanels, ...generatedFacePanels];
+    const panel = generateFacePanel(faceId, faces, rootVoid, config, scale, getExistingExtensions(panelId), allExistingPanels, fingerData);
     if (panel) {
+      generatedFacePanels.push(panel);
       panels.push(panel);
     }
   }

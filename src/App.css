@@ -2547,3 +2547,251 @@ body {
 .palette-btn-danger:hover:not(:disabled) {
   background: #9a5a5a;
 }
+
+/* Checkboxes */
+
+.palette-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.palette-checkboxes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.palette-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.palette-checkbox:hover:not(.disabled) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.palette-checkbox.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.palette-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #4a90d9;
+  cursor: pointer;
+}
+
+.palette-checkbox.disabled input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
+.palette-checkbox-label {
+  font-size: 0.85rem;
+  color: #ccc;
+}
+
+/* Number input row */
+
+.palette-number-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.palette-number-row .palette-label {
+  margin-bottom: 0;
+}
+
+.palette-number-row .palette-number-input {
+  flex-shrink: 0;
+}
+
+/* ============================================
+   Sketch Sidebar (2D Editor)
+   ============================================ */
+
+.sketch-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.sketch-sidebar h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #4a90d9;
+  margin-bottom: 0.5rem;
+}
+
+.sketch-sidebar h3 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.sketch-sidebar-empty {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.sketch-sidebar-section {
+  background: #1a1a2e;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.sketch-sidebar-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.info-label {
+  color: #888;
+}
+
+.info-value {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+/* Edge Status Grid */
+.edge-status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.edge-status-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  background: #252545;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.edge-status-item .edge-name {
+  text-transform: capitalize;
+  color: #aaa;
+  flex: 1;
+}
+
+.edge-status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.edge-status-item.locked .edge-status-indicator {
+  background: #4a90d9;
+}
+
+.edge-status-item.editable .edge-status-indicator {
+  background: #e09040;
+}
+
+.edge-extension {
+  font-size: 0.7rem;
+  color: #2ecc71;
+  font-weight: 500;
+}
+
+.edge-status-summary {
+  font-size: 0.75rem;
+  color: #666;
+  text-align: center;
+}
+
+/* Sketch Legend (in sidebar) */
+.sketch-legend-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+.legend-swatch {
+  width: 16px;
+  height: 4px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.legend-swatch.locked {
+  background: #4a90d9;
+}
+
+.legend-swatch.editable {
+  background: #e09040;
+}
+
+.legend-swatch.boundary {
+  background: transparent;
+  border-top: 2px dashed #6a6a8a;
+  height: 0;
+}
+
+.legend-swatch.safe-zone {
+  background: #2ecc71;
+  opacity: 0.6;
+}
+
+.legend-swatch.corner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #00d9ff;
+}
+
+/* Sketch Help Items */
+.sketch-help-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.help-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+.help-key {
+  background: #252545;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  color: #ccc;
+  min-width: 60px;
+  text-align: center;
+}

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, SplitPositionMode, ViewMode } from '../types';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, SplitPositionMode, ViewMode, EditorTool } from '../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
 
@@ -571,7 +571,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   viewMode: '3d',
   sketchPanelId: null,
   // Tool state
-  activeTool: 'select' as 'select' | 'pan' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer',
+  activeTool: 'select' as EditorTool,
   selectedCornerIds: new Set<string>(),
 
   setConfig: (newConfig) =>

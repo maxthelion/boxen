@@ -5,7 +5,7 @@ import { getFaceEdgeStatuses, getDividerEdgeStatuses, EdgeStatusInfo } from '../
 import { getEditableAreas, EditableArea } from '../utils/editableAreas';
 import { DetectedCorner } from '../utils/cornerFinish';
 import { EditorToolbar, EditorTool } from './EditorToolbar';
-import { FloatingPalette, PaletteSliderInput, PaletteToggleGroup, PaletteButtonRow, PaletteButton } from './FloatingPalette';
+import { FloatingPalette, PaletteSliderInput, PaletteToggleGroup, PaletteButtonRow, PaletteButton, PaletteCheckbox, PaletteCheckboxGroup, PaletteNumberInput } from './FloatingPalette';
 
 interface SketchView2DProps {
   className?: string;
@@ -260,6 +260,11 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   const [cornerFinishType, setCornerFinishType] = useState<'chamfer' | 'fillet'>('chamfer');
   const [cornerRadius, setCornerRadius] = useState(3);
 
+  // Inset tool state
+  const [selectedEdges, setSelectedEdges] = useState<Set<EdgePosition>>(new Set());
+  const [extensionAmount, setExtensionAmount] = useState(0);
+  const [insetPalettePosition, setInsetPalettePosition] = useState({ x: 200, y: 100 });
+
   // Get the panel being edited
   const panel = useMemo(() => {
     if (!panelCollection || !sketchPanelId) return null;
@@ -425,9 +430,134 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     ];
   }, [panel]);
 
-  // Count edge types for display
-  const lockedCount = edgeStatuses.filter(e => e.status === 'locked').length;
-  const editableCount = edgeStatuses.filter(e => e.status !== 'locked').length;
+  // Calculate adjacent panel side profiles for visualization
+  // Shows cross-section of adjacent panels at each edge
+  interface AdjacentPanelProfile {
+    edge: EdgePosition;
+    exists: boolean;
+    materialThickness: number;
+    panelDepth: number;  // How far the adjacent panel extends (perpendicular to this panel)
+    extension: number;   // Any extension the adjacent panel has on this edge direction
+    faceId: FaceId | null;
+  }
+
+  const adjacentPanelProfiles = useMemo((): AdjacentPanelProfile[] => {
+    if (!panel || panel.source.type !== 'face') return [];
+
+    const faceId = panel.source.faceId;
+    if (!faceId) return [];
+
+    const materialThickness = config.materialThickness;
+
+    // Map edge positions to adjacent faces
+    const edgeToAdjacentFace: Record<EdgePosition, FaceId | null> = {
+      top: null,
+      bottom: null,
+      left: null,
+      right: null,
+    };
+
+    // Determine adjacent faces based on current face orientation
+    // Front/back faces: left/right edges connect to left/right panels, top/bottom to top/bottom
+    // Left/right faces: left/right edges connect to back/front panels, top/bottom to top/bottom
+    // Top/bottom faces: edges connect to front/back/left/right depending on orientation
+    switch (faceId) {
+      case 'front':
+        edgeToAdjacentFace.top = 'top';
+        edgeToAdjacentFace.bottom = 'bottom';
+        edgeToAdjacentFace.left = 'left';
+        edgeToAdjacentFace.right = 'right';
+        break;
+      case 'back':
+        edgeToAdjacentFace.top = 'top';
+        edgeToAdjacentFace.bottom = 'bottom';
+        edgeToAdjacentFace.left = 'right';  // Flipped from front
+        edgeToAdjacentFace.right = 'left';
+        break;
+      case 'left':
+        edgeToAdjacentFace.top = 'top';
+        edgeToAdjacentFace.bottom = 'bottom';
+        edgeToAdjacentFace.left = 'back';
+        edgeToAdjacentFace.right = 'front';
+        break;
+      case 'right':
+        edgeToAdjacentFace.top = 'top';
+        edgeToAdjacentFace.bottom = 'bottom';
+        edgeToAdjacentFace.left = 'front';
+        edgeToAdjacentFace.right = 'back';
+        break;
+      case 'top':
+        edgeToAdjacentFace.top = 'back';
+        edgeToAdjacentFace.bottom = 'front';
+        edgeToAdjacentFace.left = 'left';
+        edgeToAdjacentFace.right = 'right';
+        break;
+      case 'bottom':
+        edgeToAdjacentFace.top = 'front';
+        edgeToAdjacentFace.bottom = 'back';
+        edgeToAdjacentFace.left = 'left';
+        edgeToAdjacentFace.right = 'right';
+        break;
+    }
+
+    return (['top', 'bottom', 'left', 'right'] as EdgePosition[]).map(edge => {
+      const adjFaceId = edgeToAdjacentFace[edge];
+      const adjFace = adjFaceId ? faces.find(f => f.id === adjFaceId) : null;
+      const adjPanel = adjFaceId && panelCollection
+        ? panelCollection.panels.find(p => p.source.faceId === adjFaceId)
+        : null;
+
+      if (!adjFace || !adjFace.solid || !adjPanel) {
+        return {
+          edge,
+          exists: false,
+          materialThickness: 0,
+          panelDepth: 0,
+          extension: 0,
+          faceId: adjFaceId,
+        };
+      }
+
+      // Get the extension of the adjacent panel on the edge that faces this panel
+      // We need to figure out which edge of the adjacent panel connects to this panel
+      let adjExtension = 0;
+      const adjExt = adjPanel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
+
+      // Map: which edge of the adjacent panel connects back to this panel
+      // This is complex and depends on the specific face relationships
+      // For now, use the same edge direction as a simplification
+      switch (edge) {
+        case 'top':
+        case 'bottom':
+          adjExtension = adjExt[edge] ?? 0;
+          break;
+        case 'left':
+        case 'right':
+          adjExtension = adjExt[edge] ?? 0;
+          break;
+      }
+
+      // Panel depth is the dimension perpendicular to this panel
+      // For most cases, this is related to the box depth/width/height
+      let panelDepth = materialThickness; // Default to just showing material thickness
+      if (edge === 'top' || edge === 'bottom') {
+        // Vertical adjacent panels - depth is the perpendicular dimension
+        panelDepth = faceId === 'front' || faceId === 'back' ? config.depth : config.width;
+      } else {
+        // Horizontal adjacent panels
+        panelDepth = faceId === 'left' || faceId === 'right' ? config.depth : config.width;
+      }
+
+      return {
+        edge,
+        exists: true,
+        materialThickness,
+        panelDepth,
+        extension: adjExtension,
+        faceId: adjFaceId,
+      };
+    });
+  }, [panel, faces, panelCollection, config]);
 
   // Check if an edge is editable (unlocked or outward-only)
   const isEdgeEditable = useCallback((edge: EdgePosition): boolean => {
@@ -441,6 +571,11 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     // Clear corner selection when switching away from chamfer tool
     if (tool !== 'chamfer') {
       clearCornerSelection();
+    }
+    // Clear edge selection when switching away from inset tool
+    if (tool !== 'inset') {
+      setSelectedEdges(new Set());
+      setExtensionAmount(0);
     }
   }, [setActiveTool, clearCornerSelection]);
 
@@ -470,6 +605,46 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     // Position the floating palette near the click
     setPalettePosition({ x: event.clientX + 20, y: event.clientY - 50 });
   }, [selectCorner]);
+
+  // Toggle edge selection for inset tool
+  const toggleEdgeSelection = useCallback((edge: EdgePosition) => {
+    setSelectedEdges(prev => {
+      const next = new Set(prev);
+      if (next.has(edge)) {
+        next.delete(edge);
+      } else {
+        next.add(edge);
+      }
+      return next;
+    });
+  }, []);
+
+  // Apply extension to all selected edges
+  const applyExtension = useCallback(() => {
+    if (!panel || selectedEdges.size === 0) return;
+
+    for (const edge of selectedEdges) {
+      // Only apply to editable edges
+      if (isEdgeEditable(edge)) {
+        const currentExtension = panel.edgeExtensions?.[edge] ?? 0;
+        setEdgeExtension(panel.id, edge, currentExtension + extensionAmount);
+      }
+    }
+
+    // Reset extension amount after applying
+    setExtensionAmount(0);
+  }, [panel, selectedEdges, extensionAmount, isEdgeEditable, setEdgeExtension]);
+
+  // Clear extension from selected edges (set to 0)
+  const clearExtension = useCallback(() => {
+    if (!panel || selectedEdges.size === 0) return;
+
+    for (const edge of selectedEdges) {
+      if (isEdgeEditable(edge)) {
+        setEdgeExtension(panel.id, edge, 0);
+      }
+    }
+  }, [panel, selectedEdges, isEdgeEditable, setEdgeExtension]);
 
   // Convert screen coordinates to SVG coordinates
   const screenToSvg = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -597,8 +772,8 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
       // Calculate new extension value
       const newExtension = dragStartExtension + delta;
-      // Clamp to reasonable range
-      const clampedExtension = Math.max(-config.materialThickness, Math.min(20, newExtension));
+      // Clamp: inward limit is material thickness, outward has no practical limit
+      const clampedExtension = Math.max(-config.materialThickness, newExtension);
 
       setEdgeExtension(panel.id, dragEdge, clampedExtension);
     } else if (isPanning) {
@@ -793,6 +968,126 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
         {/* Y-axis is flipped in SVG, so we apply a transform */}
         <g transform="scale(1, -1)">
+          {/* Adjacent panel side profiles - shows cross-section of neighboring panels */}
+          {panel && adjacentPanelProfiles.map(profile => {
+            if (!profile.exists) return null;
+
+            const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
+            const originalWidth = panel.width - (ext.left ?? 0) - (ext.right ?? 0);
+            const originalHeight = panel.height - (ext.top ?? 0) - (ext.bottom ?? 0);
+            const halfW = originalWidth / 2;
+            const halfH = originalHeight / 2;
+            const mt = profile.materialThickness;
+            const profileScale = Math.min(viewBox.width, viewBox.height) / 200; // Scale profile size
+
+            // Check which edges have finger joints (to determine insets)
+            const leftHasJoints = edgeStatuses.find(e => e.position === 'left')?.status === 'locked' ||
+                                  edgeStatuses.find(e => e.position === 'left')?.status === 'outward-only';
+            const rightHasJoints = edgeStatuses.find(e => e.position === 'right')?.status === 'locked' ||
+                                   edgeStatuses.find(e => e.position === 'right')?.status === 'outward-only';
+            const topHasJoints = edgeStatuses.find(e => e.position === 'top')?.status === 'locked' ||
+                                 edgeStatuses.find(e => e.position === 'top')?.status === 'outward-only';
+            const bottomHasJoints = edgeStatuses.find(e => e.position === 'bottom')?.status === 'locked' ||
+                                    edgeStatuses.find(e => e.position === 'bottom')?.status === 'outward-only';
+
+            // Inset amounts based on perpendicular edges having joints
+            const leftInset = leftHasJoints ? mt : 0;
+            const rightInset = rightHasJoints ? mt : 0;
+            const topInset = topHasJoints ? mt : 0;
+            const bottomInset = bottomHasJoints ? mt : 0;
+
+            // Position and dimensions for the side profile rectangle
+            // These should align with where the finger joints actually are
+            let x = 0, y = 0, w = 0, h = 0;
+            let labelX = 0, labelY = 0;
+
+            switch (profile.edge) {
+              case 'top':
+                // Profile above the top edge - inset on left/right if those edges have joints
+                x = -halfW + leftInset;
+                y = halfH - topInset;  // Position at the finger joint line
+                w = originalWidth - leftInset - rightInset;
+                h = mt;
+                labelX = 0;
+                labelY = halfH + 5 * profileScale;
+                break;
+              case 'bottom':
+                // Profile below the bottom edge - inset on left/right if those edges have joints
+                x = -halfW + leftInset;
+                y = -halfH + bottomInset - mt;  // Position at the finger joint line
+                w = originalWidth - leftInset - rightInset;
+                h = mt;
+                labelX = 0;
+                labelY = -halfH - 5 * profileScale;
+                break;
+              case 'left':
+                // Profile to the left of the left edge - inset on top/bottom if those edges have joints
+                x = -halfW + leftInset - mt;  // Position at the finger joint line
+                y = -halfH + bottomInset;
+                w = mt;
+                h = originalHeight - topInset - bottomInset;
+                labelX = -halfW - 5 * profileScale;
+                labelY = 0;
+                break;
+              case 'right':
+                // Profile to the right of the right edge - inset on top/bottom if those edges have joints
+                x = halfW - rightInset;  // Position at the finger joint line
+                y = -halfH + bottomInset;
+                w = mt;
+                h = originalHeight - topInset - bottomInset;
+                labelX = halfW + 5 * profileScale;
+                labelY = 0;
+                break;
+            }
+
+            // Show extension if the adjacent panel has one
+            const adjExt = profile.extension;
+
+            return (
+              <g key={`profile-${profile.edge}`}>
+                {/* Main material cross-section */}
+                <rect
+                  x={x}
+                  y={y}
+                  width={w}
+                  height={h}
+                  fill="#4a5568"
+                  fillOpacity={0.4}
+                  stroke="#718096"
+                  strokeWidth={outlineStrokeWidth * 0.5}
+                />
+                {/* Extension visualization if adjacent panel extends in this direction */}
+                {adjExt > 0 && (
+                  <rect
+                    x={profile.edge === 'left' ? x - adjExt : profile.edge === 'right' ? x + w : x}
+                    y={profile.edge === 'bottom' ? y - adjExt : profile.edge === 'top' ? y + h : y}
+                    width={profile.edge === 'left' || profile.edge === 'right' ? adjExt : w}
+                    height={profile.edge === 'top' || profile.edge === 'bottom' ? adjExt : h}
+                    fill="#e53e3e"
+                    fillOpacity={0.3}
+                    stroke="#e53e3e"
+                    strokeWidth={outlineStrokeWidth * 0.5}
+                    strokeDasharray={`${2 * strokeScale} ${1 * strokeScale}`}
+                  />
+                )}
+                {/* Material thickness label */}
+                <text
+                  x={labelX}
+                  y={-labelY}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill="#a0aec0"
+                  fontSize={Math.max(6, 8 * profileScale)}
+                  fontFamily="monospace"
+                  transform={`scale(1, -1)`}
+                  style={{ pointerEvents: 'none' }}
+                >
+                  {profile.faceId}
+                </text>
+              </g>
+            );
+          })}
+
           {/* Editable areas (safe zones for cutouts) */}
           {editableAreas.map((area, i) => (
             <rect
@@ -802,11 +1097,11 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
               width={area.width}
               height={area.height}
               fill="#2ecc71"
-              fillOpacity={0.08}
+              fillOpacity={0.15}
               stroke="#2ecc71"
-              strokeWidth={outlineStrokeWidth * 0.5}
+              strokeWidth={outlineStrokeWidth * 0.8}
               strokeDasharray={`${4 * strokeScale} ${2 * strokeScale}`}
-              opacity={0.4}
+              opacity={0.7}
             />
           ))}
 
@@ -978,44 +1273,6 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         </text>
       </svg>
 
-      {/* Legend */}
-      <div className="sketch-legend">
-        <div className="legend-item">
-          <span className="legend-color" style={{ background: '#4a90d9' }}></span>
-          <span>Locked edge (has joints)</span>
-        </div>
-        <div className="legend-item">
-          <span className="legend-color" style={{ background: '#e09040' }}></span>
-          <span>Editable edge (drag to move)</span>
-        </div>
-        <div className="legend-item">
-          <span className="legend-line" style={{ borderTop: '1px dashed #6a6a8a' }}></span>
-          <span>Conceptual boundary</span>
-        </div>
-        <div className="legend-item">
-          <span className="legend-color" style={{ background: '#2ecc71', opacity: 0.5 }}></span>
-          <span>Safe zone (for cutouts)</span>
-        </div>
-        {activeTool === 'chamfer' && (
-          <div className="legend-item">
-            <span className="legend-color" style={{ background: '#00d9ff', borderRadius: '50%' }}></span>
-            <span>Corner (click to select)</span>
-          </div>
-        )}
-        <div className="legend-info">
-          {lockedCount} locked, {editableCount} editable
-        </div>
-        {hoveredEdge && (
-          <div className="legend-info">
-            {hoveredEdge}: {isEdgeEditable(hoveredEdge) ? 'drag to extend' : 'locked'}
-          </div>
-        )}
-        {activeTool === 'chamfer' && (
-          <div className="legend-info">
-            Chamfer tool active - click corners to select
-          </div>
-        )}
-      </div>
 
       {/* Floating palette for corner finish options */}
       {activeTool === 'chamfer' && selectedCornerIds.size > 0 && (
@@ -1072,6 +1329,65 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
               }}
             >
               Clear
+            </PaletteButton>
+          </PaletteButtonRow>
+        </FloatingPalette>
+      )}
+
+      {/* Floating palette for inset/outset tool */}
+      {activeTool === 'inset' && panel && (
+        <FloatingPalette
+          position={insetPalettePosition}
+          title="Edge Extension"
+          onClose={() => {
+            setSelectedEdges(new Set());
+            setExtensionAmount(0);
+          }}
+          onPositionChange={setInsetPalettePosition}
+          minWidth={220}
+        >
+          <PaletteCheckboxGroup label="Select Edges">
+            {(['top', 'bottom', 'left', 'right'] as EdgePosition[]).map(edge => {
+              const editable = isEdgeEditable(edge);
+              const currentExt = panel.edgeExtensions?.[edge] ?? 0;
+              const label = `${edge.charAt(0).toUpperCase() + edge.slice(1)}${currentExt !== 0 ? ` (${currentExt > 0 ? '+' : ''}${currentExt.toFixed(1)})` : ''}`;
+
+              return (
+                <PaletteCheckbox
+                  key={edge}
+                  label={editable ? label : `${edge.charAt(0).toUpperCase() + edge.slice(1)} (locked)`}
+                  checked={selectedEdges.has(edge)}
+                  onChange={() => toggleEdgeSelection(edge)}
+                  disabled={!editable}
+                />
+              );
+            })}
+          </PaletteCheckboxGroup>
+
+          <PaletteNumberInput
+            label="Extension"
+            value={extensionAmount}
+            min={-config.materialThickness}
+            max={30}
+            step={0.5}
+            unit="mm"
+            onChange={setExtensionAmount}
+          />
+
+          <PaletteButtonRow>
+            <PaletteButton
+              variant="primary"
+              onClick={applyExtension}
+              disabled={selectedEdges.size === 0 || extensionAmount === 0}
+            >
+              Apply
+            </PaletteButton>
+            <PaletteButton
+              variant="secondary"
+              onClick={clearExtension}
+              disabled={selectedEdges.size === 0}
+            >
+              Reset
             </PaletteButton>
           </PaletteButtonRow>
         </FloatingPalette>

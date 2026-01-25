@@ -245,7 +245,13 @@ export interface BoxState {
   // 2D Sketch View state
   viewMode: ViewMode;
   sketchPanelId: string | null;  // Panel being edited in 2D view
+  // Editor tool state
+  activeTool: EditorTool;
+  selectedCornerIds: Set<string>;  // Selected corners for chamfer/fillet tool
 }
+
+// Editor tools available in 2D/3D views
+export type EditorTool = 'select' | 'pan' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer';
 
 export interface BoxActions {
   setConfig: (config: Partial<BoxConfig>) => void;
@@ -322,6 +328,11 @@ export interface BoxActions {
   setViewMode: (mode: ViewMode) => void;
   enterSketchView: (panelId: string) => void;
   exitSketchView: () => void;
+  // Editor tool actions
+  setActiveTool: (tool: EditorTool) => void;
+  selectCorner: (cornerId: string, toggle?: boolean) => void;
+  selectCorners: (cornerIds: string[]) => void;
+  clearCornerSelection: () => void;
 }
 
 // Subdivision panel - a physical divider piece to be cut

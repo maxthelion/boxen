@@ -262,6 +262,84 @@ export const PaletteToggleGroup: React.FC<ToggleGroupProps> = ({
   );
 };
 
+interface CheckboxProps {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}
+
+export const PaletteCheckbox: React.FC<CheckboxProps> = ({
+  label,
+  checked,
+  onChange,
+  disabled = false,
+}) => {
+  return (
+    <label className={`palette-checkbox ${disabled ? 'disabled' : ''}`}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        disabled={disabled}
+      />
+      <span className="palette-checkbox-label">{label}</span>
+    </label>
+  );
+};
+
+interface CheckboxGroupProps {
+  label?: string;
+  children: React.ReactNode;
+}
+
+export const PaletteCheckboxGroup: React.FC<CheckboxGroupProps> = ({ label, children }) => {
+  return (
+    <div className="palette-checkbox-group">
+      {label && <label className="palette-label">{label}</label>}
+      <div className="palette-checkboxes">{children}</div>
+    </div>
+  );
+};
+
+interface NumberInputProps {
+  label: string;
+  value: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  onChange: (value: number) => void;
+}
+
+export const PaletteNumberInput: React.FC<NumberInputProps> = ({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  unit = '',
+  onChange,
+}) => {
+  return (
+    <div className="palette-number-row">
+      <label className="palette-label">{label}</label>
+      <div className="palette-number-input">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+          className="palette-input"
+        />
+        {unit && <span className="palette-unit">{unit}</span>}
+      </div>
+    </div>
+  );
+};
+
 interface ButtonRowProps {
   children: React.ReactNode;
 }

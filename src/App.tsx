@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { BoxTree } from './components/BoxTree';
 import { Viewport3D, Viewport3DHandle } from './components/Viewport3D';
 import { SketchView2D } from './components/SketchView2D';
+import { SketchSidebar } from './components/SketchSidebar';
 import { SubdivisionControls } from './components/SubdivisionControls';
 import { PanelProperties } from './components/PanelProperties';
 import { AssemblyProperties } from './components/AssemblyProperties';
@@ -247,6 +248,11 @@ function App() {
 
   // Determine what to show in the right sidebar based on selection
   const renderRightSidebar = () => {
+    // 2D sketch mode - show sketch-specific sidebar
+    if (viewMode === '2d') {
+      return <SketchSidebar />;
+    }
+
     // Void selected - show subdivision controls (only for single selection)
     if (selectedVoidIds.size === 1) {
       return <SubdivisionControls />;
