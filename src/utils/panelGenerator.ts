@@ -24,6 +24,7 @@ import { generateFingerJointPath, generateFingerJointPathV2, Point } from './fin
 import { calculateAssemblyFingerPoints } from './fingerPoints';
 import { getEdgeGender, getAdjacentFace } from './genderRules';
 import { getAllSubdivisions } from '../store/useBoxStore';
+import { startDebugLog, addPanelDebug, PanelDebugInfo, CornerDebugInfo } from './extensionDebug';
 
 // Helper to get edge axis position range for finger system
 // Returns [startPos, endPos] along the axis where:
@@ -946,6 +947,97 @@ const generateFacePanelOutline = (
           : mainCorners.bottomLeft.y - extBottom
     },
   };
+
+  // Capture debug information for extension overlap analysis
+  if (extTop > 0 || extBottom > 0 || extLeft > 0 || extRight > 0) {
+    const cornerDebugInfos: CornerDebugInfo[] = [
+      {
+        corner: 'topLeft',
+        meetsOnHorizontal: topLeftMeetsOnTop,
+        meetsOnVertical: topLeftMeetsOnLeft,
+        perpFaceIdHorizontal: leftPanelTopExtResult.perpFaceId,
+        perpFaceIdVertical: topPanelLeftExtResult.perpFaceId,
+        hasPriorityHorizontal: leftPanelTopExtResult.perpFaceId ? hasPriorityOverPerpFace(faceId, leftPanelTopExtResult.perpFaceId) : null,
+        hasPriorityVertical: topPanelLeftExtResult.perpFaceId ? hasPriorityOverPerpFace(faceId, topPanelLeftExtResult.perpFaceId) : null,
+        goesFullWidth: topGoesFullWidth || leftGoesFullWidth,
+        finalX: extCorners.topLeft.x,
+        finalY: extCorners.topLeft.y,
+        usedMainCornersX: !((extTop > 0 && !topLeftMeetsOnTop) || (extLeft > 0 && !topLeftMeetsOnLeft)),
+        usedMainCornersY: !(extTop > 0) && !(extLeft > 0),
+      },
+      {
+        corner: 'topRight',
+        meetsOnHorizontal: topRightMeetsOnTop,
+        meetsOnVertical: topRightMeetsOnRight,
+        perpFaceIdHorizontal: rightPanelTopExtResult.perpFaceId,
+        perpFaceIdVertical: topPanelRightExtResult.perpFaceId,
+        hasPriorityHorizontal: rightPanelTopExtResult.perpFaceId ? hasPriorityOverPerpFace(faceId, rightPanelTopExtResult.perpFaceId) : null,
+        hasPriorityVertical: topPanelRightExtResult.perpFaceId ? hasPriorityOverPerpFace(faceId, topPanelRightExtResult.perpFaceId) : null,
+        goesFullWidth: topGoesFullWidth || rightGoesFullWidth,
+        finalX: extCorners.topRight.x,
+        finalY: extCorners.topRight.y,
+        usedMainCornersX: !((extTop > 0 && !topRightMeetsOnTop) || (extRight > 0 && !topRightMeetsOnRight)),
+        usedMainCornersY: !(extTop > 0) && !(extRight > 0),
+      },
+      {
+        corner: 'bottomRight',
+        meetsOnHorizontal: bottomRightMeetsOnBottom,
+        meetsOnVertical: bottomRightMeetsOnRight,
+        perpFaceIdHorizontal: rightPanelBottomExtResult.perpFaceId,
+        perpFaceIdVertical: bottomPanelRightExtResult.perpFaceId,
+        hasPriorityHorizontal: rightPanelBottomExtResult.perpFaceId ? hasPriorityOverPerpFace(faceId, rightPanelBottomExtResult.perpFaceId) : null,
+        hasPriorityVertical: bottomPanelRightExtResult.perpFaceId ? hasPriorityOverPerpFace(faceId, bottomPanelRightExtResult.perpFaceId) : null,
+        goesFullWidth: bottomGoesFullWidth || rightGoesFullWidth,
+        finalX: extCorners.bottomRight.x,
+        finalY: extCorners.bottomRight.y,
+        usedMainCornersX: !((extBottom > 0 && !bottomRightMeetsOnBottom) || (extRight > 0 && !bottomRightMeetsOnRight)),
+        usedMainCornersY: !(extBottom > 0) && !(extRight > 0),
+      },
+      {
+        corner: 'bottomLeft',
+        meetsOnHorizontal: bottomLeftMeetsOnBottom,
+        meetsOnVertical: bottomLeftMeetsOnLeft,
+        perpFaceIdHorizontal: leftPanelBottomExtResult.perpFaceId,
+        perpFaceIdVertical: bottomPanelLeftExtResult.perpFaceId,
+        hasPriorityHorizontal: leftPanelBottomExtResult.perpFaceId ? hasPriorityOverPerpFace(faceId, leftPanelBottomExtResult.perpFaceId) : null,
+        hasPriorityVertical: bottomPanelLeftExtResult.perpFaceId ? hasPriorityOverPerpFace(faceId, bottomPanelLeftExtResult.perpFaceId) : null,
+        goesFullWidth: bottomGoesFullWidth || leftGoesFullWidth,
+        finalX: extCorners.bottomLeft.x,
+        finalY: extCorners.bottomLeft.y,
+        usedMainCornersX: !((extBottom > 0 && !bottomLeftMeetsOnBottom) || (extLeft > 0 && !bottomLeftMeetsOnLeft)),
+        usedMainCornersY: !(extBottom > 0) && !(extLeft > 0),
+      },
+    ];
+
+    const panelDebug: PanelDebugInfo = {
+      faceId,
+      extensions: { top: extTop, bottom: extBottom, left: extLeft, right: extRight },
+      perpExtensions: {
+        leftPanelTop: leftPanelTopExt,
+        rightPanelTop: rightPanelTopExt,
+        leftPanelBottom: leftPanelBottomExt,
+        rightPanelBottom: rightPanelBottomExt,
+        topPanelLeft: topPanelLeftExt,
+        bottomPanelLeft: bottomPanelLeftExt,
+        topPanelRight: topPanelRightExt,
+        bottomPanelRight: bottomPanelRightExt,
+      },
+      corners: cornerDebugInfos,
+      mainCorners: {
+        topLeft: { x: mainCorners.topLeft.x, y: mainCorners.topLeft.y },
+        topRight: { x: mainCorners.topRight.x, y: mainCorners.topRight.y },
+        bottomRight: { x: mainCorners.bottomRight.x, y: mainCorners.bottomRight.y },
+        bottomLeft: { x: mainCorners.bottomLeft.x, y: mainCorners.bottomLeft.y },
+      },
+      extCorners: {
+        topLeft: { x: extCorners.topLeft.x, y: extCorners.topLeft.y },
+        topRight: { x: extCorners.topRight.x, y: extCorners.topRight.y },
+        bottomRight: { x: extCorners.bottomRight.x, y: extCorners.bottomRight.y },
+        bottomLeft: { x: extCorners.bottomLeft.x, y: extCorners.bottomLeft.y },
+      },
+    };
+    addPanelDebug(panelDebug);
+  }
 
   // Determine actual outline corners - use extension corners if there's an extension,
   // otherwise use main corners
@@ -2941,6 +3033,9 @@ export const generatePanelCollection = (
   scale: number = 1,
   existingPanels?: PanelPath[]
 ): PanelCollection => {
+  // Start debug logging for extension overlap analysis
+  startDebugLog();
+
   const panels: PanelPath[] = [];
 
   // Calculate assembly-level finger points for aligned finger joints

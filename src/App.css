@@ -1790,6 +1790,11 @@ body {
   border-color: #555;
 }
 
+.header-btn.success {
+  background: #2a5a3a;
+  border-color: #4a8a5a;
+}
+
 /* Project Browser Modal */
 .project-browser {
   min-height: 200px;

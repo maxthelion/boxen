@@ -14,6 +14,7 @@ import { useBoxStore } from './store/useBoxStore';
 import { saveProject, loadProject, captureThumbnail } from './utils/projectStorage';
 import { ProjectState } from './utils/urlState';
 import { defaultEdgeExtensions, EdgeExtensions, FaceId, PanelPath } from './types';
+import { formatDebugLog, hasDebugInfo } from './utils/extensionDebug';
 import './App.css';
 
 // Get the normal axis for any panel (face or divider)
@@ -64,6 +65,7 @@ function App() {
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [shareStatus, setShareStatus] = useState<'idle' | 'copied'>('idle');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
+  const [debugCopyStatus, setDebugCopyStatus] = useState<'idle' | 'copied'>('idle');
   const viewportRef = useRef<Viewport3DHandle>(null);
 
   const {
@@ -91,6 +93,18 @@ function App() {
       generatePanels();
     }
   }, []);
+
+  // Handle debug copy
+  const handleCopyDebug = async () => {
+    const debugText = formatDebugLog();
+    try {
+      await navigator.clipboard.writeText(debugText);
+      setDebugCopyStatus('copied');
+      setTimeout(() => setDebugCopyStatus('idle'), 2000);
+    } catch (err) {
+      console.error('Failed to copy debug info:', err);
+    }
+  };
 
   // Handle share button click
   const handleShare = async () => {
@@ -320,6 +334,16 @@ function App() {
             <span className="header-btn-icon">↓</span>
             Export
           </button>
+          {hasDebugInfo() && (
+            <button
+              className={`header-btn secondary ${debugCopyStatus === 'copied' ? 'success' : ''}`}
+              onClick={handleCopyDebug}
+              title="Copy extension debug info to clipboard"
+            >
+              <span className="header-btn-icon">{debugCopyStatus === 'copied' ? '✓' : '🐛'}</span>
+              {debugCopyStatus === 'copied' ? 'Copied!' : 'Debug'}
+            </button>
+          )}
         </div>
       </header>
 
