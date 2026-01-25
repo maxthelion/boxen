@@ -17,6 +17,8 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const panelCollection = useBoxStore((state) => state.panelCollection);
   const toggleFace = useBoxStore((state) => state.toggleFace);
   const purgeVoid = useBoxStore((state) => state.purgeVoid);
+  const activeTool = useBoxStore((state) => state.activeTool);
+  const setActiveTool = useBoxStore((state) => state.setActiveTool);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
   // Expose method to get the canvas element
@@ -79,7 +81,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   return (
     <div className="viewport-container" ref={canvasContainerRef}>
       <ViewportToolbar />
-      <EditorToolbar mode="3d" />
+      <EditorToolbar mode="3d" activeTool={activeTool} onToolChange={setActiveTool} />
       <Canvas
         camera={{ position: [150, 150, 150], fov: 50 }}
         style={{ background: '#1a1a2e' }}

@@ -570,6 +570,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // 2D Sketch View state
   viewMode: '3d',
   sketchPanelId: null,
+  // Tool state
+  activeTool: 'select' as 'select' | 'pan' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer',
+  selectedCornerIds: new Set<string>(),
 
   setConfig: (newConfig) =>
     set((state) => {
@@ -2276,5 +2279,37 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     set({
       viewMode: '3d',
       sketchPanelId: null,
+      activeTool: 'select',
+      selectedCornerIds: new Set<string>(),
     }),
+
+  // Tool actions
+  setActiveTool: (tool) =>
+    set({
+      activeTool: tool,
+      // Clear corner selection when switching tools
+      selectedCornerIds: new Set<string>(),
+    }),
+
+  // Corner selection actions
+  selectCorner: (cornerId, addToSelection = false) =>
+    set((state) => {
+      if (addToSelection) {
+        const newSet = new Set(state.selectedCornerIds);
+        if (newSet.has(cornerId)) {
+          newSet.delete(cornerId);
+        } else {
+          newSet.add(cornerId);
+        }
+        return { selectedCornerIds: newSet };
+      } else {
+        return { selectedCornerIds: new Set([cornerId]) };
+      }
+    }),
+
+  selectCorners: (cornerIds) =>
+    set({ selectedCornerIds: new Set(cornerIds) }),
+
+  clearCornerSelection: () =>
+    set({ selectedCornerIds: new Set<string>() }),
 }));

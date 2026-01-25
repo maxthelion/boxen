@@ -3,8 +3,9 @@ import { useBoxStore, getAllSubdivisions } from '../store/useBoxStore';
 import { PathPoint, PanelPath, FaceId, Face } from '../types';
 import { getFaceEdgeStatuses, getDividerEdgeStatuses, EdgeStatusInfo } from '../utils/panelGenerator';
 import { getEditableAreas, EditableArea } from '../utils/editableAreas';
-import { detectMainCorners, DetectedCorner } from '../utils/cornerFinish';
-import { EditorToolbar } from './EditorToolbar';
+import { DetectedCorner } from '../utils/cornerFinish';
+import { EditorToolbar, EditorTool } from './EditorToolbar';
+import { FloatingPalette, PaletteSliderInput, PaletteToggleGroup, PaletteButtonRow, PaletteButton } from './FloatingPalette';
 
 interface SketchView2DProps {
   className?: string;
@@ -230,6 +231,12 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     faces,
     rootVoid,
     setEdgeExtension,
+    activeTool,
+    setActiveTool,
+    selectedCornerIds,
+    selectCorner,
+    selectCorners,
+    clearCornerSelection,
   } = useBoxStore();
 
   // Pan and zoom state
@@ -244,6 +251,14 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   const [dragEdge, setDragEdge] = useState<EdgePosition | null>(null);
   const [dragStartPos, setDragStartPos] = useState<number>(0);
   const [dragStartExtension, setDragStartExtension] = useState<number>(0);
+
+  // Corner interaction state
+  const [hoveredCornerId, setHoveredCornerId] = useState<string | null>(null);
+  const [palettePosition, setPalettePosition] = useState({ x: 200, y: 100 });
+
+  // Corner finish settings (local state for the floating palette)
+  const [cornerFinishType, setCornerFinishType] = useState<'chamfer' | 'fillet'>('chamfer');
+  const [cornerRadius, setCornerRadius] = useState(3);
 
   // Get the panel being edited
   const panel = useMemo(() => {
@@ -326,10 +341,89 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   }, [panel, faces, config]);
 
   // Detect corners for potential finishing
+  // Find the actual corners from the panel outline (the extreme points)
   const detectedCorners = useMemo((): DetectedCorner[] => {
     if (!panel) return [];
-    return detectMainCorners(panel.width, panel.height, config.materialThickness);
-  }, [panel, config.materialThickness]);
+
+    const points = panel.outline.points;
+    if (points.length < 4) return [];
+
+    // Find the extreme points (actual corners of the bounding box)
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of points) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+
+    // Find the actual corner points closest to each extreme corner
+    const findCornerPoint = (targetX: number, targetY: number): { x: number; y: number; index: number } => {
+      let bestDist = Infinity;
+      let bestPoint = { x: targetX, y: targetY, index: -1 };
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const dist = Math.abs(p.x - targetX) + Math.abs(p.y - targetY);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestPoint = { x: p.x, y: p.y, index: i };
+        }
+      }
+      return bestPoint;
+    };
+
+    const tl = findCornerPoint(minX, maxY);
+    const tr = findCornerPoint(maxX, maxY);
+    const br = findCornerPoint(maxX, minY);
+    const bl = findCornerPoint(minX, minY);
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const maxRadius = Math.min(width, height) * 0.3;
+
+    return [
+      {
+        id: 'corner-tl',
+        index: tl.index,
+        position: { x: tl.x, y: tl.y },
+        angle: Math.PI / 2,
+        eligible: true,
+        maxRadius,
+        incomingEdgeLength: width,
+        outgoingEdgeLength: height,
+      },
+      {
+        id: 'corner-tr',
+        index: tr.index,
+        position: { x: tr.x, y: tr.y },
+        angle: Math.PI / 2,
+        eligible: true,
+        maxRadius,
+        incomingEdgeLength: height,
+        outgoingEdgeLength: width,
+      },
+      {
+        id: 'corner-br',
+        index: br.index,
+        position: { x: br.x, y: br.y },
+        angle: Math.PI / 2,
+        eligible: true,
+        maxRadius,
+        incomingEdgeLength: width,
+        outgoingEdgeLength: height,
+      },
+      {
+        id: 'corner-bl',
+        index: bl.index,
+        position: { x: bl.x, y: bl.y },
+        angle: Math.PI / 2,
+        eligible: true,
+        maxRadius,
+        incomingEdgeLength: height,
+        outgoingEdgeLength: width,
+      },
+    ];
+  }, [panel]);
 
   // Count edge types for display
   const lockedCount = edgeStatuses.filter(e => e.status === 'locked').length;
@@ -340,6 +434,42 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     const status = edgeStatuses.find(e => e.position === edge);
     return status?.status !== 'locked';
   }, [edgeStatuses]);
+
+  // Handle tool change
+  const handleToolChange = useCallback((tool: EditorTool) => {
+    setActiveTool(tool);
+    // Clear corner selection when switching away from chamfer tool
+    if (tool !== 'chamfer') {
+      clearCornerSelection();
+    }
+  }, [setActiveTool, clearCornerSelection]);
+
+  // Find which corner (if any) is near a point
+  const findCornerAtPoint = useCallback((svgX: number, svgY: number): DetectedCorner | null => {
+    if (activeTool !== 'chamfer') return null;
+
+    const hitDistance = Math.max(5, viewBox.width / 30); // Scale hit area with zoom
+
+    for (const corner of detectedCorners) {
+      if (!corner.eligible) continue;
+      const dx = svgX - corner.position.x;
+      const dy = svgY - corner.position.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < hitDistance) {
+        return corner;
+      }
+    }
+    return null;
+  }, [activeTool, detectedCorners, viewBox.width]);
+
+  // Handle corner click - toggle selection (click adds/removes, no shift needed)
+  const handleCornerClick = useCallback((corner: DetectedCorner, event: React.MouseEvent) => {
+    // Always toggle - makes multi-select easy
+    selectCorner(corner.id, true);
+
+    // Position the floating palette near the click
+    setPalettePosition({ x: event.clientX + 20, y: event.clientY - 50 });
+  }, [selectCorner]);
 
   // Convert screen coordinates to SVG coordinates
   const screenToSvg = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -415,26 +545,38 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     const svgPos = screenToSvg(e.clientX, e.clientY);
     if (!svgPos) return;
 
-    const edge = findEdgeAtPoint(svgPos.x, svgPos.y);
-
-    if (edge && isEdgeEditable(edge) && panel) {
-      // Start dragging edge
-      setIsDraggingEdge(true);
-      setDragEdge(edge);
-      const currentExtension = panel.edgeExtensions?.[edge] ?? 0;
-      setDragStartExtension(currentExtension);
-      // Store the relevant coordinate for drag calculation
-      if (edge === 'top' || edge === 'bottom') {
-        setDragStartPos(svgPos.y);
-      } else {
-        setDragStartPos(svgPos.x);
+    // Check for corner click when chamfer tool is active
+    if (activeTool === 'chamfer') {
+      const corner = findCornerAtPoint(svgPos.x, svgPos.y);
+      if (corner) {
+        handleCornerClick(corner, e);
+        return;
       }
-    } else {
-      // Start panning
-      setIsPanning(true);
-      setPanStart({ x: e.clientX, y: e.clientY });
     }
-  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel]);
+
+    // Edge dragging only works with inset tool
+    if (activeTool === 'inset') {
+      const edge = findEdgeAtPoint(svgPos.x, svgPos.y);
+      if (edge && isEdgeEditable(edge) && panel) {
+        // Start dragging edge
+        setIsDraggingEdge(true);
+        setDragEdge(edge);
+        const currentExtension = panel.edgeExtensions?.[edge] ?? 0;
+        setDragStartExtension(currentExtension);
+        // Store the relevant coordinate for drag calculation
+        if (edge === 'top' || edge === 'bottom') {
+          setDragStartPos(svgPos.y);
+        } else {
+          setDragStartPos(svgPos.x);
+        }
+        return;
+      }
+    }
+
+    // Default: start panning
+    setIsPanning(true);
+    setPanStart({ x: e.clientX, y: e.clientY });
+  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel, activeTool, findCornerAtPoint, handleCornerClick]);
 
   // Handle mouse move
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -474,11 +616,23 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       }));
       setPanStart({ x: e.clientX, y: e.clientY });
     } else if (svgPos) {
-      // Update hovered edge
-      const edge = findEdgeAtPoint(svgPos.x, svgPos.y);
-      setHoveredEdge(edge);
+      // Update hovered edge only when inset tool is active
+      if (activeTool === 'inset') {
+        const edge = findEdgeAtPoint(svgPos.x, svgPos.y);
+        setHoveredEdge(edge);
+      } else {
+        setHoveredEdge(null);
+      }
+
+      // Update hovered corner when chamfer tool is active
+      if (activeTool === 'chamfer') {
+        const corner = findCornerAtPoint(svgPos.x, svgPos.y);
+        setHoveredCornerId(corner?.id ?? null);
+      } else {
+        setHoveredCornerId(null);
+      }
     }
-  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, setEdgeExtension, config.materialThickness]);
+  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, setEdgeExtension, config.materialThickness, activeTool, findCornerAtPoint]);
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
@@ -544,17 +698,27 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     }
   };
 
-  // Determine cursor based on hovered edge
+  // Determine cursor based on active tool and hover state
   const getCursor = (): string => {
-    if (isDraggingEdge) {
-      if (dragEdge === 'top' || dragEdge === 'bottom') return 'ns-resize';
-      return 'ew-resize';
-    }
-    if (hoveredEdge && isEdgeEditable(hoveredEdge)) {
-      if (hoveredEdge === 'top' || hoveredEdge === 'bottom') return 'ns-resize';
-      return 'ew-resize';
-    }
     if (isPanning) return 'grabbing';
+
+    // Inset tool: resize cursor for edges
+    if (activeTool === 'inset') {
+      if (isDraggingEdge) {
+        if (dragEdge === 'top' || dragEdge === 'bottom') return 'ns-resize';
+        return 'ew-resize';
+      }
+      if (hoveredEdge && isEdgeEditable(hoveredEdge)) {
+        if (hoveredEdge === 'top' || hoveredEdge === 'bottom') return 'ns-resize';
+        return 'ew-resize';
+      }
+    }
+
+    // Chamfer tool: pointer cursor for corners
+    if (activeTool === 'chamfer' && hoveredCornerId) {
+      return 'pointer';
+    }
+
     return 'grab';
   };
 
@@ -579,7 +743,11 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       </div>
 
       {/* Editor Tools */}
-      <EditorToolbar mode="2d" />
+      <EditorToolbar
+        mode="2d"
+        activeTool={activeTool}
+        onToolChange={handleToolChange}
+      />
 
       {/* SVG Canvas */}
       <svg
@@ -742,20 +910,48 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             />
           ))}
 
-          {/* Corner indicators */}
-          {detectedCorners.filter(c => c.eligible).map((corner) => (
-            <g key={corner.id}>
-              <circle
-                cx={corner.position.x}
-                cy={corner.position.y}
-                r={Math.max(2, strokeScale * 3)}
-                fill="#9b59b6"
-                fillOpacity={0.3}
-                stroke="#9b59b6"
-                strokeWidth={outlineStrokeWidth * 0.5}
-              />
-            </g>
-          ))}
+          {/* Corner indicators - only show when chamfer tool is active */}
+          {activeTool === 'chamfer' && detectedCorners.filter(c => c.eligible).map((corner) => {
+            const isSelected = selectedCornerIds.has(corner.id);
+            const isHovered = hoveredCornerId === corner.id;
+            const radius = Math.max(3, strokeScale * 4);
+
+            return (
+              <g key={corner.id} style={{ cursor: 'pointer' }}>
+                {/* Hit area (larger invisible circle for easier clicking) */}
+                <circle
+                  cx={corner.position.x}
+                  cy={corner.position.y}
+                  r={radius * 2}
+                  fill="transparent"
+                />
+                {/* Outer glow when hovered or selected */}
+                {(isHovered || isSelected) && (
+                  <circle
+                    cx={corner.position.x}
+                    cy={corner.position.y}
+                    r={radius * 1.5}
+                    fill="none"
+                    stroke="#00d9ff"
+                    strokeWidth={outlineStrokeWidth}
+                    opacity={0.5}
+                  />
+                )}
+                {/* Main indicator circle */}
+                <circle
+                  cx={corner.position.x}
+                  cy={corner.position.y}
+                  r={radius}
+                  fill={isSelected ? '#00d9ff' : isHovered ? '#00d9ff' : 'transparent'}
+                  fillOpacity={isSelected ? 0.6 : isHovered ? 0.3 : 0}
+                  stroke={isSelected || isHovered ? '#00d9ff' : '#888'}
+                  strokeWidth={outlineStrokeWidth * (isSelected ? 1.5 : 1)}
+                />
+                {/* Checkmark for corners with existing finish */}
+                {/* TODO: Add checkmark when corner has finish applied */}
+              </g>
+            );
+          })}
         </g>
 
         {/* Dimension labels */}
@@ -800,10 +996,12 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           <span className="legend-color" style={{ background: '#2ecc71', opacity: 0.5 }}></span>
           <span>Safe zone (for cutouts)</span>
         </div>
-        <div className="legend-item">
-          <span className="legend-color" style={{ background: '#9b59b6', borderRadius: '50%' }}></span>
-          <span>Corner (chamfer/fillet)</span>
-        </div>
+        {activeTool === 'chamfer' && (
+          <div className="legend-item">
+            <span className="legend-color" style={{ background: '#00d9ff', borderRadius: '50%' }}></span>
+            <span>Corner (click to select)</span>
+          </div>
+        )}
         <div className="legend-info">
           {lockedCount} locked, {editableCount} editable
         </div>
@@ -812,7 +1010,72 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             {hoveredEdge}: {isEdgeEditable(hoveredEdge) ? 'drag to extend' : 'locked'}
           </div>
         )}
+        {activeTool === 'chamfer' && (
+          <div className="legend-info">
+            Chamfer tool active - click corners to select
+          </div>
+        )}
       </div>
+
+      {/* Floating palette for corner finish options */}
+      {activeTool === 'chamfer' && selectedCornerIds.size > 0 && (
+        <FloatingPalette
+          position={palettePosition}
+          title={`Corner Finish (${selectedCornerIds.size}/${detectedCorners.length})`}
+          onClose={clearCornerSelection}
+          onPositionChange={setPalettePosition}
+          minWidth={200}
+        >
+          <PaletteButtonRow>
+            <PaletteButton
+              variant="secondary"
+              onClick={() => selectCorners(detectedCorners.map(c => c.id))}
+              disabled={selectedCornerIds.size === detectedCorners.length}
+            >
+              Select All
+            </PaletteButton>
+          </PaletteButtonRow>
+          <PaletteToggleGroup
+            options={[
+              { value: 'chamfer', label: 'Chamfer' },
+              { value: 'fillet', label: 'Fillet' },
+            ]}
+            value={cornerFinishType}
+            onChange={(v) => setCornerFinishType(v as 'chamfer' | 'fillet')}
+          />
+          <PaletteSliderInput
+            label="Radius"
+            value={cornerRadius}
+            min={1}
+            max={Math.min(20, config.materialThickness * 3)}
+            step={0.5}
+            unit="mm"
+            onChange={setCornerRadius}
+          />
+          <PaletteButtonRow>
+            <PaletteButton
+              variant="primary"
+              onClick={() => {
+                // TODO: Apply corner finish to selected corners
+                console.log('Apply', cornerFinishType, cornerRadius, 'to corners:', Array.from(selectedCornerIds));
+                clearCornerSelection();
+              }}
+            >
+              Apply
+            </PaletteButton>
+            <PaletteButton
+              variant="secondary"
+              onClick={() => {
+                // TODO: Clear finish from selected corners
+                console.log('Clear finish from corners:', Array.from(selectedCornerIds));
+                clearCornerSelection();
+              }}
+            >
+              Clear
+            </PaletteButton>
+          </PaletteButtonRow>
+        </FloatingPalette>
+      )}
     </div>
   );
 };
