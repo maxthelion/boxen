@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment } from '@react-three/drei';
 import { Box3D } from './Box3D';
 import { ViewportToolbar } from './ViewportToolbar';
+import { EditorToolbar } from './EditorToolbar';
 import { useBoxStore } from '../store/useBoxStore';
 import { FaceId } from '../types';
 
@@ -78,6 +79,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   return (
     <div className="viewport-container" ref={canvasContainerRef}>
       <ViewportToolbar />
+      <EditorToolbar mode="3d" />
       <Canvas
         camera={{ position: [150, 150, 150], fov: 50 }}
         style={{ background: '#1a1a2e' }}

@@ -4,6 +4,7 @@ import { PathPoint, PanelPath, FaceId, Face } from '../types';
 import { getFaceEdgeStatuses, getDividerEdgeStatuses, EdgeStatusInfo } from '../utils/panelGenerator';
 import { getEditableAreas, EditableArea } from '../utils/editableAreas';
 import { detectMainCorners, DetectedCorner } from '../utils/cornerFinish';
+import { EditorToolbar } from './EditorToolbar';
 
 interface SketchView2DProps {
   className?: string;
@@ -576,6 +577,9 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           </button>
         </div>
       </div>
+
+      {/* Editor Tools */}
+      <EditorToolbar mode="2d" />
 
       {/* SVG Canvas */}
       <svg
