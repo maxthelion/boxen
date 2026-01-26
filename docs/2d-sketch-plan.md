@@ -1080,6 +1080,511 @@ interface CornerIndicatorsProps {
 
 ---
 
+## Phase 11: Panel Push/Pull Tool
+
+Move face panels along their perpendicular axis, with options for how this affects the assembly's bounding box.
+
+### 11.1 Core Concept
+
+An assembly has **box boundaries** that determine where its 6 outer faces sit. When a face panel is pushed or pulled along its perpendicular axis, there are two fundamentally different behaviors:
+
+1. **Change Bounding Box** - The assembly resizes
+2. **Keep Bounding Box** - The panel offsets from its nominal position
+
+### 11.2 Mode A: Change Bounding Box
+
+When movement changes the bounding box:
+
+```typescript
+interface BoundingBoxChange {
+  axis: 'x' | 'y' | 'z'
+  side: 'positive' | 'negative'  // Which end of the axis
+  delta: number                   // Amount to move (positive = outward)
+}
+```
+
+**Effects:**
+- Adjacent panels grow/shrink to match the new bounding box
+- Box center shifts by `delta / 2`
+- Percentage-based subdivisions recalculate their absolute positions
+- Sub-assemblies in affected voids resize proportionally
+- All descendants need recalculation
+
+**Example:** Push the front face outward by 10mm:
+- Front panel moves +10mm on Z axis
+- Left, right, top, bottom panels all grow 10mm longer (in Z dimension)
+- Box depth increases from 100mm to 110mm
+- A subdivision at 50% stays at 50% (now 55mm instead of 50mm)
+
+### 11.3 Mode B: Keep Bounding Box (Offset Panel)
+
+When movement keeps the bounding box fixed:
+
+**Outward Movement:**
+- Panel offsets out from its bounding plane
+- Adjacent panels extend their edges to meet the offset panel
+- Creates an "extruded" or "stepped" appearance
+- Uses existing edge extension mechanism
+
+**Inward Movement (two sub-options):**
+
+**Option 1: Inset as Divider**
+- The face becomes "open" (removed from the box boundary)
+- The moved panel becomes an internal divider/subdivision
+- Effectively creates a recessed area
+
+**Option 2: Shrink Adjacent Panels**
+- Adjacent panels also move inward
+- Their edges on that side get shortened/inset
+- Maintains the box shape but smaller on that face
+
+```typescript
+interface PanelOffset {
+  panelId: string
+  offset: number                  // Distance from bounding plane (positive = outward)
+  inwardBehavior?: 'inset-as-divider' | 'shrink-adjacent'
+}
+```
+
+### 11.4 UI for Push/Pull Tool
+
+**Tool Activation:**
+1. Select a face panel (front, back, left, right, top, or bottom)
+2. Activate Push/Pull tool from EditorToolbar
+3. FloatingPalette appears with options
+
+**FloatingPalette Controls:**
+```
+┌─────────────────────────────┐
+│ Push/Pull            [×]    │
+├─────────────────────────────┤
+│ Distance: [====●===] 10mm   │
+│           [  10.0  ] mm     │
+│                             │
+│ ○ Resize box                │
+│ ● Offset panel              │
+│                             │
+│ If moving inward:           │
+│ ○ Convert to divider        │
+│ ● Shrink adjacent edges     │
+│                             │
+│ [Apply]  [Reset]            │
+└─────────────────────────────┘
+```
+
+**Interactive Dragging:**
+- Click and drag the panel face in 3D view
+- Arrow keys for precise adjustment
+- Live preview shows the result
+- Snap to grid increments
+
+### 11.5 Implementation Details
+
+**Store State:**
+```typescript
+// New state for panel offsets
+panelOffsets: Record<string, PanelOffset>
+
+// Push/pull tool state
+pushPullTarget: string | null     // Panel being pushed/pulled
+pushPullPreview: number | null    // Preview distance during drag
+```
+
+**Store Actions:**
+```typescript
+setPanelOffset: (panelId: string, offset: PanelOffset) => void
+clearPanelOffset: (panelId: string) => void
+resizeBoundingBox: (change: BoundingBoxChange) => void
+```
+
+**Panel Generator Changes:**
+1. Check if panel has an offset
+2. If offset > 0 (outward): position panel at bounding plane + offset
+3. If offset < 0 (inward) with 'shrink-adjacent': adjust adjacent panel dimensions
+4. If offset < 0 (inward) with 'inset-as-divider':
+   - Mark face as open
+   - Generate panel as internal divider at offset position
+
+**Adjacent Panel Extension:**
+When a panel is offset outward, adjacent panels need their edges extended:
+```typescript
+// For front panel offset outward by 10mm:
+// Left panel's right edge extends +10mm
+// Right panel's left edge extends +10mm
+// Top panel's front edge extends +10mm
+// Bottom panel's front edge extends +10mm
+```
+
+### 11.6 Interaction with Existing Features
+
+**Edge Extensions:**
+- Panel offsets work alongside edge extensions
+- Offset creates extension on adjacent panels automatically
+- Manual extensions on top of auto-extensions are additive
+
+**Subdivisions:**
+- When bounding box changes, percentage subdivisions recalculate
+- Absolute subdivisions stay fixed (may become invalid)
+- "Inset as divider" creates a new subdivision at the original face position
+
+**Sub-assemblies:**
+- Voids change when bounding box changes
+- Sub-assemblies using those voids resize accordingly
+
+### 11.7 Visual Feedback
+
+| State | Visualization |
+|-------|---------------|
+| Panel selected for push/pull | Highlight face, show perpendicular arrow |
+| Dragging | Ghost preview of new position |
+| Offset panel (outward) | Show gap between panel and bounding plane |
+| Offset panel (inward as divider) | Show open face, panel rendered as divider |
+
+### 11.8 Verification
+
+1. **Resize Box Mode:**
+   - Select front panel → Push/Pull tool
+   - Choose "Resize box" mode
+   - Drag outward 20mm
+   - Verify: box depth increases, adjacent panels grow, subdivisions recalculate
+
+2. **Offset Panel Mode (Outward):**
+   - Select front panel → Push/Pull tool
+   - Choose "Offset panel" mode
+   - Drag outward 15mm
+   - Verify: front panel offset, adjacent panels have extended edges
+
+3. **Offset Panel Mode (Inward as Divider):**
+   - Select front panel → Push/Pull tool
+   - Choose "Offset panel" + "Convert to divider"
+   - Drag inward 10mm
+   - Verify: front face opens, panel becomes internal divider
+
+4. **Offset Panel Mode (Inward with Shrink):**
+   - Select front panel → Push/Pull tool
+   - Choose "Offset panel" + "Shrink adjacent edges"
+   - Drag inward 10mm
+   - Verify: front panel moves in, adjacent panels shrink on that edge
+
+---
+
+## Phase 12: Blank Slate / First-Run Experience
+
+Create a streamlined experience for when the application first loads and the user is creating their first assembly.
+
+### 12.1 Axis Selection at Top of Sidebar
+
+**Current Location:** Axis selection is buried in assembly configuration.
+
+**New Location:** Top of sidebar, prominent position with friendly names.
+
+```typescript
+interface AxisOption {
+  value: AssemblyAxis;
+  label: string;
+  description: string;
+}
+
+const axisOptions: AxisOption[] = [
+  { value: 'y', label: 'Top Down', description: 'Lid opens from top' },
+  { value: 'x', label: 'Side to Side', description: 'Opens from the side' },
+  { value: 'z', label: 'Front to Back', description: 'Opens from front' },
+];
+```
+
+**Visual Indicator:**
+- Show the axis on the selected assembly in 3D view
+- Directional arrow or axis line through the box center
+- Color-coded to match lid orientation
+
+### 12.2 Panel Open/Closed Floating Buttons
+
+**Concept:** Instead of a checkbox list in the sidebar, place floating buttons at the center of each panel face in the 3D view.
+
+```typescript
+interface PanelToggleButton {
+  faceId: FaceId;
+  position: Vector3;     // Center of face in world coordinates
+  isOpen: boolean;
+  icon: 'open' | 'closed';
+}
+```
+
+**Behavior:**
+- Click button to toggle between open (hole) and closed (solid panel)
+- Button visually indicates current state
+- Immediate visual feedback in 3D view
+- Works in conjunction with panel selection
+
+**Visual Design:**
+```
+     [○]  ← Closed (solid)
+     [◯]  ← Open (removed)
+```
+
+### 12.3 Conditional Feet Option
+
+**Rule:** Only show the feet configuration option when the assembly axis is "Top Down" (Y axis).
+
+```typescript
+const shouldShowFeetOption = (assemblyAxis: AssemblyAxis): boolean => {
+  return assemblyAxis === 'y';  // Only for top-down orientation
+};
+```
+
+**Rationale:** Feet only make sense when the box sits with bottom facing down, which is the "Top Down" orientation.
+
+### 12.4 Simplified Initial Options
+
+**Remove from initial assembly creation:**
+- Lid inset options (defer to advanced settings)
+- Complex assembly configurations
+
+**Keep:**
+- Dimensions (width, height, depth)
+- Material thickness
+- Axis selection
+- Panel open/closed toggles
+
+### 12.5 Foldable Sidebar Sections
+
+Organize the sidebar into collapsible sections:
+
+```typescript
+interface SidebarSection {
+  id: string;
+  title: string;
+  defaultExpanded: boolean;
+}
+
+const sidebarSections: SidebarSection[] = [
+  { id: 'axis', title: 'Orientation', defaultExpanded: true },
+  { id: 'dimensions', title: 'Dimensions', defaultExpanded: true },
+  { id: 'joints', title: 'Joint Features', defaultExpanded: false },
+  { id: 'feet', title: 'Feet', defaultExpanded: false },
+  { id: 'advanced', title: 'Advanced', defaultExpanded: false },
+];
+```
+
+**UI Pattern:**
+```
+┌─────────────────────────┐
+│ ▼ Orientation           │  ← Expanded
+│   ○ Top Down            │
+│   ● Side to Side        │
+│   ○ Front to Back       │
+├─────────────────────────┤
+│ ▼ Dimensions            │  ← Expanded
+│   Width:  [100] mm      │
+│   Height: [ 80] mm      │
+│   Depth:  [ 60] mm      │
+├─────────────────────────┤
+│ ▶ Joint Features        │  ← Collapsed
+├─────────────────────────┤
+│ ▶ Feet                  │  ← Collapsed (only if axis=y)
+├─────────────────────────┤
+│ ▶ Advanced              │  ← Collapsed
+└─────────────────────────┘
+```
+
+### 12.6 Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/components/Sidebar.tsx` | Add collapsible sections, move axis to top |
+| `src/components/Box3D.tsx` | Add floating panel toggle buttons |
+| `src/components/AxisIndicator.tsx` | New component to visualize assembly axis |
+| `src/App.tsx` | First-run detection and onboarding flow |
+
+### 12.7 Implementation Steps
+
+1. **Refactor Sidebar Layout:**
+   - Create `CollapsibleSection` component
+   - Reorganize existing controls into sections
+   - Move axis selection to prominent top position
+
+2. **Add Axis Visualization:**
+   - Create `AxisIndicator` component for 3D view
+   - Show directional arrow along assembly axis
+   - Update when axis selection changes
+
+3. **Add Panel Toggle Buttons:**
+   - Create `PanelToggleOverlay` component
+   - Position buttons at face centers (calculated from box dimensions)
+   - Wire up to `toggleFace()` action
+
+4. **Conditional Feet Section:**
+   - Hide feet section when axis ≠ 'y'
+   - Auto-disable feet when axis changes away from 'y'
+
+5. **Polish First-Run Experience:**
+   - Default to sensible dimensions
+   - Axis pre-selected to "Top Down"
+   - All faces closed by default
+
+### 12.8 Verification
+
+1. **Fresh App Load:**
+   - Axis selector visible at top of sidebar
+   - Dimensions section expanded
+   - Advanced options collapsed
+
+2. **Axis Selection:**
+   - Select "Top Down" → feet option appears, axis shown in 3D
+   - Select "Side to Side" → feet option hidden, axis updates
+
+3. **Panel Toggles:**
+   - Floating buttons visible at face centers in 3D view
+   - Click button → panel toggles open/closed
+   - Visual feedback matches panel state
+
+4. **Collapsible Sections:**
+   - Click section header → expands/collapses
+   - State persists during session
+
+---
+
+## Phase 13: Project Templates
+
+Create a library of starting points (templates) that users can customize when creating new projects.
+
+### 13.1 Template Concept
+
+Templates are similar to saved projects but with **configurable variables** that are prompted when the template is opened.
+
+**Example Template Variables:**
+- Width, height, depth
+- Number of horizontal drawers in an assembly
+- Material thickness
+- Whether to include feet
+
+### 13.2 Template Storage
+
+Templates should be stored alongside saved projects, with a flag to distinguish them:
+
+```typescript
+interface ProjectTemplate extends ProjectState {
+  isTemplate: true;
+  templateName: string;
+  templateDescription?: string;
+  variables: TemplateVariable[];
+}
+
+interface TemplateVariable {
+  id: string;
+  name: string;           // Display name (e.g., "Width")
+  type: 'number' | 'boolean' | 'select';
+  defaultValue: number | boolean | string;
+
+  // For numbers
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;          // e.g., "mm"
+
+  // For select
+  options?: { value: string; label: string }[];
+
+  // What this variable controls
+  binding: VariableBinding;
+}
+
+type VariableBinding =
+  | { type: 'config'; path: 'width' | 'height' | 'depth' | 'materialThickness' | ... }
+  | { type: 'subdivision'; voidId: string; property: 'count' }
+  | { type: 'custom'; applyFn: string }  // For complex logic
+```
+
+### 13.3 UI: Saving as Template
+
+In the Project Browser or Save dialog:
+
+1. **"Save as Template" option** alongside regular save
+2. **Variable editor** appears when saving as template:
+   - Lists available properties (dimensions, subdivisions, etc.)
+   - User can toggle which ones become template variables
+   - User sets display name and default value for each
+   - Highlight/select mechanism to choose which properties to expose
+
+### 13.4 UI: Opening a Template
+
+When user clicks "New from Template":
+
+1. **Template browser** shows available templates (with thumbnails)
+2. **Variable configuration dialog** appears after selection:
+   - Shows all template variables with input fields
+   - Live preview updates as values change (optional)
+   - "Create" button generates the project with specified values
+
+### 13.5 Variable Application
+
+When a template is instantiated:
+
+```typescript
+function applyTemplateVariables(
+  template: ProjectTemplate,
+  variableValues: Record<string, number | boolean | string>
+): ProjectState {
+  // Deep clone the template state
+  const state = deepClone(template);
+
+  // Apply each variable binding
+  for (const variable of template.variables) {
+    const value = variableValues[variable.id] ?? variable.defaultValue;
+    applyVariableBinding(state, variable.binding, value);
+  }
+
+  return state;
+}
+```
+
+### 13.6 Built-in Templates
+
+Ship with a few starter templates:
+
+| Template | Description | Variables |
+|----------|-------------|-----------|
+| Basic Box | Simple 6-sided box | Width, Height, Depth |
+| Drawer Unit | Box with horizontal drawers | W, H, D, Drawer Count |
+| Divided Organizer | Box with grid subdivisions | W, H, D, Columns, Rows |
+| Stackable Tray | Open-top tray with feet | W, H, D, Feet Height |
+
+### 13.7 Implementation Steps
+
+1. **Extend project storage** to support templates
+2. **Add template variable schema** to types
+3. **Create TemplateVariableEditor component** for defining variables when saving
+4. **Create TemplateConfigDialog component** for setting values when opening
+5. **Add "New from Template" button** to header/project browser
+6. **Implement variable application logic**
+7. **Create built-in templates**
+
+---
+
+## Quality of Life Improvements
+
+Small UX improvements to address friction points.
+
+### Camera Behavior ✓
+
+**Issue:** When an object is scaled (e.g., via push/pull), the camera view changes/jumps unexpectedly.
+
+**Fix:** The OrbitControls should maintain the current view center and zoom level when dimensions change. The camera should not automatically reframe to fit the new dimensions.
+
+**Implementation:** ✓
+- Added fixed `target={[0, 0, 0]}` to OrbitControls in Viewport3D.tsx
+- This keeps the camera aimed at the origin regardless of scene content changes
+
+### Other QoL Items
+
+- [ ] Remember collapsed/expanded state of sidebar sections between sessions
+- [ ] Keyboard shortcuts overlay (show available shortcuts on `?` key)
+- [ ] Undo/redo for major operations (dimension changes, subdivisions, etc.)
+- [ ] Copy/paste panel modifications between panels
+- [ ] Better visual feedback when hovering over interactive elements
+
+---
+
 ## Implementation Order
 
 | Phase | Feature | Complexity | Dependencies | Status |
@@ -1094,12 +1599,15 @@ interface CornerIndicatorsProps {
 | 8 | Assembly/Panel Splitting | Medium | None | Pending |
 | 9 | Future Enhancements | Various | Phases 1-7 | Pending |
 | 10 | 3D Edge/Corner Selection | Medium | Phase 7 | Pending |
+| 11 | Panel Push/Pull | Medium | None | **DONE** |
+| 12 | Blank Slate / First-Run | Low | None | **NEXT** |
+| 13 | Project Templates | Medium | Project storage | Pending |
 
-**Recommended order:** 3 → 4 → 1 → 2 → 5 → 6 → 7 → 8 → 10
+**Recommended order:** 3 → 4 → 1 → 2 → 5 → 6 → 7 → 11 → 12 → 13 → 8 → 10
 
-Start with lower-complexity features (3, 4) to build momentum, then tackle the core 2D editor (1, 2, 5), and finish with independent features (6, 7, 8, 10).
+Start with lower-complexity features (3, 4) to build momentum, then tackle the core 2D editor (1, 2, 5), and finish with independent features (6, 7, 8, 10, 11, 12).
 
-**Current status:** Phases 1-6 complete. Phase 7 has partial implementation (chamfer mirroring issue pending). Editor toolbar added to both 2D and 3D views with placeholder tools.
+**Current status:** Phases 1-6 and 11 complete. Phase 7 has partial implementation (chamfer mirroring issue pending). Phase 12 (Blank Slate) is next up - improving first-run UX with better axis selection, panel toggle buttons, and collapsible sidebar sections.
 
 ---
 

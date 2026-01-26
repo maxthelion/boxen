@@ -35,6 +35,7 @@ export interface AssemblyConfig {
     negative: LidConfig;  // bottom (Y), left (X), or back (Z)
   };
   feet?: FeetConfig;    // Optional feet configuration
+  faceOffsets?: FaceOffsets;  // Per-face position offsets for push/pull (mm)
 }
 
 // Helper: Get the role of a face (wall or lid) based on assembly axis
@@ -208,6 +209,22 @@ export interface SubAssemblyPreview {
   faceOffsets: FaceOffsets;
 }
 
+// Preview state - a complete snapshot of modifiable assembly state
+// Used for push/pull, subdivisions, and sub-assemblies to show changes before committing
+export interface PreviewState {
+  config: BoxConfig;
+  faces: Face[];
+  rootVoid: Void;
+  // Type of preview being shown
+  type: 'push-pull' | 'subdivision' | 'sub-assembly';
+  // Optional metadata about the preview
+  metadata?: {
+    faceId?: FaceId;       // For push-pull: which face is being modified
+    mode?: 'scale' | 'extend';  // For push-pull: resize mode
+    centerOffset?: [number, number, number];  // For push-pull: how much the box center has shifted
+  };
+}
+
 export interface BoxState {
   config: BoxConfig;
   faces: Face[];
@@ -248,10 +265,13 @@ export interface BoxState {
   // Editor tool state
   activeTool: EditorTool;
   selectedCornerIds: Set<string>;  // Selected corners for chamfer/fillet tool
+  // Preview state - when active, shows a modified version of the assembly
+  previewState: PreviewState | null;
+  previewPanelCollection: PanelCollection | null;  // Generated panels for preview
 }
 
 // Editor tools available in 2D/3D views
-export type EditorTool = 'select' | 'pan' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer';
+export type EditorTool = 'select' | 'pan' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer' | 'push-pull';
 
 export interface BoxActions {
   setConfig: (config: Partial<BoxConfig>) => void;
@@ -277,6 +297,8 @@ export interface BoxActions {
   setLidTabDirection: (side: 'positive' | 'negative', direction: LidTabDirection) => void;
   setLidInset: (side: 'positive' | 'negative', inset: number) => void;
   setFeetConfig: (feetConfig: FeetConfig) => void;
+  setFaceOffset: (faceId: FaceId, offset: number, mode: 'scale' | 'extend') => void;
+  insetFace: (faceId: FaceId, insetAmount: number) => void;
   // Sub-assembly actions
   createSubAssembly: (voidId: string, options?: CreateSubAssemblyOptions) => void;
   toggleSubAssemblyFace: (subAssemblyId: string, faceId: FaceId) => void;
@@ -333,6 +355,12 @@ export interface BoxActions {
   selectCorner: (cornerId: string, toggle?: boolean) => void;
   selectCorners: (cornerIds: string[]) => void;
   clearCornerSelection: () => void;
+  // Preview actions - for showing changes before committing
+  startPreview: (type: PreviewState['type'], metadata?: PreviewState['metadata']) => void;
+  updatePreviewFaceOffset: (faceId: FaceId, offset: number, mode: 'scale' | 'extend') => void;
+  updatePreviewSubdivision: (preview: SubdivisionPreview) => void;
+  commitPreview: () => void;
+  cancelPreview: () => void;
 }
 
 // Subdivision panel - a physical divider piece to be cut

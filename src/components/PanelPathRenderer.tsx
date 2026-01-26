@@ -261,7 +261,11 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
   onPanelDoubleClick,
   hiddenFaceIds = new Set(),
 }) => {
-  const panelCollection = useBoxStore((state) => state.panelCollection);
+  // Use preview panel collection when available, otherwise main collection
+  const mainPanelCollection = useBoxStore((state) => state.panelCollection);
+  const previewPanelCollection = useBoxStore((state) => state.previewPanelCollection);
+  const panelCollection = previewPanelCollection ?? mainPanelCollection;
+
   const hoveredPanelId = useBoxStore((state) => state.hoveredPanelId);
   const hoveredAssemblyId = useBoxStore((state) => state.hoveredAssemblyId);
   const selectedAssemblyId = useBoxStore((state) => state.selectedAssemblyId);

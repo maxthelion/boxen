@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, SplitPositionMode, ViewMode, EditorTool } from '../types';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig } from '../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
+import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -206,7 +207,7 @@ const initialFaces = (): { id: FaceId; solid: boolean }[] => [
 // Find a void by ID in the tree (including inside sub-assemblies)
 const findVoid = (root: Void, id: string): Void | null => {
   if (root.id === id) return root;
-  for (const child of root.children) {
+  for (const child of (root.children || [])) {
     const found = findVoid(child, id);
     if (found) return found;
   }
@@ -220,7 +221,7 @@ const findVoid = (root: Void, id: string): Void | null => {
 
 // Find parent of a void (including inside sub-assemblies)
 const findParent = (root: Void, id: string): Void | null => {
-  for (const child of root.children) {
+  for (const child of (root.children || [])) {
     if (child.id === id) return root;
     const found = findParent(child, id);
     if (found) return found;
@@ -354,16 +355,17 @@ const recalculateVoidBounds = (
 
 // Get all leaf voids (voids with no children - these are selectable)
 export const getLeafVoids = (root: Void): Void[] => {
-  if (root.children.length === 0) {
+  const children = root.children || [];
+  if (children.length === 0) {
     return [root];
   }
-  return root.children.flatMap(getLeafVoids);
+  return children.flatMap(getLeafVoids);
 };
 
 // Get all void IDs in a subtree (including the root)
 export const getVoidSubtreeIds = (root: Void): string[] => {
   const ids = [root.id];
-  for (const child of root.children) {
+  for (const child of (root.children || [])) {
     ids.push(...getVoidSubtreeIds(child));
   }
   return ids;
@@ -375,7 +377,7 @@ export const getVoidAncestorIds = (root: Void, targetId: string): string[] => {
 
   const findPath = (node: Void, target: string): boolean => {
     if (node.id === target) return true;
-    for (const child of node.children) {
+    for (const child of (node.children || [])) {
       if (findPath(child, target)) {
         path.unshift(node.id);
         return true;
@@ -425,12 +427,12 @@ export const getAllSubdivisions = (root: Void): Subdivision[] => {
       });
     }
 
-    for (const child of node.children) {
+    for (const child of (node.children || [])) {
       traverse(child, node.bounds);
     }
   };
 
-  for (const child of root.children) {
+  for (const child of (root.children || [])) {
     traverse(child, root.bounds);
   }
 
@@ -467,10 +469,10 @@ export const calculatePreviewPositions = (
 const cloneVoid = (v: Void): Void => ({
   ...v,
   bounds: { ...v.bounds },
-  children: v.children.map(cloneVoid),
+  children: (v.children || []).map(cloneVoid),
   subAssembly: v.subAssembly ? {
     ...v.subAssembly,
-    faces: v.subAssembly.faces.map(f => ({ ...f })),
+    faces: (v.subAssembly.faces || []).map(f => ({ ...f })),
     rootVoid: cloneVoid(v.subAssembly.rootVoid),
   } : undefined,
 });
@@ -480,7 +482,7 @@ const findSubAssembly = (root: Void, subAssemblyId: string): { void: Void; subAs
   if (root.subAssembly?.id === subAssemblyId) {
     return { void: root, subAssembly: root.subAssembly };
   }
-  for (const child of root.children) {
+  for (const child of (root.children || [])) {
     const found = findSubAssembly(child, subAssemblyId);
     if (found) return found;
   }
@@ -506,7 +508,7 @@ export const getAllSubAssemblies = (root: Void): { voidId: string; subAssembly: 
       // Also traverse the sub-assembly's internal structure
       traverse(node.subAssembly.rootVoid);
     }
-    for (const child of node.children) {
+    for (const child of (node.children || [])) {
       traverse(child);
     }
   };
@@ -523,7 +525,7 @@ const updateVoidInTree = (root: Void, id: string, updater: (v: Void) => Void): V
   return {
     ...root,
     bounds: { ...root.bounds },
-    children: root.children.map(child => updateVoidInTree(child, id, updater)),
+    children: (root.children || []).map(child => updateVoidInTree(child, id, updater)),
     // Also update inside sub-assembly's void structure
     subAssembly: root.subAssembly ? {
       ...root.subAssembly,
@@ -573,6 +575,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // Tool state
   activeTool: 'select' as EditorTool,
   selectedCornerIds: new Set<string>(),
+  // Preview state
+  previewState: null,
+  previewPanelCollection: null,
 
   setConfig: (newConfig) =>
     set((state) => {
@@ -1432,7 +1437,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       // Hide all divider panels except the isolated one
       const getAllDividerIds = (node: Void): string[] => {
         const ids: string[] = [];
-        for (const child of node.children) {
+        for (const child of (node.children || [])) {
           if (child.splitAxis) {
             ids.push(`divider-${child.id}-split`);
           }
@@ -1596,6 +1601,246 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       },
       panelsDirty: true,
     })),
+
+  setFaceOffset: (faceId, offset, mode) =>
+    set((state) => {
+      // Both modes resize the bounding box, but differ in how children are handled
+      let newWidth = state.config.width;
+      let newHeight = state.config.height;
+      let newDepth = state.config.depth;
+
+      // Calculate new dimensions
+      switch (faceId) {
+        case 'front':
+        case 'back':
+          newDepth = Math.max(state.config.materialThickness * 3, state.config.depth + offset);
+          break;
+        case 'left':
+        case 'right':
+          newWidth = Math.max(state.config.materialThickness * 3, state.config.width + offset);
+          break;
+        case 'top':
+        case 'bottom':
+          newHeight = Math.max(state.config.materialThickness * 3, state.config.height + offset);
+          break;
+      }
+
+      const newConfig = {
+        ...state.config,
+        width: newWidth,
+        height: newHeight,
+        depth: newDepth,
+      };
+
+      // Calculate new root bounds
+      const newRootBounds: Bounds = { x: 0, y: 0, z: 0, w: newWidth, h: newHeight, d: newDepth };
+
+      if (mode === 'scale') {
+        // Scale mode: Scale all children proportionally
+        const scaleX = newWidth / state.config.width;
+        const scaleY = newHeight / state.config.height;
+        const scaleZ = newDepth / state.config.depth;
+
+        const scaleVoidBounds = (v: Void): Void => {
+          const scaledBounds: Bounds = {
+            x: v.bounds.x * scaleX,
+            y: v.bounds.y * scaleY,
+            z: v.bounds.z * scaleZ,
+            w: v.bounds.w * scaleX,
+            h: v.bounds.h * scaleY,
+            d: v.bounds.d * scaleZ,
+          };
+
+          return {
+            ...v,
+            bounds: scaledBounds,
+            // Scale splitPosition if it exists
+            splitPosition: v.splitPosition !== undefined
+              ? v.splitPosition * (v.splitAxis === 'x' ? scaleX : v.splitAxis === 'y' ? scaleY : scaleZ)
+              : undefined,
+            children: (v.children || []).map(scaleVoidBounds),
+          };
+        };
+
+        const newRootVoid = {
+          ...scaleVoidBounds(state.rootVoid),
+          bounds: newRootBounds,
+        };
+
+        return {
+          config: newConfig,
+          rootVoid: newRootVoid,
+          panelsDirty: true,
+        };
+      } else {
+        // Extend mode: Keep center in place, only the void abutting the face grows
+        // Children stay at their absolute positions, but we need to expand the
+        // adjacent void to fill the new space
+
+        const deltaW = newWidth - state.config.width;
+        const deltaH = newHeight - state.config.height;
+        const deltaD = newDepth - state.config.depth;
+
+        // Helper to adjust void bounds based on which face moved
+        const adjustVoidBounds = (v: Void): Void => {
+          const newBounds = { ...v.bounds };
+
+          // For extend mode, we extend in the direction of the face
+          // The face that moved outward increases the dimension on that side
+          switch (faceId) {
+            case 'right':
+              // Right face moved: voids at the right edge grow
+              if (v.bounds.x + v.bounds.w >= state.config.width - 0.1) {
+                newBounds.w += deltaW;
+              }
+              break;
+            case 'left':
+              // Left face moved: voids at the left edge grow, others shift
+              if (v.bounds.x <= 0.1) {
+                newBounds.w += deltaW;
+              } else {
+                newBounds.x += deltaW;
+              }
+              break;
+            case 'top':
+              // Top face moved: voids at the top edge grow
+              if (v.bounds.y + v.bounds.h >= state.config.height - 0.1) {
+                newBounds.h += deltaH;
+              }
+              break;
+            case 'bottom':
+              // Bottom face moved: voids at the bottom edge grow, others shift
+              if (v.bounds.y <= 0.1) {
+                newBounds.h += deltaH;
+              } else {
+                newBounds.y += deltaH;
+              }
+              break;
+            case 'front':
+              // Front face moved: voids at the front edge grow
+              if (v.bounds.z + v.bounds.d >= state.config.depth - 0.1) {
+                newBounds.d += deltaD;
+              }
+              break;
+            case 'back':
+              // Back face moved: voids at the back edge grow, others shift
+              if (v.bounds.z <= 0.1) {
+                newBounds.d += deltaD;
+              } else {
+                newBounds.z += deltaD;
+              }
+              break;
+          }
+
+          return {
+            ...v,
+            bounds: newBounds,
+            children: v.children.map(adjustVoidBounds),
+          };
+        };
+
+        const newRootVoid = {
+          ...adjustVoidBounds(state.rootVoid),
+          bounds: newRootBounds,
+        };
+
+        return {
+          config: newConfig,
+          rootVoid: newRootVoid,
+          panelsDirty: true,
+        };
+      }
+    }),
+
+  insetFace: (faceId, insetAmount) =>
+    set((state) => {
+      // Make the outer face open and create a divider at the inset position
+      // This creates a new subdivision at the inset depth
+
+      // First, toggle the face to open
+      const newFaces = state.faces.map(f =>
+        f.id === faceId ? { ...f, solid: false } : f
+      );
+
+      // Determine the axis and position for the new divider
+      let axis: 'x' | 'y' | 'z';
+      let position: number;
+
+      switch (faceId) {
+        case 'front':
+          axis = 'z';
+          position = state.config.depth - insetAmount;
+          break;
+        case 'back':
+          axis = 'z';
+          position = insetAmount;
+          break;
+        case 'left':
+          axis = 'x';
+          position = insetAmount;
+          break;
+        case 'right':
+          axis = 'x';
+          position = state.config.width - insetAmount;
+          break;
+        case 'top':
+          axis = 'y';
+          position = state.config.height - insetAmount;
+          break;
+        case 'bottom':
+          axis = 'y';
+          position = insetAmount;
+          break;
+      }
+
+      // Create the subdivision in the root void
+      const mt = state.config.materialThickness;
+      const halfMt = mt / 2;
+      const { width, height, depth } = state.config;
+
+      let child1Bounds: Bounds;
+      let child2Bounds: Bounds;
+
+      switch (axis) {
+        case 'x':
+          child1Bounds = { x: 0, y: 0, z: 0, w: position - halfMt, h: height, d: depth };
+          child2Bounds = { x: position + halfMt, y: 0, z: 0, w: width - position - halfMt, h: height, d: depth };
+          break;
+        case 'y':
+          child1Bounds = { x: 0, y: 0, z: 0, w: width, h: position - halfMt, d: depth };
+          child2Bounds = { x: 0, y: position + halfMt, z: 0, w: width, h: height - position - halfMt, d: depth };
+          break;
+        case 'z':
+        default:
+          child1Bounds = { x: 0, y: 0, z: 0, w: width, h: height, d: position - halfMt };
+          child2Bounds = { x: 0, y: 0, z: position + halfMt, w: width, h: height, d: depth - position - halfMt };
+          break;
+      }
+
+      const newRootVoid: Void = {
+        ...state.rootVoid,
+        children: [
+          {
+            id: `void-${Date.now()}-1`,
+            bounds: child1Bounds,
+            children: [],
+            splitAxis: axis,
+            splitPosition: position,
+          },
+          {
+            id: `void-${Date.now()}-2`,
+            bounds: child2Bounds,
+            children: [],
+          },
+        ],
+      };
+
+      return {
+        faces: newFaces,
+        rootVoid: newRootVoid,
+        panelsDirty: true,
+      };
+    }),
 
   // Assembly config actions for sub-assemblies
   setSubAssemblyAxis: (subAssemblyId, axis) =>
@@ -2312,4 +2557,367 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   clearCornerSelection: () =>
     set({ selectedCornerIds: new Set<string>() }),
+
+  // Preview actions
+  startPreview: (type, metadata) =>
+    set((state) => {
+      startPushPullDebug();
+      logPushPull({
+        action: 'startPreview',
+        faceId: metadata?.faceId,
+        mode: metadata?.mode,
+        mainState: {
+          configDimensions: {
+            width: state.config.width,
+            height: state.config.height,
+            depth: state.config.depth,
+          },
+        },
+      });
+
+      // Deep clone the current state to create an independent preview copy
+      const deepCloneVoid = (v: Void): Void => ({
+        ...v,
+        bounds: { ...v.bounds },
+        children: (v.children || []).map(deepCloneVoid),
+        subAssembly: v.subAssembly ? {
+          ...v.subAssembly,
+          faces: (v.subAssembly.faces || []).map(f => ({ ...f })),
+          rootVoid: deepCloneVoid(v.subAssembly.rootVoid),
+          assembly: {
+            ...v.subAssembly.assembly,
+            lids: {
+              positive: { ...v.subAssembly.assembly.lids.positive },
+              negative: { ...v.subAssembly.assembly.lids.negative },
+            },
+            feet: v.subAssembly.assembly.feet ? { ...v.subAssembly.assembly.feet } : undefined,
+            faceOffsets: v.subAssembly.assembly.faceOffsets ? { ...v.subAssembly.assembly.faceOffsets } : undefined,
+          },
+        } : undefined,
+      });
+
+      const previewState: PreviewState = {
+        config: {
+          ...state.config,
+          assembly: {
+            ...state.config.assembly,
+            lids: {
+              positive: { ...state.config.assembly.lids.positive },
+              negative: { ...state.config.assembly.lids.negative },
+            },
+            feet: state.config.assembly.feet ? { ...state.config.assembly.feet } : undefined,
+            faceOffsets: state.config.assembly.faceOffsets ? { ...state.config.assembly.faceOffsets } : undefined,
+          },
+        },
+        faces: state.faces.map(f => ({ ...f })),
+        rootVoid: deepCloneVoid(state.rootVoid),
+        type,
+        metadata,
+      };
+
+      // Generate panels for the preview state
+      const previewCollection = generatePanelCollection(
+        previewState.faces,
+        previewState.rootVoid,
+        previewState.config,
+        1 // Scale factor
+      );
+
+      // Log panel positions for debugging
+      const faceId = metadata?.faceId;
+      if (faceId) {
+        const mainPanel = state.panelCollection?.panels.find(p => p.id === `face-${faceId}`);
+        const previewPanel = previewCollection?.panels.find(p => p.id === `face-${faceId}`);
+        logPushPull({
+          action: 'startPreview - panels generated',
+          faceId,
+          panelPosition: {
+            mainPanel: mainPanel?.position as [number, number, number],
+            previewPanel: previewPanel?.position as [number, number, number],
+          },
+          previewState: {
+            hasPreview: true,
+            type,
+            configDimensions: {
+              width: previewState.config.width,
+              height: previewState.config.height,
+              depth: previewState.config.depth,
+            },
+          },
+        });
+      }
+
+      return {
+        previewState,
+        previewPanelCollection: previewCollection,
+      };
+    }),
+
+  updatePreviewFaceOffset: (faceId, offset, mode) =>
+    set((state) => {
+      if (!state.previewState) {
+        logPushPull({
+          action: 'updatePreviewFaceOffset - NO PREVIEW STATE',
+          faceId,
+          offset,
+          mode,
+        });
+        return state;
+      }
+
+      logPushPull({
+        action: 'updatePreviewFaceOffset - start',
+        faceId,
+        offset,
+        mode,
+        mainState: {
+          configDimensions: {
+            width: state.config.width,
+            height: state.config.height,
+            depth: state.config.depth,
+          },
+        },
+        previewState: {
+          hasPreview: true,
+          type: state.previewState.type,
+          configDimensions: {
+            width: state.previewState.config.width,
+            height: state.previewState.config.height,
+            depth: state.previewState.config.depth,
+          },
+        },
+      });
+
+      // Apply the offset to the MAIN state dimensions (not preview) to avoid feedback loop
+      // The offset is always relative to the original dimensions
+      const preview = state.previewState;
+      const { width, height, depth } = state.config;  // Use MAIN state, not preview!
+
+      // Calculate dimension changes based on face
+      let newWidth = width;
+      let newHeight = height;
+      let newDepth = depth;
+
+      switch (faceId) {
+        case 'front':
+        case 'back':
+          newDepth = depth + offset;
+          break;
+        case 'left':
+        case 'right':
+          newWidth = width + offset;
+          break;
+        case 'top':
+        case 'bottom':
+          newHeight = height + offset;
+          break;
+      }
+
+      // Don't allow negative dimensions
+      if (newWidth <= 0 || newHeight <= 0 || newDepth <= 0) return state;
+
+      // Deep clone and scale the void tree
+      const deepCloneVoid = (v: Void): Void => ({
+        ...v,
+        bounds: { ...v.bounds },
+        children: (v.children || []).map(deepCloneVoid),
+        subAssembly: v.subAssembly ? {
+          ...v.subAssembly,
+          faces: (v.subAssembly.faces || []).map(f => ({ ...f })),
+          rootVoid: deepCloneVoid(v.subAssembly.rootVoid),
+          assembly: {
+            ...v.subAssembly.assembly,
+            lids: {
+              positive: { ...v.subAssembly.assembly.lids.positive },
+              negative: { ...v.subAssembly.assembly.lids.negative },
+            },
+          },
+        } : undefined,
+      });
+
+      let newRootVoid: Void;
+
+      if (mode === 'scale') {
+        // Scale mode: Scale all children proportionally
+        const scaleX = newWidth / width;
+        const scaleY = newHeight / height;
+        const scaleZ = newDepth / depth;
+
+        const scaleVoidBounds = (v: Void): Void => {
+          const scaledBounds: Bounds = {
+            x: v.bounds.x * scaleX,
+            y: v.bounds.y * scaleY,
+            z: v.bounds.z * scaleZ,
+            w: v.bounds.w * scaleX,
+            h: v.bounds.h * scaleY,
+            d: v.bounds.d * scaleZ,
+          };
+          return {
+            ...v,
+            bounds: scaledBounds,
+            splitPosition: v.splitPosition !== undefined
+              ? v.splitPosition * (v.splitAxis === 'x' ? scaleX : v.splitAxis === 'y' ? scaleY : scaleZ)
+              : undefined,
+            children: (v.children || []).map(scaleVoidBounds),
+            subAssembly: v.subAssembly ? {
+              ...v.subAssembly,
+              faces: (v.subAssembly.faces || []).map(f => ({ ...f })),
+              rootVoid: scaleVoidBounds(v.subAssembly.rootVoid),
+              assembly: { ...v.subAssembly.assembly },
+            } : undefined,
+          };
+        };
+
+        newRootVoid = {
+          ...state.rootVoid,  // Use MAIN state rootVoid, not preview
+          bounds: { x: 0, y: 0, z: 0, w: newWidth, h: newHeight, d: newDepth },
+          children: (state.rootVoid.children || []).map(scaleVoidBounds),
+        };
+      } else {
+        // Extend mode: Only expand the void adjacent to the face
+        newRootVoid = deepCloneVoid(state.rootVoid);  // Use MAIN state rootVoid
+        newRootVoid.bounds = { x: 0, y: 0, z: 0, w: newWidth, h: newHeight, d: newDepth };
+
+        // Find and expand the void(s) that abut the moved face
+        const expandAdjacentVoids = (v: Void, parentBounds: Bounds): void => {
+          const children = v.children || [];
+          if (children.length === 0) {
+            // Leaf void - expand if it touches the face
+            const isAdjacentToFace = (
+              (faceId === 'front' && v.bounds.z + v.bounds.d >= parentBounds.d - 0.001) ||
+              (faceId === 'back' && v.bounds.z <= 0.001) ||
+              (faceId === 'right' && v.bounds.x + v.bounds.w >= parentBounds.w - 0.001) ||
+              (faceId === 'left' && v.bounds.x <= 0.001) ||
+              (faceId === 'top' && v.bounds.y + v.bounds.h >= parentBounds.h - 0.001) ||
+              (faceId === 'bottom' && v.bounds.y <= 0.001)
+            );
+
+            if (isAdjacentToFace) {
+              switch (faceId) {
+                case 'front': v.bounds.d += offset; break;
+                case 'back': v.bounds.d += offset; break;
+                case 'right': v.bounds.w += offset; break;
+                case 'left': v.bounds.w += offset; break;
+                case 'top': v.bounds.h += offset; break;
+                case 'bottom': v.bounds.h += offset; break;
+              }
+            }
+          } else {
+            // Has children - recurse
+            for (const child of children) {
+              expandAdjacentVoids(child, v.bounds);
+            }
+            // Update this void's bounds to encompass expanded children
+            v.bounds = { ...parentBounds };
+          }
+        };
+
+        const rootChildren = newRootVoid.children || [];
+        if (rootChildren.length > 0) {
+          for (const child of rootChildren) {
+            expandAdjacentVoids(child, { x: 0, y: 0, z: 0, w: width, h: height, d: depth });
+          }
+        }
+      }
+
+      const newConfig: BoxConfig = {
+        ...state.config,  // Use MAIN state config as base
+        width: newWidth,
+        height: newHeight,
+        depth: newDepth,
+      };
+
+      const newPreviewState: PreviewState = {
+        ...preview,
+        config: newConfig,
+        rootVoid: newRootVoid,
+        faces: state.faces.map(f => ({ ...f })),  // Use MAIN state faces
+        // Note: centerOffset will be set after we calculate the shift below
+      };
+
+      // Regenerate panels for preview
+      const previewCollection = generatePanelCollection(
+        newPreviewState.faces,
+        newPreviewState.rootVoid,
+        newPreviewState.config,
+        1
+      );
+
+      // No center shift - box scales around center, both faces move proportionally.
+      // This ensures preview looks the same as the final result (no jump on apply).
+
+      // Log updated panel positions with full detail
+      const mainPanelPositions: Record<string, [number, number, number]> = {};
+      const previewPanelPositions: Record<string, [number, number, number]> = {};
+
+      if (state.panelCollection) {
+        for (const p of state.panelCollection.panels) {
+          mainPanelPositions[p.id] = [...p.position] as [number, number, number];
+        }
+      }
+      if (previewCollection) {
+        for (const p of previewCollection.panels) {
+          previewPanelPositions[p.id] = [...p.position] as [number, number, number];
+        }
+      }
+
+      logPushPull({
+        action: 'updatePreviewFaceOffset - panels regenerated',
+        faceId,
+        offset,
+        mode,
+        extra: {
+          originalDimensions: { width, height, depth },
+          newDimensions: { width: newWidth, height: newHeight, depth: newDepth },
+          mainPanelPositions,
+          previewPanelPositions,
+        },
+      });
+
+      return {
+        previewState: newPreviewState,
+        previewPanelCollection: previewCollection,
+      };
+    }),
+
+  updatePreviewSubdivision: (_preview) =>
+    set((state) => {
+      if (!state.previewState) return state;
+
+      // TODO: Apply subdivision preview to the preview state's rootVoid
+      // For now, just regenerate panels from the preview state
+      const previewCollection = generatePanelCollection(
+        state.previewState.faces,
+        state.previewState.rootVoid,
+        state.previewState.config,
+        1
+      );
+
+      return {
+        previewPanelCollection: previewCollection,
+      };
+    }),
+
+  commitPreview: () =>
+    set((state) => {
+      if (!state.previewState) return state;
+
+      // Copy the preview config/faces/rootVoid to main state
+      // Don't copy previewPanelCollection - it has shifted positions for visualization.
+      // Instead, mark panels dirty so they get regenerated centered at origin.
+      return {
+        config: state.previewState.config,
+        faces: state.previewState.faces,
+        rootVoid: state.previewState.rootVoid,
+        panelsDirty: true,  // Regenerate panels centered at origin
+        previewState: null,
+        previewPanelCollection: null,
+      };
+    }),
+
+  cancelPreview: () =>
+    set({
+      previewState: null,
+      previewPanelCollection: null,
+    }),
 }));

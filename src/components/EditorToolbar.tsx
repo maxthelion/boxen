@@ -7,7 +7,8 @@ export type EditorTool =
   | 'circle'
   | 'path'
   | 'inset'
-  | 'chamfer';
+  | 'chamfer'
+  | 'push-pull';
 
 export type EditorMode = '2d' | '3d';
 
@@ -78,6 +79,13 @@ const tools: ToolButton[] = [
     label: 'Chamfer',
     tooltip: 'Chamfer corners (F)',
     modes: ['2d'],
+  },
+  {
+    id: 'push-pull',
+    icon: '⇅',
+    label: 'Push/Pull',
+    tooltip: 'Push or pull faces (Q)',
+    modes: ['3d'],
   },
 ];
 

@@ -15,6 +15,7 @@ import { saveProject, loadProject, captureThumbnail } from './utils/projectStora
 import { ProjectState } from './utils/urlState';
 import { defaultEdgeExtensions, EdgeExtensions, FaceId, PanelPath } from './types';
 import { formatDebugLog, hasDebugInfo } from './utils/extensionDebug';
+import { formatPushPullDebug, hasPushPullDebugInfo } from './utils/pushPullDebug';
 import './App.css';
 
 // Get the normal axis for any panel (face or divider)
@@ -94,9 +95,16 @@ function App() {
     }
   }, []);
 
-  // Handle debug copy
+  // Handle debug copy - combines all debug logs
   const handleCopyDebug = async () => {
-    const debugText = formatDebugLog();
+    const parts: string[] = [];
+    if (hasDebugInfo()) {
+      parts.push(formatDebugLog());
+    }
+    if (hasPushPullDebugInfo()) {
+      parts.push(formatPushPullDebug());
+    }
+    const debugText = parts.join('\n\n');
     try {
       await navigator.clipboard.writeText(debugText);
       setDebugCopyStatus('copied');
@@ -334,11 +342,11 @@ function App() {
             <span className="header-btn-icon">↓</span>
             Export
           </button>
-          {hasDebugInfo() && (
+          {(hasDebugInfo() || hasPushPullDebugInfo()) && (
             <button
               className={`header-btn secondary ${debugCopyStatus === 'copied' ? 'success' : ''}`}
               onClick={handleCopyDebug}
-              title="Copy extension debug info to clipboard"
+              title="Copy debug info to clipboard"
             >
               <span className="header-btn-icon">{debugCopyStatus === 'copied' ? '✓' : '🐛'}</span>
               {debugCopyStatus === 'copied' ? 'Copied!' : 'Debug'}

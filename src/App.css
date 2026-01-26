@@ -69,6 +69,7 @@ body {
 .viewport-container {
   width: 100%;
   height: 100%;
+  position: relative;
 }
 
 /* Panel Styles */
@@ -1779,6 +1780,100 @@ body {
   margin-left: 1.5rem;
 }
 
+/* Offset Controls (Face Push/Pull) */
+.offset-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.offset-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.offset-btn {
+  width: 28px;
+  height: 28px;
+  background: #1a1a2e;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.offset-btn:hover:not(:disabled) {
+  background: #4a90d9;
+  border-color: #4a90d9;
+}
+
+.offset-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.offset-input {
+  width: 70px;
+  text-align: center;
+  background: #1a1a2e;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 0.4rem;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  font-family: monospace;
+}
+
+.offset-input:focus {
+  outline: none;
+  border-color: #4a90d9;
+}
+
+.offset-unit {
+  color: #666;
+  font-size: 0.75rem;
+}
+
+.offset-mode-row {
+  margin-top: 0.25rem;
+}
+
+.offset-mode-select {
+  width: 100%;
+  background: #1a1a2e;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 0.4rem 0.5rem;
+  color: #e0e0e0;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.offset-mode-select:hover {
+  border-color: #555;
+}
+
+.offset-mode-select:focus {
+  outline: none;
+  border-color: #4a90d9;
+}
+
+.offset-hint {
+  font-size: 0.75rem;
+  color: #666;
+  margin: 0.25rem 0 0 0;
+  text-align: center;
+}
+
 /* Header Button Variants */
 .header-btn.secondary {
   background: #252545;
@@ -2323,7 +2418,7 @@ body {
    ============================================ */
 
 .floating-palette {
-  position: fixed;
+  position: absolute;
   z-index: 1000;
   background: rgba(30, 30, 50, 0.95);
   border: 1px solid #444;
@@ -2551,6 +2646,15 @@ body {
 
 .palette-btn-danger:hover:not(:disabled) {
   background: #9a5a5a;
+}
+
+.palette-hint {
+  font-size: 11px;
+  color: #888;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #333;
+  text-align: center;
 }
 
 /* Checkboxes */

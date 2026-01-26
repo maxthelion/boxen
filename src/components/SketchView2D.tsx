@@ -244,6 +244,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Edge interaction state
   const [hoveredEdge, setHoveredEdge] = useState<EdgePosition | null>(null);
@@ -898,7 +899,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   };
 
   return (
-    <div className={`sketch-view-2d ${className || ''}`}>
+    <div ref={containerRef} className={`sketch-view-2d ${className || ''}`}>
       {/* Toolbar */}
       <div className="sketch-toolbar">
         <div className="sketch-toolbar-left">
@@ -1282,6 +1283,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           onClose={clearCornerSelection}
           onPositionChange={setPalettePosition}
           minWidth={200}
+          containerRef={containerRef}
         >
           <PaletteButtonRow>
             <PaletteButton
@@ -1345,6 +1347,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           }}
           onPositionChange={setInsetPalettePosition}
           minWidth={220}
+          containerRef={containerRef}
         >
           <PaletteCheckboxGroup label="Select Edges">
             {(['top', 'bottom', 'left', 'right'] as EdgePosition[]).map(edge => {

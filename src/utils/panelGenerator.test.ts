@@ -1012,6 +1012,133 @@ describe('Edge Extensions', () => {
     });
   });
 
+  describe('Face Push/Pull Offset Mode', () => {
+    it('offset mode moves face position without changing box dimensions', () => {
+      const config: BoxConfig = {
+        ...createBasicConfig(),
+        assembly: {
+          ...defaultAssemblyConfig,
+          faceOffsets: { top: 10, bottom: 0, left: 0, right: 0, front: 0, back: 0 },
+        },
+      };
+      const faces = createAllSolidFaces();
+      const rootVoid = createSimpleRootVoid(config);
+
+      const collection = generatePanelCollection(faces, rootVoid, config);
+      const topPanel = collection.panels.find(p => p.source.faceId === 'top');
+
+      expect(topPanel).toBeDefined();
+
+      // Top panel Y position should be offset by 10mm (in world units)
+      // Without offset: position would be at height/2 - materialThickness/2
+      // With offset: position should be at height/2 - materialThickness/2 + 10
+      const expectedYWithoutOffset = (config.height / 2 - config.materialThickness / 2);
+      const expectedYWithOffset = expectedYWithoutOffset + 10;
+      expect(topPanel!.position[1]).toBeCloseTo(expectedYWithOffset, 0.1);
+    });
+
+    it('adjacent panels are NOT extended when face is offset (offset mode)', () => {
+      const config: BoxConfig = {
+        ...createBasicConfig(),
+        assembly: {
+          ...defaultAssemblyConfig,
+          faceOffsets: { top: 10, bottom: 0, left: 0, right: 0, front: 0, back: 0 },
+        },
+      };
+      const faces = createAllSolidFaces();
+      const rootVoid = createSimpleRootVoid(config);
+      const halfH = config.height / 2;
+
+      const collection = generatePanelCollection(faces, rootVoid, config);
+      const frontPanel = collection.panels.find(p => p.source.faceId === 'front');
+
+      expect(frontPanel).toBeDefined();
+
+      // Front panel should NOT be extended even though top is offset
+      // Its height should still be the normal box height
+      const frontBounds = getOutlineBounds(frontPanel!);
+
+      // Front panel Y range should be approximately -halfH to +halfH (accounting for finger joints)
+      expect(frontBounds.maxY).toBeLessThan(halfH + config.materialThickness + 1);
+    });
+
+    it('face offset works for all faces', () => {
+      const faceIds: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
+      const offset = 15;
+
+      for (const faceId of faceIds) {
+        const faceOffsets = { top: 0, bottom: 0, left: 0, right: 0, front: 0, back: 0 };
+        faceOffsets[faceId] = offset;
+
+        const config: BoxConfig = {
+          ...createBasicConfig(),
+          assembly: { ...defaultAssemblyConfig, faceOffsets },
+        };
+        const faces = createAllSolidFaces();
+        const rootVoid = createSimpleRootVoid(config);
+
+        const collection = generatePanelCollection(faces, rootVoid, config);
+        const panel = collection.panels.find(p => p.source.faceId === faceId);
+
+        expect(panel).toBeDefined();
+
+        // Verify the panel position has been offset along its perpendicular axis
+        // The exact position depends on the face, but we verify the offset is applied
+        const { width, height, depth, materialThickness: mt } = config;
+        let expectedPosition: number;
+
+        switch (faceId) {
+          case 'front':
+            expectedPosition = depth / 2 - mt / 2 + offset;
+            expect(panel!.position[2]).toBeCloseTo(expectedPosition, 0.1);
+            break;
+          case 'back':
+            expectedPosition = -depth / 2 + mt / 2 - offset;
+            expect(panel!.position[2]).toBeCloseTo(expectedPosition, 0.1);
+            break;
+          case 'left':
+            expectedPosition = -width / 2 + mt / 2 - offset;
+            expect(panel!.position[0]).toBeCloseTo(expectedPosition, 0.1);
+            break;
+          case 'right':
+            expectedPosition = width / 2 - mt / 2 + offset;
+            expect(panel!.position[0]).toBeCloseTo(expectedPosition, 0.1);
+            break;
+          case 'top':
+            expectedPosition = height / 2 - mt / 2 + offset;
+            expect(panel!.position[1]).toBeCloseTo(expectedPosition, 0.1);
+            break;
+          case 'bottom':
+            expectedPosition = -height / 2 + mt / 2 - offset;
+            expect(panel!.position[1]).toBeCloseTo(expectedPosition, 0.1);
+            break;
+        }
+      }
+    });
+
+    it('negative offset moves face inward', () => {
+      const config: BoxConfig = {
+        ...createBasicConfig(),
+        assembly: {
+          ...defaultAssemblyConfig,
+          faceOffsets: { top: -10, bottom: 0, left: 0, right: 0, front: 0, back: 0 },
+        },
+      };
+      const faces = createAllSolidFaces();
+      const rootVoid = createSimpleRootVoid(config);
+
+      const collection = generatePanelCollection(faces, rootVoid, config);
+      const topPanel = collection.panels.find(p => p.source.faceId === 'top');
+
+      expect(topPanel).toBeDefined();
+
+      // Top panel should be moved inward (negative Y direction)
+      const expectedYWithoutOffset = (config.height / 2 - config.materialThickness / 2);
+      const expectedYWithOffset = expectedYWithoutOffset - 10;
+      expect(topPanel!.position[1]).toBeCloseTo(expectedYWithOffset, 0.1);
+    });
+  });
+
   describe('Extension L-Shape Transitions', () => {
     it('creates L-shape when extension meets finger joints', () => {
       const config = createBasicConfig();

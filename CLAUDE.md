@@ -39,9 +39,11 @@ src/
     ├── cornerFinish.ts     # Chamfer/fillet corner detection and application
     ├── editableAreas.ts    # Calculate safe zones for panel modifications
     ├── edgeMating.test.ts  # Edge mating verification tests
+    ├── extensionDebug.ts   # Debug logging for edge extension calculations
     ├── fingerJoints.ts     # Finger joint pattern generation
     ├── panelGenerator.ts   # Core panel generation with finger joints
     ├── projectStorage.ts   # Project persistence
+    ├── pushPullDebug.ts    # Debug logging for push/pull preview system
     ├── svgExport.ts        # SVG export for laser cutting
     ├── urlState.ts         # URL state serialization
     └── voidOperations.ts   # Void tree operations
@@ -184,6 +186,11 @@ Reusable component for tool option panels:
 - Includes helper components: PaletteSliderInput, PaletteToggleGroup, PaletteButton
 
 ## Debugging Patterns
+
+**When to suggest debugging**: If the user reports strange rendering behavior (objects in wrong positions, feedback loops, unexpected scaling, etc.), suggest using the Debug button in the header to copy diagnostic info to clipboard. This is especially useful for issues involving:
+- Push/pull preview system (`src/utils/pushPullDebug.ts`)
+- Edge extension calculations (`src/utils/extensionDebug.ts`)
+- Any multi-step state transformations
 
 ### Clipboard Debug Output Pattern
 

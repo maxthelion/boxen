@@ -15,6 +15,8 @@ export interface FloatingPaletteProps {
   minWidth?: number;
   /** Whether the palette is visible */
   visible?: boolean;
+  /** Optional container ref to constrain palette within (defaults to window) */
+  containerRef?: React.RefObject<HTMLElement>;
 }
 
 export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
@@ -25,6 +27,7 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
   onPositionChange,
   minWidth = 180,
   visible = true,
+  containerRef,
 }) => {
   const paletteRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -74,23 +77,54 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
     // Only drag from the header
     if ((e.target as HTMLElement).closest('.floating-palette-header')) {
       setIsDragging(true);
+
+      // Get container offset for proper positioning
+      let containerLeft = 0;
+      let containerTop = 0;
+      if (containerRef?.current) {
+        const containerRect = containerRef.current.getBoundingClientRect();
+        containerLeft = containerRect.left;
+        containerTop = containerRect.top;
+      }
+
       setDragOffset({
-        x: e.clientX - localPosition.x,
-        y: e.clientY - localPosition.y,
+        x: e.clientX - containerLeft - localPosition.x,
+        y: e.clientY - containerTop - localPosition.y,
       });
       e.preventDefault();
     }
-  }, [localPosition]);
+  }, [localPosition, containerRef]);
 
   const handleDragMove = useCallback((e: MouseEvent) => {
-    if (isDragging) {
-      const newPosition = {
-        x: e.clientX - dragOffset.x,
-        y: e.clientY - dragOffset.y,
-      };
-      setLocalPosition(newPosition);
+    if (isDragging && paletteRef.current) {
+      const rect = paletteRef.current.getBoundingClientRect();
+
+      // Get container bounds or use window
+      let containerLeft = 0;
+      let containerTop = 0;
+      let containerWidth = window.innerWidth;
+      let containerHeight = window.innerHeight;
+      if (containerRef?.current) {
+        const containerRect = containerRef.current.getBoundingClientRect();
+        containerLeft = containerRect.left;
+        containerTop = containerRect.top;
+        containerWidth = containerRect.width;
+        containerHeight = containerRect.height;
+      }
+
+      const padding = 10;
+
+      // Calculate new position relative to container
+      let newX = e.clientX - containerLeft - dragOffset.x;
+      let newY = e.clientY - containerTop - dragOffset.y;
+
+      // Constrain to container bounds
+      newX = Math.max(padding, Math.min(containerWidth - rect.width - padding, newX));
+      newY = Math.max(padding, Math.min(containerHeight - rect.height - padding, newY));
+
+      setLocalPosition({ x: newX, y: newY });
     }
-  }, [isDragging, dragOffset]);
+  }, [isDragging, dragOffset, containerRef]);
 
   const handleDragEnd = useCallback(() => {
     if (isDragging) {
@@ -111,37 +145,49 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
     }
   }, [isDragging, handleDragMove, handleDragEnd]);
 
-  // Keep palette within viewport bounds
+  // Keep palette within container bounds (or viewport if no container)
   useEffect(() => {
     if (paletteRef.current && !isDragging) {
       const rect = paletteRef.current.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
+
+      // Get container bounds or use window
+      let containerBounds = { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight };
+      if (containerRef?.current) {
+        const containerRect = containerRef.current.getBoundingClientRect();
+        containerBounds = {
+          left: containerRect.left,
+          top: containerRect.top,
+          right: containerRect.right,
+          bottom: containerRect.bottom,
+        };
+      }
 
       let adjustedX = localPosition.x;
       let adjustedY = localPosition.y;
 
-      // Keep within horizontal bounds
-      if (adjustedX + rect.width > viewportWidth - 10) {
-        adjustedX = viewportWidth - rect.width - 10;
+      const padding = 10;
+
+      // Keep within horizontal bounds (relative to container)
+      if (adjustedX + rect.width > containerBounds.right - containerBounds.left - padding) {
+        adjustedX = containerBounds.right - containerBounds.left - rect.width - padding;
       }
-      if (adjustedX < 10) {
-        adjustedX = 10;
+      if (adjustedX < padding) {
+        adjustedX = padding;
       }
 
-      // Keep within vertical bounds
-      if (adjustedY + rect.height > viewportHeight - 10) {
-        adjustedY = viewportHeight - rect.height - 10;
+      // Keep within vertical bounds (relative to container)
+      if (adjustedY + rect.height > containerBounds.bottom - containerBounds.top - padding) {
+        adjustedY = containerBounds.bottom - containerBounds.top - rect.height - padding;
       }
-      if (adjustedY < 10) {
-        adjustedY = 10;
+      if (adjustedY < padding) {
+        adjustedY = padding;
       }
 
       if (adjustedX !== localPosition.x || adjustedY !== localPosition.y) {
         setLocalPosition({ x: adjustedX, y: adjustedY });
       }
     }
-  }, [localPosition, isDragging]);
+  }, [localPosition, isDragging, containerRef]);
 
   if (!visible) {
     return null;

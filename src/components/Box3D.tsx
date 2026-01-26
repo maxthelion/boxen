@@ -5,7 +5,9 @@ import { SubAssembly3D } from './SubAssembly3D';
 import { FaceWithFingers } from './FaceWithFingers';
 import { DividerPanel } from './DividerPanel';
 import { PanelCollectionRenderer } from './PanelPathRenderer';
+import { PushPullArrow } from './PushPullArrow';
 import { FaceId, Bounds, AssemblyConfig, getFaceRole, getLidSide, getLidFaceId } from '../types';
+import { logPushPull } from '../utils/pushPullDebug';
 import * as THREE from 'three';
 
 // Flag to switch between old (computed) and new (stored paths) rendering
@@ -482,8 +484,25 @@ const getLidIntersections = (
   return intersections;
 };
 
-export const Box3D: React.FC = () => {
-  const { config, faces, rootVoid, subdivisionPreview, subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, panelCollection, showDebugAnchors } = useBoxStore();
+export interface PushPullCallbacks {
+  onOffsetChange: (faceId: FaceId, offset: number) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}
+
+interface Box3DProps {
+  pushPullCallbacks?: PushPullCallbacks;
+}
+
+export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
+  const { config: mainConfig, faces: mainFaces, rootVoid: mainRootVoid, subdivisionPreview, subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, panelCollection: mainPanelCollection, showDebugAnchors, activeTool, previewState, previewPanelCollection } = useBoxStore();
+
+  // Use preview state if available, otherwise use main state
+  const config = previewState?.config ?? mainConfig;
+  const faces = previewState?.faces ?? mainFaces;
+  const rootVoid = previewState?.rootVoid ?? mainRootVoid;
+  const panelCollection = previewPanelCollection ?? mainPanelCollection;
+
   const { width, height, depth } = config;
 
   // Auto-generate panels when dirty
@@ -498,6 +517,11 @@ export const Box3D: React.FC = () => {
   const scaledH = height * scale;
   const scaledD = depth * scale;
   const scaledThickness = config.materialThickness * scale;
+
+  // Original (non-preview) dimensions for bounding box and arrow positioning
+  const mainScaledW = mainConfig.width * scale;
+  const mainScaledH = mainConfig.height * scale;
+  const mainScaledD = mainConfig.depth * scale;
 
   const boxCenter = { x: width / 2, y: height / 2, z: depth / 2 };
 
@@ -650,12 +674,18 @@ export const Box3D: React.FC = () => {
     ];
   }, [scaledW, scaledH, scaledD, halfMT]);
 
+  // Bounding box shows preview dimensions when previewing, otherwise main dimensions
+  // Always centered at origin (no shift)
+  const boundingBoxW = previewState ? scaledW : mainScaledW;
+  const boundingBoxH = previewState ? scaledH : mainScaledH;
+  const boundingBoxD = previewState ? scaledD : mainScaledD;
+
   return (
     <group>
-      {/* Wireframe box outline - RED shows outer dimensions for alignment verification */}
+      {/* Wireframe box outline - shows current assembly dimensions */}
       <lineSegments>
-        <edgesGeometry args={[new THREE.BoxGeometry(scaledW, scaledH, scaledD)]} />
-        <lineBasicMaterial color="#ff0000" linewidth={2} />
+        <edgesGeometry args={[new THREE.BoxGeometry(boundingBoxW, boundingBoxH, boundingBoxD)]} />
+        <lineBasicMaterial color={previewState ? '#ffcc00' : '#ff0000'} linewidth={2} />
       </lineSegments>
 
       {/* Debug anchor spheres at box corners (inset by half material thickness) */}
@@ -683,6 +713,69 @@ export const Box3D: React.FC = () => {
           hiddenFaceIds={hiddenFaceIds}
         />
       )}
+
+      {/* Push/Pull arrow indicator when tool is active and face panel is selected */}
+      {activeTool === 'push-pull' && mainPanelCollection && pushPullCallbacks && (() => {
+        // Find selected face panel - use MAIN panel collection for original position
+        const selectedFaceId = Array.from(selectedPanelIds).find(id => id.startsWith('face-'));
+        if (!selectedFaceId) return null;
+
+        const faceId = selectedFaceId.replace('face-', '') as FaceId;
+        const panel = mainPanelCollection.panels.find(p => p.id === selectedFaceId);
+        if (!panel) return null;
+
+        const arrowSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.5;
+
+        // Position arrow at the ORIGINAL panel surface (not affected by preview offset)
+        const arrowPosition: [number, number, number] = [...panel.position] as [number, number, number];
+        const mt = mainConfig.materialThickness * scale;
+        switch (faceId) {
+          case 'front': arrowPosition[2] += mt / 2; break;
+          case 'back': arrowPosition[2] -= mt / 2; break;
+          case 'left': arrowPosition[0] -= mt / 2; break;
+          case 'right': arrowPosition[0] += mt / 2; break;
+          case 'top': arrowPosition[1] += mt / 2; break;
+          case 'bottom': arrowPosition[1] -= mt / 2; break;
+        }
+
+        // Log arrow position calculation
+        const previewPanel = panelCollection?.panels.find(p => p.id === selectedFaceId);
+        logPushPull({
+          action: 'Box3D - arrow position calculated',
+          faceId,
+          arrowPosition,
+          panelPosition: {
+            mainPanel: panel.position as [number, number, number],
+            previewPanel: previewPanel?.position as [number, number, number],
+          },
+          scaledDimensions: {
+            main: { w: mainScaledW, h: mainScaledH, d: mainScaledD },
+            preview: { w: scaledW, h: scaledH, d: scaledD },
+          },
+          previewState: {
+            hasPreview: !!previewState,
+            type: previewState?.type,
+            configDimensions: previewState ? {
+              width: previewState.config.width,
+              height: previewState.config.height,
+              depth: previewState.config.depth,
+            } : undefined,
+          },
+        });
+
+        return (
+          <PushPullArrow
+            faceId={faceId}
+            position={arrowPosition}
+            size={arrowSize}
+            offset={0}  // Offset is relative to current drag, starts at 0
+            scale={scale}
+            onOffsetChange={(newOffset) => pushPullCallbacks.onOffsetChange(faceId, newOffset)}
+            onDragStart={pushPullCallbacks.onDragStart}
+            onDragEnd={pushPullCallbacks.onDragEnd}
+          />
+        );
+      })()}
 
       {/* Face panels with finger joints and material thickness (old method, when not using stored paths) */}
       {!USE_STORED_PATHS && faceConfigs.map((faceConfig) => {

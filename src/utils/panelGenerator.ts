@@ -278,6 +278,32 @@ const getPerpendicularFaceExtensionOnSameEdge = (
   return { extension: perpPanel.edgeExtensions[edgePosition] || 0, perpFaceId };
 };
 
+// Get required auto-extensions from adjacent face offsets
+// When an adjacent face has a positive offset (moved outward), this panel's edge
+// that connects to it needs to be extended to meet the new position
+const getAutoExtensionsFromFaceOffsets = (
+  faceId: FaceId,
+  config: BoxConfig
+): EdgeExtensions => {
+  const faceOffsets = config.assembly.faceOffsets;
+  if (!faceOffsets) return defaultEdgeExtensions;
+
+  const edges = getFaceEdges(faceId);
+  const autoExtensions: EdgeExtensions = { top: 0, bottom: 0, left: 0, right: 0 };
+
+  for (const edge of edges) {
+    const adjacentFaceId = edge.adjacentFaceId;
+    const adjacentOffset = faceOffsets[adjacentFaceId] || 0;
+
+    // Only auto-extend if adjacent face has positive offset (moved outward)
+    if (adjacentOffset > 0) {
+      autoExtensions[edge.position] = adjacentOffset;
+    }
+  }
+
+  return autoExtensions;
+};
+
 // Get the extension value from an adjacent face's edge that connects to this face
 const getAdjacentFaceExtension = (
   faceId: FaceId,
@@ -496,6 +522,9 @@ const getFaceTransform = (
     return (assembly.lids[side].inset || 0) * scale;
   };
 
+  // Get face offset (positive = outward from box center)
+  const faceOffset = (assembly.faceOffsets?.[faceId] || 0) * scale;
+
   // Note: Wall panels with feet extend downward from their original position.
   // The 2D panel geometry has feet extending below -halfH, with center at (0,0).
   // No 3D position offset is needed - the panel is already correctly positioned
@@ -503,35 +532,39 @@ const getFaceTransform = (
 
   switch (faceId) {
     case 'front':
+      // +Z is outward for front face
       return {
-        position: [0, 0, halfD - mt / 2],
+        position: [0, 0, halfD - mt / 2 + faceOffset],
         rotation: [0, 0, 0],
       };
     case 'back':
+      // -Z is outward for back face
       return {
-        position: [0, 0, -halfD + mt / 2],
+        position: [0, 0, -halfD + mt / 2 - faceOffset],
         rotation: [0, Math.PI, 0],
       };
     case 'left':
+      // -X is outward for left face
       return {
-        position: [-halfW + mt / 2, 0, 0],
+        position: [-halfW + mt / 2 - faceOffset, 0, 0],
         rotation: [0, -Math.PI / 2, 0],
       };
     case 'right':
+      // +X is outward for right face
       return {
-        position: [halfW - mt / 2, 0, 0],
+        position: [halfW - mt / 2 + faceOffset, 0, 0],
         rotation: [0, Math.PI / 2, 0],
       };
     case 'top':
-      // Adjust for lid inset (moves down into the box)
+      // +Y is outward for top face, but also adjust for lid inset
       return {
-        position: [0, halfH - mt / 2 - getLidInset('positive'), 0],
+        position: [0, halfH - mt / 2 - getLidInset('positive') + faceOffset, 0],
         rotation: [-Math.PI / 2, 0, 0],
       };
     case 'bottom':
-      // Adjust for lid inset (moves up into the box)
+      // -Y is outward for bottom face, but also adjust for lid inset
       return {
-        position: [0, -halfH + mt / 2 + getLidInset('negative'), 0],
+        position: [0, -halfH + mt / 2 + getLidInset('negative') - faceOffset, 0],
         rotation: [Math.PI / 2, 0, 0],
       };
   }
@@ -2189,6 +2222,7 @@ const generateFacePanel = (
   const face = faces.find((f) => f.id === faceId);
   if (!face || !face.solid) return null;
 
+  // Use existing extensions (no auto-extensions - face offsets only move position, not extend)
   const extensions = existingExtensions ?? defaultEdgeExtensions;
 
   // Determine if this panel should have feet
