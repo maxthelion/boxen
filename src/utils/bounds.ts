@@ -130,6 +130,56 @@ const calculateEvenDivisions = (
 };
 
 // ============================================================================
+// INSET OPERATIONS (for lid insets)
+// ============================================================================
+
+/**
+ * Result of calculating inset regions along an axis
+ */
+export interface InsetRegions {
+  main: Bounds;
+  positiveCap: Bounds | null;
+  negativeCap: Bounds | null;
+}
+
+/**
+ * Calculate bounds for main interior and optional cap regions along an axis.
+ *
+ * This is THE single implementation for calculating lid inset regions.
+ * Used when lids are inset from the outer box dimensions.
+ *
+ * @param outerBounds - The full outer bounds
+ * @param axis - The axis along which to apply insets
+ * @param positiveInset - Inset from the positive end (e.g., top for Y axis)
+ * @param negativeInset - Inset from the negative end (e.g., bottom for Y axis)
+ * @returns Main interior bounds and optional cap bounds
+ */
+const calculateInsetRegions = (
+  outerBounds: Bounds,
+  axis: 'x' | 'y' | 'z',
+  positiveInset: number,
+  negativeInset: number
+): InsetRegions => {
+  const fullSize = getSize(outerBounds, axis);
+  const mainSize = fullSize - positiveInset - negativeInset;
+
+  // Main interior region starts after negative inset
+  const main = setRegion(outerBounds, axis, negativeInset, mainSize);
+
+  // Positive cap region (at the high end of the axis)
+  const positiveCap = positiveInset > 0
+    ? setRegion(outerBounds, axis, fullSize - positiveInset, positiveInset)
+    : null;
+
+  // Negative cap region (at the low end of the axis)
+  const negativeCap = negativeInset > 0
+    ? setRegion(outerBounds, axis, 0, negativeInset)
+    : null;
+
+  return { main, positiveCap, negativeCap };
+};
+
+// ============================================================================
 // EXPORT NAMESPACE
 // ============================================================================
 
@@ -146,6 +196,9 @@ export const BoundsOps = {
   // Subdivision
   calculateChildRegion,
   calculateEvenDivisions,
+
+  // Inset operations
+  calculateInsetRegions,
 } as const;
 
 // Also export individual functions for backwards compatibility during migration

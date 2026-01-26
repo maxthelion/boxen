@@ -5,7 +5,7 @@ import { generatePanelCollection } from '../utils/panelGenerator';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { appendDebug } from '../utils/debug';
-import { BoundsOps, getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions } from '../utils/bounds';
+import { BoundsOps, getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions, InsetRegions } from '../utils/bounds';
 import { VoidTree } from '../utils/voidTree';
 
 // Re-export bounds helpers for external use
@@ -43,108 +43,10 @@ const createRootVoidWithInsets = (
     };
   }
 
-  // Calculate main interior bounds based on assembly axis
-  let mainBounds: Bounds;
-  let positiveCapBounds: Bounds | null = null;
-  let negativeCapBounds: Bounds | null = null;
-
-  switch (assembly.assemblyAxis) {
-    case 'y':
-      // Top/bottom are lids
-      mainBounds = {
-        x: 0,
-        y: negativeInset,
-        z: 0,
-        w: width,
-        h: height - positiveInset - negativeInset,
-        d: depth,
-      };
-      if (positiveInset > 0) {
-        positiveCapBounds = {
-          x: 0,
-          y: height - positiveInset,
-          z: 0,
-          w: width,
-          h: positiveInset,
-          d: depth,
-        };
-      }
-      if (negativeInset > 0) {
-        negativeCapBounds = {
-          x: 0,
-          y: 0,
-          z: 0,
-          w: width,
-          h: negativeInset,
-          d: depth,
-        };
-      }
-      break;
-
-    case 'x':
-      // Left/right are lids
-      mainBounds = {
-        x: negativeInset,
-        y: 0,
-        z: 0,
-        w: width - positiveInset - negativeInset,
-        h: height,
-        d: depth,
-      };
-      if (positiveInset > 0) {
-        positiveCapBounds = {
-          x: width - positiveInset,
-          y: 0,
-          z: 0,
-          w: positiveInset,
-          h: height,
-          d: depth,
-        };
-      }
-      if (negativeInset > 0) {
-        negativeCapBounds = {
-          x: 0,
-          y: 0,
-          z: 0,
-          w: negativeInset,
-          h: height,
-          d: depth,
-        };
-      }
-      break;
-
-    case 'z':
-      // Front/back are lids
-      mainBounds = {
-        x: 0,
-        y: 0,
-        z: negativeInset,
-        w: width,
-        h: height,
-        d: depth - positiveInset - negativeInset,
-      };
-      if (positiveInset > 0) {
-        positiveCapBounds = {
-          x: 0,
-          y: 0,
-          z: depth - positiveInset,
-          w: width,
-          h: height,
-          d: positiveInset,
-        };
-      }
-      if (negativeInset > 0) {
-        negativeCapBounds = {
-          x: 0,
-          y: 0,
-          z: 0,
-          w: width,
-          h: height,
-          d: negativeInset,
-        };
-      }
-      break;
-  }
+  // Calculate main interior and cap bounds using BoundsOps helper
+  const outerBounds: Bounds = { x: 0, y: 0, z: 0, w: width, h: height, d: depth };
+  const { main: mainBounds, positiveCap: positiveCapBounds, negativeCap: negativeCapBounds } =
+    BoundsOps.calculateInsetRegions(outerBounds, assembly.assemblyAxis, positiveInset, negativeInset);
 
   // Build children array
   // Note: We do NOT set splitAxis/splitPosition on lid inset voids because
@@ -575,28 +477,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           const negativeInset = config.assembly.lids.negative.inset;
           const axis = config.assembly.assemblyAxis;
 
-          // Calculate new main interior bounds
-          let mainBounds: Bounds;
-          switch (axis) {
-            case 'y':
-              mainBounds = {
-                x: 0, y: negativeInset, z: 0,
-                w: config.width, h: config.height - positiveInset - negativeInset, d: config.depth,
-              };
-              break;
-            case 'x':
-              mainBounds = {
-                x: negativeInset, y: 0, z: 0,
-                w: config.width - positiveInset - negativeInset, h: config.height, d: config.depth,
-              };
-              break;
-            case 'z':
-              mainBounds = {
-                x: 0, y: 0, z: negativeInset,
-                w: config.width, h: config.height, d: config.depth - positiveInset - negativeInset,
-              };
-              break;
-          }
+          // Calculate new main interior bounds using BoundsOps helper
+          const { main: mainBounds } = BoundsOps.calculateInsetRegions(
+            newRootBounds, axis, positiveInset, negativeInset
+          );
 
           // Recalculate the main interior's children
           const recalculatedMainInterior = recalculateVoidBounds(
@@ -2619,29 +2503,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           const negativeInset = state.config.assembly.lids.negative.inset;
           const axis = state.config.assembly.assemblyAxis;
 
-          // Calculate new main interior bounds
-          let mainBounds: Bounds;
-          switch (axis) {
-            case 'y':
-              mainBounds = {
-                x: 0, y: negativeInset, z: 0,
-                w: newWidth, h: newHeight - positiveInset - negativeInset, d: newDepth,
-              };
-              break;
-            case 'x':
-              mainBounds = {
-                x: negativeInset, y: 0, z: 0,
-                w: newWidth - positiveInset - negativeInset, h: newHeight, d: newDepth,
-              };
-              break;
-            case 'z':
-            default:
-              mainBounds = {
-                x: 0, y: 0, z: negativeInset,
-                w: newWidth, h: newHeight, d: newDepth - positiveInset - negativeInset,
-              };
-              break;
-          }
+          // Calculate new main interior bounds using BoundsOps helper
+          const { main: mainBounds } = BoundsOps.calculateInsetRegions(
+            newRootBounds, axis, positiveInset, negativeInset
+          );
 
           // Recalculate the main interior's children
           const recalculatedMainInterior = recalculateVoidBounds(

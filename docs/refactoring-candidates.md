@@ -208,3 +208,67 @@ All items have been addressed:
 6. **Finger joint unit vectors** - Created `computeEdgeDirection()` in fingerJoints.ts
 7. **Extension area calculation** - Created `calculateExtensionArea()` helper with loop over directions
 8. **Tree traversal patterns** - Reviewed; functions are short, clear, and serve different purposes. Creating abstraction would add complexity without benefit.
+
+---
+
+## Namespace Consolidation (2026-01-26)
+
+To address the root cause of duplication bugs ("if two UI actions should produce identical results, they must call the same function"), two namespace modules were created:
+
+### `src/utils/bounds.ts` - BoundsOps Namespace
+
+THE single way to perform bounds operations:
+
+```typescript
+export const BoundsOps = {
+  // Accessors
+  getStart,        // Get start position along axis
+  getSize,         // Get size along axis
+  getEnd,          // Get end position (start + size)
+
+  // Mutators (immutable)
+  setRegion,       // Create new bounds with region set
+  clone,           // Deep copy bounds
+
+  // Subdivision
+  calculateChildRegion,     // Calculate child void bounds
+  calculateEvenDivisions,   // Calculate evenly spaced divider positions
+
+  // Inset operations
+  calculateInsetRegions,    // Calculate lid inset regions (main + caps)
+} as const;
+```
+
+### `src/utils/voidTree.ts` - VoidTree Namespace
+
+THE single way to perform void tree operations:
+
+```typescript
+export const VoidTree = {
+  // Traversal
+  find,              // Find void by ID
+  findParent,        // Find parent of a void
+  getSubtreeIds,     // Get all IDs in subtree
+  getAncestorIds,    // Get ancestor path to void
+  findSubAssembly,   // Find sub-assembly by ID
+  getAllSubAssemblies,
+
+  // Mutation (immutable)
+  clone,             // Deep clone tree
+  update,            // Update void immutably
+
+  // Subdivision
+  createSubdivisionChildren,  // Create child voids
+  subdivide,         // Subdivide a void in tree
+  removeSubdivision, // Remove subdivision
+
+  // Utilities
+  generateId,        // Generate unique void ID
+} as const;
+```
+
+### Other Consolidations
+
+- **`defaultFaces`** constant in `types.ts` - eliminates repeated `{ id: 'front', solid: true }, ...` patterns
+- **`createAllSolidFaces()`** helper - creates fresh copy of default faces
+- **`BoundsOps.calculateInsetRegions()`** - consolidates `mainBounds` switch statements for lid inset calculations
