@@ -528,6 +528,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         face.id === faceId ? { ...face, solid: !face.solid } : face
       ),
       subdivisionPreview: null,  // Clear preview when faces change
+      previewState: null,  // Clear preview state when faces change
+      previewPanelCollection: null,  // Clear preview panels
       panelsDirty: true,  // Mark panels as needing regeneration
     })),
 
@@ -1621,6 +1623,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         faces: newFaces,
         rootVoid: newRootVoid,
         panelsDirty: true,
+        previewState: null,  // Clear preview state when faces change
+        previewPanelCollection: null,
       };
     }),
 

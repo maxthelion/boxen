@@ -1095,6 +1095,26 @@ describe('Edge Mating Verification', () => {
       const topSlots = top!.holes.filter((h) => h.source?.type === 'divider-slot');
       expect(topSlots.length).toBeGreaterThan(0);
     });
+
+    it('x-axis divider has straight edge when front face is open', () => {
+      // X-axis divider is in the YZ plane, so it meets front/back on its left/right edges.
+      // When front face is open, the divider's edge facing front should be straight.
+      const config = createConfig();
+      const faces = createFaces(0b111110); // front open (bit 0)
+      const rootVoid = createSubdividedVoid(config, 'x', 50);
+      const collection = generatePanelCollection(faces, rootVoid, config);
+
+      const divider = collection.panels.find((p) => p.source.type === 'divider');
+      expect(divider).toBeDefined();
+
+      // For x-axis divider, "right" edge in 2D faces the front (positive Z direction)
+      // This edge should be straight when front is open
+      const features = extractEdgeFeatures(divider!, 'right');
+      const tabs = features.filter((f) => f.type === 'tab');
+
+      // Should have no tabs on the edge facing the open front face
+      expect(tabs.length).toBe(0);
+    });
   });
 
   describe('Configuration Matrix Sampling', () => {

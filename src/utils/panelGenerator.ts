@@ -3059,8 +3059,9 @@ const generateDividerPanel = (
   switch (axis) {
     case 'x':
       // X-axis divider: positioned at splitPosition on X, centered on Y and Z within bounds
+      // Rotation -90° around Y so that 2D right (+X) maps to world +Z (front)
       panelPosition = [scaledPos - halfWidth, boundsCenterY, boundsCenterZ];
-      panelRotation = [0, Math.PI / 2, 0];
+      panelRotation = [0, -Math.PI / 2, 0];
       break;
     case 'y':
       // Y-axis divider: positioned at splitPosition on Y, centered on X and Z within bounds
