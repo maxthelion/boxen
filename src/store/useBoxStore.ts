@@ -8,6 +8,72 @@ import { appendDebug } from '../utils/debug';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
+// =============================================================================
+// Bounds Helper Functions - Consolidated axis-based bounds operations
+// =============================================================================
+
+/** Get the start position of bounds along an axis */
+export const getBoundsStart = (bounds: Bounds, axis: 'x' | 'y' | 'z'): number =>
+  axis === 'x' ? bounds.x : axis === 'y' ? bounds.y : bounds.z;
+
+/** Get the size of bounds along an axis */
+export const getBoundsSize = (bounds: Bounds, axis: 'x' | 'y' | 'z'): number =>
+  axis === 'x' ? bounds.w : axis === 'y' ? bounds.h : bounds.d;
+
+/** Create new bounds with a region set along an axis */
+export const setBoundsRegion = (
+  bounds: Bounds,
+  axis: 'x' | 'y' | 'z',
+  start: number,
+  size: number
+): Bounds => {
+  switch (axis) {
+    case 'x': return { ...bounds, x: start, w: size };
+    case 'y': return { ...bounds, y: start, h: size };
+    case 'z': return { ...bounds, z: start, d: size };
+  }
+};
+
+/**
+ * Calculate the bounds for a child region within a subdivided void.
+ *
+ * @param parentBounds - The parent void's bounds
+ * @param axis - The axis along which the void is subdivided
+ * @param index - The index of this child region (0-based)
+ * @param count - Total number of child regions
+ * @param positions - Array of split positions (divider centers)
+ * @param materialThickness - Thickness of dividers
+ * @returns The bounds for this child region
+ */
+export const calculateChildRegionBounds = (
+  parentBounds: Bounds,
+  axis: 'x' | 'y' | 'z',
+  index: number,
+  count: number,
+  positions: number[],
+  materialThickness: number
+): Bounds => {
+  const dimStart = getBoundsStart(parentBounds, axis);
+  const dimSize = getBoundsSize(parentBounds, axis);
+  const mt = materialThickness;
+
+  // Start of this void region
+  const regionStart = index === 0
+    ? dimStart
+    : positions[index - 1] + mt / 2;  // After previous divider
+
+  // End of this void region
+  const regionEnd = index === count - 1
+    ? dimStart + dimSize
+    : positions[index] - mt / 2;  // Before next divider
+
+  const regionSize = regionEnd - regionStart;
+
+  return setBoundsRegion(parentBounds, axis, regionStart, regionSize);
+};
+
+// =============================================================================
+
 // Create a simple root void without lid inset considerations
 const createSimpleRootVoid = (width: number, height: number, depth: number): Void => ({
   id: 'root',
@@ -276,8 +342,8 @@ const recalculateVoidBounds = (
   const mt = materialThickness;
 
   // Get dimension info for this axis
-  const parentStart = axis === 'x' ? parentBounds.x : axis === 'y' ? parentBounds.y : parentBounds.z;
-  const parentSize = axis === 'x' ? parentBounds.w : axis === 'y' ? parentBounds.h : parentBounds.d;
+  const parentStart = getBoundsStart(parentBounds, axis);
+  const parentSize = getBoundsSize(parentBounds, axis);
   const parentEnd = parentStart + parentSize;
 
   // Recalculate split positions for children
@@ -311,29 +377,15 @@ const recalculateVoidBounds = (
   for (let i = 0; i < node.children.length; i++) {
     const child = node.children[i];
 
-    // Calculate region bounds for this child
-    const regionStart = i === 0
-      ? parentStart
-      : splitPositions[i - 1] + mt / 2;
-
-    const regionEnd = i === node.children.length - 1
-      ? parentEnd
-      : splitPositions[i] - mt / 2;
-
-    const regionSize = regionEnd - regionStart;
-
-    let childBounds: Bounds;
-    switch (axis) {
-      case 'x':
-        childBounds = { ...parentBounds, x: regionStart, w: regionSize };
-        break;
-      case 'y':
-        childBounds = { ...parentBounds, y: regionStart, h: regionSize };
-        break;
-      case 'z':
-        childBounds = { ...parentBounds, z: regionStart, d: regionSize };
-        break;
-    }
+    // Calculate region bounds for this child using consolidated helper
+    const childBounds = calculateChildRegionBounds(
+      parentBounds,
+      axis,
+      i,
+      node.children.length,
+      splitPositions,
+      mt
+    );
 
     // Recursively update this child
     const updatedChild = recalculateVoidBounds(
@@ -848,68 +900,24 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const { axis, count, positions } = preview;
       const mt = state.config.materialThickness;
 
-      // Create N+1 child voids for N divisions
-      // Account for material thickness of dividers
+      // Create N+1 child voids for N divisions using consolidated bounds calculation
       const children: Void[] = [];
+      const dimStart = getBoundsStart(bounds, axis);
+      const dimSize = getBoundsSize(bounds, axis);
 
-      // Get the dimension size along the split axis
-      const dimSize = axis === 'x' ? bounds.w : axis === 'y' ? bounds.h : bounds.d;
-      const dimStart = axis === 'x' ? bounds.x : axis === 'y' ? bounds.y : bounds.z;
-
-      // Calculate void boundaries accounting for divider thickness
-      // Each divider is centered at its position and takes up materialThickness
       for (let i = 0; i <= count; i++) {
-        // Start of this void region
-        const regionStart = i === 0
-          ? dimStart
-          : positions[i - 1] + mt / 2;  // After previous divider
+        const childBounds = calculateChildRegionBounds(
+          bounds,
+          axis,
+          i,
+          count + 1,  // count is number of dividers, we have count+1 regions
+          positions,
+          mt
+        );
 
-        // End of this void region
-        const regionEnd = i === count
-          ? dimStart + dimSize
-          : positions[i] - mt / 2;  // Before next divider
-
-        const regionSize = regionEnd - regionStart;
-
-        let childBounds: Bounds;
-        let splitPos: number | undefined;
-        let splitAxis: 'x' | 'y' | 'z' | undefined;
-
-        switch (axis) {
-          case 'x':
-            childBounds = {
-              ...bounds,
-              x: regionStart,
-              w: regionSize,
-            };
-            if (i > 0) {
-              splitPos = positions[i - 1];
-              splitAxis = axis;
-            }
-            break;
-          case 'y':
-            childBounds = {
-              ...bounds,
-              y: regionStart,
-              h: regionSize,
-            };
-            if (i > 0) {
-              splitPos = positions[i - 1];
-              splitAxis = axis;
-            }
-            break;
-          case 'z':
-            childBounds = {
-              ...bounds,
-              z: regionStart,
-              d: regionSize,
-            };
-            if (i > 0) {
-              splitPos = positions[i - 1];
-              splitAxis = axis;
-            }
-            break;
-        }
+        // Set split info for children after the first (they have a divider before them)
+        const splitPos = i > 0 ? positions[i - 1] : undefined;
+        const splitAxis = i > 0 ? axis : undefined;
 
         // Calculate percentage for this split position
         let splitPercentage: number | undefined;
@@ -3005,68 +3013,24 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       appendDebug(debugLines.join('\n'));
       const mt = state.previewState.config.materialThickness;
 
-      // Create N+1 child voids for N divisions
-      // Account for material thickness of dividers
+      // Create N+1 child voids for N divisions using consolidated bounds calculation
       const children: Void[] = [];
+      const dimStart = getBoundsStart(bounds, axis);
+      const dimSize = getBoundsSize(bounds, axis);
 
-      // Get the dimension size along the split axis
-      const dimSize = axis === 'x' ? bounds.w : axis === 'y' ? bounds.h : bounds.d;
-      const dimStart = axis === 'x' ? bounds.x : axis === 'y' ? bounds.y : bounds.z;
-
-      // Calculate void boundaries accounting for divider thickness
-      // Each divider is centered at its position and takes up materialThickness
       for (let i = 0; i <= count; i++) {
-        // Start of this void region
-        const regionStart = i === 0
-          ? dimStart
-          : positions[i - 1] + mt / 2;  // After previous divider
+        const childBounds = calculateChildRegionBounds(
+          bounds,
+          axis,
+          i,
+          count + 1,  // count is number of dividers, we have count+1 regions
+          positions,
+          mt
+        );
 
-        // End of this void region
-        const regionEnd = i === count
-          ? dimStart + dimSize
-          : positions[i] - mt / 2;  // Before next divider
-
-        const regionSize = regionEnd - regionStart;
-
-        let childBounds: Bounds;
-        let splitPos: number | undefined;
-        let splitAxis: 'x' | 'y' | 'z' | undefined;
-
-        switch (axis) {
-          case 'x':
-            childBounds = {
-              ...bounds,
-              x: regionStart,
-              w: regionSize,
-            };
-            if (i > 0) {
-              splitPos = positions[i - 1];
-              splitAxis = axis;
-            }
-            break;
-          case 'y':
-            childBounds = {
-              ...bounds,
-              y: regionStart,
-              h: regionSize,
-            };
-            if (i > 0) {
-              splitPos = positions[i - 1];
-              splitAxis = axis;
-            }
-            break;
-          case 'z':
-            childBounds = {
-              ...bounds,
-              z: regionStart,
-              d: regionSize,
-            };
-            if (i > 0) {
-              splitPos = positions[i - 1];
-              splitAxis = axis;
-            }
-            break;
-        }
+        // Set split info for children after the first (they have a divider before them)
+        const splitPos = i > 0 ? positions[i - 1] : undefined;
+        const splitAxis = i > 0 ? axis : undefined;
 
         // Calculate percentage for this split position
         let splitPercentage: number | undefined;
