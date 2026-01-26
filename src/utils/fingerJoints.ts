@@ -3,6 +3,26 @@ export interface Point {
   y: number;
 }
 
+/**
+ * Compute edge direction vectors from start to end points.
+ * Returns null if the edge has negligible length.
+ */
+const computeEdgeDirection = (
+  start: Point,
+  end: Point
+): { unitX: number; unitY: number; actualLength: number } | null => {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const actualLength = Math.sqrt(dx * dx + dy * dy);
+
+  if (actualLength < 0.001) return null;
+
+  const unitX = dx / actualLength;
+  const unitY = dy / actualLength;
+
+  return { unitX, unitY, actualLength };
+};
+
 export interface FingerJointConfig {
   edgeLength: number;
   fingerWidth: number;
@@ -30,14 +50,10 @@ export const generateFingerJointPath = (
 ): Point[] => {
   const { fingerWidth, materialThickness, isTabOut } = config;
 
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const actualLength = Math.sqrt(dx * dx + dy * dy);
+  const direction = computeEdgeDirection(start, end);
+  if (!direction) return [start, end];
 
-  if (actualLength < 0.001) return [start, end];
-
-  const unitX = dx / actualLength;
-  const unitY = dy / actualLength;
+  const { unitX, unitY, actualLength } = direction;
 
   // Perpendicular direction depends on coordinate system
   // invertPerpendicular flips the direction for canonical direction generation
@@ -259,15 +275,10 @@ export const generateFingerJointPathV2 = (
   const { fingerPoints, gender, materialThickness } = config;
   const { points: transitionPoints, innerOffset, fingerLength, maxJointLength } = fingerPoints;
 
-  // Edge direction
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
-  const actualLength = Math.sqrt(dx * dx + dy * dy);
+  const direction = computeEdgeDirection(start, end);
+  if (!direction) return [start, end];
 
-  if (actualLength < 0.001) return [start, end];
-
-  const unitX = dx / actualLength;
-  const unitY = dy / actualLength;
+  const { unitX, unitY, actualLength } = direction;
 
   // Perpendicular direction (for tab/slot depth)
   // If outwardDirection is provided, use it; otherwise compute from edge direction

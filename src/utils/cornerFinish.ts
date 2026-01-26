@@ -35,6 +35,42 @@ const angleBetweenVectors = (
 };
 
 /**
+ * Calculate normalized edge vectors and clamped radius for corner operations.
+ * Used by both applyChamfer and applyFillet.
+ *
+ * @returns null if either edge has zero length, otherwise the computed vectors and radius
+ */
+const computeCornerVectors = (
+  corner: PathPoint,
+  prevPoint: PathPoint,
+  nextPoint: PathPoint,
+  radius: number
+): {
+  inNorm: { x: number; y: number };
+  outNorm: { x: number; y: number };
+  clampedRadius: number;
+} | null => {
+  // Direction vectors
+  const inVec = { x: corner.x - prevPoint.x, y: corner.y - prevPoint.y };
+  const outVec = { x: nextPoint.x - corner.x, y: nextPoint.y - corner.y };
+
+  // Calculate lengths
+  const inLen = Math.sqrt(inVec.x * inVec.x + inVec.y * inVec.y);
+  const outLen = Math.sqrt(outVec.x * outVec.x + outVec.y * outVec.y);
+
+  if (inLen === 0 || outLen === 0) return null;
+
+  // Normalize
+  const inNorm = { x: inVec.x / inLen, y: inVec.y / inLen };
+  const outNorm = { x: outVec.x / outLen, y: outVec.y / outLen };
+
+  // Clamp radius to not exceed half of either edge
+  const clampedRadius = Math.min(radius, inLen * 0.5, outLen * 0.5);
+
+  return { inNorm, outNorm, clampedRadius };
+};
+
+/**
  * Detect corners in a panel outline
  *
  * A corner is any vertex where the angle changes significantly (not straight)
@@ -183,21 +219,10 @@ export const applyChamfer = (
   nextPoint: PathPoint,
   radius: number
 ): PathPoint[] => {
-  // Direction vectors
-  const inVec = { x: corner.x - prevPoint.x, y: corner.y - prevPoint.y };
-  const outVec = { x: nextPoint.x - corner.x, y: nextPoint.y - corner.y };
+  const vectors = computeCornerVectors(corner, prevPoint, nextPoint, radius);
+  if (!vectors) return [corner];
 
-  // Normalize
-  const inLen = Math.sqrt(inVec.x * inVec.x + inVec.y * inVec.y);
-  const outLen = Math.sqrt(outVec.x * outVec.x + outVec.y * outVec.y);
-
-  if (inLen === 0 || outLen === 0) return [corner];
-
-  const inNorm = { x: inVec.x / inLen, y: inVec.y / inLen };
-  const outNorm = { x: outVec.x / outLen, y: outVec.y / outLen };
-
-  // Clamp radius to not exceed half of either edge
-  const clampedRadius = Math.min(radius, inLen * 0.5, outLen * 0.5);
+  const { inNorm, outNorm, clampedRadius } = vectors;
 
   // Calculate the two chamfer points
   const p1: PathPoint = {
@@ -225,21 +250,10 @@ export const applyFillet = (
   radius: number,
   segments: number = 8
 ): PathPoint[] => {
-  // Direction vectors
-  const inVec = { x: corner.x - prevPoint.x, y: corner.y - prevPoint.y };
-  const outVec = { x: nextPoint.x - corner.x, y: nextPoint.y - corner.y };
+  const vectors = computeCornerVectors(corner, prevPoint, nextPoint, radius);
+  if (!vectors) return [corner];
 
-  // Normalize
-  const inLen = Math.sqrt(inVec.x * inVec.x + inVec.y * inVec.y);
-  const outLen = Math.sqrt(outVec.x * outVec.x + outVec.y * outVec.y);
-
-  if (inLen === 0 || outLen === 0) return [corner];
-
-  const inNorm = { x: inVec.x / inLen, y: inVec.y / inLen };
-  const outNorm = { x: outVec.x / outLen, y: outVec.y / outLen };
-
-  // Clamp radius to not exceed half of either edge
-  const clampedRadius = Math.min(radius, inLen * 0.5, outLen * 0.5);
+  const { inNorm, outNorm, clampedRadius } = vectors;
 
   // Calculate the two tangent points (where the arc starts and ends)
   const startPoint: PathPoint = {
