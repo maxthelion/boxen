@@ -1,76 +1,17 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig } from '../types';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig, createAllSolidFaces } from '../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { appendDebug } from '../utils/debug';
+import { BoundsOps, getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions } from '../utils/bounds';
+import { VoidTree } from '../utils/voidTree';
+
+// Re-export bounds helpers for external use
+export { getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions };
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
-
-// =============================================================================
-// Bounds Helper Functions - Consolidated axis-based bounds operations
-// =============================================================================
-
-/** Get the start position of bounds along an axis */
-export const getBoundsStart = (bounds: Bounds, axis: 'x' | 'y' | 'z'): number =>
-  axis === 'x' ? bounds.x : axis === 'y' ? bounds.y : bounds.z;
-
-/** Get the size of bounds along an axis */
-export const getBoundsSize = (bounds: Bounds, axis: 'x' | 'y' | 'z'): number =>
-  axis === 'x' ? bounds.w : axis === 'y' ? bounds.h : bounds.d;
-
-/** Create new bounds with a region set along an axis */
-export const setBoundsRegion = (
-  bounds: Bounds,
-  axis: 'x' | 'y' | 'z',
-  start: number,
-  size: number
-): Bounds => {
-  switch (axis) {
-    case 'x': return { ...bounds, x: start, w: size };
-    case 'y': return { ...bounds, y: start, h: size };
-    case 'z': return { ...bounds, z: start, d: size };
-  }
-};
-
-/**
- * Calculate the bounds for a child region within a subdivided void.
- *
- * @param parentBounds - The parent void's bounds
- * @param axis - The axis along which the void is subdivided
- * @param index - The index of this child region (0-based)
- * @param count - Total number of child regions
- * @param positions - Array of split positions (divider centers)
- * @param materialThickness - Thickness of dividers
- * @returns The bounds for this child region
- */
-export const calculateChildRegionBounds = (
-  parentBounds: Bounds,
-  axis: 'x' | 'y' | 'z',
-  index: number,
-  count: number,
-  positions: number[],
-  materialThickness: number
-): Bounds => {
-  const dimStart = getBoundsStart(parentBounds, axis);
-  const dimSize = getBoundsSize(parentBounds, axis);
-  const mt = materialThickness;
-
-  // Start of this void region
-  const regionStart = index === 0
-    ? dimStart
-    : positions[index - 1] + mt / 2;  // After previous divider
-
-  // End of this void region
-  const regionEnd = index === count - 1
-    ? dimStart + dimSize
-    : positions[index] - mt / 2;  // Before next divider
-
-  const regionSize = regionEnd - regionStart;
-
-  return setBoundsRegion(parentBounds, axis, regionStart, regionSize);
-};
 
 // =============================================================================
 
@@ -263,45 +204,15 @@ const getUserSubdivisions = (root: Void): Void[] => {
   return root.children.filter(c => !c.lidInsetSide);
 };
 
-const initialFaces = (): { id: FaceId; solid: boolean }[] => [
-  { id: 'front', solid: true },
-  { id: 'back', solid: true },
-  { id: 'left', solid: true },
-  { id: 'right', solid: true },
-  { id: 'top', solid: true },
-  { id: 'bottom', solid: true },
-];
+// =============================================================================
+// Void Tree Functions - Re-exported from utils/voidTree.ts
+// =============================================================================
 
-// Find a void by ID in the tree (including inside sub-assemblies)
-export const findVoid = (root: Void, id: string): Void | null => {
-  if (root.id === id) return root;
-  for (const child of (root.children || [])) {
-    const found = findVoid(child, id);
-    if (found) return found;
-  }
-  // Also search inside sub-assembly's void structure
-  if (root.subAssembly) {
-    const found = findVoid(root.subAssembly.rootVoid, id);
-    if (found) return found;
-  }
-  return null;
-};
+// Re-export for external use
+export const findVoid = VoidTree.find;
 
-// Find parent of a void (including inside sub-assemblies)
-const findParent = (root: Void, id: string): Void | null => {
-  for (const child of (root.children || [])) {
-    if (child.id === id) return root;
-    const found = findParent(child, id);
-    if (found) return found;
-  }
-  // Also search inside sub-assembly's void structure
-  if (root.subAssembly) {
-    if (root.subAssembly.rootVoid.id === id) return root.subAssembly.rootVoid;
-    const found = findParent(root.subAssembly.rootVoid, id);
-    if (found) return found;
-  }
-  return null;
-};
+// Internal alias for convenience
+const findParent = VoidTree.findParent;
 
 // Recalculate void bounds when dimensions change
 // For percentage-based subdivisions, recalculates splitPosition from splitPercentage
@@ -493,33 +404,7 @@ export const getAllSubdivisions = (root: Void): Subdivision[] => {
   return subdivisions;
 };
 
-// Calculate preview positions for a given axis and count
-export const calculatePreviewPositions = (
-  bounds: Bounds,
-  axis: 'x' | 'y' | 'z',
-  count: number
-): number[] => {
-  const positions: number[] = [];
-
-  for (let i = 1; i <= count; i++) {
-    const fraction = i / (count + 1);
-    switch (axis) {
-      case 'x':
-        positions.push(bounds.x + fraction * bounds.w);
-        break;
-      case 'y':
-        positions.push(bounds.y + fraction * bounds.h);
-        break;
-      case 'z':
-        positions.push(bounds.z + fraction * bounds.d);
-        break;
-    }
-  }
-
-  return positions;
-};
-
-// Deep clone a void tree (including sub-assemblies)
+// Deep clone a void tree - use VoidTree.clone for new code (including sub-assemblies)
 const cloneVoid = (v: Void): Void => ({
   ...v,
   bounds: { ...v.bounds },
@@ -598,7 +483,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     fingerGap: 1.5,  // Corner gap as multiplier of fingerWidth
     assembly: defaultAssemblyConfig,
   },
-  faces: initialFaces(),
+  faces: createAllSolidFaces(),
   rootVoid: createSimpleRootVoid(100, 100, 100),
   selectionMode: null as SelectionMode,
   selectedVoidIds: new Set<string>(),
@@ -1019,20 +904,11 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Create sub-assembly with all faces solid by default (like main box)
-      const defaultFaces: Face[] = [
-        { id: 'front', solid: true },
-        { id: 'back', solid: true },
-        { id: 'left', solid: true },
-        { id: 'right', solid: true },
-        { id: 'top', solid: true },
-        { id: 'bottom', solid: true },
-      ];
-
       const subAssembly: SubAssembly = {
         id: generateId(),
         clearance,
         faceOffsets,
-        faces: defaultFaces,
+        faces: createAllSolidFaces(),
         materialThickness: mt,
         rootVoid: {
           id: 'sub-root-' + generateId(),
@@ -3084,20 +2960,11 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Create sub-assembly with all faces solid by default
-      const defaultFaces: Face[] = [
-        { id: 'front', solid: true },
-        { id: 'back', solid: true },
-        { id: 'left', solid: true },
-        { id: 'right', solid: true },
-        { id: 'top', solid: true },
-        { id: 'bottom', solid: true },
-      ];
-
       const subAssembly: SubAssembly = {
         id: 'preview-subasm-' + generateId(),
         clearance,
         faceOffsets,
-        faces: defaultFaces,
+        faces: createAllSolidFaces(),
         materialThickness: mt,
         rootVoid: {
           id: 'sub-root-preview-' + generateId(),

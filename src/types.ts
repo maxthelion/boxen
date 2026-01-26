@@ -118,6 +118,22 @@ export interface Face {
   solid: boolean;
 }
 
+// Alias for clarity in certain contexts
+export type FaceConfig = Face;
+
+// Default face configurations - all faces solid
+export const defaultFaces: Face[] = [
+  { id: 'front', solid: true },
+  { id: 'back', solid: true },
+  { id: 'left', solid: true },
+  { id: 'right', solid: true },
+  { id: 'top', solid: true },
+  { id: 'bottom', solid: true },
+];
+
+// Create faces with all solid
+export const createAllSolidFaces = (): Face[] => defaultFaces.map(f => ({ ...f }));
+
 export interface Bounds {
   x: number;
   y: number;
