@@ -183,21 +183,28 @@ const perpY = config.yUp ? unitX : -unitX;
 
 ## Summary Table
 
-| Priority | Pattern | Locations | Recommendation |
-|----------|---------|-----------|----------------|
-| CRITICAL | Region bounds calculation | 3 in useBoxStore | Extract `calculateVoidRegionBounds()` |
-| HIGH | Nested bounds recalculation | 2 in useBoxStore | Consolidate implementations |
-| HIGH | findVoid duplication | store + SubdivisionControls | Export from store |
-| MEDIUM | Axis-based bounds access | 13+ locations | Create `getBoundsStart/Size/setBoundsRegion` |
-| MEDIUM | Vector normalization | cornerFinish.ts x2 | Extract `normalizeEdgeVectors()` |
-| MEDIUM | Finger joint unit vectors | fingerJoints.ts x2 | Extract `computeEdgeDirection()` |
-| LOW | Extension area calculation | editableAreas.ts x4 | Parameterize edge directions |
-| LOW | Tree traversal patterns | useBoxStore x4 | Document or extract base utility |
+| Priority | Pattern | Locations | Status |
+|----------|---------|-----------|--------|
+| CRITICAL | Region bounds calculation | 3 in useBoxStore | ✅ Done - `calculateChildRegionBounds()` |
+| HIGH | Nested bounds recalculation | 2 in useBoxStore | ✅ Done - uses `setBoundsRegion()` |
+| HIGH | findVoid duplication | store + SubdivisionControls | ✅ Done - exported from store |
+| MEDIUM | Axis-based bounds access | 13+ locations | ✅ Done - `getBoundsStart/Size/setBoundsRegion` |
+| MEDIUM | Vector normalization | cornerFinish.ts x2 | ✅ Done - `computeCornerVectors()` |
+| MEDIUM | Finger joint unit vectors | fingerJoints.ts x2 | ✅ Done - `computeEdgeDirection()` |
+| LOW | Extension area calculation | editableAreas.ts x4 | ✅ Done - `calculateExtensionArea()` helper |
+| LOW | Tree traversal patterns | useBoxStore x4 | ⏭️ Reviewed - abstraction not warranted |
 
 ---
 
-## Next Steps
+## Completed Refactoring (2026-01-26)
 
-1. Start with CRITICAL item - consolidating region bounds calculation could fix the divider slot alignment bug
-2. Export `findVoid` to eliminate direct duplication
-3. Add axis-based bounds helpers to reduce boilerplate across codebase
+All items have been addressed:
+
+1. **Region bounds calculation** - Extracted `calculateChildRegionBounds()` helper
+2. **findVoid duplication** - Now exported from useBoxStore, removed duplicate in SubdivisionControls
+3. **Axis-based bounds access** - Created `getBoundsStart()`, `getBoundsSize()`, `setBoundsRegion()` helpers
+4. **Nested bounds recalculation** - Refactored to use `setBoundsRegion()` helper
+5. **Vector normalization** - Created `computeCornerVectors()` in cornerFinish.ts
+6. **Finger joint unit vectors** - Created `computeEdgeDirection()` in fingerJoints.ts
+7. **Extension area calculation** - Created `calculateExtensionArea()` helper with loop over directions
+8. **Tree traversal patterns** - Reviewed; functions are short, clear, and serve different purposes. Creating abstraction would add complexity without benefit.

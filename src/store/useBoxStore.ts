@@ -2287,19 +2287,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
               : parentEnd;
 
             const regionSize = regionEnd - regionStart;
-
-            let newBounds: Bounds;
-            switch (axis) {
-              case 'x':
-                newBounds = { ...child.bounds, x: regionStart, w: regionSize };
-                break;
-              case 'y':
-                newBounds = { ...child.bounds, y: regionStart, h: regionSize };
-                break;
-              case 'z':
-                newBounds = { ...child.bounds, z: regionStart, d: regionSize };
-                break;
-            }
+            const newBounds = setBoundsRegion(child.bounds, axis, regionStart, regionSize);
 
             // Recursively update nested children's bounds if they exist
             let updatedChildren = child.children;
@@ -2324,10 +2312,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const recalculateNestedBounds = (children: Void[], parentBounds: Bounds, splitAxis?: 'x' | 'y' | 'z'): Void[] => {
         if (!splitAxis || children.length === 0) return children;
 
-        const dimStart = splitAxis === 'x' ? parentBounds.x : splitAxis === 'y' ? parentBounds.y : parentBounds.z;
-        const dimEnd = splitAxis === 'x' ? parentBounds.x + parentBounds.w :
-                       splitAxis === 'y' ? parentBounds.y + parentBounds.h :
-                       parentBounds.z + parentBounds.d;
+        const dimStart = getBoundsStart(parentBounds, splitAxis);
+        const dimEnd = dimStart + getBoundsSize(parentBounds, splitAxis);
 
         return children.map((child, idx) => {
           // Calculate region for this child
@@ -2340,19 +2326,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
             : dimEnd;
 
           const regionSize = regionEnd - regionStart;
-
-          let newBounds: Bounds;
-          switch (splitAxis) {
-            case 'x':
-              newBounds = { ...parentBounds, x: regionStart, w: regionSize };
-              break;
-            case 'y':
-              newBounds = { ...parentBounds, y: regionStart, h: regionSize };
-              break;
-            case 'z':
-              newBounds = { ...parentBounds, z: regionStart, d: regionSize };
-              break;
-          }
+          const newBounds = setBoundsRegion(parentBounds, splitAxis, regionStart, regionSize);
 
           // Recursively update this child's children
           const updatedChildren = child.children.length > 0
