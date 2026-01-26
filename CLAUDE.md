@@ -37,13 +37,13 @@ src/
 ├── types.ts          # TypeScript type definitions
 └── utils/
     ├── cornerFinish.ts     # Chamfer/fillet corner detection and application
+    ├── debug.ts            # Global debug system (single string, single button)
     ├── editableAreas.ts    # Calculate safe zones for panel modifications
     ├── edgeMating.test.ts  # Edge mating verification tests
-    ├── extensionDebug.ts   # Debug logging for edge extension calculations
+    ├── extendModeDebug.ts  # Debug logging for push/pull extend mode
     ├── fingerJoints.ts     # Finger joint pattern generation
     ├── panelGenerator.ts   # Core panel generation with finger joints
     ├── projectStorage.ts   # Project persistence
-    ├── pushPullDebug.ts    # Debug logging for push/pull preview system
     ├── svgExport.ts        # SVG export for laser cutting
     ├── urlState.ts         # URL state serialization
     └── voidOperations.ts   # Void tree operations
@@ -187,66 +187,47 @@ Reusable component for tool option panels:
 
 ## Debugging Patterns
 
-**When to suggest debugging**: If the user reports strange rendering behavior (objects in wrong positions, feedback loops, unexpected scaling, etc.), suggest using the Debug button in the header to copy diagnostic info to clipboard. This is especially useful for issues involving:
-- Push/pull preview system (`src/utils/pushPullDebug.ts`)
-- Edge extension calculations (`src/utils/extensionDebug.ts`)
-- Any multi-step state transformations
+### Global Debug System
 
-### Clipboard Debug Output Pattern
+A simple global debug system exists in `src/utils/debug.ts`:
 
-For complex multi-step calculations (like extension overlap detection), use this pattern to capture debug information that can be analyzed via clipboard copy:
+```typescript
+import { setDebug } from './debug';
 
-1. **Create a debug utility file** (e.g., `src/utils/extensionDebug.ts`):
+// In your debug utility, just set the debug content:
+setDebug(formattedDebugString);
+```
+
+The Debug button in the header automatically appears when debug content exists and copies it to clipboard.
+
+**When to suggest debugging**: If the user reports strange rendering behavior (objects in wrong positions, misaligned joints, unexpected scaling, etc.), suggest using the Debug button in the header to copy diagnostic info to clipboard.
+
+### Adding Debug Output for a Feature
+
+1. **Create a debug utility file** (e.g., `src/utils/myFeatureDebug.ts`):
    ```typescript
-   interface DebugInfo { /* structured data for the calculation */ }
+   import { setDebug } from './debug';
 
-   let currentDebugLog: DebugLog | null = null;
-
-   export const startDebugLog = (): void => {
-     currentDebugLog = { timestamp: new Date().toISOString(), items: [] };
-   };
-
-   export const addDebugItem = (info: DebugInfo): void => {
-     if (currentDebugLog) currentDebugLog.items.push(info);
-   };
-
-   export const formatDebugLog = (): string => {
-     // Format as human-readable text
-   };
-
-   export const hasDebugInfo = (): boolean => {
-     return currentDebugLog !== null && currentDebugLog.items.length > 0;
+   export const logMyFeature = (data: MyData): void => {
+     const lines: string[] = [];
+     lines.push('=== MY FEATURE DEBUG ===');
+     lines.push(`Input: ${JSON.stringify(data)}`);
+     // ... format debug info
+     setDebug(lines.join('\n'));
    };
    ```
 
-2. **Call debug functions during calculation**:
-   - Call `startDebugLog()` at the beginning of the calculation
-   - Call `addDebugItem()` at each step with relevant state
-   - Include both inputs and computed intermediate values
-
-3. **Add UI button in App.tsx**:
+2. **Call from your feature code**:
    ```typescript
-   const [debugCopyStatus, setDebugCopyStatus] = useState<'idle' | 'copied'>('idle');
+   import { logMyFeature } from '../utils/myFeatureDebug';
 
-   const handleCopyDebug = async () => {
-     const debugText = formatDebugLog();
-     await navigator.clipboard.writeText(debugText);
-     setDebugCopyStatus('copied');
-     setTimeout(() => setDebugCopyStatus('idle'), 2000);
-   };
-
-   // In render - only show when debug info exists:
-   {hasDebugInfo() && (
-     <button onClick={handleCopyDebug}>
-       {debugCopyStatus === 'copied' ? 'Copied!' : 'Debug'}
-     </button>
-   )}
+   // At the end of your calculation:
+   logMyFeature(relevantData);
    ```
 
-4. **Analysis workflow**:
+3. **Analysis workflow**:
    - Reproduce the issue in the UI
    - Click the Debug button to copy info to clipboard
    - Paste into conversation or text editor for analysis
-   - Look for discrepancies between expected and actual values
 
-**Example**: `src/utils/extensionDebug.ts` captures extension overlap data for each panel including: extensions, perpendicular panel extensions, corner meeting analysis, and final positions. This helped diagnose that panels generated earlier in the sequence couldn't see extensions from panels generated later.
+**Example**: `src/utils/extendModeDebug.ts` captures void tree state before and after push/pull extend operations, showing bounds and splitPosition changes for each void.

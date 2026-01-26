@@ -3,6 +3,8 @@ import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPre
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
+import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
+import { appendDebug } from '../utils/debug';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -1682,8 +1684,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         const deltaD = newDepth - state.config.depth;
 
         // Helper to adjust void bounds based on which face moved
+        // Also adjusts splitPosition when voids shift (so divider panels move with their voids)
         const adjustVoidBounds = (v: Void): Void => {
           const newBounds = { ...v.bounds };
+          let newSplitPosition = v.splitPosition;
 
           // For extend mode, we extend in the direction of the face
           // The face that moved outward increases the dimension on that side
@@ -1700,6 +1704,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
                 newBounds.w += deltaW;
               } else {
                 newBounds.x += deltaW;
+                // Also shift splitPosition if this void has an X-axis split
+                if (v.splitAxis === 'x' && newSplitPosition !== undefined) {
+                  newSplitPosition += deltaW;
+                }
               }
               break;
             case 'top':
@@ -1714,6 +1722,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
                 newBounds.h += deltaH;
               } else {
                 newBounds.y += deltaH;
+                // Also shift splitPosition if this void has a Y-axis split
+                if (v.splitAxis === 'y' && newSplitPosition !== undefined) {
+                  newSplitPosition += deltaH;
+                }
               }
               break;
             case 'front':
@@ -1728,6 +1740,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
                 newBounds.d += deltaD;
               } else {
                 newBounds.z += deltaD;
+                // Also shift splitPosition if this void has a Z-axis split
+                if (v.splitAxis === 'z' && newSplitPosition !== undefined) {
+                  newSplitPosition += deltaD;
+                }
               }
               break;
           }
@@ -1735,6 +1751,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           return {
             ...v,
             bounds: newBounds,
+            splitPosition: newSplitPosition,
             children: v.children.map(adjustVoidBounds),
           };
         };
@@ -2736,88 +2753,166 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       });
 
       let newRootVoid: Void;
+      const newRootBounds: Bounds = { x: 0, y: 0, z: 0, w: newWidth, h: newHeight, d: newDepth };
+      const mt = state.config.materialThickness;
 
       if (mode === 'scale') {
-        // Scale mode: Scale all children proportionally
-        const scaleX = newWidth / width;
-        const scaleY = newHeight / height;
-        const scaleZ = newDepth / depth;
+        // Scale mode: Use recalculateVoidBounds like setConfig does
+        // This properly handles hierarchical constraints and material thickness
+        const mainInterior = getMainInteriorVoid(state.rootVoid);
+        const hasInsets = mainInterior.id !== state.rootVoid.id;
 
-        const scaleVoidBounds = (v: Void): Void => {
-          const scaledBounds: Bounds = {
-            x: v.bounds.x * scaleX,
-            y: v.bounds.y * scaleY,
-            z: v.bounds.z * scaleZ,
-            w: v.bounds.w * scaleX,
-            h: v.bounds.h * scaleY,
-            d: v.bounds.d * scaleZ,
-          };
+        if (hasInsets) {
+          // Has lid insets - need to rebuild root structure with new dimensions
+          const positiveInset = state.config.assembly.lids.positive.inset;
+          const negativeInset = state.config.assembly.lids.negative.inset;
+          const axis = state.config.assembly.assemblyAxis;
+
+          // Calculate new main interior bounds
+          let mainBounds: Bounds;
+          switch (axis) {
+            case 'y':
+              mainBounds = {
+                x: 0, y: negativeInset, z: 0,
+                w: newWidth, h: newHeight - positiveInset - negativeInset, d: newDepth,
+              };
+              break;
+            case 'x':
+              mainBounds = {
+                x: negativeInset, y: 0, z: 0,
+                w: newWidth - positiveInset - negativeInset, h: newHeight, d: newDepth,
+              };
+              break;
+            case 'z':
+            default:
+              mainBounds = {
+                x: 0, y: 0, z: negativeInset,
+                w: newWidth, h: newHeight, d: newDepth - positiveInset - negativeInset,
+              };
+              break;
+          }
+
+          // Recalculate the main interior's children
+          const recalculatedMainInterior = recalculateVoidBounds(
+            { ...mainInterior, bounds: mainBounds },
+            mainBounds,
+            mt
+          );
+
+          // Rebuild the root with lid caps and recalculated main interior
+          newRootVoid = createRootVoidWithInsets(
+            newWidth, newHeight, newDepth, state.config.assembly
+          );
+          // Replace the main interior's children with the recalculated ones
+          const newMainInterior = newRootVoid.children.find(c => c.isMainInterior);
+          if (newMainInterior) {
+            newMainInterior.children = recalculatedMainInterior.children;
+          }
+        } else {
+          // No lid insets - recalculate directly from root
+          newRootVoid = recalculateVoidBounds(
+            { ...state.rootVoid, bounds: newRootBounds },
+            newRootBounds,
+            mt
+          );
+        }
+      } else {
+        // Extend mode: Keep center in place, only the void abutting the face grows
+        // Children stay at their absolute positions, but we need to expand the
+        // adjacent void to fill the new space (same approach as setFaceOffset)
+        const deltaW = newWidth - state.config.width;
+        const deltaH = newHeight - state.config.height;
+        const deltaD = newDepth - state.config.depth;
+
+        // Debug logging
+        startExtendModeDebug(
+          faceId,
+          offset,
+          { width: state.config.width, height: state.config.height, depth: state.config.depth },
+          { width: newWidth, height: newHeight, depth: newDepth },
+          state.rootVoid
+        );
+
+        // Helper to adjust void bounds based on which face moved
+        // Also adjusts splitPosition when voids shift (so divider panels move with their voids)
+        const adjustVoidBounds = (v: Void): Void => {
+          const newBounds = { ...v.bounds };
+          let newSplitPosition = v.splitPosition;
+
+          // For extend mode, we extend in the direction of the face
+          // The face that moved outward increases the dimension on that side
+          switch (faceId) {
+            case 'right':
+              // Right face moved: voids at the right edge grow
+              if (v.bounds.x + v.bounds.w >= state.config.width - 0.1) {
+                newBounds.w += deltaW;
+              }
+              break;
+            case 'left':
+              // Left face moved: voids at the left edge grow, others shift
+              if (v.bounds.x <= 0.1) {
+                newBounds.w += deltaW;
+              } else {
+                newBounds.x += deltaW;
+                // Also shift splitPosition if this void has an X-axis split
+                if (v.splitAxis === 'x' && newSplitPosition !== undefined) {
+                  newSplitPosition += deltaW;
+                }
+              }
+              break;
+            case 'top':
+              // Top face moved: voids at the top edge grow
+              if (v.bounds.y + v.bounds.h >= state.config.height - 0.1) {
+                newBounds.h += deltaH;
+              }
+              break;
+            case 'bottom':
+              // Bottom face moved: voids at the bottom edge grow, others shift
+              if (v.bounds.y <= 0.1) {
+                newBounds.h += deltaH;
+              } else {
+                newBounds.y += deltaH;
+                // Also shift splitPosition if this void has a Y-axis split
+                if (v.splitAxis === 'y' && newSplitPosition !== undefined) {
+                  newSplitPosition += deltaH;
+                }
+              }
+              break;
+            case 'front':
+              // Front face moved: voids at the front edge grow
+              if (v.bounds.z + v.bounds.d >= state.config.depth - 0.1) {
+                newBounds.d += deltaD;
+              }
+              break;
+            case 'back':
+              // Back face moved: voids at the back edge grow, others shift
+              if (v.bounds.z <= 0.1) {
+                newBounds.d += deltaD;
+              } else {
+                newBounds.z += deltaD;
+                // Also shift splitPosition if this void has a Z-axis split
+                if (v.splitAxis === 'z' && newSplitPosition !== undefined) {
+                  newSplitPosition += deltaD;
+                }
+              }
+              break;
+          }
+
           return {
             ...v,
-            bounds: scaledBounds,
-            splitPosition: v.splitPosition !== undefined
-              ? v.splitPosition * (v.splitAxis === 'x' ? scaleX : v.splitAxis === 'y' ? scaleY : scaleZ)
-              : undefined,
-            children: (v.children || []).map(scaleVoidBounds),
-            subAssembly: v.subAssembly ? {
-              ...v.subAssembly,
-              faces: (v.subAssembly.faces || []).map(f => ({ ...f })),
-              rootVoid: scaleVoidBounds(v.subAssembly.rootVoid),
-              assembly: { ...v.subAssembly.assembly },
-            } : undefined,
+            bounds: newBounds,
+            splitPosition: newSplitPosition,
+            children: v.children.map(adjustVoidBounds),
           };
         };
 
         newRootVoid = {
-          ...state.rootVoid,  // Use MAIN state rootVoid, not preview
-          bounds: { x: 0, y: 0, z: 0, w: newWidth, h: newHeight, d: newDepth },
-          children: (state.rootVoid.children || []).map(scaleVoidBounds),
-        };
-      } else {
-        // Extend mode: Only expand the void adjacent to the face
-        newRootVoid = deepCloneVoid(state.rootVoid);  // Use MAIN state rootVoid
-        newRootVoid.bounds = { x: 0, y: 0, z: 0, w: newWidth, h: newHeight, d: newDepth };
-
-        // Find and expand the void(s) that abut the moved face
-        const expandAdjacentVoids = (v: Void, parentBounds: Bounds): void => {
-          const children = v.children || [];
-          if (children.length === 0) {
-            // Leaf void - expand if it touches the face
-            const isAdjacentToFace = (
-              (faceId === 'front' && v.bounds.z + v.bounds.d >= parentBounds.d - 0.001) ||
-              (faceId === 'back' && v.bounds.z <= 0.001) ||
-              (faceId === 'right' && v.bounds.x + v.bounds.w >= parentBounds.w - 0.001) ||
-              (faceId === 'left' && v.bounds.x <= 0.001) ||
-              (faceId === 'top' && v.bounds.y + v.bounds.h >= parentBounds.h - 0.001) ||
-              (faceId === 'bottom' && v.bounds.y <= 0.001)
-            );
-
-            if (isAdjacentToFace) {
-              switch (faceId) {
-                case 'front': v.bounds.d += offset; break;
-                case 'back': v.bounds.d += offset; break;
-                case 'right': v.bounds.w += offset; break;
-                case 'left': v.bounds.w += offset; break;
-                case 'top': v.bounds.h += offset; break;
-                case 'bottom': v.bounds.h += offset; break;
-              }
-            }
-          } else {
-            // Has children - recurse
-            for (const child of children) {
-              expandAdjacentVoids(child, v.bounds);
-            }
-            // Update this void's bounds to encompass expanded children
-            v.bounds = { ...parentBounds };
-          }
+          ...adjustVoidBounds(state.rootVoid),
+          bounds: newRootBounds,
         };
 
-        const rootChildren = newRootVoid.children || [];
-        if (rootChildren.length > 0) {
-          for (const child of rootChildren) {
-            expandAdjacentVoids(child, { x: 0, y: 0, z: 0, w: width, h: height, d: depth });
-          }
-        }
+        // Finish debug logging
+        finishExtendModeDebug(newRootVoid);
       }
 
       const newConfig: BoxConfig = {
@@ -2880,20 +2975,242 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       };
     }),
 
-  updatePreviewSubdivision: (_preview) =>
+  updatePreviewSubdivision: (preview) =>
     set((state) => {
       if (!state.previewState) return state;
 
-      // TODO: Apply subdivision preview to the preview state's rootVoid
-      // For now, just regenerate panels from the preview state
+      const { voidId, axis, count, positions } = preview;
+
+      // Start from the ORIGINAL main state rootVoid, not the current preview
+      // This ensures we don't accumulate subdivisions on repeated updates
+      const baseRootVoid = state.rootVoid;
+
+      const targetVoid = findVoid(baseRootVoid, voidId);
+      if (!targetVoid || targetVoid.children.length > 0) {
+        // Void not found or already has children - just return current state
+        return state;
+      }
+
+      const { bounds } = targetVoid;
+
+      // Debug: log the bounds used in updatePreviewSubdivision
+      // This helps verify they match the bounds used for position calculation
+      const debugLines = [
+        '\n=== updatePreviewSubdivision BOUNDS ===',
+        `Void ID: ${voidId}`,
+        `Found void bounds: x=${bounds.x}, y=${bounds.y}, z=${bounds.z}, w=${bounds.w}, h=${bounds.h}, d=${bounds.d}`,
+        `Received positions: [${positions.map((p: number) => p.toFixed(1)).join(', ')}]`,
+        `Axis: ${axis}`,
+      ];
+      appendDebug(debugLines.join('\n'));
+      const mt = state.previewState.config.materialThickness;
+
+      // Create N+1 child voids for N divisions
+      // Account for material thickness of dividers
+      const children: Void[] = [];
+
+      // Get the dimension size along the split axis
+      const dimSize = axis === 'x' ? bounds.w : axis === 'y' ? bounds.h : bounds.d;
+      const dimStart = axis === 'x' ? bounds.x : axis === 'y' ? bounds.y : bounds.z;
+
+      // Calculate void boundaries accounting for divider thickness
+      // Each divider is centered at its position and takes up materialThickness
+      for (let i = 0; i <= count; i++) {
+        // Start of this void region
+        const regionStart = i === 0
+          ? dimStart
+          : positions[i - 1] + mt / 2;  // After previous divider
+
+        // End of this void region
+        const regionEnd = i === count
+          ? dimStart + dimSize
+          : positions[i] - mt / 2;  // Before next divider
+
+        const regionSize = regionEnd - regionStart;
+
+        let childBounds: Bounds;
+        let splitPos: number | undefined;
+        let splitAxis: 'x' | 'y' | 'z' | undefined;
+
+        switch (axis) {
+          case 'x':
+            childBounds = {
+              ...bounds,
+              x: regionStart,
+              w: regionSize,
+            };
+            if (i > 0) {
+              splitPos = positions[i - 1];
+              splitAxis = axis;
+            }
+            break;
+          case 'y':
+            childBounds = {
+              ...bounds,
+              y: regionStart,
+              h: regionSize,
+            };
+            if (i > 0) {
+              splitPos = positions[i - 1];
+              splitAxis = axis;
+            }
+            break;
+          case 'z':
+            childBounds = {
+              ...bounds,
+              z: regionStart,
+              d: regionSize,
+            };
+            if (i > 0) {
+              splitPos = positions[i - 1];
+              splitAxis = axis;
+            }
+            break;
+        }
+
+        // Calculate percentage for this split position
+        let splitPercentage: number | undefined;
+        if (splitPos !== undefined) {
+          splitPercentage = (splitPos - dimStart) / dimSize;
+        }
+
+        children.push({
+          id: generateId(),
+          bounds: childBounds,
+          children: [],
+          splitAxis,
+          splitPosition: splitPos,
+          splitPositionMode: splitPos !== undefined ? 'percentage' : undefined,
+          splitPercentage,
+        });
+      }
+
+      // Create new rootVoid with the subdivision applied
+      const newRootVoid = updateVoidInTree(baseRootVoid, voidId, (v) => ({
+        ...v,
+        children,
+      }));
+
+      // Update preview state with new rootVoid and metadata
+      const newPreviewState: PreviewState = {
+        ...state.previewState,
+        rootVoid: newRootVoid,
+        metadata: {
+          ...state.previewState.metadata,
+          voidId,
+          subdivisionAxis: axis,
+          subdivisionCount: count,
+          subdivisionPositions: positions,
+        },
+      };
+
+      // Generate panels for the preview state
       const previewCollection = generatePanelCollection(
-        state.previewState.faces,
-        state.previewState.rootVoid,
-        state.previewState.config,
+        newPreviewState.faces,
+        newPreviewState.rootVoid,
+        newPreviewState.config,
         1
       );
 
       return {
+        previewState: newPreviewState,
+        previewPanelCollection: previewCollection,
+      };
+    }),
+
+  updatePreviewSubAssembly: (voidId, clearance, assemblyAxis, faceOffsets) =>
+    set((state) => {
+      if (!state.previewState) return state;
+
+      // Start from the ORIGINAL main state rootVoid, not the current preview
+      // This ensures we don't accumulate sub-assemblies on repeated updates
+      const baseRootVoid = state.rootVoid;
+
+      const targetVoid = findVoid(baseRootVoid, voidId);
+      if (!targetVoid || targetVoid.children.length > 0 || targetVoid.subAssembly) {
+        // Void not found, already has children, or already has sub-assembly
+        return state;
+      }
+
+      const { bounds } = targetVoid;
+      const mt = state.previewState.config.materialThickness;
+
+      // Calculate outer dimensions (space available after clearance + face offsets)
+      const outerWidth = bounds.w - (clearance * 2) + faceOffsets.left + faceOffsets.right;
+      const outerHeight = bounds.h - (clearance * 2) + faceOffsets.top + faceOffsets.bottom;
+      const outerDepth = bounds.d - (clearance * 2) + faceOffsets.front + faceOffsets.back;
+
+      // Calculate interior dimensions (outer minus walls on each side)
+      const interiorWidth = outerWidth - (2 * mt);
+      const interiorHeight = outerHeight - (2 * mt);
+      const interiorDepth = outerDepth - (2 * mt);
+
+      if (interiorWidth <= 0 || interiorHeight <= 0 || interiorDepth <= 0) {
+        // Void too small for sub-assembly, clear the preview panels but keep preview state
+        return {
+          previewPanelCollection: null,
+        };
+      }
+
+      // Create sub-assembly with all faces solid by default
+      const defaultFaces: Face[] = [
+        { id: 'front', solid: true },
+        { id: 'back', solid: true },
+        { id: 'left', solid: true },
+        { id: 'right', solid: true },
+        { id: 'top', solid: true },
+        { id: 'bottom', solid: true },
+      ];
+
+      const subAssembly: SubAssembly = {
+        id: 'preview-subasm-' + generateId(),
+        clearance,
+        faceOffsets,
+        faces: defaultFaces,
+        materialThickness: mt,
+        rootVoid: {
+          id: 'sub-root-preview-' + generateId(),
+          bounds: { x: 0, y: 0, z: 0, w: interiorWidth, h: interiorHeight, d: interiorDepth },
+          children: [],
+        },
+        assembly: {
+          assemblyAxis,
+          lids: {
+            positive: { enabled: true, tabDirection: 'tabs-out', inset: 0 },
+            negative: { enabled: true, tabDirection: 'tabs-out', inset: 0 },
+          },
+        },
+      };
+
+      // Create new rootVoid with the sub-assembly
+      const newRootVoid = updateVoidInTree(baseRootVoid, voidId, (v) => ({
+        ...v,
+        subAssembly,
+      }));
+
+      // Update preview state with new rootVoid and metadata
+      const newPreviewState: PreviewState = {
+        ...state.previewState,
+        rootVoid: newRootVoid,
+        metadata: {
+          ...state.previewState.metadata,
+          voidId,
+          subAssemblyClearance: clearance,
+          subAssemblyAxis: assemblyAxis,
+          subAssemblyFaceOffsets: faceOffsets,
+        },
+      };
+
+      // Generate panels for the preview state
+      const previewCollection = generatePanelCollection(
+        newPreviewState.faces,
+        newPreviewState.rootVoid,
+        newPreviewState.config,
+        1
+      );
+
+      return {
+        previewState: newPreviewState,
         previewPanelCollection: previewCollection,
       };
     }),

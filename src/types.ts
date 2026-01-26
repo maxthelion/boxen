@@ -222,6 +222,15 @@ export interface PreviewState {
     faceId?: FaceId;       // For push-pull: which face is being modified
     mode?: 'scale' | 'extend';  // For push-pull: resize mode
     centerOffset?: [number, number, number];  // For push-pull: how much the box center has shifted
+    // For subdivision: the target void and current subdivision settings
+    voidId?: string;
+    subdivisionAxis?: 'x' | 'y' | 'z';
+    subdivisionCount?: number;
+    subdivisionPositions?: number[];
+    // For sub-assembly: creation parameters
+    subAssemblyClearance?: number;
+    subAssemblyAxis?: AssemblyAxis;
+    subAssemblyFaceOffsets?: FaceOffsets;
   };
 }
 
@@ -359,6 +368,7 @@ export interface BoxActions {
   startPreview: (type: PreviewState['type'], metadata?: PreviewState['metadata']) => void;
   updatePreviewFaceOffset: (faceId: FaceId, offset: number, mode: 'scale' | 'extend') => void;
   updatePreviewSubdivision: (preview: SubdivisionPreview) => void;
+  updatePreviewSubAssembly: (voidId: string, clearance: number, assemblyAxis: AssemblyAxis, faceOffsets: FaceOffsets) => void;
   commitPreview: () => void;
   cancelPreview: () => void;
 }

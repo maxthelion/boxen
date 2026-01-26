@@ -3,6 +3,7 @@ import { useBoxStore, getAllSubdivisions, calculatePreviewPositions, getMainInte
 import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
 import { Void, Face, AssemblyAxis, FaceId, FaceOffsets, defaultFaceOffsets, Bounds, PanelPath } from '../types';
+import { debugSubdivisionCreation } from '../utils/extendModeDebug';
 
 // Get the normal axis for a face (the axis perpendicular to the face plane)
 const getFaceNormalAxis = (faceId: FaceId): 'x' | 'y' | 'z' => {
@@ -337,6 +338,13 @@ export const SubdivisionControls: React.FC = () => {
     selectSubAssembly,
     purgeVoid,
     selectVoid,
+    // New preview system functions
+    previewState,
+    startPreview,
+    updatePreviewSubdivision,
+    updatePreviewSubAssembly,
+    commitPreview,
+    cancelPreview: cancelPreviewStore,
   } = useBoxStore();
 
   // Get the single selected void ID (this component only shows when exactly 1 is selected)
@@ -352,13 +360,17 @@ export const SubdivisionControls: React.FC = () => {
   const [createFaceOffsets, setCreateFaceOffsets] = useState<FaceOffsets>(defaultFaceOffsets);
 
   // Reset edit mode and creation form when selection changes
+  // Also cancel any active preview state
   useEffect(() => {
     setIsEditingPreview(false);
     setShowCreateAssembly(false);
     setCreateClearance(2);
     setCreateAxis('y');
     setCreateFaceOffsets(defaultFaceOffsets);
-  }, [selectedVoidId]);
+    // Cancel preview state when selection changes
+    setSubdivisionPreview(null);
+    cancelPreviewStore();
+  }, [selectedVoidId, selectedPanelIds, setSubdivisionPreview, cancelPreviewStore]);
 
   const selectedVoid = useMemo(() => {
     if (!selectedVoidId) return null;
@@ -392,6 +404,7 @@ export const SubdivisionControls: React.FC = () => {
   const validAxes = useMemo(() => getValidAxes(faces), [faces]);
 
   // Update sub-assembly preview when form is shown or values change
+  // Uses the lightweight wireframe preview (not the full panel preview system)
   useEffect(() => {
     if (!showCreateAssembly || !selectedVoid || !selectedVoidId) {
       setSubAssemblyPreview(null);
@@ -440,43 +453,76 @@ export const SubdivisionControls: React.FC = () => {
     if (!selectedVoidId || !selectedVoid) return;
 
     const positions = calculatePreviewPositions(selectedVoid.bounds, axis, 1);
-    setSubdivisionPreview({
+
+    // Debug: log subdivision creation
+    debugSubdivisionCreation('void-selection', selectedVoidId, selectedVoid.bounds, axis, positions);
+
+    // Clear hover preview
+    setSubdivisionPreview(null);
+
+    // Start new preview system and apply initial subdivision
+    startPreview('subdivision', { voidId: selectedVoidId });
+    updatePreviewSubdivision({
       voidId: selectedVoidId,
       axis,
       count: 1,
       positions,
     });
     setIsEditingPreview(true);
-  }, [selectedVoidId, selectedVoid, setSubdivisionPreview]);
+  }, [selectedVoidId, selectedVoid, setSubdivisionPreview, startPreview, updatePreviewSubdivision]);
 
   // Update the count (number of divisions) in the current preview
   const updatePreviewCount = useCallback((newCount: number) => {
-    if (!subdivisionPreview) return;
+    // Get subdivision info from either old preview or new preview state
+    const subdivisionInfo = previewState?.metadata;
+    const currentAxis = subdivisionInfo?.subdivisionAxis || subdivisionPreview?.axis;
+    const currentVoidId = subdivisionInfo?.voidId || subdivisionPreview?.voidId;
+
+    if (!currentAxis || !currentVoidId) return;
 
     // Use selectedVoid or twoPanelInfo.targetVoid (for two-panel mode)
     const targetVoid = selectedVoid || twoPanelInfo.targetVoid;
     if (!targetVoid) return;
 
     const count = Math.max(1, Math.min(20, newCount));
-    const positions = calculatePreviewPositions(targetVoid.bounds, subdivisionPreview.axis, count);
-    setSubdivisionPreview({
-      ...subdivisionPreview,
-      count,
-      positions,
-    });
-  }, [subdivisionPreview, selectedVoid, twoPanelInfo.targetVoid, setSubdivisionPreview]);
+    const positions = calculatePreviewPositions(targetVoid.bounds, currentAxis, count);
+
+    // Use new preview system when in edit mode
+    if (previewState?.type === 'subdivision') {
+      updatePreviewSubdivision({
+        voidId: currentVoidId,
+        axis: currentAxis,
+        count,
+        positions,
+      });
+    } else if (subdivisionPreview) {
+      // Fallback to old system
+      setSubdivisionPreview({
+        ...subdivisionPreview,
+        count,
+        positions,
+      });
+    }
+  }, [previewState, subdivisionPreview, selectedVoid, twoPanelInfo.targetVoid, setSubdivisionPreview, updatePreviewSubdivision]);
 
   // Cancel the current preview
   const cancelPreview = useCallback(() => {
+    // Cancel both old and new preview systems
     setSubdivisionPreview(null);
+    cancelPreviewStore();
     setIsEditingPreview(false);
-  }, [setSubdivisionPreview]);
+  }, [setSubdivisionPreview, cancelPreviewStore]);
 
   // Apply the current preview and create the subdivision
   const confirmSubdivision = useCallback(() => {
-    applySubdivision();
+    // Use new preview system if active, otherwise fall back to old
+    if (previewState?.type === 'subdivision') {
+      commitPreview();
+    } else {
+      applySubdivision();
+    }
     setIsEditingPreview(false);
-  }, [applySubdivision]);
+  }, [previewState, commitPreview, applySubdivision]);
 
   // Handle mouse enter on axis button (show hover preview only)
   const handleAxisHover = useCallback((axis: 'x' | 'y' | 'z') => {
@@ -505,15 +551,22 @@ export const SubdivisionControls: React.FC = () => {
     const targetVoidId = twoPanelInfo.targetVoid.id;
     const positions = calculatePreviewPositions(twoPanelInfo.targetVoid.bounds, axis, 1);
 
-    // Set up preview (don't select void - applySubdivision uses preview.voidId)
-    setSubdivisionPreview({
+    // Debug: log subdivision creation
+    debugSubdivisionCreation('two-panel', targetVoidId, twoPanelInfo.targetVoid.bounds, axis, positions);
+
+    // Clear hover preview
+    setSubdivisionPreview(null);
+
+    // Start new preview system and apply initial subdivision
+    startPreview('subdivision', { voidId: targetVoidId });
+    updatePreviewSubdivision({
       voidId: targetVoidId,
       axis,
       count: 1,
       positions,
     });
     setIsEditingPreview(true);
-  }, [twoPanelInfo, setSubdivisionPreview]);
+  }, [twoPanelInfo, setSubdivisionPreview, startPreview, updatePreviewSubdivision]);
 
   // Hover handler for two-panel mode
   const handleTwoPanelAxisHover = useCallback((axis: 'x' | 'y' | 'z') => {
@@ -643,30 +696,34 @@ export const SubdivisionControls: React.FC = () => {
       )}
 
       {/* Editing mode (after axis selected - works for both two-panel and single-void) */}
-      {isEditingPreview && subdivisionPreview && (
+      {isEditingPreview && (previewState?.type === 'subdivision' || subdivisionPreview) && (() => {
+        // Get values from either new preview state or old subdivisionPreview
+        const axis = previewState?.metadata?.subdivisionAxis || subdivisionPreview?.axis || 'x';
+        const count = previewState?.metadata?.subdivisionCount || subdivisionPreview?.count || 1;
+        return (
         <div className="subdivision-controls">
           <div className="control-section">
-            <h4>Configure {getAxisDisplayLabel(subdivisionPreview.axis)} subdivision</h4>
+            <h4>Configure {getAxisDisplayLabel(axis)} subdivision</h4>
 
             <div className="preview-config">
               <div className="count-control">
                 <label>Number of divisions:</label>
                 <div className="count-buttons">
                   <button
-                    onClick={() => updatePreviewCount(subdivisionPreview.count - 1)}
-                    disabled={subdivisionPreview.count <= 1}
+                    onClick={() => updatePreviewCount(count - 1)}
+                    disabled={count <= 1}
                   >
                     -
                   </button>
                   <NumberInput
-                    value={subdivisionPreview.count}
+                    value={count}
                     onChange={(v) => updatePreviewCount(Math.round(v))}
                     min={1}
                     max={20}
                   />
                   <button
-                    onClick={() => updatePreviewCount(subdivisionPreview.count + 1)}
-                    disabled={subdivisionPreview.count >= 20}
+                    onClick={() => updatePreviewCount(count + 1)}
+                    disabled={count >= 20}
                   >
                     +
                   </button>
@@ -674,7 +731,7 @@ export const SubdivisionControls: React.FC = () => {
               </div>
 
               <p className="preview-info">
-                This will create {subdivisionPreview.count + 1} cells
+                This will create {count + 1} cells
               </p>
 
               <div className="confirm-buttons">
@@ -694,7 +751,8 @@ export const SubdivisionControls: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Single void selection mode (original behavior) */}
       {selectedVoidId && selectedVoid && !twoPanelInfo.isValid ? (

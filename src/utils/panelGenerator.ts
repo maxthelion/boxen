@@ -25,6 +25,7 @@ import { calculateAssemblyFingerPoints } from './fingerPoints';
 import { getEdgeGender, getAdjacentFace } from './genderRules';
 import { getAllSubdivisions } from '../store/useBoxStore';
 import { startDebugLog, addPanelDebug, PanelDebugInfo, CornerDebugInfo } from './extensionDebug';
+import { appendDebug } from './debug';
 
 // Helper to get edge axis position range for finger system
 // Returns [startPos, endPos] along the axis where:
@@ -2457,14 +2458,28 @@ const generateDividerToSlotHoles = (
 
       const actualFingerWidth = usableLength / numFingers;
 
-      // Center offset: the effective region is shifted by (cornerInsetStart - cornerInsetEnd) / 2
-      const centerOffset = (cornerInsetStart - cornerInsetEnd) / 2;
-      const fingerRegionStart = -halfEffectiveLength + cornerGap + centerOffset;
+      // Debug: log slot hole calculation
+      appendDebug(`\n--- Slot holes: ${axis}-divider for ${child.axis}-child ---`);
+      appendDebug(`Parent divider: ${subdivision.id} at ${axis}=${position}`);
+      appendDebug(`Child divider: ${child.id} at ${child.axis}=${child.position}`);
+      appendDebug(`slotPosition=${slotPosition.toFixed(2)}, slotLength=${slotLength}`);
+      appendDebug(`cornerInsetStart=${cornerInsetStart}, cornerInsetEnd=${cornerInsetEnd}`);
+      appendDebug(`effectiveLength=${effectiveLength}, cornerGap=${cornerGap.toFixed(2)}`);
+      appendDebug(`usableLength=${usableLength.toFixed(2)}, numFingers=${numFingers}, actualFingerWidth=${actualFingerWidth.toFixed(2)}`);
+
+      // V1 finger generation uses symmetric corner gaps based on max(cornerInsetStart, cornerInsetEnd).
+      // It centers the finger pattern on the effective region (which is already centered on the panel).
+      // We don't need centerOffset - the pattern is centered within effectiveLength.
+      const fingerRegionStart = -halfEffectiveLength + cornerGap;
+
+      appendDebug(`fingerRegionStart=${fingerRegionStart.toFixed(2)}`);
+      const slotPositions: string[] = [];
 
       for (let i = 0; i < numFingers; i++) {
         if (i % 2 === 0) {
           const slotStart = fingerRegionStart + i * actualFingerWidth;
           const slotEnd = slotStart + actualFingerWidth;
+          slotPositions.push(`[${slotStart.toFixed(1)}, ${slotEnd.toFixed(1)}]`);
 
           let holePoints: PathPoint[];
           if (isHorizontal) {
@@ -2494,6 +2509,7 @@ const generateDividerToSlotHoles = (
           });
         }
       }
+      appendDebug(`Slot positions: ${slotPositions.join(', ')}`);
     }
   }
 
@@ -2993,6 +3009,14 @@ const generateDividerPanel = (
           ? Math.max(meetsLeft ? materialThickness : 0, meetsRight ? materialThickness : 0)
           : Math.max(meetsTop ? materialThickness : 0, meetsBottom ? materialThickness : 0);
         const adjustedGapMultiplier = Math.max(0, fingerGap - cornerInset / fingerWidth);
+
+        // Debug: log divider edge V1 calculation
+        appendDebug(`\n--- Divider edge V1: ${axis}-divider ${edgePosition} edge ---`);
+        appendDebug(`Divider: ${subdivision.id} at ${axis}=${position}`);
+        appendDebug(`start=(${start.x.toFixed(1)}, ${start.y.toFixed(1)}), end=(${end.x.toFixed(1)}, ${end.y.toFixed(1)})`);
+        appendDebug(`actualLength=${actualLength.toFixed(2)}, originalLength=${originalLength.toFixed(2)}`);
+        appendDebug(`cornerInset=${cornerInset}, adjustedGapMultiplier=${adjustedGapMultiplier.toFixed(2)}`);
+        appendDebug(`patternOffset=${patternOffset}`);
 
         points = generateFingerJointPath(start, end, {
           edgeLength: actualLength,

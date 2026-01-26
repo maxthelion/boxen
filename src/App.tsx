@@ -14,8 +14,7 @@ import { useBoxStore } from './store/useBoxStore';
 import { saveProject, loadProject, captureThumbnail } from './utils/projectStorage';
 import { ProjectState } from './utils/urlState';
 import { defaultEdgeExtensions, EdgeExtensions, FaceId, PanelPath } from './types';
-import { formatDebugLog, hasDebugInfo } from './utils/extensionDebug';
-import { formatPushPullDebug, hasPushPullDebugInfo } from './utils/pushPullDebug';
+import { hasDebug, getDebug } from './utils/debug';
 import './App.css';
 
 // Get the normal axis for any panel (face or divider)
@@ -97,16 +96,8 @@ function App() {
 
   // Handle debug copy - combines all debug logs
   const handleCopyDebug = async () => {
-    const parts: string[] = [];
-    if (hasDebugInfo()) {
-      parts.push(formatDebugLog());
-    }
-    if (hasPushPullDebugInfo()) {
-      parts.push(formatPushPullDebug());
-    }
-    const debugText = parts.join('\n\n');
     try {
-      await navigator.clipboard.writeText(debugText);
+      await navigator.clipboard.writeText(getDebug());
       setDebugCopyStatus('copied');
       setTimeout(() => setDebugCopyStatus('idle'), 2000);
     } catch (err) {
@@ -342,7 +333,7 @@ function App() {
             <span className="header-btn-icon">↓</span>
             Export
           </button>
-          {(hasDebugInfo() || hasPushPullDebugInfo()) && (
+          {hasDebug() && (
             <button
               className={`header-btn secondary ${debugCopyStatus === 'copied' ? 'success' : ''}`}
               onClick={handleCopyDebug}
