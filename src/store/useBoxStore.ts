@@ -273,7 +273,7 @@ const initialFaces = (): { id: FaceId; solid: boolean }[] => [
 ];
 
 // Find a void by ID in the tree (including inside sub-assemblies)
-const findVoid = (root: Void, id: string): Void | null => {
+export const findVoid = (root: Void, id: string): Void | null => {
   if (root.id === id) return root;
   for (const child of (root.children || [])) {
     const found = findVoid(child, id);

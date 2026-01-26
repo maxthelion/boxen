@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useState, useEffect } from 'react';
-import { useBoxStore, getAllSubdivisions, calculatePreviewPositions, getMainInteriorVoid } from '../store/useBoxStore';
+import { useBoxStore, getAllSubdivisions, calculatePreviewPositions, getMainInteriorVoid, findVoid } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
 import { Void, Face, AssemblyAxis, FaceId, FaceOffsets, defaultFaceOffsets, Bounds, PanelPath } from '../types';
@@ -283,21 +283,6 @@ const analyzeTwoPanelSelection = (
     normalAxis,
     targetVoid,
   };
-};
-
-// Find a void by ID in the tree (including inside sub-assemblies)
-const findVoid = (root: Void, id: string): Void | null => {
-  if (root.id === id) return root;
-  for (const child of root.children) {
-    const found = findVoid(child, id);
-    if (found) return found;
-  }
-  // Also search inside sub-assembly's void structure
-  if (root.subAssembly) {
-    const found = findVoid(root.subAssembly.rootVoid, id);
-    if (found) return found;
-  }
-  return null;
 };
 
 // Determine which axes are valid based on open faces

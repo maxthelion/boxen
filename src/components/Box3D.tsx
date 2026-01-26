@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect } from 'react';
-import { useBoxStore, getLeafVoids, getAllSubdivisions, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible } from '../store/useBoxStore';
+import { useBoxStore, getLeafVoids, getAllSubdivisions, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible, findVoid } from '../store/useBoxStore';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { FaceWithFingers } from './FaceWithFingers';
@@ -70,21 +70,6 @@ const getFaceConfigs = (scaledThickness: number): {
       size: (w, h, d) => [w, d],
     },
   ];
-};
-
-// Find a void by ID (including inside sub-assemblies)
-const findVoid = (root: { id: string; bounds: Bounds; children: any[]; subAssembly?: any }, id: string): { bounds: Bounds } | null => {
-  if (root.id === id) return root;
-  for (const child of root.children) {
-    const found = findVoid(child, id);
-    if (found) return found;
-  }
-  // Also search inside sub-assembly's void structure
-  if (root.subAssembly) {
-    const found = findVoid(root.subAssembly.rootVoid, id);
-    if (found) return found;
-  }
-  return null;
 };
 
 // Find the parent sub-assembly of a void (if any) and return its world offset
