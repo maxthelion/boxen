@@ -16,6 +16,7 @@ import {
   FaceId,
   defaultAssemblyConfig,
   Bounds,
+  MAIN_FACE_PANEL_IDS,
 } from '../types';
 import { useBoxStore } from './useBoxStore';
 
@@ -27,15 +28,14 @@ describe('Isolate Functionality', () => {
     it('should hide all face panels when isolating a void', () => {
       // When isolating a void, all main box face panels should be hidden
       const hiddenFaceIds = new Set<string>();
-      const mainFaceIds = ['face-front', 'face-back', 'face-left', 'face-right', 'face-top', 'face-bottom'];
 
       // Simulate isolation: add all face IDs to hidden set
-      for (const faceId of mainFaceIds) {
+      for (const faceId of MAIN_FACE_PANEL_IDS) {
         hiddenFaceIds.add(faceId);
       }
 
       expect(hiddenFaceIds.size).toBe(6);
-      for (const faceId of mainFaceIds) {
+      for (const faceId of MAIN_FACE_PANEL_IDS) {
         expect(hiddenFaceIds.has(faceId)).toBe(true);
       }
     });
@@ -135,7 +135,7 @@ describe('Isolate Functionality', () => {
     it('should hide all other panels when isolating a face panel', () => {
       const isolatedPanelId = 'face-front';
       const allPanelIds = [
-        'face-front', 'face-back', 'face-left', 'face-right', 'face-top', 'face-bottom',
+        ...MAIN_FACE_PANEL_IDS,
         'divider-void-1-split',
       ];
 
@@ -154,7 +154,7 @@ describe('Isolate Functionality', () => {
     it('should hide all other panels when isolating a divider panel', () => {
       const isolatedPanelId = 'divider-void-1-split';
       const allPanelIds = [
-        'face-front', 'face-back', 'face-left', 'face-right', 'face-top', 'face-bottom',
+        ...MAIN_FACE_PANEL_IDS,
         'divider-void-1-split',
         'divider-void-2-split',
       ];
@@ -183,9 +183,8 @@ describe('Isolate Functionality', () => {
 
       // Simulate isolating face-front
       const isolatedPanelId = 'face-front';
-      const mainFaceIds = ['face-front', 'face-back', 'face-left', 'face-right', 'face-top', 'face-bottom'];
 
-      for (const faceId of mainFaceIds) {
+      for (const faceId of MAIN_FACE_PANEL_IDS) {
         if (faceId !== isolatedPanelId && !preHiddenFaceIds.has(faceId)) {
           hiddenFaceIds.add(faceId);
           isolateHiddenFaceIds.add(faceId);

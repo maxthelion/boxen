@@ -1,6 +1,7 @@
 import { BoxConfig, Face, FaceId, Void, SubdivisionPanel, SubdivisionIntersection, Subdivision, Bounds, getFaceRole, getLidSide, getWallPriority, getLidFaceId, AssemblyConfig, PanelPath, PanelCollection, PathPoint } from '../types';
 import { EdgeType, getEdgePath, Point } from './fingerJoints';
 import { getAllSubdivisions } from '../store/useBoxStore';
+import { getFaceDimensions, getFaceEdges, EdgeInfo } from './panelGenerator';
 
 // =============================================================================
 // Bin Packing Algorithm (MaxRects with Best Short Side Fit)
@@ -632,82 +633,8 @@ export const generateMultipleBedSVGs = (
 // =============================================================================
 // Legacy SVG generation (computes paths on-the-fly)
 // These functions are kept for backwards compatibility
+// Note: getFaceDimensions, getFaceEdges, EdgeInfo imported from panelGenerator.ts
 // =============================================================================
-
-interface FaceDimensions {
-  width: number;
-  height: number;
-}
-
-export const getFaceDimensions = (
-  faceId: FaceId,
-  config: BoxConfig
-): FaceDimensions => {
-  switch (faceId) {
-    case 'front':
-    case 'back':
-      return { width: config.width, height: config.height };
-    case 'left':
-    case 'right':
-      return { width: config.depth, height: config.height };
-    case 'top':
-    case 'bottom':
-      return { width: config.width, height: config.depth };
-  }
-};
-
-interface EdgeInfo {
-  adjacentFaceId: FaceId;
-  isHorizontal: boolean;
-  position: 'top' | 'bottom' | 'left' | 'right';
-}
-
-const getFaceEdges = (faceId: FaceId): EdgeInfo[] => {
-  switch (faceId) {
-    case 'front':
-      return [
-        { adjacentFaceId: 'top', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'bottom', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'left', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'right', isHorizontal: false, position: 'right' },
-      ];
-    case 'back':
-      return [
-        { adjacentFaceId: 'top', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'bottom', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'right', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'left', isHorizontal: false, position: 'right' },
-      ];
-    case 'left':
-      return [
-        { adjacentFaceId: 'top', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'bottom', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'back', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'front', isHorizontal: false, position: 'right' },
-      ];
-    case 'right':
-      return [
-        { adjacentFaceId: 'top', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'bottom', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'front', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'back', isHorizontal: false, position: 'right' },
-      ];
-    case 'top':
-      return [
-        { adjacentFaceId: 'back', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'front', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'left', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'right', isHorizontal: false, position: 'right' },
-      ];
-    case 'bottom':
-      return [
-        { adjacentFaceId: 'front', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'back', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'left', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'right', isHorizontal: false, position: 'right' },
-      ];
-  }
-};
 
 // Dynamic tab direction logic based on assembly configuration
 // Returns true if this face should have tabs extending outward at the edge meeting adjacentFaceId

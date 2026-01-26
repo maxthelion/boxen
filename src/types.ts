@@ -50,13 +50,16 @@ export const getFaceRole = (faceId: FaceId, axis: AssemblyAxis): 'wall' | 'lid' 
   }
 };
 
+// Mapping from assembly axis to lid face IDs
+// THE single source of truth for which faces are lids on each axis
+export const lidMap: Record<AssemblyAxis, { positive: FaceId; negative: FaceId }> = {
+  y: { positive: 'top', negative: 'bottom' },
+  x: { positive: 'right', negative: 'left' },
+  z: { positive: 'front', negative: 'back' },
+};
+
 // Helper: Get which side of the assembly axis a lid face is on
 export const getLidSide = (faceId: FaceId, axis: AssemblyAxis): 'positive' | 'negative' | null => {
-  const lidMap: Record<AssemblyAxis, { positive: FaceId; negative: FaceId }> = {
-    y: { positive: 'top', negative: 'bottom' },
-    x: { positive: 'right', negative: 'left' },
-    z: { positive: 'front', negative: 'back' },
-  };
   const mapping = lidMap[axis];
   if (faceId === mapping.positive) return 'positive';
   if (faceId === mapping.negative) return 'negative';
@@ -65,11 +68,6 @@ export const getLidSide = (faceId: FaceId, axis: AssemblyAxis): 'positive' | 'ne
 
 // Helper: Get the FaceId for a lid given axis and side
 export const getLidFaceId = (axis: AssemblyAxis, side: 'positive' | 'negative'): FaceId => {
-  const lidMap: Record<AssemblyAxis, { positive: FaceId; negative: FaceId }> = {
-    y: { positive: 'top', negative: 'bottom' },
-    x: { positive: 'right', negative: 'left' },
-    z: { positive: 'front', negative: 'back' },
-  };
   return lidMap[axis][side];
 };
 
@@ -133,6 +131,12 @@ export const defaultFaces: Face[] = [
 
 // Create faces with all solid
 export const createAllSolidFaces = (): Face[] => defaultFaces.map(f => ({ ...f }));
+
+// All face IDs in standard order
+export const ALL_FACE_IDS: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
+
+// Panel IDs for main box face panels (used for visibility isolation)
+export const MAIN_FACE_PANEL_IDS = ALL_FACE_IDS.map(id => `face-${id}`);
 
 export interface Bounds {
   x: number;

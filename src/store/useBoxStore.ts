@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig, createAllSolidFaces } from '../types';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS } from '../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
@@ -1013,8 +1013,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Hide face panels for main box (since we're isolating a void, not main box)
-      const mainFaceIds = ['face-front', 'face-back', 'face-left', 'face-right', 'face-top', 'face-bottom'];
-      for (const faceId of mainFaceIds) {
+      for (const faceId of MAIN_FACE_PANEL_IDS) {
         if (!state.hiddenFaceIds.has(faceId)) {
           newHiddenFaceIds.add(faceId);
           newIsolateHiddenFaceIds.add(faceId);
@@ -1108,8 +1107,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Hide all main box face panels
-      const mainFaceIds = ['face-front', 'face-back', 'face-left', 'face-right', 'face-top', 'face-bottom'];
-      for (const faceId of mainFaceIds) {
+      for (const faceId of MAIN_FACE_PANEL_IDS) {
         if (!state.hiddenFaceIds.has(faceId)) {
           newHiddenFaceIds.add(faceId);
           newIsolateHiddenFaceIds.add(faceId);
@@ -1196,8 +1194,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Hide all face panels except the isolated one
-      const mainFaceIds = ['face-front', 'face-back', 'face-left', 'face-right', 'face-top', 'face-bottom'];
-      for (const faceId of mainFaceIds) {
+      for (const faceId of MAIN_FACE_PANEL_IDS) {
         if (faceId !== panelId && !state.hiddenFaceIds.has(faceId)) {
           newHiddenFaceIds.add(faceId);
           newIsolateHiddenFaceIds.add(faceId);
