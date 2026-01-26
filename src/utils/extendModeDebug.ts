@@ -5,7 +5,7 @@
 
 import { Void, Bounds, FaceId } from '../types';
 import { setDebug, appendDebug, clearDebug } from './debug';
-import { getAllSubdivisions } from '../store/useBoxStore';
+import { getAllSubdivisions, getBoundsStart, getBoundsSize } from '../store/useBoxStore';
 
 // Debug subdivision creation
 export const debugSubdivisionCreation = (
@@ -26,8 +26,8 @@ export const debugSubdivisionCreation = (
   lines.push(`Calculated positions: [${positions.map(p => p.toFixed(1)).join(', ')}]`);
 
   // Calculate what the splitPercentage would be
-  const dimStart = axis === 'x' ? voidBounds.x : axis === 'y' ? voidBounds.y : voidBounds.z;
-  const dimSize = axis === 'x' ? voidBounds.w : axis === 'y' ? voidBounds.h : voidBounds.d;
+  const dimStart = getBoundsStart(voidBounds, axis);
+  const dimSize = getBoundsSize(voidBounds, axis);
   const percentages = positions.map(p => ((p - dimStart) / dimSize).toFixed(3));
   lines.push(`Expected percentages: [${percentages.join(', ')}]`);
 

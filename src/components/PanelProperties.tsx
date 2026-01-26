@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useBoxStore, getAllSubdivisions, getAllSubAssemblies } from '../store/useBoxStore';
+import { useBoxStore, getAllSubdivisions, getAllSubAssemblies, getBoundsStart, getBoundsSize } from '../store/useBoxStore';
 import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
 import { FaceId, Face, AssemblyConfig, SplitPositionMode } from '../types';
@@ -506,10 +506,8 @@ export const PanelProperties: React.FC = () => {
       : null;
 
     // Calculate position bounds based on parent void
-    const parentDimStart = axis === 'x' ? bounds.x : axis === 'y' ? bounds.y : bounds.z;
-    const parentDimEnd = axis === 'x' ? bounds.x + bounds.w :
-                         axis === 'y' ? bounds.y + bounds.h :
-                         bounds.z + bounds.d;
+    const parentDimStart = getBoundsStart(bounds, axis);
+    const parentDimEnd = parentDimStart + getBoundsSize(bounds, axis);
     const mt = activeConfig.materialThickness;
     const minPosition = parentDimStart + mt;
     const maxPosition = parentDimEnd - mt;

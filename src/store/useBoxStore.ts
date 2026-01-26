@@ -2237,11 +2237,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       // Calculate bounds constraints
       // Previous divider position (or parent start)
-      const parentStart = axis === 'x' ? parent.bounds.x :
-                          axis === 'y' ? parent.bounds.y : parent.bounds.z;
-      const parentEnd = axis === 'x' ? parent.bounds.x + parent.bounds.w :
-                        axis === 'y' ? parent.bounds.y + parent.bounds.h :
-                        parent.bounds.z + parent.bounds.d;
+      const parentStart = getBoundsStart(parent.bounds, axis);
+      const parentSize = getBoundsSize(parent.bounds, axis);
+      const parentEnd = parentStart + parentSize;
 
       // Find min position (previous divider + material thickness, or parent start + min void size)
       const prevVoid = voidIndex > 0 ? parent.children[voidIndex - 1] : null;
@@ -2261,10 +2259,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       // Update the void tree
       const updateVoidPosition = (node: Void): Void => {
         if (node.id === parent.id) {
-          // This is the parent - update its children
-          const parentSize = axis === 'x' ? parent.bounds.w :
-                             axis === 'y' ? parent.bounds.h : parent.bounds.d;
-
+          // This is the parent - update its children (parentSize already defined above)
           const newChildren = parent.children.map((child) => {
             if (child.id === voidId) {
               // Calculate new percentage from position
@@ -2401,10 +2396,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       if (!parent) return state;
 
       const axis = targetVoid.splitAxis;
-      const parentStart = axis === 'x' ? parent.bounds.x :
-                          axis === 'y' ? parent.bounds.y : parent.bounds.z;
-      const parentSize = axis === 'x' ? parent.bounds.w :
-                         axis === 'y' ? parent.bounds.h : parent.bounds.d;
+      const parentStart = getBoundsStart(parent.bounds, axis);
+      const parentSize = getBoundsSize(parent.bounds, axis);
 
       // Calculate percentage from current position
       const percentage = (targetVoid.splitPosition - parentStart) / parentSize;
