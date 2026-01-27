@@ -11,6 +11,9 @@
 // Main entry point
 export { Engine, createEngine, createEngineWithAssembly } from './Engine';
 
+// React integration
+export { useEngine, useEngineInstance } from './useEngine';
+
 // Node classes
 export { BaseNode, generateId, resetIdCounter } from './nodes/BaseNode';
 export { BaseAssembly } from './nodes/BaseAssembly';

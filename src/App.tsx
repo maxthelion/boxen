@@ -15,6 +15,7 @@ import { saveProject, loadProject, captureThumbnail } from './utils/projectStora
 import { ProjectState } from './utils/urlState';
 import { defaultEdgeExtensions, EdgeExtensions, FaceId, PanelPath } from './types';
 import { hasDebug, getDebug } from './utils/debug';
+import { useEngine } from './engine';
 import './App.css';
 
 // Get the normal axis for any panel (face or divider)
@@ -66,7 +67,11 @@ function App() {
   const [shareStatus, setShareStatus] = useState<'idle' | 'copied'>('idle');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
   const [debugCopyStatus, setDebugCopyStatus] = useState<'idle' | 'copied'>('idle');
+  const [showEngineDebug, setShowEngineDebug] = useState(false);
   const viewportRef = useRef<Viewport3DHandle>(null);
+
+  // OO Engine integration (Phase 2)
+  const { snapshot: engineSnapshot } = useEngine();
 
   const {
     config,
@@ -343,6 +348,14 @@ function App() {
               {debugCopyStatus === 'copied' ? 'Copied!' : 'Debug'}
             </button>
           )}
+          <button
+            className={`header-btn secondary ${showEngineDebug ? 'active' : ''}`}
+            onClick={() => setShowEngineDebug(!showEngineDebug)}
+            title="Toggle engine snapshot view"
+          >
+            <span className="header-btn-icon">⚙</span>
+            Engine
+          </button>
         </div>
       </header>
 
@@ -380,6 +393,36 @@ function App() {
         onClose={() => setIsSaveModalOpen(false)}
         onSave={handleSaveProject}
       />
+
+      {/* Engine Debug Panel */}
+      {showEngineDebug && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 20,
+            right: 20,
+            width: 400,
+            maxHeight: 400,
+            backgroundColor: '#1e1e1e',
+            color: '#e0e0e0',
+            border: '1px solid #444',
+            borderRadius: 8,
+            padding: 12,
+            fontFamily: 'monospace',
+            fontSize: 11,
+            overflow: 'auto',
+            zIndex: 1000,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+            <strong>Engine Snapshot</strong>
+            <button onClick={() => setShowEngineDebug(false)} style={{ cursor: 'pointer' }}>×</button>
+          </div>
+          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+            {JSON.stringify(engineSnapshot, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   );
 }
