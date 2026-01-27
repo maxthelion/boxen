@@ -1,5 +1,6 @@
 import React, { useMemo, useCallback, useState, useEffect } from 'react';
 import { useBoxStore, getAllSubdivisions, calculatePreviewPositions, getMainInteriorVoid, findVoid } from '../store/useBoxStore';
+import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
 import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
 import { Void, Face, AssemblyAxis, FaceId, FaceOffsets, defaultFaceOffsets, Bounds, PanelPath } from '../types';
@@ -306,13 +307,16 @@ const getValidAxes = (faces: Face[]): { x: boolean; y: boolean; z: boolean } => 
 };
 
 export const SubdivisionControls: React.FC = () => {
+  // Model state from engine
+  const config = useEngineConfig();
+  const faces = useEngineFaces();
+  const rootVoid = useEngineVoidTree();
+  const panelCollection = useEnginePanels();
+
+  // UI state and actions from store
   const {
     selectedVoidIds,
     selectedPanelIds,
-    panelCollection,
-    rootVoid,
-    faces,
-    config,
     subdivisionPreview,
     setSubdivisionPreview,
     setSubAssemblyPreview,
@@ -356,6 +360,9 @@ export const SubdivisionControls: React.FC = () => {
     setSubdivisionPreview(null);
     cancelPreviewStore();
   }, [selectedVoidId, selectedPanelIds, setSubdivisionPreview, cancelPreviewStore]);
+
+  // Early return if engine not initialized
+  if (!config || !rootVoid) return null;
 
   const selectedVoid = useMemo(() => {
     if (!selectedVoidId) return null;

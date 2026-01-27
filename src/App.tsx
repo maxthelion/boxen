@@ -90,13 +90,12 @@ function App() {
     setConfig,
   } = useBoxStore();
 
-  // Load state from URL on initial mount
+  // Load state from URL on initial mount and initialize engine
   useEffect(() => {
-    const loaded = loadFromUrl();
-    if (loaded) {
-      // Regenerate panels after loading state
-      generatePanels();
-    }
+    loadFromUrl();
+    // Always generate panels to initialize the engine
+    // (syncStoreToEngine is called inside generatePanels)
+    generatePanels();
   }, []);
 
   // Handle debug copy - combines all debug logs

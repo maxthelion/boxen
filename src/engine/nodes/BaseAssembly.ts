@@ -34,6 +34,7 @@ import {
   VoidContentConstraint,
   VoidAlignmentError,
   EdgeExtensions,
+  Subdivision,
 } from '../types';
 import { VoidNode } from './VoidNode';
 import { FacePanelNode } from './FacePanelNode';
@@ -359,6 +360,37 @@ export abstract class BaseAssembly extends BaseNode {
     };
   }
 
+  /**
+   * Get all subdivisions from the void tree
+   * Used for slot hole generation in face panels
+   */
+  getSubdivisions(): Subdivision[] {
+    const subdivisions: Subdivision[] = [];
+
+    const traverse = (node: VoidNode, parentBounds: Bounds3D) => {
+      if (node.splitAxis && node.splitPosition !== undefined) {
+        subdivisions.push({
+          id: node.id + '-split',
+          axis: node.splitAxis,
+          position: node.splitPosition,
+          bounds: parentBounds,
+        });
+      }
+
+      // Recurse into void children
+      for (const child of node.getVoidChildren()) {
+        traverse(child, node.bounds);
+      }
+    };
+
+    // Start traversal from root void's children
+    for (const child of this._rootVoid.getVoidChildren()) {
+      traverse(child, this._rootVoid.bounds);
+    }
+
+    return subdivisions;
+  }
+
   // ==========================================================================
   // Abstract Methods
   // ==========================================================================
@@ -582,11 +614,15 @@ export abstract class BaseAssembly extends BaseNode {
     const panels: PanelSnapshot[] = [];
 
     // Generate face panels
+    // For sub-assemblies, include assembly ID in panel ID to ensure uniqueness
+    const idPrefix = this.kind === 'sub-assembly' ? `${this.id}-` : '';
+
     for (const faceId of ALL_FACE_IDS) {
       const face = this._faces.get(faceId)!;
       if (face.solid) {
-        // Create panel node
-        const panelNode = new FacePanelNode(faceId, this);
+        // Create panel node with unique ID
+        const panelId = `${idPrefix}face-${faceId}`;
+        const panelNode = new FacePanelNode(faceId, this, panelId);
 
         // Apply stored edge extensions
         const storedExtensions = this._panelEdgeExtensions.get(panelNode.id);
@@ -601,7 +637,33 @@ export abstract class BaseAssembly extends BaseNode {
     // Generate divider panels from void subdivisions
     this.collectDividerPanels(this._rootVoid, panels);
 
+    // Collect panels from sub-assemblies in voids
+    this.collectSubAssemblyPanels(this._rootVoid, panels);
+
     return panels;
+  }
+
+  /**
+   * Recursively collect panels from sub-assemblies in void tree
+   */
+  protected collectSubAssemblyPanels(voidNode: VoidNode, panels: PanelSnapshot[]): void {
+    // Check if this void has a sub-assembly
+    const subAssembly = voidNode.getSubAssembly();
+    if (subAssembly && subAssembly.kind === 'sub-assembly') {
+      // Sub-assembly should have a getPanels method (via BaseAssembly)
+      const subAssemblyNode = subAssembly as BaseAssembly;
+      const subPanels = subAssemblyNode.getPanels();
+
+      // Prefix sub-assembly panel IDs to avoid conflicts
+      for (const panel of subPanels) {
+        panels.push(panel);
+      }
+    }
+
+    // Recurse into void children
+    for (const child of voidNode.getVoidChildren()) {
+      this.collectSubAssemblyPanels(child, panels);
+    }
   }
 
   /**

@@ -5,6 +5,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { useThree } from '@react-three/fiber';
 import { useBoxStore, isVoidVisible } from '../store/useBoxStore';
+import { useEngineConfig, useEngineFaces, useEngineVoidTree } from '../engine';
 import { Bounds } from '../types';
 
 interface VoidMeshProps {
@@ -15,8 +16,18 @@ interface VoidMeshProps {
 
 export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter }) => {
   const meshRef = useRef<THREE.Mesh>(null);
-  const { selectedVoidIds, selectVoid, hoveredVoidId, setHoveredVoid, selectionMode, rootVoid, hiddenVoidIds, isolatedVoidId, config, faces } = useBoxStore();
+
+  // Model state from engine
+  const config = useEngineConfig();
+  const faces = useEngineFaces();
+  const rootVoid = useEngineVoidTree();
+
+  // UI state from store
+  const { selectedVoidIds, selectVoid, hoveredVoidId, setHoveredVoid, selectionMode, hiddenVoidIds, isolatedVoidId } = useBoxStore();
   const { size: canvasSize } = useThree();
+
+  // Early return if engine not initialized
+  if (!config || !rootVoid) return null;
 
   const isSelected = selectedVoidIds.has(voidId);
   const isHovered = hoveredVoidId === voidId;

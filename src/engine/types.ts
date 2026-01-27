@@ -59,6 +59,17 @@ export interface EdgeExtensions {
   right: number;
 }
 
+/**
+ * Subdivision info for slot hole generation
+ * Represents where a divider panel intersects void space
+ */
+export interface Subdivision {
+  id: string;           // Unique ID for this subdivision
+  axis: Axis;           // Axis perpendicular to the divider (x, y, or z)
+  position: number;     // World coordinate position of the divider
+  bounds: Bounds3D;     // Bounds of the void containing this divider
+}
+
 // =============================================================================
 // Configuration Types (Input Properties)
 // =============================================================================
@@ -85,6 +96,7 @@ export interface AssemblyConfig {
 export interface FeetConfig {
   enabled: boolean;
   height: number;
+  width: number;
   inset: number;
   gap: number;
 }

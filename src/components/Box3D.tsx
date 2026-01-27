@@ -1,5 +1,6 @@
 import React, { useMemo, useEffect } from 'react';
 import { useBoxStore, getLeafVoids, getAllSubdivisions, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible, findVoid } from '../store/useBoxStore';
+import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { FaceWithFingers } from './FaceWithFingers';
@@ -480,13 +481,23 @@ interface Box3DProps {
 }
 
 export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
-  const { config: mainConfig, faces: mainFaces, rootVoid: mainRootVoid, subdivisionPreview, subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, panelCollection: mainPanelCollection, showDebugAnchors, activeTool, previewState, previewPanelCollection } = useBoxStore();
+  // Model state from engine
+  const mainConfig = useEngineConfig();
+  const mainFaces = useEngineFaces();
+  const mainRootVoid = useEngineVoidTree();
+  const mainPanelCollection = useEnginePanels();
+
+  // UI state and actions from store
+  const { subdivisionPreview, subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, showDebugAnchors, activeTool, previewState, previewPanelCollection } = useBoxStore();
 
   // Use preview state if available, otherwise use main state
   const config = previewState?.config ?? mainConfig;
   const faces = previewState?.faces ?? mainFaces;
   const rootVoid = previewState?.rootVoid ?? mainRootVoid;
   const panelCollection = previewPanelCollection ?? mainPanelCollection;
+
+  // Early return if engine not initialized
+  if (!mainConfig || !mainRootVoid || !config || !rootVoid) return null;
 
   const { width, height, depth } = config;
 

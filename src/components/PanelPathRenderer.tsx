@@ -2,6 +2,7 @@ import React, { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { PanelPath, PathPoint } from '../types';
 import { useBoxStore } from '../store/useBoxStore';
+import { useEnginePanels } from '../engine';
 
 interface PanelPathRendererProps {
   panel: PanelPath;
@@ -261,8 +262,8 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
   onPanelDoubleClick,
   hiddenFaceIds = new Set(),
 }) => {
-  // Use preview panel collection when available, otherwise main collection
-  const mainPanelCollection = useBoxStore((state) => state.panelCollection);
+  // Use preview panel collection when available, otherwise main collection from engine
+  const mainPanelCollection = useEnginePanels();
   const previewPanelCollection = useBoxStore((state) => state.previewPanelCollection);
   const panelCollection = previewPanelCollection ?? mainPanelCollection;
 

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useBoxStore, getAllSubdivisions, getAllSubAssemblies, getBoundsStart, getBoundsSize } from '../store/useBoxStore';
+import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
 import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
 import { FaceId, Face, AssemblyConfig, SplitPositionMode } from '../types';
@@ -312,14 +313,17 @@ const getDividerDimensions = (
 };
 
 export const PanelProperties: React.FC = () => {
+  // Model state from engine
+  const config = useEngineConfig();
+  const faces = useEngineFaces();
+  const rootVoid = useEngineVoidTree();
+  const panelCollection = useEnginePanels();
+
+  // UI state and actions from store
   const {
     selectedPanelIds,
-    faces,
-    config,
-    rootVoid,
     toggleFace,
     toggleSubAssemblyFace,
-    panelCollection,
     setEdgeExtension,
     setDividerPosition,
     setDividerPositionMode,
@@ -327,6 +331,9 @@ export const PanelProperties: React.FC = () => {
   } = useBoxStore();
 
   const [selectedEdge, setSelectedEdge] = useState<EdgePosition | null>(null);
+
+  // Early return if engine not initialized
+  if (!config || !rootVoid) return null;
 
   // Get the first selected panel ID (for multi-select, show properties of the first one)
   const selectedPanelId = selectedPanelIds.size > 0 ? Array.from(selectedPanelIds)[0] : null;

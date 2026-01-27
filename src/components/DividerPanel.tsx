@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
-import { useBoxStore } from '../store/useBoxStore';
+import { useEngineConfig, useEngineFaces } from '../engine';
 import { Subdivision, FaceId } from '../types';
 import { generateFingerJointPath, Point } from '../utils/fingerJoints';
 
@@ -91,7 +91,12 @@ export const DividerPanel: React.FC<DividerPanelProps> = ({
   isSelected,
   onClick,
 }) => {
-  const { config, faces } = useBoxStore();
+  const config = useEngineConfig();
+  const faces = useEngineFaces();
+
+  // Early return if engine not initialized
+  if (!config) return null;
+
   const { materialThickness, fingerWidth, fingerGap } = config;
 
   // Compute outline points and geometry data together

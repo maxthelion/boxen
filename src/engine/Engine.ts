@@ -10,6 +10,7 @@
 
 import { SceneNode } from './nodes/SceneNode';
 import { AssemblyNode } from './nodes/AssemblyNode';
+import { SubAssemblyNode } from './nodes/SubAssemblyNode';
 import { VoidNode } from './nodes/VoidNode';
 import { BaseNode } from './nodes/BaseNode';
 import { BaseAssembly } from './nodes/BaseAssembly';
@@ -291,13 +292,44 @@ export class Engine {
         break;
       }
 
-      case 'CREATE_SUB_ASSEMBLY':
-        // TODO: Create sub-assembly in void
-        break;
+      case 'CREATE_SUB_ASSEMBLY': {
+        const voidNode = this.findVoid(action.payload.voidId);
+        if (voidNode && assembly) {
+          // Can only create sub-assembly in a leaf void
+          if (!voidNode.isLeaf) {
+            console.warn('Cannot create sub-assembly in a subdivided void');
+            return false;
+          }
+          if (voidNode.hasSubAssembly) {
+            console.warn('Void already has a sub-assembly');
+            return false;
+          }
 
-      case 'REMOVE_SUB_ASSEMBLY':
-        // TODO: Remove sub-assembly
+          // Create sub-assembly with same material as parent assembly
+          const clearance = action.payload.clearance ?? 1;
+          const subAssembly = new SubAssemblyNode(
+            voidNode,
+            assembly.material,
+            clearance
+          );
+
+          // Add to void
+          voidNode.addChild(subAssembly);
+          this.invalidateNodeMap();
+          return true;
+        }
         break;
+      }
+
+      case 'REMOVE_SUB_ASSEMBLY': {
+        const subAssembly = this.findById(action.payload.subAssemblyId);
+        if (subAssembly && subAssembly.kind === 'sub-assembly' && subAssembly.parent) {
+          subAssembly.parent.removeChild(subAssembly);
+          this.invalidateNodeMap();
+          return true;
+        }
+        break;
+      }
     }
 
     return false;

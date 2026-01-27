@@ -180,4 +180,152 @@ describe('BasePanel finger joint generation', () => {
     console.log('Divider outline points:', dividerPanel!.outline.points.length);
     expect(dividerPanel!.outline.points.length).toBeGreaterThan(4);
   });
+
+  it('generates slot holes in face panels for dividers', () => {
+    // Use a larger box to ensure finger joints on all axes
+    const slotEngine = createEngine();
+    slotEngine.createAssembly(200, 150, 120, {
+      thickness: 3,
+      fingerWidth: 12.8,
+      fingerGap: 1.5,
+    });
+
+    // Subdivide with X-axis divider (should create slots in front and back faces)
+    slotEngine.dispatch({
+      type: 'ADD_SUBDIVISION',
+      targetId: 'main-assembly',
+      payload: { voidId: 'root', axis: 'x', position: 100 },
+    });
+
+    // Debug: Check subdivisions
+    const assembly = slotEngine.assembly!;
+    const subdivisions = assembly.getSubdivisions();
+    console.log('Subdivisions:', subdivisions.length);
+    if (subdivisions.length > 0) {
+      const sub = subdivisions[0];
+      console.log('Subdivision:', { id: sub.id, axis: sub.axis, position: sub.position });
+      console.log('Bounds:', sub.bounds);
+      console.log('Depth check: bounds.z + bounds.d =', sub.bounds.z + sub.bounds.d, 'vs depth - inset =', 120);
+    }
+
+    // Generate panels
+    const collection = slotEngine.generatePanelsFromNodes();
+
+    // Find front face panel
+    const frontPanel = collection.panels.find(p => p.source.faceId === 'front');
+    expect(frontPanel).toBeDefined();
+
+    // Front panel should have slot holes for the X-axis divider
+    console.log('Front panel holes:', frontPanel!.holes.length);
+    expect(frontPanel!.holes.length).toBeGreaterThan(0);
+
+    // Each hole should be a divider-slot
+    for (const hole of frontPanel!.holes) {
+      expect(hole.source?.type).toBe('divider-slot');
+      expect(hole.path.points.length).toBe(4); // Rectangular slot
+    }
+
+    // Find back face panel - should also have slots
+    const backPanel = collection.panels.find(p => p.source.faceId === 'back');
+    expect(backPanel).toBeDefined();
+    expect(backPanel!.holes.length).toBeGreaterThan(0);
+  });
+
+  it('generates feet on wall panels when feet config is set', () => {
+    // Create engine with feet enabled
+    const feetEngine = createEngine();
+    feetEngine.createAssembly(100, 80, 60, {
+      thickness: 3,
+      fingerWidth: 12.8,
+      fingerGap: 1.5,
+    });
+
+    // Enable feet
+    feetEngine.dispatch({
+      type: 'SET_FEET_CONFIG',
+      targetId: 'main-assembly',
+      payload: { enabled: true, height: 10, width: 15, inset: 5, gap: 20 },
+    });
+
+    // Generate panels
+    const collection = feetEngine.generatePanelsFromNodes();
+
+    // Front panel (wall) should have feet - more than basic rectangle points
+    const frontPanel = collection.panels.find(p => p.source.faceId === 'front');
+    expect(frontPanel).toBeDefined();
+
+    // Without feet: 20 points with finger joints
+    // With feet: more points due to feet path extending bottom edge
+    const frontPoints = frontPanel!.outline.points;
+    console.log('Front panel with feet, outline points:', frontPoints.length);
+
+    // Find lowest Y coordinate - should be below -halfH
+    const minY = Math.min(...frontPoints.map(p => p.y));
+    const halfH = 80 / 2; // height/2
+    const expectedMinY = -halfH - 3 - 10; // -halfH - mt - feetHeight
+    console.log('Front panel minY:', minY, 'expected:', expectedMinY);
+    expect(minY).toBeLessThan(-halfH); // Feet extend below normal bottom
+
+    // Top/bottom panels (lids for Y-axis) should NOT have feet
+    const topPanel = collection.panels.find(p => p.source.faceId === 'top');
+    expect(topPanel).toBeDefined();
+    const topMinY = Math.min(...topPanel!.outline.points.map(p => p.y));
+    const topHalfH = 60 / 2; // depth/2 for top panel
+    console.log('Top panel (lid) minY:', topMinY, 'halfH:', topHalfH);
+    // Top panel should not have feet extending below
+    expect(topMinY).toBeGreaterThanOrEqual(-topHalfH - 5); // Small tolerance for finger joints
+  });
+
+  it('generates sub-assembly panels within voids', () => {
+    // Create engine with a box
+    const subAsmEngine = createEngine();
+    subAsmEngine.createAssembly(200, 150, 120, {
+      thickness: 3,
+      fingerWidth: 12.8,
+      fingerGap: 1.5,
+    });
+
+    // Create a sub-assembly in the root void
+    subAsmEngine.dispatch({
+      type: 'CREATE_SUB_ASSEMBLY',
+      targetId: 'main-assembly',
+      payload: { voidId: 'root', clearance: 2 },
+    });
+
+    // Generate panels
+    const collection = subAsmEngine.generatePanelsFromNodes();
+
+    // Should have 6 main panels + 6 sub-assembly panels = 12 panels
+    console.log('Total panels with sub-assembly:', collection.panels.length);
+    expect(collection.panels.length).toBe(12);
+
+    // Count panels by source type
+    const facePanels = collection.panels.filter(p => p.source.type === 'face');
+    console.log('Face panels count:', facePanels.length);
+    expect(facePanels.length).toBe(12); // 6 main + 6 sub-assembly
+
+    // Debug: print all panel IDs
+    console.log('Panel IDs:', collection.panels.map(p => p.id));
+
+    // Sub-assembly panels should have smaller dimensions
+    // Main assembly interior is 200-6=194 x 150-6=144 x 120-6=114
+    // Sub-assembly with clearance 2 is 194-4=190 x 144-4=140 x 114-4=110
+    const mainFront = collection.panels.find(p => p.id === 'face-front');
+    // Sub-assembly panels have different IDs - find by comparing dimensions
+    const subFront = collection.panels.find(p =>
+      p.source.type === 'face' &&
+      p.source.faceId === 'front' &&
+      p.id !== 'face-front'
+    );
+
+    expect(mainFront).toBeDefined();
+    expect(subFront).toBeDefined();
+
+    console.log('Main front dimensions:', mainFront?.width, mainFront?.height);
+    console.log('Sub front dimensions:', subFront?.width, subFront?.height);
+
+    // Sub-assembly should be smaller due to clearance
+    expect(subFront!.width).toBeLessThan(mainFront!.width);
+    expect(subFront!.height).toBeLessThan(mainFront!.height);
+  });
 });

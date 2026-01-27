@@ -37,6 +37,12 @@ export interface PanelDimensions {
   height: number;  // 2D height (vertical in local coords)
 }
 
+export interface FeetParams {
+  height: number;    // How far feet extend downward
+  width: number;     // Width of each foot
+  inset: number;     // Inset from panel edges
+}
+
 export interface EdgeConfig {
   position: EdgePosition;
   hasTabs: boolean;
@@ -145,6 +151,15 @@ export abstract class BasePanel extends BaseNode {
    * Returns null if finger joints should not be generated
    */
   abstract getFingerData(): AssemblyFingerData | null;
+
+  /**
+   * Get feet configuration if this panel should have feet
+   * Override in subclass to enable feet for specific panels
+   * Returns null if no feet should be applied
+   */
+  protected getFeetConfig(): { edge: 'bottom'; params: FeetParams } | null {
+    return null;
+  }
 
   // ==========================================================================
   // Derived Value Computation
@@ -399,10 +414,125 @@ export abstract class BasePanel extends BaseNode {
       }
     }
 
+    // Apply feet if configured
+    const feetConfig = this.getFeetConfig();
+    if (feetConfig && feetConfig.edge === 'bottom') {
+      this.applyFeetToOutline(points, fingerCorners, mt, feetConfig.params);
+    }
+
     return {
       points,
       holes,
     };
+  }
+
+  /**
+   * Apply feet path to the outline
+   * Replaces the bottom edge segment with a feet path
+   */
+  protected applyFeetToOutline(
+    points: Point2D[],
+    fingerCorners: { bottomRight: Point2D; bottomLeft: Point2D },
+    materialThickness: number,
+    feetParams: FeetParams
+  ): void {
+    const { height: feetHeight, width: footWidth, inset } = feetParams;
+    const baseY = fingerCorners.bottomRight.y;
+    const bottomRightX = fingerCorners.bottomRight.x;
+    const bottomLeftX = fingerCorners.bottomLeft.x;
+
+    // Find indices of points near bottom corners
+    const tolerance = 0.1;
+    let bottomRightIdx = -1;
+    let bottomLeftIdx = -1;
+
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      // Look for points at the bottom Y level
+      if (Math.abs(p.y - baseY) < tolerance) {
+        if (Math.abs(p.x - bottomRightX) < tolerance && bottomRightIdx === -1) {
+          bottomRightIdx = i;
+        }
+        if (Math.abs(p.x - bottomLeftX) < tolerance) {
+          bottomLeftIdx = i;
+        }
+      }
+    }
+
+    // If we found both corners, replace the segment between them with feet path
+    if (bottomRightIdx !== -1 && bottomLeftIdx !== -1 && bottomRightIdx < bottomLeftIdx) {
+      const feetPath = this.generateFeetPath(
+        bottomRightX,
+        bottomLeftX,
+        baseY,
+        feetParams,
+        materialThickness
+      );
+
+      // Remove the old bottom segment and insert feet path
+      const beforeBottom = points.slice(0, bottomRightIdx);
+      const afterBottom = points.slice(bottomLeftIdx + 1);
+
+      // Rebuild outline: before + feet path + after
+      points.length = 0;
+      points.push(...beforeBottom);
+      points.push(...feetPath);
+      points.push(...afterBottom);
+    }
+  }
+
+  /**
+   * Generate a feet path for an edge
+   * Creates two feet at the corners with a gap in the middle
+   */
+  protected generateFeetPath(
+    startX: number,      // X position of start corner (right side for bottom edge)
+    endX: number,        // X position of end corner (left side for bottom edge)
+    baseY: number,       // Y position of the finger joint edge (original panel bottom)
+    feetParams: FeetParams,
+    materialThickness: number
+  ): Point2D[] {
+    const { height: feetHeight, width: footWidth, inset } = feetParams;
+
+    // The feet extend from baseY down
+    // First extend by materialThickness to clear the joint, then by feetHeight for the feet
+    const jointClearanceY = baseY - materialThickness;  // Level where joint is cleared
+    const feetBottomY = jointClearanceY - feetHeight;   // Bottom of feet
+
+    // Foot positions (accounting for inset from panel edges)
+    // For bottom edge going right to left: startX is positive (right), endX is negative (left)
+    const rightFootOuterX = startX - inset;
+    const rightFootInnerX = rightFootOuterX - footWidth;
+    const leftFootInnerX = endX + inset + footWidth;
+    const leftFootOuterX = endX + inset;
+
+    // Generate the path points
+    const points: Point2D[] = [];
+
+    // Start at right corner, at the joint level (finger pattern ends here)
+    // 1. Go down to feet bottom at right foot outer edge
+    points.push({ x: rightFootOuterX, y: baseY });
+    points.push({ x: rightFootOuterX, y: feetBottomY });
+
+    // 2. Go left along feet bottom for foot width
+    points.push({ x: rightFootInnerX, y: feetBottomY });
+
+    // 3. Go up to joint clearance level
+    points.push({ x: rightFootInnerX, y: jointClearanceY });
+
+    // 4. Go left across the gap to left foot inner edge
+    points.push({ x: leftFootInnerX, y: jointClearanceY });
+
+    // 5. Go down to feet bottom
+    points.push({ x: leftFootInnerX, y: feetBottomY });
+
+    // 6. Go left along feet bottom for foot width
+    points.push({ x: leftFootOuterX, y: feetBottomY });
+
+    // 7. Go up to joint level at left corner
+    points.push({ x: leftFootOuterX, y: baseY });
+
+    return points;
   }
 
   /**

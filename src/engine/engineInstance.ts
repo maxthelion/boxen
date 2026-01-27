@@ -12,6 +12,7 @@ import { Engine, createEngine } from './Engine';
 import { MaterialConfig, FeetConfig } from './types';
 import { Face, BoxConfig, Void, PanelPath } from '../types';
 import { syncVoidNodeFromStoreVoid, voidNodeToVoid } from './panelBridge';
+import { notifyEngineStateChanged } from './useEngineState';
 
 // Singleton engine instance
 let engineInstance: Engine | null = null;
@@ -80,6 +81,7 @@ export function syncStoreToEngine(
       const engineFeet: FeetConfig = {
         enabled: config.assembly.feet.enabled,
         height: config.assembly.feet.height,
+        width: config.assembly.feet.width,
         inset: config.assembly.feet.inset,
         gap: 0,
       };
@@ -122,6 +124,7 @@ export function syncStoreToEngine(
       const engineFeet: FeetConfig = {
         enabled: config.assembly.feet.enabled,
         height: config.assembly.feet.height,
+        width: config.assembly.feet.width,
         inset: config.assembly.feet.inset,
         gap: 0,
       };
@@ -144,6 +147,9 @@ export function syncStoreToEngine(
       }
     }
   }
+
+  // Notify React components that engine state changed
+  notifyEngineStateChanged();
 }
 
 /**
@@ -282,6 +288,9 @@ export function dispatchToEngine(action: import('./types').EngineAction): Dispat
   if (!success) {
     return { success: false, snapshot: null };
   }
+
+  // Notify React components that engine state changed
+  notifyEngineStateChanged();
 
   const snapshot = getEngineSnapshot();
   return { success: true, snapshot };

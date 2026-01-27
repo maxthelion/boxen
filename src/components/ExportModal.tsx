@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useBoxStore } from '../store/useBoxStore';
+import { useEngineFaces, useEnginePanels } from '../engine';
 import { Modal } from './UI/Modal';
 import { NumberInput } from './UI/NumberInput';
 import { FaceId, PanelPath } from '../types';
@@ -28,7 +28,8 @@ interface ExportModalProps {
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => {
-  const { faces, panelCollection } = useBoxStore();
+  const faces = useEngineFaces();
+  const panelCollection = useEnginePanels();
   const [kerf, setKerf] = useState(0.1);
   const [bedPreset, setBedPreset] = useState(0); // Index into PRESET_BED_SIZES
   const [customBedWidth, setCustomBedWidth] = useState(300);

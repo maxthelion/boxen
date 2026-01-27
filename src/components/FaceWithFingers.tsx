@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
-import { useBoxStore } from '../store/useBoxStore';
+import { useEngineConfig, useEngineFaces } from '../engine';
 import { FaceId, Face, BoxConfig, Bounds, AssemblyConfig, getFaceRole, getLidSide, getWallPriority } from '../types';
 import { generateFingerJointPath, Point } from '../utils/fingerJoints';
 
@@ -141,7 +141,12 @@ export const FaceWithFingers: React.FC<FaceWithFingersProps> = ({
   assembly,
   onClick,
 }) => {
-  const { config, faces } = useBoxStore();
+  const config = useEngineConfig();
+  const faces = useEngineFaces();
+
+  // Early return if engine not initialized
+  if (!config) return null;
+
   const { materialThickness, fingerWidth, fingerGap } = config;
 
   // Compute data needed for both geometry and outline rendering

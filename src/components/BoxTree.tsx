@@ -1,5 +1,6 @@
 import React from 'react';
 import { useBoxStore, getMainInteriorVoid } from '../store/useBoxStore';
+import { useEngineFaces, useEngineVoidTree } from '../engine';
 import { Panel } from './UI/Panel';
 import { Void, SubAssembly, Face, FaceId } from '../types';
 
@@ -733,9 +734,12 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
 };
 
 export const BoxTree: React.FC = () => {
+  // Model state from engine
+  const rootVoid = useEngineVoidTree();
+  const faces = useEngineFaces();
+
+  // UI state and actions from store
   const {
-    rootVoid,
-    faces,
     selectedVoidIds,
     selectedSubAssemblyIds,
     selectedPanelIds,
@@ -765,6 +769,9 @@ export const BoxTree: React.FC = () => {
     removeVoid,
     removeSubAssembly,
   } = useBoxStore();
+
+  // Early return if engine not initialized
+  if (!rootVoid) return null;
 
   const hasIsolation = isolatedVoidId || isolatedSubAssemblyId || isolatedPanelId;
 

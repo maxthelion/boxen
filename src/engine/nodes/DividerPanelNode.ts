@@ -236,6 +236,11 @@ export class DividerPanelNode extends BasePanel {
    * Compute the axis position for a corner of an edge.
    * This determines where the edge starts/ends along the world axis.
    * Used for finger joint alignment across panels.
+   *
+   * For dividers, this must account for:
+   * 1. Whether the divider reaches the assembly wall
+   * 2. Whether the perpendicular face is solid (affects corner inset)
+   * 3. The void bounds (for dividers that don't span the full assembly)
    */
   protected computeEdgeAxisPosition(
     edgePosition: EdgePosition,
@@ -247,49 +252,148 @@ export class DividerPanelNode extends BasePanel {
       return 0;
     }
 
+    const bounds = this._voidNode.bounds;
+    const mt = assembly.material.thickness;
+    const tolerance = 0.01;
+
+    // Get assembly dimensions and calculate max joint length for each axis
     const { width, height, depth } = {
       width: assembly.width,
       height: assembly.height,
       depth: assembly.depth,
     };
-    const mt = assembly.material.thickness;
 
-    // Get assembly-level dimensions minus MT at both ends
-    let maxJointLength: number;
-    switch (axis) {
-      case 'x': maxJointLength = width - 2 * mt; break;
-      case 'y': maxJointLength = height - 2 * mt; break;
-      case 'z': maxJointLength = depth - 2 * mt; break;
-    }
+    // Get which perpendicular faces are solid (affects corner inset)
+    const edgeConfigs = this.computeEdgeConfigs();
+    const getEdgeMeetsFace = (pos: EdgePosition): boolean => {
+      const config = edgeConfigs.find(e => e.position === pos);
+      return config?.meetsFaceId !== null;
+    };
 
-    // For divider panels, edges meet face panels
-    // All divider edges have male joints (tabs), so they define the full joint range
-    // Position 0 is the start of the joint area, maxJointLength is the end
+    // Helper to calculate axis positions using the same logic as panelGenerator
+    const calcAxisPositions = (
+      boundsLow: number,      // bounds.x/y/z (in assembly coords)
+      boundsSize: number,     // bounds.w/h/d
+      maxJoint: number,       // max joint length for this axis (dim - 2*mt)
+      axisDim: number,        // width/height/depth
+      meetsLow: boolean,      // meets face at low end (perpendicular edge is solid)
+      meetsHigh: boolean      // meets face at high end
+    ): { startPos: number; endPos: number } => {
+      // Check if divider reaches each wall (interior surface at mt from outer edge)
+      const atLowWall = boundsLow <= mt + tolerance;
+      const atHighWall = boundsLow + boundsSize >= axisDim - mt - tolerance;
 
-    // Determine which edge direction this is
-    // Horizontal edges (top/bottom): start=left, end=right -> low to high
-    // Vertical edges (left/right): start=bottom, end=top for left, top to bottom for right
+      let startPos: number;
+      let endPos: number;
+
+      // Low end - same logic as face panels
+      if (atLowWall) {
+        // Divider is at the wall - use face panel logic
+        // meetsLow = true means perpendicular face is solid, corner is inset, use 0
+        // meetsLow = false means perpendicular face is open, panel extends to edge, use -mt
+        startPos = meetsLow ? 0 : -mt;
+      } else {
+        // Divider doesn't reach the wall - use actual position in 0-based coords
+        startPos = boundsLow - mt;
+      }
+
+      // High end - same logic as face panels
+      if (atHighWall) {
+        // Divider is at the wall - use face panel logic
+        endPos = meetsHigh ? maxJoint : maxJoint + mt;
+      } else {
+        // Divider doesn't reach the wall - use actual position in 0-based coords
+        endPos = boundsLow + boundsSize - mt;
+      }
+
+      return { startPos, endPos };
+    };
+
+    // Determine which bounds and faces to use based on edge position and divider axis
+    let startPos: number;
+    let endPos: number;
+
     const isHorizontalEdge = edgePosition === 'top' || edgePosition === 'bottom';
 
-    // For horizontal edges: left is start (pos 0), right is end (pos maxJointLength)
-    // For vertical edges: bottom is start, top is end
-    // But we need to account for the edge traversal direction in the outline
+    switch (this._axis) {
+      case 'x': // YZ plane divider - width=depth(Z), height=height(Y)
+        if (isHorizontalEdge && axis === 'z') {
+          // Horizontal edges run along Z axis
+          const meetsLeft = getEdgeMeetsFace('left');   // back face
+          const meetsRight = getEdgeMeetsFace('right'); // front face
+          ({ startPos, endPos } = calcAxisPositions(
+            bounds.z, bounds.d, depth - 2 * mt, depth, meetsLeft, meetsRight
+          ));
+        } else if (!isHorizontalEdge && axis === 'y') {
+          // Vertical edges run along Y axis
+          const meetsBottom = getEdgeMeetsFace('bottom');
+          const meetsTop = getEdgeMeetsFace('top');
+          ({ startPos, endPos } = calcAxisPositions(
+            bounds.y, bounds.h, height - 2 * mt, height, meetsBottom, meetsTop
+          ));
+        } else {
+          return 0;
+        }
+        break;
 
+      case 'y': // XZ plane divider - width=width(X), height=depth(Z)
+        if (isHorizontalEdge && axis === 'x') {
+          // Horizontal edges run along X axis
+          const meetsLeft = getEdgeMeetsFace('left');
+          const meetsRight = getEdgeMeetsFace('right');
+          ({ startPos, endPos } = calcAxisPositions(
+            bounds.x, bounds.w, width - 2 * mt, width, meetsLeft, meetsRight
+          ));
+        } else if (!isHorizontalEdge && axis === 'z') {
+          // Vertical edges run along Z axis
+          const meetsBottom = getEdgeMeetsFace('bottom'); // front face
+          const meetsTop = getEdgeMeetsFace('top');       // back face
+          ({ startPos, endPos } = calcAxisPositions(
+            bounds.z, bounds.d, depth - 2 * mt, depth, meetsBottom, meetsTop
+          ));
+        } else {
+          return 0;
+        }
+        break;
+
+      case 'z': // XY plane divider - width=width(X), height=height(Y)
+      default:
+        if (isHorizontalEdge && axis === 'x') {
+          // Horizontal edges run along X axis
+          const meetsLeft = getEdgeMeetsFace('left');
+          const meetsRight = getEdgeMeetsFace('right');
+          ({ startPos, endPos } = calcAxisPositions(
+            bounds.x, bounds.w, width - 2 * mt, width, meetsLeft, meetsRight
+          ));
+        } else if (!isHorizontalEdge && axis === 'y') {
+          // Vertical edges run along Y axis
+          const meetsBottom = getEdgeMeetsFace('bottom');
+          const meetsTop = getEdgeMeetsFace('top');
+          ({ startPos, endPos } = calcAxisPositions(
+            bounds.y, bounds.h, height - 2 * mt, height, meetsBottom, meetsTop
+          ));
+        } else {
+          return 0;
+        }
+        break;
+    }
+
+    // Determine which end based on edge traversal direction in the 2D outline:
+    // - Top edge: left to right -> start=startPos, end=endPos
+    // - Bottom edge: right to left -> start=endPos, end=startPos
+    // - Right edge: top to bottom -> start=endPos, end=startPos
+    // - Left edge: bottom to top -> start=startPos, end=endPos
     if (isHorizontalEdge) {
-      // Top edge: left to right (0 to maxJointLength)
-      // Bottom edge: right to left (maxJointLength to 0)
       if (edgePosition === 'top') {
-        return corner === 'start' ? 0 : maxJointLength;
+        return corner === 'start' ? startPos : endPos;
       } else {
-        return corner === 'start' ? maxJointLength : 0;
+        return corner === 'start' ? endPos : startPos;
       }
     } else {
-      // Right edge: top to bottom (maxJointLength to 0)
-      // Left edge: bottom to top (0 to maxJointLength)
       if (edgePosition === 'right') {
-        return corner === 'start' ? maxJointLength : 0;
+        return corner === 'start' ? endPos : startPos;
       } else {
-        return corner === 'start' ? 0 : maxJointLength;
+        return corner === 'start' ? startPos : endPos;
       }
     }
   }

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { useBoxStore } from '../store/useBoxStore';
+import { useEngineFaces, useEnginePanels } from '../engine';
 import { Panel } from './UI/Panel';
 import { FaceId, PanelPath, PathPoint } from '../types';
 
@@ -25,7 +25,8 @@ const pathPointsToSVGPath = (
 };
 
 export const FacePreview: React.FC = () => {
-  const { faces, panelCollection } = useBoxStore();
+  const faces = useEngineFaces();
+  const panelCollection = useEnginePanels();
 
   // Get panels from stored collection
   const panels = panelCollection?.panels ?? [];

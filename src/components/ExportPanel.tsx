@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useBoxStore } from '../store/useBoxStore';
+import { useEngineFaces, useEnginePanels } from '../engine';
 import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
 import { FaceId, PanelPath } from '../types';
@@ -12,7 +12,8 @@ import {
 const faceOrder: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
 
 export const ExportPanel: React.FC = () => {
-  const { faces, panelCollection } = useBoxStore();
+  const faces = useEngineFaces();
+  const panelCollection = useEnginePanels();
   const [kerf, setKerf] = useState(0.1);
 
   // Get panels from stored collection

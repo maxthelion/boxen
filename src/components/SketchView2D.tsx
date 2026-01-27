@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { useBoxStore, getAllSubdivisions } from '../store/useBoxStore';
+import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
 import { PathPoint, PanelPath, FaceId, Face } from '../types';
 import { getFaceEdgeStatuses, getDividerEdgeStatuses, EdgeStatusInfo } from '../utils/panelGenerator';
 import { getEditableAreas, EditableArea } from '../utils/editableAreas';
@@ -223,13 +224,16 @@ const getDividerMeetsFaces = (
 };
 
 export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
+  // Model state from engine
+  const config = useEngineConfig();
+  const faces = useEngineFaces();
+  const rootVoid = useEngineVoidTree();
+  const panelCollection = useEnginePanels();
+
+  // UI state and actions from store
   const {
     sketchPanelId,
-    panelCollection,
     exitSketchView,
-    config,
-    faces,
-    rootVoid,
     setEdgeExtension,
     activeTool,
     setActiveTool,
@@ -252,6 +256,9 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   const [dragEdge, setDragEdge] = useState<EdgePosition | null>(null);
   const [dragStartPos, setDragStartPos] = useState<number>(0);
   const [dragStartExtension, setDragStartExtension] = useState<number>(0);
+
+  // Early return if engine not initialized
+  if (!config || !rootVoid) return null;
 
   // Corner interaction state
   const [hoveredCornerId, setHoveredCornerId] = useState<string | null>(null);

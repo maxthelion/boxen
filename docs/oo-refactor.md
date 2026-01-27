@@ -189,7 +189,12 @@ Move panel generation logic from `panelGenerator.ts` into engine.
 - Engine can generate face panels and divider panels with finger joints
 - Edge extensions are preserved across panel regeneration
 - `panelBridge.ts` now only provides type conversion (no `panelGenerator.ts` dependency)
-- All 160 tests pass
+- All 163 tests pass
+- ✅ Slot holes generated in face panels when dividers intersect
+  - Added `Subdivision` interface to types.ts
+  - Added `getSubdivisions()` method to BaseAssembly
+  - Implemented `computeHoles()` in FacePanelNode with slot position calculation
+  - Handles all face orientations and divider axes correctly
 
 **Verified:**
 - ✅ Engine's `computeOutline()` produces output matching `panelGenerator.ts`
@@ -197,23 +202,67 @@ Move panel generation logic from `panelGenerator.ts` into engine.
   - Engine: 20 points, Generator: 21 points (minor difference in closing)
 - ✅ Divider panels have proper finger joints (60 points with larger box)
 - ✅ Edge extensions work via dispatch and persist
+- ✅ Slot holes generated for dividers on front/back faces (tested with X-axis divider)
 - ✅ Tests in `src/engine/nodes/BasePanel.test.ts`
 
-**Remaining (deferred to Phase 9):**
-1. Slot holes (when dividers intersect face panels)
-2. Feet-related panels
-3. Sub-assembly panels
+- ✅ Feet support for wall panels
+  - Added `FeetParams` interface to BasePanel
+  - Added `getFeetConfig()` protected method (returns null in BasePanel)
+  - Added `applyFeetToOutline()` and `generateFeetPath()` in BasePanel
+  - FacePanelNode overrides `getFeetConfig()` to return feet config for wall panels (not lids)
+  - Feet only apply to non-lid face panels when assembly has feet enabled
 
-### Phase 9: Edge Extensions & Augmentations
-1. Move edge extension logic into `BasePanel`
-2. Move corner chamfer/fillet into panel nodes
-3. Panel holes computed from intersecting dividers/sub-assemblies
+- ✅ Sub-assembly panels generated and included in panel collection
+  - Added `collectSubAssemblyPanels()` in BaseAssembly to traverse void tree
+  - Implemented `CREATE_SUB_ASSEMBLY` action in Engine.dispatch()
+  - Implemented `REMOVE_SUB_ASSEMBLY` action in Engine.dispatch()
+  - Fixed panel ID uniqueness - sub-assembly panels use `{assemblyId}-face-{faceId}` format
+  - Sub-assembly dimensions account for clearance from void walls
 
-### Phase 10: React as Pure Renderer
-1. Remove `useBoxStore` state, keep only actions
-2. React components render from `SceneSnapshot`
-3. UI interactions → `engine.dispatch()` → `setSnapshot()`
-4. Add `executeCommand()` wrapper to prepare for history recording
+**Phase 8 Complete!**
+All 163 tests pass. Engine-first panel generation now handles:
+- Face panels with finger joints
+- Divider panels from void subdivisions
+- Slot holes in face panels for dividers
+- Feet on wall panels
+- Sub-assembly panels with unique IDs
+
+### Phase 9: Edge Extensions & Augmentations (Complete)
+1. ✅ Edge extension logic already in `BasePanel.computeOutline()` - extensions applied to outline corners
+2. ⏸️ Corner chamfer/fillet - **Deferred** (currently visual-only in 2D editor, not persisted)
+3. ✅ Panel holes computed from intersecting dividers - `FacePanelNode.computeHoles()`
+
+**Note**: Corner finishes (chamfer/fillet) are applied visually in SketchView2D but not persisted to the model. Moving this to the engine would require:
+- Adding `_cornerFinishes` storage to BasePanel
+- Actions to set/get corner finishes per panel
+- Applying finishes in `computeOutline()`
+This can be implemented when corner finish persistence is needed.
+
+### Phase 10: React as Pure Renderer (Complete)
+
+**Completed:**
+- ✅ Created `useEngineState.ts` - React hooks for reading engine state
+  - `useEngineState()` - full engine state with `useSyncExternalStore`
+  - `useEngineSelector()` - selective state with memoization
+  - `useEngineConfig()`, `useEngineFaces()`, `useEngineVoidTree()`, `useEnginePanels()`
+  - `notifyEngineStateChanged()` - triggers React re-renders
+- ✅ Added `notifyEngineStateChanged()` to `dispatchToEngine()` and `syncStoreToEngine()`
+- ✅ Fixed `FeetConfig` type mismatch (added `width` to engine type)
+- ✅ Exported all hooks from `engine/index.ts`
+- ✅ Migrated all 19 components to use engine hooks for model state:
+  - DimensionForm, FaceSelector, ExportPanel, ExportModal
+  - Box3D, FaceWithFingers, DividerPanel
+  - VoidMesh, PanelProperties, AssemblyProperties
+  - BoxTree, SubdivisionControls, FacePreview
+  - SketchView2D, SketchSidebar, PanelPathRenderer, Viewport3D
+
+**Architecture:**
+- Model state (config, faces, rootVoid, panelCollection) → `useEngine*` hooks
+- UI state (selection, preview, visibility, hover) → `useBoxStore`
+- Actions remain in store, call `dispatchToEngine()` for mutations
+
+**Phase 10 Complete!**
+All 163 tests pass. Components now read model state from engine, UI state from store.
 
 ### Phase 11: Event Sourcing & Undo/Redo
 See full proposal: `docs/event-sourcing-proposal.md`

@@ -1,5 +1,6 @@
 import React from 'react';
 import { useBoxStore } from '../store/useBoxStore';
+import { useEngineFaces } from '../engine';
 import { Panel } from './UI/Panel';
 import { FaceId } from '../types';
 
@@ -13,7 +14,8 @@ const faceLabels: Record<FaceId, string> = {
 };
 
 export const FaceSelector: React.FC = () => {
-  const { faces, toggleFace } = useBoxStore();
+  const faces = useEngineFaces();
+  const toggleFace = useBoxStore((s) => s.toggleFace);
 
   return (
     <Panel title="Faces">

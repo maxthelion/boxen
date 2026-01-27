@@ -29,6 +29,16 @@ export type { EngineStateSnapshot, DispatchResult } from './engineInstance';
 
 // React integration
 export { useEngine, useEngineInstance } from './useEngine';
+export {
+  useEngineState,
+  useEngineConfig,
+  useEngineFaces,
+  useEngineVoidTree,
+  useEnginePanels,
+  useEnginePanel,
+  notifyEngineStateChanged,
+} from './useEngineState';
+export type { EngineModelState } from './useEngineState';
 
 // Panel generation bridge
 export {

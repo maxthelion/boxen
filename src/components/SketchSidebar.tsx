@@ -1,7 +1,7 @@
 import React from 'react';
-import { useBoxStore } from '../store/useBoxStore';
+import { useBoxStore, getAllSubdivisions } from '../store/useBoxStore';
+import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
 import { getFaceEdgeStatuses, getDividerEdgeStatuses, EdgeStatusInfo } from '../utils/panelGenerator';
-import { getAllSubdivisions } from '../store/useBoxStore';
 import { Face, FaceId } from '../types';
 
 // Calculate which faces a divider meets (has finger joints with)
@@ -44,14 +44,20 @@ const getDividerMeetsFaces = (
 };
 
 export const SketchSidebar: React.FC = () => {
+  // Model state from engine
+  const config = useEngineConfig();
+  const faces = useEngineFaces();
+  const rootVoid = useEngineVoidTree();
+  const panelCollection = useEnginePanels();
+
+  // UI state from store
   const {
     sketchPanelId,
-    panelCollection,
-    config,
-    faces,
-    rootVoid,
     activeTool,
   } = useBoxStore();
+
+  // Early return if engine not initialized
+  if (!config || !rootVoid) return null;
 
   // Get the panel being edited
   const panel = React.useMemo(() => {

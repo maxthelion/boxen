@@ -1,5 +1,6 @@
 import React from 'react';
 import { useBoxStore, getAllSubAssemblies } from '../store/useBoxStore';
+import { useEngineConfig, useEngineFaces, useEngineVoidTree } from '../engine';
 import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
 import { FaceId, AssemblyAxis, LidTabDirection, getLidFaceId, defaultFeetConfig } from '../types';
@@ -7,12 +8,15 @@ import { FaceId, AssemblyAxis, LidTabDirection, getLidFaceId, defaultFeetConfig 
 const faceOrder: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
 
 export const AssemblyProperties: React.FC = () => {
+  // Model state from engine
+  const config = useEngineConfig();
+  const faces = useEngineFaces();
+  const rootVoid = useEngineVoidTree();
+
+  // UI state and actions from store
   const {
     selectedAssemblyId,
     selectedSubAssemblyIds,
-    config,
-    faces,
-    rootVoid,
     setConfig,
     toggleFace,
     toggleSubAssemblyFace,
@@ -25,6 +29,9 @@ export const AssemblyProperties: React.FC = () => {
     setSubAssemblyLidInset,
     setFeetConfig,
   } = useBoxStore();
+
+  // Early return if engine not initialized
+  if (!config || !rootVoid) return null;
 
   // Use selectedAssemblyId if set, otherwise use first selected sub-assembly
   const effectiveAssemblyId = selectedAssemblyId ??

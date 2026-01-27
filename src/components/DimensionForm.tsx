@@ -1,10 +1,14 @@
 import React from 'react';
 import { useBoxStore } from '../store/useBoxStore';
+import { useEngineConfig } from '../engine';
 import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
 
 export const DimensionForm: React.FC = () => {
-  const { config, setConfig } = useBoxStore();
+  const config = useEngineConfig();
+  const setConfig = useBoxStore((s) => s.setConfig);
+
+  if (!config) return null;
 
   return (
     <Panel title="Dimensions">

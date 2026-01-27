@@ -6,6 +6,7 @@ import { ViewportToolbar } from './ViewportToolbar';
 import { EditorToolbar } from './EditorToolbar';
 import { PushPullPalette, PushPullMode } from './PushPullPalette';
 import { useBoxStore } from '../store/useBoxStore';
+import { useEnginePanels } from '../engine';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
 
@@ -14,9 +15,12 @@ export interface Viewport3DHandle {
 }
 
 export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
+  // Model state from engine
+  const panelCollection = useEnginePanels();
+
+  // UI state and actions from store
   const clearSelection = useBoxStore((state) => state.clearSelection);
   const selectedPanelIds = useBoxStore((state) => state.selectedPanelIds);
-  const panelCollection = useBoxStore((state) => state.panelCollection);
   const toggleFace = useBoxStore((state) => state.toggleFace);
   const purgeVoid = useBoxStore((state) => state.purgeVoid);
   const activeTool = useBoxStore((state) => state.activeTool);
