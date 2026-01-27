@@ -413,6 +413,7 @@ export type EngineAction =
   | { type: 'SET_FACE_SOLID'; targetId: string; payload: { faceId: FaceId; solid: boolean } }
   | { type: 'TOGGLE_FACE'; targetId: string; payload: { faceId: FaceId } }
   | { type: 'ADD_SUBDIVISION'; targetId: string; payload: { voidId: string; axis: Axis; position: number } }
+  | { type: 'ADD_SUBDIVISIONS'; targetId: string; payload: { voidId: string; axis: Axis; positions: number[] } }
   | { type: 'REMOVE_SUBDIVISION'; targetId: string; payload: { voidId: string } }
   | { type: 'SET_EDGE_EXTENSION'; targetId: string; payload: { panelId: string; edge: EdgePosition; value: number } }
   | { type: 'CREATE_SUB_ASSEMBLY'; targetId: string; payload: { voidId: string; clearance?: number } }

@@ -163,6 +163,100 @@ export class VoidNode extends BaseNode {
   }
 
   /**
+   * Subdivide this void at multiple positions along an axis
+   * Creates N+1 child voids for N split positions (dividers)
+   *
+   * @param axis - Axis to subdivide along
+   * @param positions - Array of absolute split positions
+   * @param materialThickness - Thickness of divider panels
+   * @returns Array of created child VoidNodes
+   */
+  subdivideMultiple(
+    axis: Axis,
+    positions: number[],
+    materialThickness: number
+  ): VoidNode[] {
+    if (!this.isLeaf) {
+      throw new Error('Cannot subdivide a non-leaf void');
+    }
+
+    if (positions.length === 0) {
+      throw new Error('Must provide at least one split position');
+    }
+
+    // Sort positions to ensure correct ordering
+    const sortedPositions = [...positions].sort((a, b) => a - b);
+    const halfMt = materialThickness / 2;
+    const children: VoidNode[] = [];
+
+    // Get axis-specific values
+    const dimStart = axis === 'x' ? this._bounds.x : axis === 'y' ? this._bounds.y : this._bounds.z;
+    const dimSize = axis === 'x' ? this._bounds.w : axis === 'y' ? this._bounds.h : this._bounds.d;
+    const dimEnd = dimStart + dimSize;
+
+    // Create N+1 child voids for N dividers
+    for (let i = 0; i <= sortedPositions.length; i++) {
+      const regionStart = i === 0 ? dimStart : sortedPositions[i - 1] + halfMt;
+      const regionEnd = i === sortedPositions.length ? dimEnd : sortedPositions[i] - halfMt;
+      const regionSize = regionEnd - regionStart;
+
+      // Calculate bounds for this child
+      let childBounds: Bounds3D;
+      switch (axis) {
+        case 'x':
+          childBounds = {
+            x: regionStart,
+            y: this._bounds.y,
+            z: this._bounds.z,
+            w: regionSize,
+            h: this._bounds.h,
+            d: this._bounds.d,
+          };
+          break;
+        case 'y':
+          childBounds = {
+            x: this._bounds.x,
+            y: regionStart,
+            z: this._bounds.z,
+            w: this._bounds.w,
+            h: regionSize,
+            d: this._bounds.d,
+          };
+          break;
+        case 'z':
+          childBounds = {
+            x: this._bounds.x,
+            y: this._bounds.y,
+            z: regionStart,
+            w: this._bounds.w,
+            h: this._bounds.h,
+            d: regionSize,
+          };
+          break;
+      }
+
+      const child = new VoidNode(childBounds);
+
+      // Set split info on children after the first (they have a divider before them)
+      if (i > 0) {
+        const splitPos = sortedPositions[i - 1];
+        const percentage = (splitPos - dimStart) / dimSize;
+        child.setSplitInfo({
+          axis,
+          position: splitPos,
+          mode: 'percentage',
+          percentage,
+        });
+      }
+
+      this.addChild(child);
+      children.push(child);
+    }
+
+    return children;
+  }
+
+  /**
    * Remove subdivision and return to leaf state
    */
   clearSubdivision(): void {
@@ -174,10 +268,132 @@ export class VoidNode extends BaseNode {
   }
 
   /**
+   * Get the sub-assembly in this void (if any)
+   */
+  getSubAssembly(): BaseNode | null {
+    return this._children.find(c => c.kind === 'sub-assembly') || null;
+  }
+
+  /**
+   * Get all void children (subdivision voids)
+   */
+  getVoidChildren(): VoidNode[] {
+    return this._children.filter(c => c.kind === 'void') as VoidNode[];
+  }
+
+  /**
    * Update child bounds when parent bounds change
+   * Recalculates child bounds based on their split percentages
    */
   protected updateChildBounds(): void {
-    // TODO: Recalculate child bounds based on split percentages
+    const voidChildren = this.getVoidChildren();
+    if (voidChildren.length === 0) return;
+
+    // Collect split percentages from children (children after first have split info)
+    const splitAxis = voidChildren[1]?._splitAxis;
+    if (!splitAxis) return;
+
+    const percentages: number[] = [];
+    for (let i = 1; i < voidChildren.length; i++) {
+      const pct = voidChildren[i]._splitPercentage;
+      if (pct !== undefined) {
+        percentages.push(pct);
+      }
+    }
+
+    if (percentages.length === 0) return;
+
+    // Convert percentages back to absolute positions
+    const dimStart = splitAxis === 'x' ? this._bounds.x : splitAxis === 'y' ? this._bounds.y : this._bounds.z;
+    const dimSize = splitAxis === 'x' ? this._bounds.w : splitAxis === 'y' ? this._bounds.h : this._bounds.d;
+    const positions = percentages.map(pct => dimStart + pct * dimSize);
+
+    // Find parent assembly to get material thickness
+    let node = this.parent;
+    while (node && node.kind !== 'assembly' && node.kind !== 'sub-assembly') {
+      node = node.parent;
+    }
+    const mt = (node as any)?.material?.thickness ?? 3; // Default to 3mm
+
+    // Clear and recreate children with new bounds
+    this.clearSubdivision();
+    this.subdivideMultiple(splitAxis, positions, mt);
+  }
+
+  // ==========================================================================
+  // Static Tree Traversal Methods
+  // ==========================================================================
+
+  /**
+   * Find a void by ID in a void tree
+   */
+  static find(root: VoidNode, id: string): VoidNode | null {
+    if (root.id === id) return root;
+    for (const child of root._children) {
+      if (child.kind === 'void') {
+        const found = VoidNode.find(child as VoidNode, id);
+        if (found) return found;
+      }
+      // Also search inside sub-assembly's void structure
+      if (child.kind === 'sub-assembly') {
+        const subAsm = child as any;
+        if (subAsm.rootVoid) {
+          const found = VoidNode.find(subAsm.rootVoid, id);
+          if (found) return found;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find parent of a void by ID
+   */
+  static findParent(root: VoidNode, id: string): VoidNode | null {
+    for (const child of root._children) {
+      if (child.kind === 'void') {
+        if (child.id === id) return root;
+        const found = VoidNode.findParent(child as VoidNode, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get all void IDs in a subtree
+   */
+  static getSubtreeIds(root: VoidNode): string[] {
+    const ids = [root.id];
+    for (const child of root._children) {
+      if (child.kind === 'void') {
+        ids.push(...VoidNode.getSubtreeIds(child as VoidNode));
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * Get ancestor IDs of a void (path from root to target, excluding target)
+   */
+  static getAncestorIds(root: VoidNode, targetId: string): string[] {
+    const path: string[] = [];
+
+    const findPath = (node: VoidNode, target: string): boolean => {
+      if (node.id === target) return true;
+      for (const child of node._children) {
+        if (child.kind === 'void') {
+          if (findPath(child as VoidNode, target)) {
+            path.unshift(node.id);
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    findPath(root, targetId);
+    return path;
   }
 
   // ==========================================================================

@@ -219,6 +219,19 @@ export class Engine {
         break;
       }
 
+      case 'ADD_SUBDIVISIONS': {
+        const voidNode = this.findVoid(action.payload.voidId);
+        if (voidNode && assembly) {
+          voidNode.subdivideMultiple(
+            action.payload.axis,
+            action.payload.positions,
+            assembly.material.thickness
+          );
+          return true;
+        }
+        break;
+      }
+
       case 'REMOVE_SUBDIVISION': {
         const voidNode = this.findVoid(action.payload.voidId);
         if (voidNode) {
