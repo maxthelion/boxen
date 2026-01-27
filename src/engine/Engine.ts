@@ -19,6 +19,8 @@ import {
   PanelCollectionSnapshot,
   EngineAction,
 } from './types';
+import { PanelCollection, PanelPath } from '../types';
+import { generatePanelsForScene } from './panelBridge';
 
 export class Engine {
   private _scene: SceneNode;
@@ -110,7 +112,7 @@ export class Engine {
   }
 
   /**
-   * Get the panel collection for rendering and export
+   * Get the panel collection for rendering and export (engine types)
    */
   getPanelCollection(): PanelCollectionSnapshot {
     // Ensure scene is up to date
@@ -119,6 +121,19 @@ export class Engine {
       this._scene.clearDirty();
     }
     return this._scene.collectPanels();
+  }
+
+  /**
+   * Generate panels using the existing panelGenerator (store types)
+   * This bridges the engine to the existing panel generation logic.
+   */
+  generatePanels(existingPanels?: PanelPath[]): PanelCollection {
+    // Ensure scene is up to date
+    if (this._scene.isDirty) {
+      this._scene.recompute();
+      this._scene.clearDirty();
+    }
+    return generatePanelsForScene(this._scene, existingPanels);
   }
 
   // ==========================================================================

@@ -11,8 +11,14 @@
 // Main entry point
 export { Engine, createEngine, createEngineWithAssembly } from './Engine';
 
+// Singleton instance
+export { getEngine, resetEngine, syncStoreToEngine } from './engineInstance';
+
 // React integration
 export { useEngine, useEngineInstance } from './useEngine';
+
+// Panel generation bridge
+export { generatePanelsForAssembly, generatePanelsForScene } from './panelBridge';
 
 // Node classes
 export { BaseNode, generateId, resetIdCounter } from './nodes/BaseNode';

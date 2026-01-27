@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS } from '../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
+import { syncStoreToEngine } from '../engine';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { appendDebug } from '../utils/debug';
@@ -1739,6 +1740,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // Panel path actions
   generatePanels: () =>
     set((state) => {
+      // Sync state to engine (Phase 3: engine mirrors store state)
+      syncStoreToEngine(state.config, state.faces);
+
       // Generate panel paths from current configuration
       // Pass existing panels to preserve edge extensions during regeneration
       const collection = generatePanelCollection(
