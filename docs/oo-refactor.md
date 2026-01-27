@@ -131,27 +131,33 @@ This caused engine dispatch to fail when looking up voids by store ID.
 ## Remaining Work
 
 ### Phase 7: Engine as Source of Truth (Partial)
-Void operations now route through engine and store reads back results.
+Store now routes operations through engine and reads back results.
 
 **Completed:**
 - ✅ Void operations dispatch through engine (`ADD_SUBDIVISIONS`, `REMOVE_SUBDIVISION`)
-- ✅ Store reads back void tree from engine after operations
+- ✅ Store reads back void tree from engine after void operations
 - ✅ Engine generates void IDs (store inherits them)
+- ✅ Face operations dispatch through engine (`TOGGLE_FACE`)
+- ✅ Store reads back faces from engine after toggleFace
+- ✅ Config/material/assembly operations dispatch through engine
+- ✅ `ensureEngineInitialized()` ensures engine is ready before all dispatches
+- ✅ Helper functions: `getEngineVoidTree()`, `getEngineConfig()`, `getEngineFaces()`
+
+**Current Pattern:**
+```
+Store action → ensureEngineInitialized() → engine.dispatch() → read back from engine
+```
 
 **Remaining:**
-1. **Initialize engine from store once, then engine owns state**
-   - Currently: store syncs TO engine before each void operation
-   - Target: engine initialized once, store only reads from engine
-
-2. **Dispatch returns snapshot**
+1. **Dispatch returns snapshot**
    - Change `dispatch(action): boolean` → `dispatch(action): SceneSnapshot`
    - Store calls `setSnapshot(engine.dispatch(action))`
 
-3. **Remove store-side state duplication**
+2. **Remove store-side state duplication**
    - Store should not hold `config`, `faces`, `rootVoid` separately
    - All state derived from `engine.getSnapshot()`
 
-4. **Fast node lookup**
+3. **Fast node lookup**
    - Add `Map<id, BaseNode>` to Engine
    - `findById()` uses map instead of tree traversal
 
