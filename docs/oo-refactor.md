@@ -89,10 +89,24 @@ Consolidated duplicated code between engine and legacy implementation:
 
 - **Lines of Duplicate Code Removed**: ~200 lines across 5 files
 
-### ⚠️ Phase 6: Void Tree Migration (Partial)
+### ⚠️ Phase 6: Void Tree Migration (In Progress)
 - Removed duplicate void tree functions from `useBoxStore.ts`
 - Now uses `VoidTree` namespace from `utils/voidTree.ts`
-- **Remaining**: Move void tree into engine (currently store owns it)
+
+**VoidNode Enhancements Complete:**
+- `subdivideMultiple(axis, positions, mt)` - creates N+1 children for N splits
+- `updateChildBounds()` - recalculates child bounds from split percentages
+- `getSubAssembly()`, `getVoidChildren()` - child accessors
+- Static tree traversal: `find()`, `findParent()`, `getSubtreeIds()`, `getAncestorIds()`
+
+**Engine Actions Added:**
+- `ADD_SUBDIVISIONS` - multi-position subdivision dispatch
+- `ADD_SUBDIVISION`, `REMOVE_SUBDIVISION` - already existed
+
+**Remaining:**
+- Route store `applySubdivision()` through engine dispatch
+- Make store's `rootVoid` derive from engine snapshot
+- Handle Void interface ↔ VoidNode class conversion
 
 ---
 
