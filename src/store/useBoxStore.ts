@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS } from '../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
-import { syncStoreToEngine, getEngine, getEngineVoidTree, ensureEngineInitialized, getEngineFaces } from '../engine';
+import { syncStoreToEngine, getEngine, getEngineVoidTree, ensureEngineInitialized, getEngineFaces, dispatchToEngine } from '../engine';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { appendDebug } from '../utils/debug';
@@ -505,18 +505,15 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       // Ensure engine is initialized before dispatching
       ensureEngineInitialized(state.config, state.faces, state.rootVoid);
 
-      // Route through engine (engine is source of truth for faces)
-      const engine = getEngine();
-      engine.dispatch({
+      // Dispatch to engine and get updated state
+      const result = dispatchToEngine({
         type: 'TOGGLE_FACE',
         targetId: 'main-assembly',
         payload: { faceId },
       });
 
-      // Read faces back from engine (engine is source of truth)
-      const newFaces = getEngineFaces();
-      if (!newFaces) {
-        // Fallback to local update if engine not ready
+      if (!result.success || !result.snapshot) {
+        // Fallback to local update if dispatch failed
         return {
           faces: state.faces.map((face) =>
             face.id === faceId ? { ...face, solid: !face.solid } : face
@@ -529,11 +526,11 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       return {
-        faces: newFaces,
-        subdivisionPreview: null,  // Clear preview when faces change
-        previewState: null,  // Clear preview state when faces change
-        previewPanelCollection: null,  // Clear preview panels
-        panelsDirty: true,  // Mark panels as needing regeneration
+        faces: result.snapshot.faces,
+        subdivisionPreview: null,
+        previewState: null,
+        previewPanelCollection: null,
+        panelsDirty: true,
       };
     }),
 
@@ -673,16 +670,16 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       const { axis, positions } = preview;
 
-      // Engine-first approach: dispatch to engine and read back void tree
-      // 1. Sync current void tree to engine
+      // Sync current state to engine
       syncStoreToEngine(state.config, state.faces, state.rootVoid);
 
-      // 2. Dispatch ADD_SUBDIVISIONS to engine
+      // Get assembly ID from engine
       const engine = getEngine();
       const assembly = engine.assembly;
       if (!assembly) return state;
 
-      const success = engine.dispatch({
+      // Dispatch and get updated state
+      const result = dispatchToEngine({
         type: 'ADD_SUBDIVISIONS',
         targetId: assembly.id,
         payload: {
@@ -692,14 +689,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         },
       });
 
-      if (!success) return state;
-
-      // 3. Read back void tree from engine (with engine-generated IDs)
-      const newRootVoid = getEngineVoidTree();
-      if (!newRootVoid) return state;
+      if (!result.success || !result.snapshot) return state;
 
       return {
-        rootVoid: newRootVoid,
+        rootVoid: result.snapshot.rootVoid,
         selectedVoidIds: new Set<string>(),
         selectedPanelIds: new Set<string>(),
         subdivisionPreview: null,
@@ -712,16 +705,16 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const parent = findParent(state.rootVoid, voidId);
       if (!parent) return state;
 
-      // Engine-first approach: dispatch to engine and read back void tree
-      // 1. Sync current void tree to engine
+      // Sync current state to engine
       syncStoreToEngine(state.config, state.faces, state.rootVoid);
 
-      // 2. Dispatch REMOVE_SUBDIVISION to engine (with parent's ID)
+      // Get assembly ID from engine
       const engine = getEngine();
       const assembly = engine.assembly;
       if (!assembly) return state;
 
-      const success = engine.dispatch({
+      // Dispatch and get updated state
+      const result = dispatchToEngine({
         type: 'REMOVE_SUBDIVISION',
         targetId: assembly.id,
         payload: {
@@ -729,14 +722,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         },
       });
 
-      if (!success) return state;
-
-      // 3. Read back void tree from engine
-      const newRootVoid = getEngineVoidTree();
-      if (!newRootVoid) return state;
+      if (!result.success || !result.snapshot) return state;
 
       return {
-        rootVoid: newRootVoid,
+        rootVoid: result.snapshot.rootVoid,
         selectedVoidIds: new Set<string>(),
         selectedPanelIds: new Set<string>(),
         subdivisionPreview: null,

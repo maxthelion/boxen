@@ -202,3 +202,57 @@ export function getEngineFaces(): Face[] | null {
     solid: assembly.isFaceSolid(id),
   }));
 }
+
+// =============================================================================
+// Unified State Snapshot
+// =============================================================================
+
+/**
+ * Complete engine state in store-compatible format
+ */
+export interface EngineStateSnapshot {
+  config: BoxConfig;
+  faces: Face[];
+  rootVoid: Void;
+}
+
+/**
+ * Result of dispatching an action to the engine
+ */
+export interface DispatchResult {
+  success: boolean;
+  snapshot: EngineStateSnapshot | null;
+}
+
+/**
+ * Get the complete engine state as a store-compatible snapshot
+ * Returns null if engine has no assembly
+ */
+export function getEngineSnapshot(): EngineStateSnapshot | null {
+  const config = getEngineConfig();
+  const faces = getEngineFaces();
+  const rootVoid = getEngineVoidTree();
+
+  if (!config || !faces || !rootVoid) return null;
+
+  return { config, faces, rootVoid };
+}
+
+/**
+ * Dispatch an action to the engine and return the updated state
+ * This is the primary interface for store → engine communication
+ *
+ * @param action - The engine action to dispatch
+ * @returns DispatchResult with success flag and updated state snapshot
+ */
+export function dispatchToEngine(action: import('./types').EngineAction): DispatchResult {
+  const engine = getEngine();
+  const success = engine.dispatch(action);
+
+  if (!success) {
+    return { success: false, snapshot: null };
+  }
+
+  const snapshot = getEngineSnapshot();
+  return { success: true, snapshot };
+}

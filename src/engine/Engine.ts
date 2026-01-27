@@ -24,6 +24,7 @@ import { generatePanelsWithVoid } from './panelBridge';
 
 export class Engine {
   private _scene: SceneNode;
+  private _nodeMap: Map<string, BaseNode> | null = null;
 
   constructor() {
     this._scene = new SceneNode();
@@ -59,18 +60,54 @@ export class Engine {
   ): AssemblyNode {
     const assembly = new AssemblyNode(width, height, depth, material);
     this._scene.addAssembly(assembly);
+    this.invalidateNodeMap();
     return assembly;
   }
 
   // ==========================================================================
-  // Node Lookup
+  // Node Lookup (with fast map-based lookups)
   // ==========================================================================
 
   /**
-   * Find any node by ID
+   * Invalidate the node map, forcing rebuild on next lookup
+   * Called when tree structure changes
+   */
+  private invalidateNodeMap(): void {
+    this._nodeMap = null;
+  }
+
+  /**
+   * Build the node map by traversing the entire tree
+   */
+  private buildNodeMap(): Map<string, BaseNode> {
+    const map = new Map<string, BaseNode>();
+
+    const addNodeToMap = (node: BaseNode): void => {
+      map.set(node.id, node);
+      for (const child of node.children) {
+        addNodeToMap(child);
+      }
+    };
+
+    addNodeToMap(this._scene);
+    return map;
+  }
+
+  /**
+   * Get the node map, building it if necessary
+   */
+  private getNodeMap(): Map<string, BaseNode> {
+    if (!this._nodeMap) {
+      this._nodeMap = this.buildNodeMap();
+    }
+    return this._nodeMap;
+  }
+
+  /**
+   * Find any node by ID (O(1) lookup using map)
    */
   findById(id: string): BaseNode | null {
-    return this._scene.findById(id);
+    return this.getNodeMap().get(id) ?? null;
   }
 
   /**
@@ -214,6 +251,7 @@ export class Engine {
             action.payload.position,
             assembly.material.thickness
           );
+          this.invalidateNodeMap(); // Tree structure changed
           return true;
         }
         break;
@@ -227,6 +265,7 @@ export class Engine {
             action.payload.positions,
             assembly.material.thickness
           );
+          this.invalidateNodeMap(); // Tree structure changed
           return true;
         }
         break;
@@ -236,6 +275,7 @@ export class Engine {
         const voidNode = this.findVoid(action.payload.voidId);
         if (voidNode) {
           voidNode.clearSubdivision();
+          this.invalidateNodeMap(); // Tree structure changed
           return true;
         }
         break;

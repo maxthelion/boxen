@@ -20,7 +20,12 @@ export {
   ensureEngineInitialized,
   getEngineConfig,
   getEngineFaces,
+  getEngineSnapshot,
+  dispatchToEngine,
 } from './engineInstance';
+
+// State snapshot types
+export type { EngineStateSnapshot, DispatchResult } from './engineInstance';
 
 // React integration
 export { useEngine, useEngineInstance } from './useEngine';
