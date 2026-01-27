@@ -327,7 +327,13 @@ export const SubdivisionControls: React.FC = () => {
     selectSubAssembly,
     purgeVoid,
     selectVoid,
-    // New preview system functions
+    // Operation system
+    operationState,
+    startOperation,
+    updateOperationParams,
+    applyOperation,
+    cancelOperation,
+    // Legacy preview system (still used for sub-assembly preview)
     previewState,
     startPreview,
     updatePreviewSubdivision,
@@ -349,17 +355,21 @@ export const SubdivisionControls: React.FC = () => {
   const [createFaceOffsets, setCreateFaceOffsets] = useState<FaceOffsets>(defaultFaceOffsets);
 
   // Reset edit mode and creation form when selection changes
-  // Also cancel any active preview state
+  // Also cancel any active operation/preview state
   useEffect(() => {
     setIsEditingPreview(false);
     setShowCreateAssembly(false);
     setCreateClearance(2);
     setCreateAxis('y');
     setCreateFaceOffsets(defaultFaceOffsets);
-    // Cancel preview state when selection changes
+    // Cancel operation if active
+    if (operationState.activeOperation) {
+      cancelOperation();
+    }
+    // Cancel legacy preview state when selection changes
     setSubdivisionPreview(null);
     cancelPreviewStore();
-  }, [selectedVoidId, selectedPanelIds, setSubdivisionPreview, cancelPreviewStore]);
+  }, [selectedVoidId, selectedPanelIds, setSubdivisionPreview, cancelPreviewStore, operationState.activeOperation, cancelOperation]);
 
   // Early return if engine not initialized
   if (!config || !rootVoid) return null;
@@ -452,23 +462,24 @@ export const SubdivisionControls: React.FC = () => {
     // Clear hover preview
     setSubdivisionPreview(null);
 
-    // Start new preview system and apply initial subdivision
-    startPreview('subdivision', { voidId: selectedVoidId });
-    updatePreviewSubdivision({
+    // Start operation and apply initial subdivision via new operations system
+    startOperation('subdivide');
+    updateOperationParams({
       voidId: selectedVoidId,
       axis,
       count: 1,
       positions,
     });
     setIsEditingPreview(true);
-  }, [selectedVoidId, selectedVoid, setSubdivisionPreview, startPreview, updatePreviewSubdivision]);
+  }, [selectedVoidId, selectedVoid, setSubdivisionPreview, startOperation, updateOperationParams]);
 
   // Update the count (number of divisions) in the current preview
   const updatePreviewCount = useCallback((newCount: number) => {
-    // Get subdivision info from either old preview or new preview state
+    // Get subdivision info from operation state, legacy preview, or old subdivisionPreview
+    const opParams = operationState.params as { axis?: 'x' | 'y' | 'z'; voidId?: string };
     const subdivisionInfo = previewState?.metadata;
-    const currentAxis = subdivisionInfo?.subdivisionAxis || subdivisionPreview?.axis;
-    const currentVoidId = subdivisionInfo?.voidId || subdivisionPreview?.voidId;
+    const currentAxis = opParams.axis || subdivisionInfo?.subdivisionAxis || subdivisionPreview?.axis;
+    const currentVoidId = opParams.voidId || subdivisionInfo?.voidId || subdivisionPreview?.voidId;
 
     if (!currentAxis || !currentVoidId) return;
 
@@ -479,8 +490,16 @@ export const SubdivisionControls: React.FC = () => {
     const count = Math.max(1, Math.min(20, newCount));
     const positions = calculatePreviewPositions(targetVoid.bounds, currentAxis, count);
 
-    // Use new preview system when in edit mode
-    if (previewState?.type === 'subdivision') {
+    // Use new operation system when active
+    if (operationState.activeOperation === 'subdivide' || operationState.activeOperation === 'subdivide-two-panel') {
+      updateOperationParams({
+        voidId: currentVoidId,
+        axis: currentAxis,
+        count,
+        positions,
+      });
+    } else if (previewState?.type === 'subdivision') {
+      // Fallback to legacy preview system
       updatePreviewSubdivision({
         voidId: currentVoidId,
         axis: currentAxis,
@@ -495,26 +514,34 @@ export const SubdivisionControls: React.FC = () => {
         positions,
       });
     }
-  }, [previewState, subdivisionPreview, selectedVoid, twoPanelInfo.targetVoid, setSubdivisionPreview, updatePreviewSubdivision]);
+  }, [operationState, previewState, subdivisionPreview, selectedVoid, twoPanelInfo.targetVoid, setSubdivisionPreview, updatePreviewSubdivision, updateOperationParams]);
 
   // Cancel the current preview
   const cancelPreview = useCallback(() => {
-    // Cancel both old and new preview systems
+    // Cancel operation system if active
+    if (operationState.activeOperation) {
+      cancelOperation();
+    }
+    // Also cancel legacy systems
     setSubdivisionPreview(null);
     cancelPreviewStore();
     setIsEditingPreview(false);
-  }, [setSubdivisionPreview, cancelPreviewStore]);
+  }, [operationState.activeOperation, cancelOperation, setSubdivisionPreview, cancelPreviewStore]);
 
   // Apply the current preview and create the subdivision
   const confirmSubdivision = useCallback(() => {
-    // Use new preview system if active, otherwise fall back to old
-    if (previewState?.type === 'subdivision') {
+    // Use new operation system if active
+    if (operationState.activeOperation === 'subdivide' || operationState.activeOperation === 'subdivide-two-panel') {
+      applyOperation();
+    } else if (previewState?.type === 'subdivision') {
+      // Fallback to legacy preview system
       commitPreview();
     } else {
+      // Fallback to old system
       applySubdivision();
     }
     setIsEditingPreview(false);
-  }, [previewState, commitPreview, applySubdivision]);
+  }, [operationState.activeOperation, applyOperation, previewState, commitPreview, applySubdivision]);
 
   // Handle mouse enter on axis button (show hover preview only)
   const handleAxisHover = useCallback((axis: 'x' | 'y' | 'z') => {
@@ -549,16 +576,16 @@ export const SubdivisionControls: React.FC = () => {
     // Clear hover preview
     setSubdivisionPreview(null);
 
-    // Start new preview system and apply initial subdivision
-    startPreview('subdivision', { voidId: targetVoidId });
-    updatePreviewSubdivision({
+    // Start operation and apply initial subdivision via new operations system
+    startOperation('subdivide-two-panel');
+    updateOperationParams({
       voidId: targetVoidId,
       axis,
       count: 1,
       positions,
     });
     setIsEditingPreview(true);
-  }, [twoPanelInfo, setSubdivisionPreview, startPreview, updatePreviewSubdivision]);
+  }, [twoPanelInfo, setSubdivisionPreview, startOperation, updateOperationParams]);
 
   // Hover handler for two-panel mode
   const handleTwoPanelAxisHover = useCallback((axis: 'x' | 'y' | 'z') => {
@@ -688,10 +715,11 @@ export const SubdivisionControls: React.FC = () => {
       )}
 
       {/* Editing mode (after axis selected - works for both two-panel and single-void) */}
-      {isEditingPreview && (previewState?.type === 'subdivision' || subdivisionPreview) && (() => {
-        // Get values from either new preview state or old subdivisionPreview
-        const axis = previewState?.metadata?.subdivisionAxis || subdivisionPreview?.axis || 'x';
-        const count = previewState?.metadata?.subdivisionCount || subdivisionPreview?.count || 1;
+      {isEditingPreview && (operationState.activeOperation === 'subdivide' || operationState.activeOperation === 'subdivide-two-panel' || previewState?.type === 'subdivision' || subdivisionPreview) && (() => {
+        // Get values from operation state, legacy preview, or old subdivisionPreview
+        const opParams = operationState.params as { axis?: 'x' | 'y' | 'z'; count?: number };
+        const axis = opParams.axis || previewState?.metadata?.subdivisionAxis || subdivisionPreview?.axis || 'x';
+        const count = opParams.count || previewState?.metadata?.subdivisionCount || subdivisionPreview?.count || 1;
         return (
         <div className="subdivision-controls">
           <div className="control-section">
