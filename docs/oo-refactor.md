@@ -103,10 +103,30 @@ Consolidated duplicated code between engine and legacy implementation:
 - `ADD_SUBDIVISIONS` - multi-position subdivision dispatch
 - `ADD_SUBDIVISION`, `REMOVE_SUBDIVISION` - already existed
 
+**Void Conversion Utilities Complete:**
+- `voidNodeToVoid()` - converts engine VoidNode to store Void format
+- `syncVoidNodeFromStoreVoid()` - syncs engine VoidNode tree from store Void tree
+- `syncStoreToEngine()` now accepts optional `rootVoid` parameter
+- `getEngineVoidTree()` - reads engine void tree as store Void
+
+**Blocker: Void ID Mismatch**
+Store void IDs (generated randomly) don't match engine void IDs ("root-void", "node-N").
+When dispatching void operations to engine, the engine can't find voids by store ID.
+
+**Options to Resolve:**
+1. **ID Mapping**: Maintain a Map<storeId, engineId> during sync
+2. **ID Preservation**: Create VoidNode with store's ID during sync
+3. **Position-based Lookup**: Find engine void by tree position instead of ID
+4. **Engine-first IDs**: Generate void IDs from engine, propagate to store
+
+**Current State:**
+Store remains source of truth for void tree. Void operations use VoidTree utilities.
+Engine syncs from store for panel generation but doesn't own void mutations.
+
 **Remaining:**
-- Route store `applySubdivision()` through engine dispatch
-- Make store's `rootVoid` derive from engine snapshot
-- Handle Void interface ↔ VoidNode class conversion
+- Resolve void ID mismatch (one of the options above)
+- Route store void operations through engine dispatch
+- Make store derive void state from engine snapshot
 
 ---
 

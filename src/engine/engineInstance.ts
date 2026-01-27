@@ -10,7 +10,8 @@
 
 import { Engine, createEngine } from './Engine';
 import { MaterialConfig, FeetConfig } from './types';
-import { Face, BoxConfig } from '../types';
+import { Face, BoxConfig, Void } from '../types';
+import { syncVoidNodeFromStoreVoid, voidNodeToVoid } from './panelBridge';
 
 // Singleton engine instance
 let engineInstance: Engine | null = null;
@@ -36,8 +37,12 @@ export function resetEngine(): void {
 /**
  * Sync store state to engine
  * Called before panel generation to ensure engine is up to date
+ *
+ * @param config - Box configuration
+ * @param faces - Face configurations
+ * @param rootVoid - Optional void tree to sync (if provided, syncs void structure)
  */
-export function syncStoreToEngine(config: BoxConfig, faces: Face[]): void {
+export function syncStoreToEngine(config: BoxConfig, faces: Face[], rootVoid?: Void): void {
   const engine = getEngine();
 
   const material: MaterialConfig = {
@@ -109,5 +114,21 @@ export function syncStoreToEngine(config: BoxConfig, faces: Face[]): void {
     } else {
       assembly.setFeet(null);
     }
+
+    // Sync void tree if provided
+    if (rootVoid) {
+      syncVoidNodeFromStoreVoid(assembly.rootVoid, rootVoid, config.materialThickness);
+    }
   }
+}
+
+/**
+ * Get the current void tree from engine as a store Void
+ * Useful for reading engine's void state after modifications
+ */
+export function getEngineVoidTree(): Void | null {
+  const engine = getEngine();
+  const assembly = engine.assembly;
+  if (!assembly) return null;
+  return voidNodeToVoid(assembly.rootVoid);
 }

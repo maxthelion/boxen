@@ -12,13 +12,19 @@
 export { Engine, createEngine, createEngineWithAssembly } from './Engine';
 
 // Singleton instance
-export { getEngine, resetEngine, syncStoreToEngine } from './engineInstance';
+export { getEngine, resetEngine, syncStoreToEngine, getEngineVoidTree } from './engineInstance';
 
 // React integration
 export { useEngine, useEngineInstance } from './useEngine';
 
 // Panel generation bridge
-export { generatePanelsForAssembly, generatePanelsForScene, generatePanelsWithVoid } from './panelBridge';
+export {
+  generatePanelsForAssembly,
+  generatePanelsForScene,
+  generatePanelsWithVoid,
+  voidNodeToVoid,
+  syncVoidNodeFromStoreVoid,
+} from './panelBridge';
 
 // Node classes
 export { BaseNode, generateId, resetIdCounter } from './nodes/BaseNode';

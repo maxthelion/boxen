@@ -80,8 +80,9 @@ function assemblyToFaces(assembly: AssemblyNode): Face[] {
 
 /**
  * Convert engine VoidNode tree to store Void tree
+ * Used when engine is source of truth and store needs to read void state.
  */
-function voidNodeToVoid(voidNode: VoidNode): Void {
+export function voidNodeToVoid(voidNode: VoidNode): Void {
   const bounds = voidNode.bounds;
 
   const storeVoid: Void = {
@@ -114,6 +115,82 @@ function voidNodeToVoid(voidNode: VoidNode): Void {
   }
 
   return storeVoid;
+}
+
+/**
+ * Sync engine VoidNode tree from store Void tree
+ * Used when store is source of truth (current state during migration).
+ *
+ * This recursively updates the engine's void tree to match the store's void tree,
+ * preserving node structure but updating bounds and split info.
+ */
+export function syncVoidNodeFromStoreVoid(
+  voidNode: VoidNode,
+  storeVoid: Void,
+  materialThickness: number
+): void {
+  // Update bounds
+  voidNode.setBounds({
+    x: storeVoid.bounds.x,
+    y: storeVoid.bounds.y,
+    z: storeVoid.bounds.z,
+    w: storeVoid.bounds.w,
+    h: storeVoid.bounds.h,
+    d: storeVoid.bounds.d,
+  });
+
+  // Update split info if present
+  if (storeVoid.splitAxis) {
+    voidNode.setSplitInfo({
+      axis: storeVoid.splitAxis,
+      position: storeVoid.splitPosition!,
+      mode: storeVoid.splitPositionMode || 'percentage',
+      percentage: storeVoid.splitPercentage,
+    });
+  }
+
+  // Handle children - this is complex because we need to sync the tree structure
+  const storeChildren = storeVoid.children || [];
+  const engineVoidChildren = voidNode.getVoidChildren();
+
+  // If store has children but engine doesn't (or different count), rebuild
+  if (storeChildren.length !== engineVoidChildren.length) {
+    // Clear existing children
+    voidNode.clearSubdivision();
+
+    // Create new children if store has them
+    if (storeChildren.length > 0) {
+      // Extract split positions from children (children after first have split info)
+      const positions: number[] = [];
+      const axis = storeChildren[1]?.splitAxis;
+
+      if (axis) {
+        for (let i = 1; i < storeChildren.length; i++) {
+          const pos = storeChildren[i].splitPosition;
+          if (pos !== undefined) {
+            positions.push(pos);
+          }
+        }
+
+        if (positions.length > 0) {
+          // Use subdivideMultiple to create matching structure
+          const newChildren = voidNode.subdivideMultiple(axis, positions, materialThickness);
+
+          // Recursively sync each child
+          for (let i = 0; i < storeChildren.length; i++) {
+            syncVoidNodeFromStoreVoid(newChildren[i], storeChildren[i], materialThickness);
+          }
+        }
+      }
+    }
+  } else if (storeChildren.length > 0) {
+    // Same number of children - recursively sync each
+    for (let i = 0; i < storeChildren.length; i++) {
+      syncVoidNodeFromStoreVoid(engineVoidChildren[i], storeChildren[i], materialThickness);
+    }
+  }
+
+  // TODO: Handle sub-assemblies
 }
 
 /**

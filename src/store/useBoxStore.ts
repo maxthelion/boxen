@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS } from '../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
-import { syncStoreToEngine, getEngine } from '../engine';
+import { syncStoreToEngine, getEngine, getEngineVoidTree } from '../engine';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { appendDebug } from '../utils/debug';
@@ -655,30 +655,27 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const targetVoid = findVoid(state.rootVoid, preview.voidId);
       if (!targetVoid || targetVoid.children.length > 0) return state;
 
-      const { bounds } = targetVoid;
       const { axis, count, positions } = preview;
       const mt = state.config.materialThickness;
 
-      // Create N+1 child voids for N divisions using consolidated bounds calculation
+      // Use VoidTree to apply subdivision (store-side)
+      // This is more reliable than engine sync for now
       const children: Void[] = [];
-      const dimStart = getBoundsStart(bounds, axis);
-      const dimSize = getBoundsSize(bounds, axis);
+      const dimStart = getBoundsStart(targetVoid.bounds, axis);
+      const dimSize = getBoundsSize(targetVoid.bounds, axis);
 
       for (let i = 0; i <= count; i++) {
         const childBounds = calculateChildRegionBounds(
-          bounds,
+          targetVoid.bounds,
           axis,
           i,
-          count + 1,  // count is number of dividers, we have count+1 regions
+          count + 1,
           positions,
           mt
         );
 
-        // Set split info for children after the first (they have a divider before them)
         const splitPos = i > 0 ? positions[i - 1] : undefined;
         const splitAxis = i > 0 ? axis : undefined;
-
-        // Calculate percentage for this split position
         let splitPercentage: number | undefined;
         if (splitPos !== undefined) {
           splitPercentage = (splitPos - dimStart) / dimSize;
@@ -705,7 +702,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         selectedVoidIds: new Set<string>(),
         selectedPanelIds: new Set<string>(),
         subdivisionPreview: null,
-        panelsDirty: true,  // Mark panels as needing regeneration
+        panelsDirty: true,
       };
     }),
 
@@ -724,7 +721,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         selectedVoidIds: new Set<string>(),
         selectedPanelIds: new Set<string>(),
         subdivisionPreview: null,
-        panelsDirty: true,  // Mark panels as needing regeneration
+        panelsDirty: true,
       };
     }),
 
