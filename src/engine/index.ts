@@ -32,8 +32,6 @@ export { useEngine, useEngineInstance } from './useEngine';
 
 // Panel generation bridge
 export {
-  generatePanelsForAssembly,
-  generatePanelsForScene,
   generatePanelsWithVoid,
   voidNodeToVoid,
   syncVoidNodeFromStoreVoid,

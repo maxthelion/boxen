@@ -21,7 +21,6 @@ import {
 } from '../types';
 import { AssemblyNode } from './nodes/AssemblyNode';
 import { VoidNode } from './nodes/VoidNode';
-import { SceneNode } from './nodes/SceneNode';
 import { FaceId, PanelSnapshot, FacePanelSnapshot, DividerPanelSnapshot } from './types';
 
 /**
@@ -225,27 +224,6 @@ export function generatePanelsWithVoid(
   return generatePanelCollection(faces, storeRootVoid, config, 1, existingPanels);
 }
 
-/**
- * Generate panels for an entire scene
- */
-export function generatePanelsForScene(
-  scene: SceneNode,
-  existingPanels?: PanelPath[]
-): PanelCollection {
-  const allPanels: PanelPath[] = [];
-
-  for (const assembly of scene.assemblies) {
-    const collection = generatePanelsForAssembly(assembly, existingPanels);
-    allPanels.push(...collection.panels);
-  }
-
-  return {
-    panels: allPanels,
-    augmentations: [],
-    generatedAt: Date.now(),
-  };
-}
-
 // =============================================================================
 // Engine Panel Snapshot to Store PanelPath Conversion
 // =============================================================================
@@ -331,24 +309,6 @@ export function generatePanelsFromEngine(assembly: AssemblyNode): PanelCollectio
 
   return {
     panels,
-    augmentations: [],
-    generatedAt: Date.now(),
-  };
-}
-
-/**
- * Generate panels using engine for entire scene
- */
-export function generatePanelsFromEngineScene(scene: SceneNode): PanelCollection {
-  const allPanels: PanelPath[] = [];
-
-  for (const assembly of scene.assemblies) {
-    const collection = generatePanelsFromEngine(assembly);
-    allPanels.push(...collection.panels);
-  }
-
-  return {
-    panels: allPanels,
     augmentations: [],
     generatedAt: Date.now(),
   };
