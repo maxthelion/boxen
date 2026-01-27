@@ -22,15 +22,10 @@ import {
   PanelHole,
   DividerPanelSnapshot,
 } from '../types';
-
-// Map from divider axis + edge position to which face it meets
-const DIVIDER_EDGE_ADJACENCY: Record<Axis, Record<EdgePosition, FaceId>> = {
-  x: { top: 'top', bottom: 'bottom', left: 'back', right: 'front' },
-  y: { top: 'back', bottom: 'front', left: 'left', right: 'right' },
-  z: { top: 'top', bottom: 'bottom', left: 'left', right: 'right' },
-};
-
-const ALL_EDGE_POSITIONS: EdgePosition[] = ['top', 'bottom', 'left', 'right'];
+import {
+  ALL_EDGE_POSITIONS,
+  getDividerAdjacentFace,
+} from '../../utils/faceGeometry';
 
 export class DividerPanelNode extends BasePanel {
   readonly kind: NodeKind = 'divider-panel';
@@ -97,11 +92,10 @@ export class DividerPanelNode extends BasePanel {
       throw new Error('DividerPanelNode must have an assembly ancestor');
     }
 
-    const adjacency = DIVIDER_EDGE_ADJACENCY[this._axis];
     const configs: EdgeConfig[] = [];
 
     for (const position of ALL_EDGE_POSITIONS) {
-      const adjacentFaceId = adjacency[position];
+      const adjacentFaceId = getDividerAdjacentFace(this._axis, position);
       const meetsFace = assembly.isFaceSolid(adjacentFaceId);
 
       configs.push({
@@ -186,10 +180,9 @@ export class DividerPanelNode extends BasePanel {
       return null;
     }
 
-    const adjacency = DIVIDER_EDGE_ADJACENCY[this._axis];
-    const adjacentFaceId = adjacency[edgePosition];
+    const adjacentFaceId = getDividerAdjacentFace(this._axis, edgePosition);
     // Only return if the adjacent face is solid (actually exists)
-    if (adjacentFaceId && assembly.isFaceSolid(adjacentFaceId)) {
+    if (assembly.isFaceSolid(adjacentFaceId)) {
       return adjacentFaceId;
     }
     return null;

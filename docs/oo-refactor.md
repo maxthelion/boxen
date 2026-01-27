@@ -69,6 +69,26 @@ The goal: React never holds or mutates class instances. React renders plain seri
   - `formatAlignmentDebugLog()` for human-readable output
   - `ALIGNMENT_TOLERANCE` = 0.001mm
 
+### ✅ Phase 5.5: Code Consolidation (Complete)
+Consolidated duplicated code between engine and legacy implementation:
+
+- **Face Geometry** (`utils/faceGeometry.ts`)
+  - Single source of truth for face-edge adjacency relationships
+  - `FACE_EDGE_ADJACENCY` - canonical map of which faces each edge meets
+  - `MATING_EDGE_POSITION` - which edge of adjacent face connects back
+  - `DIVIDER_EDGE_ADJACENCY` - face adjacency for divider panels
+  - `JOINT_AXIS` - which world axis each joint runs along
+  - Helper functions: `getAdjacentFace()`, `getMatingEdge()`, `getJointAxis()`
+
+- **Files Updated to Use faceGeometry**
+  - `FacePanelNode.ts` - removed local `FACE_EDGE_ADJACENCY`
+  - `DividerPanelNode.ts` - removed local `DIVIDER_EDGE_ADJACENCY`
+  - `BaseAssembly.ts` - removed inline adjacency maps from `getMatingFaceId` etc.
+  - `panelGenerator.ts` - removed `getFaceEdges()`, `getAdjacentEdgePosition()`
+  - `genderRules.ts` - now re-exports `getAdjacentFace` from faceGeometry
+
+- **Lines of Duplicate Code Removed**: ~200 lines across 5 files
+
 ### ⚠️ Phase 6: Void Tree Migration (Partial)
 - Removed duplicate void tree functions from `useBoxStore.ts`
 - Now uses `VoidTree` namespace from `utils/voidTree.ts`
@@ -167,6 +187,7 @@ Move panel generation logic from `panelGenerator.ts` into engine:
 | Void anchors | Center of bounds | Natural reference for parent-child alignment |
 | Debug output | Clipboard pattern | Per CLAUDE.md, easy to paste and analyze |
 | Void tree | Still in store | Phased migration - engine will own it in Phase 7 |
+| Face geometry | Centralized in utils | Single source prevents adjacency map drift |
 
 ---
 
@@ -191,6 +212,13 @@ src/engine/
     ├── FacePanelNode.ts   # Face panel
     ├── DividerPanelNode.ts# Divider panel
     └── SceneNode.ts       # Root node
+
+src/utils/
+├── faceGeometry.ts        # Single source of truth for face-edge adjacency
+├── fingerPoints.ts        # Finger joint point calculation
+├── genderRules.ts         # Joint gender determination (uses faceGeometry)
+├── panelGenerator.ts      # Panel outline generation (uses faceGeometry)
+└── voidTree.ts            # Void tree operations (to be migrated to engine)
 ```
 
 ---

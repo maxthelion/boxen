@@ -14,25 +14,10 @@ import {
   getLidSide,
   getWallPriority,
 } from '../types';
+import { getAdjacentFace } from './faceGeometry';
 
-/**
- * Get the adjacent face for a given edge position.
- */
-export const getAdjacentFace = (
-  faceId: FaceId,
-  edgePosition: 'top' | 'bottom' | 'left' | 'right'
-): FaceId => {
-  // Map each face + edge position to its adjacent face
-  const adjacencyMap: Record<FaceId, Record<string, FaceId>> = {
-    front: { top: 'top', bottom: 'bottom', left: 'left', right: 'right' },
-    back: { top: 'top', bottom: 'bottom', left: 'right', right: 'left' },
-    left: { top: 'top', bottom: 'bottom', left: 'back', right: 'front' },
-    right: { top: 'top', bottom: 'bottom', left: 'front', right: 'back' },
-    top: { top: 'back', bottom: 'front', left: 'left', right: 'right' },
-    bottom: { top: 'front', bottom: 'back', left: 'left', right: 'right' },
-  };
-  return adjacencyMap[faceId][edgePosition];
-};
+// Re-export for backward compatibility
+export { getAdjacentFace } from './faceGeometry';
 
 /**
  * Get the gender of a lid face based on its tab direction config.

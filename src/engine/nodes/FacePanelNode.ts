@@ -19,19 +19,10 @@ import {
   PanelHole,
   FacePanelSnapshot,
 } from '../types';
-
-// Which edges meet which faces for each face panel
-const FACE_EDGE_ADJACENCY: Record<FaceId, Record<EdgePosition, FaceId | null>> = {
-  front: { top: 'top', bottom: 'bottom', left: 'left', right: 'right' },
-  back: { top: 'top', bottom: 'bottom', left: 'right', right: 'left' },
-  left: { top: 'top', bottom: 'bottom', left: 'back', right: 'front' },
-  right: { top: 'top', bottom: 'bottom', left: 'front', right: 'back' },
-  top: { top: 'back', bottom: 'front', left: 'left', right: 'right' },
-  bottom: { top: 'front', bottom: 'back', left: 'left', right: 'right' },
-};
-
-// Edge positions for iteration
-const ALL_EDGE_POSITIONS: EdgePosition[] = ['top', 'bottom', 'left', 'right'];
+import {
+  ALL_EDGE_POSITIONS,
+  getAdjacentFace,
+} from '../../utils/faceGeometry';
 
 export class FacePanelNode extends BasePanel {
   readonly kind: NodeKind = 'face-panel';
@@ -108,12 +99,11 @@ export class FacePanelNode extends BasePanel {
   }
 
   computeEdgeConfigs(): EdgeConfig[] {
-    const adjacency = FACE_EDGE_ADJACENCY[this.faceId];
     const configs: EdgeConfig[] = [];
 
     for (const position of ALL_EDGE_POSITIONS) {
-      const adjacentFaceId = adjacency[position];
-      const meetsFace = adjacentFaceId !== null && this._assembly.isFaceSolid(adjacentFaceId);
+      const adjacentFaceId = getAdjacentFace(this.faceId, position);
+      const meetsFace = this._assembly.isFaceSolid(adjacentFaceId);
 
       configs.push({
         position,
@@ -177,10 +167,9 @@ export class FacePanelNode extends BasePanel {
   }
 
   getMatingFaceId(edgePosition: EdgePosition): FaceId | null {
-    const adjacency = FACE_EDGE_ADJACENCY[this.faceId];
-    const adjacentFaceId = adjacency[edgePosition];
+    const adjacentFaceId = getAdjacentFace(this.faceId, edgePosition);
     // Only return if the adjacent face is solid (actually exists)
-    if (adjacentFaceId && this._assembly.isFaceSolid(adjacentFaceId)) {
+    if (this._assembly.isFaceSolid(adjacentFaceId)) {
       return adjacentFaceId;
     }
     return null;

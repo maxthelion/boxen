@@ -43,8 +43,12 @@ import {
   pointsAligned,
   calculateDeviation,
 } from '../alignmentDebug';
-
-const ALL_FACE_IDS: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
+import {
+  ALL_FACE_IDS,
+  getAdjacentFace,
+  getMatingEdge,
+  getJointAxis,
+} from '../../utils/faceGeometry';
 
 const DEFAULT_LID_CONFIG: LidConfig = {
   tabDirection: 'tabs-out',
@@ -403,7 +407,7 @@ export abstract class BaseAssembly extends BaseNode {
 
       for (const anchor of anchors) {
         // Find the mating face panel
-        const matingFaceId = this.getMatingFaceId(faceId, anchor.edgePosition);
+        const matingFaceId = this.getMatingFaceIdForEdge(faceId, anchor.edgePosition);
         if (!matingFaceId) continue;
 
         const matingPanelId = `face-${matingFaceId}`;
@@ -411,8 +415,7 @@ export abstract class BaseAssembly extends BaseNode {
         if (!matingPanel) continue;
 
         // Find the corresponding anchor on the mating panel
-        const matingEdge = this.getMatingEdgePosition(faceId, anchor.edgePosition, matingFaceId);
-        if (!matingEdge) continue;
+        const matingEdge = this.getMatingEdgePositionForJoint(faceId, anchor.edgePosition, matingFaceId);
 
         const matingAnchor = matingPanel.derived.edgeAnchors.find(
           a => a.edgePosition === matingEdge
@@ -426,7 +429,7 @@ export abstract class BaseAssembly extends BaseNode {
         if (existingJoint) continue;
 
         // Determine the axis this joint runs along
-        const jointAxis = this.getJointAxis(faceId, anchor.edgePosition);
+        const jointAxis = this.getJointAxisForEdge(faceId, anchor.edgePosition);
 
         // Create the joint constraint
         const joint: JointConstraint = {
@@ -476,19 +479,9 @@ export abstract class BaseAssembly extends BaseNode {
   /**
    * Get the face that an edge of a face panel mates with
    */
-  protected getMatingFaceId(faceId: FaceId, edgePosition: EdgePosition): FaceId | null {
-    // Face edge adjacency map (same as in FacePanelNode)
-    const adjacency: Record<FaceId, Record<EdgePosition, FaceId | null>> = {
-      front: { top: 'top', bottom: 'bottom', left: 'left', right: 'right' },
-      back: { top: 'top', bottom: 'bottom', left: 'right', right: 'left' },
-      left: { top: 'top', bottom: 'bottom', left: 'back', right: 'front' },
-      right: { top: 'top', bottom: 'bottom', left: 'front', right: 'back' },
-      top: { top: 'back', bottom: 'front', left: 'left', right: 'right' },
-      bottom: { top: 'front', bottom: 'back', left: 'left', right: 'right' },
-    };
-
-    const matingFaceId = adjacency[faceId][edgePosition];
-    if (matingFaceId && this.isFaceSolid(matingFaceId)) {
+  protected getMatingFaceIdForEdge(faceId: FaceId, edgePosition: EdgePosition): FaceId | null {
+    const matingFaceId = getAdjacentFace(faceId, edgePosition);
+    if (this.isFaceSolid(matingFaceId)) {
       return matingFaceId;
     }
     return null;
@@ -497,72 +490,20 @@ export abstract class BaseAssembly extends BaseNode {
   /**
    * Get which edge of the mating face corresponds to an edge of a face
    */
-  protected getMatingEdgePosition(
+  protected getMatingEdgePositionForJoint(
     faceId: FaceId,
     edgePosition: EdgePosition,
-    matingFaceId: FaceId
-  ): EdgePosition | null {
-    // This maps from (face, edge) -> (mating face, mating edge)
-    // e.g., front.top mates with top.bottom
-    const matingEdges: Record<FaceId, Record<EdgePosition, Partial<Record<FaceId, EdgePosition>>>> = {
-      front: {
-        top: { top: 'bottom' },
-        bottom: { bottom: 'top' },
-        left: { left: 'right' },
-        right: { right: 'left' },
-      },
-      back: {
-        top: { top: 'top' },
-        bottom: { bottom: 'bottom' },
-        left: { right: 'left' },
-        right: { left: 'right' },
-      },
-      left: {
-        top: { top: 'left' },
-        bottom: { bottom: 'left' },
-        left: { back: 'right' },
-        right: { front: 'left' },
-      },
-      right: {
-        top: { top: 'right' },
-        bottom: { bottom: 'right' },
-        left: { front: 'right' },
-        right: { back: 'left' },
-      },
-      top: {
-        top: { back: 'top' },
-        bottom: { front: 'top' },
-        left: { left: 'top' },
-        right: { right: 'top' },
-      },
-      bottom: {
-        top: { front: 'bottom' },
-        bottom: { back: 'bottom' },
-        left: { left: 'bottom' },
-        right: { right: 'bottom' },
-      },
-    };
-
-    return matingEdges[faceId]?.[edgePosition]?.[matingFaceId] ?? null;
+    _matingFaceId: FaceId
+  ): EdgePosition {
+    // The mating edge is determined by the source face and edge position
+    return getMatingEdge(faceId, edgePosition);
   }
 
   /**
    * Get the axis that a joint runs along
    */
-  protected getJointAxis(faceId: FaceId, edgePosition: EdgePosition): Axis {
-    // Determine axis based on which face and edge
-    // Horizontal edges (top/bottom) of front/back run along X
-    // Vertical edges (left/right) of front/back run along Y
-    // etc.
-    const jointAxes: Record<FaceId, Record<EdgePosition, Axis>> = {
-      front: { top: 'x', bottom: 'x', left: 'y', right: 'y' },
-      back: { top: 'x', bottom: 'x', left: 'y', right: 'y' },
-      left: { top: 'z', bottom: 'z', left: 'y', right: 'y' },
-      right: { top: 'z', bottom: 'z', left: 'y', right: 'y' },
-      top: { top: 'x', bottom: 'x', left: 'z', right: 'z' },
-      bottom: { top: 'x', bottom: 'x', left: 'z', right: 'z' },
-    };
-    return jointAxes[faceId][edgePosition];
+  protected getJointAxisForEdge(faceId: FaceId, edgePosition: EdgePosition): Axis {
+    return getJointAxis(faceId, edgePosition);
   }
 
   // ==========================================================================

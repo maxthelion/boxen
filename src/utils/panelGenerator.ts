@@ -26,6 +26,11 @@ import { getEdgeGender, getAdjacentFace } from './genderRules';
 import { getAllSubdivisions } from '../store/useBoxStore';
 import { startDebugLog, addPanelDebug, PanelDebugInfo, CornerDebugInfo } from './extensionDebug';
 import { appendDebug } from './debug';
+import {
+  EdgeInfo,
+  getFaceEdges,
+  getMatingEdge,
+} from './faceGeometry';
 
 // Helper to get edge axis position range for finger system
 // Returns [startPos, endPos] along the axis where:
@@ -129,58 +134,8 @@ export const getFaceDimensions = (
   }
 };
 
-export interface EdgeInfo {
-  adjacentFaceId: FaceId;
-  isHorizontal: boolean;
-  position: 'top' | 'bottom' | 'left' | 'right';
-}
-
-export const getFaceEdges = (faceId: FaceId): EdgeInfo[] => {
-  switch (faceId) {
-    case 'front':
-      return [
-        { adjacentFaceId: 'top', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'bottom', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'left', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'right', isHorizontal: false, position: 'right' },
-      ];
-    case 'back':
-      return [
-        { adjacentFaceId: 'top', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'bottom', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'right', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'left', isHorizontal: false, position: 'right' },
-      ];
-    case 'left':
-      return [
-        { adjacentFaceId: 'top', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'bottom', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'back', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'front', isHorizontal: false, position: 'right' },
-      ];
-    case 'right':
-      return [
-        { adjacentFaceId: 'top', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'bottom', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'front', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'back', isHorizontal: false, position: 'right' },
-      ];
-    case 'top':
-      return [
-        { adjacentFaceId: 'back', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'front', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'left', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'right', isHorizontal: false, position: 'right' },
-      ];
-    case 'bottom':
-      return [
-        { adjacentFaceId: 'front', isHorizontal: true, position: 'top' },
-        { adjacentFaceId: 'back', isHorizontal: true, position: 'bottom' },
-        { adjacentFaceId: 'left', isHorizontal: false, position: 'left' },
-        { adjacentFaceId: 'right', isHorizontal: false, position: 'right' },
-      ];
-  }
-};
+// Re-export EdgeInfo and getFaceEdges for backward compatibility
+export { EdgeInfo, getFaceEdges } from './faceGeometry';
 
 // Get which edge of the adjacent face corresponds to this face's edge
 // For example: top face's right edge connects to right face's top edge
@@ -188,18 +143,7 @@ export const getAdjacentEdgePosition = (
   faceId: FaceId,
   edgePosition: 'top' | 'bottom' | 'left' | 'right'
 ): 'top' | 'bottom' | 'left' | 'right' => {
-  // This mapping defines which edge of the adjacent face connects back to this face
-  // Derived from getFaceEdges: if face A's edge X connects to face B,
-  // then face B's edge Y connects back to face A (found by looking up B in getFaceEdges)
-  const mapping: Record<FaceId, Record<string, 'top' | 'bottom' | 'left' | 'right'>> = {
-    front: { top: 'bottom', bottom: 'top', left: 'right', right: 'left' },
-    back: { top: 'top', bottom: 'bottom', left: 'right', right: 'left' },
-    left: { top: 'left', bottom: 'left', left: 'right', right: 'left' },
-    right: { top: 'right', bottom: 'right', left: 'right', right: 'left' },
-    top: { top: 'top', bottom: 'top', left: 'top', right: 'top' },
-    bottom: { top: 'bottom', bottom: 'bottom', left: 'bottom', right: 'bottom' },
-  };
-  return mapping[faceId][edgePosition];
+  return getMatingEdge(faceId, edgePosition);
 };
 
 // Determine if this face has priority over the perpendicular face at a meeting corner
