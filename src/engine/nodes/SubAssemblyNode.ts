@@ -150,4 +150,39 @@ export class SubAssemblyNode extends BaseAssembly {
       },
     };
   }
+
+  // ==========================================================================
+  // Cloning
+  // ==========================================================================
+
+  /**
+   * Clone this sub-assembly into a new parent void
+   * Called by VoidNode.clone() to properly set up the parent reference
+   */
+  cloneIntoVoid(newParentVoid: VoidNode): SubAssemblyNode {
+    const cloned = new SubAssemblyNode(
+      newParentVoid,
+      { ...this._material },
+      this._clearance,
+      this.id
+    );
+
+    // Copy base assembly properties
+    this.copyBasePropertiesTo(cloned);
+
+    // Remove the default root void and replace with cloned one
+    cloned.removeChild(cloned._rootVoid);
+    cloned._rootVoid = this._rootVoid.clone();
+    cloned.addChild(cloned._rootVoid);
+
+    return cloned;
+  }
+
+  /**
+   * Clone this sub-assembly (uses current parent void)
+   * Note: For proper cloning during scene cloning, use cloneIntoVoid()
+   */
+  clone(): SubAssemblyNode {
+    return this.cloneIntoVoid(this._parentVoid);
+  }
 }

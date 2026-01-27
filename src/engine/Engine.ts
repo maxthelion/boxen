@@ -25,10 +25,62 @@ import { generatePanelsFromEngine } from './panelBridge';
 
 export class Engine {
   private _scene: SceneNode;
+  private _previewScene: SceneNode | null = null;
   private _nodeMap: Map<string, BaseNode> | null = null;
 
   constructor() {
     this._scene = new SceneNode();
+  }
+
+  // ==========================================================================
+  // Preview Management
+  // ==========================================================================
+
+  /**
+   * Start a preview by cloning the current scene
+   * All subsequent dispatches with preview: true will modify the preview scene
+   */
+  startPreview(): void {
+    if (this._previewScene) {
+      console.warn('Preview already active, discarding previous preview');
+    }
+    this._previewScene = this._scene.clone();
+    this.invalidateNodeMap();
+  }
+
+  /**
+   * Commit the preview, making it the new main scene
+   */
+  commitPreview(): void {
+    if (this._previewScene) {
+      this._scene = this._previewScene;
+      this._previewScene = null;
+      this.invalidateNodeMap();
+    }
+  }
+
+  /**
+   * Discard the preview, reverting to the main scene
+   */
+  discardPreview(): void {
+    if (this._previewScene) {
+      this._previewScene = null;
+      this.invalidateNodeMap();
+    }
+  }
+
+  /**
+   * Check if a preview is currently active
+   */
+  hasPreview(): boolean {
+    return this._previewScene !== null;
+  }
+
+  /**
+   * Get the active scene (preview if active, otherwise main)
+   */
+  private getActiveScene(): SceneNode {
+    return this._previewScene ?? this._scene;
   }
 
   // ==========================================================================
@@ -79,6 +131,7 @@ export class Engine {
 
   /**
    * Build the node map by traversing the entire tree
+   * Uses the active scene (preview if active)
    */
   private buildNodeMap(): Map<string, BaseNode> {
     const map = new Map<string, BaseNode>();
@@ -90,7 +143,7 @@ export class Engine {
       }
     };
 
-    addNodeToMap(this._scene);
+    addNodeToMap(this.getActiveScene());
     return map;
   }
 
@@ -139,40 +192,46 @@ export class Engine {
 
   /**
    * Get the full scene snapshot for React rendering
+   * Returns preview scene if active, otherwise main scene
    */
   getSnapshot(): SceneSnapshot {
+    const scene = this.getActiveScene();
     // Recompute any dirty nodes first
-    if (this._scene.isDirty) {
-      this._scene.recompute();
-      this._scene.clearDirty();
+    if (scene.isDirty) {
+      scene.recompute();
+      scene.clearDirty();
     }
-    return this._scene.serialize();
+    return scene.serialize();
   }
 
   /**
    * Get the panel collection for rendering and export (engine types)
+   * Returns preview scene panels if active
    */
   getPanelCollection(): PanelCollectionSnapshot {
+    const scene = this.getActiveScene();
     // Ensure scene is up to date
-    if (this._scene.isDirty) {
-      this._scene.recompute();
-      this._scene.clearDirty();
+    if (scene.isDirty) {
+      scene.recompute();
+      scene.clearDirty();
     }
-    return this._scene.collectPanels();
+    return scene.collectPanels();
   }
 
   /**
    * Generate panels using engine nodes directly (engine-first approach)
    * Panels are computed by engine nodes with finger joints and edge extensions.
+   * Returns preview panels if preview is active
    */
   generatePanelsFromNodes(): PanelCollection {
+    const scene = this.getActiveScene();
     // Ensure scene is up to date
-    if (this._scene.isDirty) {
-      this._scene.recompute();
-      this._scene.clearDirty();
+    if (scene.isDirty) {
+      scene.recompute();
+      scene.clearDirty();
     }
 
-    const assembly = this._scene.primaryAssembly;
+    const assembly = scene.primaryAssembly;
     if (!assembly) {
       return { panels: [], augmentations: [], generatedAt: Date.now() };
     }
@@ -187,9 +246,33 @@ export class Engine {
   /**
    * Process an action to update the model
    * Returns true if the action was handled
+   *
+   * @param action - The action to dispatch
+   * @param options - Optional dispatch options
+   *   - preview: If true and a preview is active, only modifies the preview scene
    */
-  dispatch(action: EngineAction): boolean {
-    const assembly = this.findAssembly(action.targetId);
+  dispatch(action: EngineAction, options?: { preview?: boolean }): boolean {
+    // Determine which scene to operate on
+    // If preview option is set and we have a preview, use preview scene
+    // Otherwise, use the active scene (which returns preview if active anyway)
+    const usePreview = options?.preview && this._previewScene;
+    const targetScene = usePreview ? this._previewScene! : this._scene;
+
+    // Find assembly in the target scene
+    const findInScene = (id: string): BaseNode | null => {
+      const findById = (node: BaseNode): BaseNode | null => {
+        if (node.id === id) return node;
+        for (const child of node.children) {
+          const found = findById(child);
+          if (found) return found;
+        }
+        return null;
+      };
+      return findById(targetScene);
+    };
+
+    const assemblyNode = findInScene(action.targetId);
+    const assembly = assemblyNode instanceof BaseAssembly ? assemblyNode : null;
 
     switch (action.type) {
       case 'SET_DIMENSIONS':
@@ -242,7 +325,8 @@ export class Engine {
         break;
 
       case 'ADD_SUBDIVISION': {
-        const voidNode = this.findVoid(action.payload.voidId);
+        const voidNodeRaw = findInScene(action.payload.voidId);
+        const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;
         if (voidNode && assembly) {
           voidNode.subdivide(
             action.payload.axis,
@@ -256,7 +340,8 @@ export class Engine {
       }
 
       case 'ADD_SUBDIVISIONS': {
-        const voidNode = this.findVoid(action.payload.voidId);
+        const voidNodeRaw = findInScene(action.payload.voidId);
+        const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;
         if (voidNode && assembly) {
           voidNode.subdivideMultiple(
             action.payload.axis,
@@ -270,7 +355,8 @@ export class Engine {
       }
 
       case 'REMOVE_SUBDIVISION': {
-        const voidNode = this.findVoid(action.payload.voidId);
+        const voidNodeRaw = findInScene(action.payload.voidId);
+        const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;
         if (voidNode) {
           voidNode.clearSubdivision();
           this.invalidateNodeMap(); // Tree structure changed
@@ -293,7 +379,8 @@ export class Engine {
       }
 
       case 'CREATE_SUB_ASSEMBLY': {
-        const voidNode = this.findVoid(action.payload.voidId);
+        const voidNodeRaw = findInScene(action.payload.voidId);
+        const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;
         if (voidNode && assembly) {
           // Can only create sub-assembly in a leaf void
           if (!voidNode.isLeaf) {
@@ -322,7 +409,7 @@ export class Engine {
       }
 
       case 'REMOVE_SUB_ASSEMBLY': {
-        const subAssembly = this.findById(action.payload.subAssemblyId);
+        const subAssembly = findInScene(action.payload.subAssemblyId);
         if (subAssembly && subAssembly.kind === 'sub-assembly' && subAssembly.parent) {
           subAssembly.parent.removeChild(subAssembly);
           this.invalidateNodeMap();

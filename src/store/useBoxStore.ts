@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS } from '../types';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS, OperationId, INITIAL_OPERATION_STATE } from '../types';
+import { getOperation, operationHasPreview, operationIsImmediate } from '../operations';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
 import { syncStoreToEngine, getEngine, getEngineVoidTree, ensureEngineInitialized, getEngineFaces, dispatchToEngine } from '../engine';
@@ -321,8 +322,6 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   hiddenFaceIds: new Set<string>(),
   isolatedPanelId: null,
   isolateHiddenFaceIds: new Set<string>(),
-  panelCollection: null,
-  panelsDirty: true,  // Start dirty so panels get generated on first use
   showDebugAnchors: false,
   // 2D Sketch View state
   viewMode: '3d',
@@ -333,6 +332,12 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // Preview state
   previewState: null,
   previewPanelCollection: null,
+  // Operation state
+  operationState: {
+    activeOperation: null,
+    phase: 'idle',
+    params: {},
+  },
 
   setConfig: (newConfig) =>
     set((state) => {
@@ -2893,5 +2898,69 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     set({
       previewState: null,
       previewPanelCollection: null,
+    }),
+
+  // ==========================================================================
+  // Operation Actions - New unified operation system
+  // ==========================================================================
+
+  startOperation: (operationId: OperationId) =>
+    set((state) => {
+      const operation = getOperation(operationId);
+
+      // For parameter operations, start engine preview
+      if (operationHasPreview(operationId)) {
+        const engine = getEngine();
+        engine.startPreview();
+      }
+
+      return {
+        operationState: {
+          activeOperation: operationId,
+          phase: 'active',
+          params: {},
+        },
+      };
+    }),
+
+  updateOperationParams: (params: Record<string, unknown>) =>
+    set((state) => ({
+      operationState: {
+        ...state.operationState,
+        params: { ...state.operationState.params, ...params },
+      },
+    })),
+
+  applyOperation: () =>
+    set((state) => {
+      const { activeOperation } = state.operationState;
+      if (!activeOperation) return state;
+
+      // For parameter operations, commit the preview
+      if (operationHasPreview(activeOperation)) {
+        const engine = getEngine();
+        engine.commitPreview();
+      }
+
+      return {
+        operationState: INITIAL_OPERATION_STATE,
+        panelsDirty: true,
+      };
+    }),
+
+  cancelOperation: () =>
+    set((state) => {
+      const { activeOperation } = state.operationState;
+      if (!activeOperation) return state;
+
+      // For parameter operations, discard the preview
+      if (operationHasPreview(activeOperation)) {
+        const engine = getEngine();
+        engine.discardPreview();
+      }
+
+      return {
+        operationState: INITIAL_OPERATION_STATE,
+      };
     }),
 }));

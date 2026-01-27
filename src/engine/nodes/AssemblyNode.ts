@@ -53,4 +53,31 @@ export class AssemblyNode extends BaseAssembly {
   serialize(): AssemblySnapshot {
     return this.serializeBase('assembly');
   }
+
+  // ==========================================================================
+  // Cloning
+  // ==========================================================================
+
+  /**
+   * Create a deep clone of this assembly
+   */
+  clone(): AssemblyNode {
+    const cloned = new AssemblyNode(
+      this._width,
+      this._height,
+      this._depth,
+      { ...this._material },
+      this.id
+    );
+
+    // Copy base assembly properties
+    this.copyBasePropertiesTo(cloned);
+
+    // Remove the default root void and replace with cloned one
+    cloned.removeChild(cloned._rootVoid);
+    cloned._rootVoid = this._rootVoid.clone();
+    cloned.addChild(cloned._rootVoid);
+
+    return cloned;
+  }
 }

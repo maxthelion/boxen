@@ -495,4 +495,42 @@ export class VoidNode extends BaseNode {
       children: this._children.map(c => c.serialize()) as (VoidSnapshot | any)[],
     };
   }
+
+  // ==========================================================================
+  // Cloning
+  // ==========================================================================
+
+  /**
+   * Create a deep clone of this void and all descendants
+   * Note: Sub-assemblies must be cloned with reference to the cloned void
+   */
+  clone(): VoidNode {
+    const cloned = new VoidNode({ ...this._bounds }, this.id);
+
+    // Copy split info
+    if (this._splitAxis !== undefined) {
+      cloned._splitAxis = this._splitAxis;
+      cloned._splitPosition = this._splitPosition;
+      cloned._splitPositionMode = this._splitPositionMode;
+      cloned._splitPercentage = this._splitPercentage;
+    }
+
+    // Clone children (void nodes and sub-assemblies)
+    for (const child of this._children) {
+      if (child.kind === 'void') {
+        const clonedVoid = (child as VoidNode).clone();
+        cloned.addChild(clonedVoid);
+      } else if (child.kind === 'sub-assembly') {
+        // Sub-assemblies need special handling - they reference the parent void
+        // Import dynamically to avoid circular dependency
+        const subAsm = child as any; // SubAssemblyNode
+        if (typeof subAsm.cloneIntoVoid === 'function') {
+          const clonedSubAsm = subAsm.cloneIntoVoid(cloned);
+          cloned.addChild(clonedSubAsm);
+        }
+      }
+    }
+
+    return cloned;
+  }
 }

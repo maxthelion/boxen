@@ -675,6 +675,19 @@ export abstract class BasePanel extends BaseNode {
   }
 
   // ==========================================================================
+  // Cloning - Not supported for panel nodes
+  // ==========================================================================
+
+  /**
+   * Panel nodes are derived/computed, not stored in the scene tree.
+   * They don't need to be cloned because they're recreated on demand
+   * from assembly and void data.
+   */
+  clone(): BasePanel {
+    throw new Error('Panel nodes cannot be cloned - they are derived from assembly/void data');
+  }
+
+  // ==========================================================================
   // Base Serialization Helper
   // ==========================================================================
 

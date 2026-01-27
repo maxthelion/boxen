@@ -1,0 +1,179 @@
+/**
+ * Operation Types - Core type definitions for the operations system
+ *
+ * Operations are user actions that modify the model. They follow a consistent
+ * lifecycle with preview support.
+ */
+
+import { FaceId, Axis } from '../engine/types';
+
+// ==========================================================================
+// Operation Identifiers
+// ==========================================================================
+
+/**
+ * All available operation IDs
+ */
+export type OperationId =
+  // Parameter operations (have preview phase)
+  | 'push-pull'
+  | 'subdivide'
+  | 'subdivide-two-panel'
+  | 'create-sub-assembly'
+  | 'chamfer-fillet'
+  // Immediate operations (execute instantly)
+  | 'toggle-face'
+  | 'remove-subdivision'
+  | 'remove-sub-assembly'
+  // View operations (no model change)
+  | 'edit-in-2d';
+
+/**
+ * Operation type categories
+ */
+export type OperationType = 'parameter' | 'immediate' | 'view';
+
+/**
+ * Selection target type
+ */
+export type SelectionType = 'void' | 'panel' | 'corner' | 'assembly' | 'none';
+
+// ==========================================================================
+// Operation Phase
+// ==========================================================================
+
+/**
+ * Operation lifecycle phases
+ */
+export type OperationPhase = 'idle' | 'awaiting-selection' | 'active';
+
+// ==========================================================================
+// Operation Parameters
+// ==========================================================================
+
+/**
+ * Parameters for push-pull operation
+ */
+export interface PushPullParams {
+  faceId: FaceId;
+  offset: number;
+  mode: 'scale' | 'extend';
+}
+
+/**
+ * Parameters for subdivide operation
+ */
+export interface SubdivideParams {
+  voidId: string;
+  axis: Axis;
+  count: number;
+  positions: number[];
+}
+
+/**
+ * Parameters for subdivide-two-panel operation
+ */
+export interface SubdivideTwoPanelParams {
+  panel1Id: string;
+  panel2Id: string;
+  axis: Axis;
+  count: number;
+  positions: number[];
+}
+
+/**
+ * Parameters for create-sub-assembly operation
+ */
+export interface CreateSubAssemblyParams {
+  voidId: string;
+  clearance: number;
+  assemblyAxis: Axis;
+}
+
+/**
+ * Parameters for chamfer-fillet operation
+ */
+export interface ChamferFilletParams {
+  cornerIds: string[];
+  radius: number;
+  type: 'chamfer' | 'fillet';
+}
+
+/**
+ * Parameters for toggle-face operation
+ */
+export interface ToggleFaceParams {
+  faceId: FaceId;
+}
+
+/**
+ * Parameters for remove-subdivision operation
+ */
+export interface RemoveSubdivisionParams {
+  voidId: string;
+}
+
+/**
+ * Parameters for remove-sub-assembly operation
+ */
+export interface RemoveSubAssemblyParams {
+  voidId: string;
+}
+
+/**
+ * Parameters for edit-in-2d operation
+ */
+export interface EditIn2DParams {
+  panelId: string;
+}
+
+/**
+ * Union of all operation parameters
+ */
+export type OperationParams =
+  | PushPullParams
+  | SubdivideParams
+  | SubdivideTwoPanelParams
+  | CreateSubAssemblyParams
+  | ChamferFilletParams
+  | ToggleFaceParams
+  | RemoveSubdivisionParams
+  | RemoveSubAssemblyParams
+  | EditIn2DParams;
+
+// ==========================================================================
+// Operation State
+// ==========================================================================
+
+/**
+ * Current operation state stored in the UI store
+ */
+export interface OperationState {
+  /** Currently active operation, or null if idle */
+  activeOperation: OperationId | null;
+  /** Current phase of the operation lifecycle */
+  phase: OperationPhase;
+  /** Operation-specific parameters */
+  params: Record<string, unknown>;
+}
+
+/**
+ * Initial operation state
+ */
+export const INITIAL_OPERATION_STATE: OperationState = {
+  activeOperation: null,
+  phase: 'idle',
+  params: {},
+};
+
+// ==========================================================================
+// Validation
+// ==========================================================================
+
+/**
+ * Result of operation validation
+ */
+export interface ValidationResult {
+  valid: boolean;
+  reason?: string;
+}

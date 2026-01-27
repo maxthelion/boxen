@@ -1,3 +1,8 @@
+import { OperationId, OperationState, OperationPhase, INITIAL_OPERATION_STATE } from './operations/types';
+
+// Re-export operation types for convenience
+export { type OperationId, type OperationState, type OperationPhase, INITIAL_OPERATION_STATE };
+
 // Assembly axis determines which pair of faces acts as "lids"
 export type AssemblyAxis = 'x' | 'y' | 'z';
 
@@ -282,10 +287,6 @@ export interface BoxState {
   hiddenFaceIds: Set<string>;  // Set of face panel IDs that are hidden (e.g., 'face-front', 'subasm-xxx-face-top', 'divider-void-1-split')
   isolatedPanelId: string | null;  // If set, only show this panel
   isolateHiddenFaceIds: Set<string>;  // Face IDs hidden by isolate action
-  // Generated panel paths - the source of truth for geometry
-  panelCollection: PanelCollection | null;
-  // Flag indicating panels need regeneration (config changed since last generate)
-  panelsDirty: boolean;
   // Debug visualization toggles
   showDebugAnchors: boolean;
   // 2D Sketch View state
@@ -295,8 +296,11 @@ export interface BoxState {
   activeTool: EditorTool;
   selectedCornerIds: Set<string>;  // Selected corners for chamfer/fillet tool
   // Preview state - when active, shows a modified version of the assembly
+  // DEPRECATED: Use operationState instead, will be removed after migration
   previewState: PreviewState | null;
   previewPanelCollection: PanelCollection | null;  // Generated panels for preview
+  // Operation state - tracks active operation and its parameters
+  operationState: OperationState;
 }
 
 // Editor tools available in 2D/3D views
@@ -349,13 +353,6 @@ export interface BoxActions {
   setIsolatedPanel: (panelId: string | null) => void;
   // Panel path actions
   generatePanels: () => void;                    // Generate panel paths from current config
-  clearPanels: () => void;                       // Clear generated panels
-  updatePanelPath: (panelId: string, updates: Partial<PanelPath>) => void;
-  addPanelHole: (panelId: string, hole: PanelHole) => void;
-  removePanelHole: (panelId: string, holeId: string) => void;
-  addAugmentation: (augmentation: PanelAugmentation) => void;
-  removeAugmentation: (augmentationId: string) => void;
-  togglePanelVisibility: (panelId: string) => void;
   setEdgeExtension: (
     panelId: string,
     edge: 'top' | 'bottom' | 'left' | 'right',
@@ -385,12 +382,18 @@ export interface BoxActions {
   selectCorners: (cornerIds: string[]) => void;
   clearCornerSelection: () => void;
   // Preview actions - for showing changes before committing
+  // DEPRECATED: Use operation actions instead, will be removed after migration
   startPreview: (type: PreviewState['type'], metadata?: PreviewState['metadata']) => void;
   updatePreviewFaceOffset: (faceId: FaceId, offset: number, mode: 'scale' | 'extend') => void;
   updatePreviewSubdivision: (preview: SubdivisionPreview) => void;
   updatePreviewSubAssembly: (voidId: string, clearance: number, assemblyAxis: AssemblyAxis, faceOffsets: FaceOffsets) => void;
   commitPreview: () => void;
   cancelPreview: () => void;
+  // Operation actions - new unified operation system
+  startOperation: (operationId: OperationId) => void;
+  updateOperationParams: (params: Record<string, unknown>) => void;
+  applyOperation: () => void;
+  cancelOperation: () => void;
 }
 
 // Subdivision panel - a physical divider piece to be cut

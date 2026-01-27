@@ -754,4 +754,43 @@ export abstract class BaseAssembly extends BaseNode {
       children: [this._rootVoid.serialize()],
     };
   }
+
+  // ==========================================================================
+  // Cloning - Base Helper
+  // ==========================================================================
+
+  /**
+   * Copy base assembly properties to a target assembly
+   * Used by subclass clone() implementations
+   */
+  protected copyBasePropertiesTo(target: BaseAssembly): void {
+    // Copy assembly config
+    target._assemblyConfig = {
+      assemblyAxis: this._assemblyConfig.assemblyAxis,
+      lids: {
+        positive: { ...this._assemblyConfig.lids.positive },
+        negative: { ...this._assemblyConfig.lids.negative },
+      },
+    };
+
+    // Copy faces
+    target._faces = new Map();
+    for (const [faceId, config] of this._faces) {
+      target._faces.set(faceId, { ...config });
+    }
+
+    // Copy feet
+    target._feet = this._feet ? { ...this._feet } : null;
+
+    // Copy panel edge extensions
+    target._panelEdgeExtensions = new Map();
+    for (const [panelId, extensions] of this._panelEdgeExtensions) {
+      target._panelEdgeExtensions.set(panelId, { ...extensions });
+    }
+  }
+
+  /**
+   * Abstract clone method - must be implemented by subclasses
+   */
+  abstract clone(): BaseAssembly;
 }

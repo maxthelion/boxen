@@ -104,4 +104,23 @@ export class SceneNode extends BaseNode {
       children: this.assemblies.map(a => a.serialize()) as AssemblySnapshot[],
     };
   }
+
+  // ==========================================================================
+  // Cloning
+  // ==========================================================================
+
+  /**
+   * Create a deep clone of this scene and all assemblies
+   */
+  clone(): SceneNode {
+    const cloned = new SceneNode(this.id);
+
+    // Clone all assemblies and add to cloned scene
+    for (const assembly of this.assemblies) {
+      const clonedAssembly = assembly.clone();
+      cloned.addAssembly(clonedAssembly);
+    }
+
+    return cloned;
+  }
 }

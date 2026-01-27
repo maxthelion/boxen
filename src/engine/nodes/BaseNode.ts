@@ -186,6 +186,13 @@ export abstract class BaseNode {
   abstract recompute(): void;
 
   /**
+   * Create a deep clone of this node and all descendants.
+   * Must be implemented by subclasses.
+   * The clone has no parent reference - it's a new tree root.
+   */
+  abstract clone(): BaseNode;
+
+  /**
    * Serialize with automatic recomputation if dirty
    */
   serializeWithRecompute(): BaseSnapshot {
