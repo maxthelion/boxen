@@ -176,9 +176,15 @@ Move panel generation logic from `panelGenerator.ts` into engine.
 - However, actual panel generation still uses `panelBridge.ts` → `panelGenerator.ts`
 - The engine's `computeOutline()` is ready but not yet integrated into panel generation
 
+**Verified:**
+- ✅ Engine's `computeOutline()` produces output matching `panelGenerator.ts`
+  - First 5 points identical
+  - Engine: 20 points, Generator: 21 points (minor difference in closing)
+  - Tests in `src/engine/nodes/BasePanel.test.ts`
+
 **Remaining:**
-1. Test engine's `computeOutline()` output matches `panelGenerator.ts` output
-2. Switch `Engine.generatePanels()` to use engine nodes directly
+1. Switch `Engine.generatePanels()` to use engine nodes directly
+2. Handle edge extensions, slot holes, feet in engine (currently in panelGenerator)
 3. Remove `panelBridge.ts` and `generatePanelCollection()` dependency
 
 ### Phase 9: Edge Extensions & Augmentations
