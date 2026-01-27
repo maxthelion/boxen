@@ -232,6 +232,68 @@ export class DividerPanelNode extends BasePanel {
     return assembly.getFingerData();
   }
 
+  /**
+   * Compute the axis position for a corner of an edge.
+   * This determines where the edge starts/ends along the world axis.
+   * Used for finger joint alignment across panels.
+   */
+  protected computeEdgeAxisPosition(
+    edgePosition: EdgePosition,
+    corner: 'start' | 'end',
+    axis: Axis
+  ): number {
+    const assembly = this.findParentAssembly();
+    if (!assembly) {
+      return 0;
+    }
+
+    const { width, height, depth } = {
+      width: assembly.width,
+      height: assembly.height,
+      depth: assembly.depth,
+    };
+    const mt = assembly.material.thickness;
+
+    // Get assembly-level dimensions minus MT at both ends
+    let maxJointLength: number;
+    switch (axis) {
+      case 'x': maxJointLength = width - 2 * mt; break;
+      case 'y': maxJointLength = height - 2 * mt; break;
+      case 'z': maxJointLength = depth - 2 * mt; break;
+    }
+
+    // For divider panels, edges meet face panels
+    // All divider edges have male joints (tabs), so they define the full joint range
+    // Position 0 is the start of the joint area, maxJointLength is the end
+
+    // Determine which edge direction this is
+    // Horizontal edges (top/bottom): start=left, end=right -> low to high
+    // Vertical edges (left/right): start=bottom, end=top for left, top to bottom for right
+    const isHorizontalEdge = edgePosition === 'top' || edgePosition === 'bottom';
+
+    // For horizontal edges: left is start (pos 0), right is end (pos maxJointLength)
+    // For vertical edges: bottom is start, top is end
+    // But we need to account for the edge traversal direction in the outline
+
+    if (isHorizontalEdge) {
+      // Top edge: left to right (0 to maxJointLength)
+      // Bottom edge: right to left (maxJointLength to 0)
+      if (edgePosition === 'top') {
+        return corner === 'start' ? 0 : maxJointLength;
+      } else {
+        return corner === 'start' ? maxJointLength : 0;
+      }
+    } else {
+      // Right edge: top to bottom (maxJointLength to 0)
+      // Left edge: bottom to top (0 to maxJointLength)
+      if (edgePosition === 'right') {
+        return corner === 'start' ? maxJointLength : 0;
+      } else {
+        return corner === 'start' ? 0 : maxJointLength;
+      }
+    }
+  }
+
   // ==========================================================================
   // Helper Methods
   // ==========================================================================

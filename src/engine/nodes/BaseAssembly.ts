@@ -33,9 +33,11 @@ import {
   JointAlignmentError,
   VoidContentConstraint,
   VoidAlignmentError,
+  EdgeExtensions,
 } from '../types';
 import { VoidNode } from './VoidNode';
 import { FacePanelNode } from './FacePanelNode';
+import { DividerPanelNode } from './DividerPanelNode';
 import { calculateSubAssemblyFingerPoints } from '../../utils/fingerPoints';
 import {
   startAlignmentDebug,
@@ -89,6 +91,9 @@ export abstract class BaseAssembly extends BaseNode {
 
   // Cached derived panels
   protected _cachedPanels: PanelSnapshot[] | null = null;
+
+  // Stored edge extensions for panels (keyed by panel ID)
+  protected _panelEdgeExtensions: Map<string, EdgeExtensions> = new Map();
 
   // Cached finger point data (computed from dimensions + material)
   protected _cachedFingerData: AssemblyFingerData | null = null;
@@ -277,6 +282,41 @@ export abstract class BaseAssembly extends BaseNode {
 
   setFeet(config: FeetConfig | null): void {
     this._feet = config ? { ...config } : null;
+    this.markDirty();
+  }
+
+  // ==========================================================================
+  // Panel Edge Extension Management
+  // ==========================================================================
+
+  /**
+   * Get edge extensions for a panel by ID
+   */
+  getPanelEdgeExtensions(panelId: string): EdgeExtensions {
+    return this._panelEdgeExtensions.get(panelId) ?? { top: 0, bottom: 0, left: 0, right: 0 };
+  }
+
+  /**
+   * Set a single edge extension for a panel
+   */
+  setPanelEdgeExtension(panelId: string, edge: EdgePosition, value: number): void {
+    let extensions = this._panelEdgeExtensions.get(panelId);
+    if (!extensions) {
+      extensions = { top: 0, bottom: 0, left: 0, right: 0 };
+      this._panelEdgeExtensions.set(panelId, extensions);
+    }
+
+    if (extensions[edge] !== value) {
+      extensions[edge] = value;
+      this.markDirty();
+    }
+  }
+
+  /**
+   * Set all edge extensions for a panel
+   */
+  setPanelEdgeExtensions(panelId: string, extensions: EdgeExtensions): void {
+    this._panelEdgeExtensions.set(panelId, { ...extensions });
     this.markDirty();
   }
 
@@ -545,15 +585,61 @@ export abstract class BaseAssembly extends BaseNode {
     for (const faceId of ALL_FACE_IDS) {
       const face = this._faces.get(faceId)!;
       if (face.solid) {
-        // Create panel node and serialize
+        // Create panel node
         const panelNode = new FacePanelNode(faceId, this);
+
+        // Apply stored edge extensions
+        const storedExtensions = this._panelEdgeExtensions.get(panelNode.id);
+        if (storedExtensions) {
+          panelNode.setEdgeExtensions(storedExtensions);
+        }
+
         panels.push(panelNode.serialize());
       }
     }
 
-    // TODO: Generate divider panels from void subdivisions
+    // Generate divider panels from void subdivisions
+    this.collectDividerPanels(this._rootVoid, panels);
 
     return panels;
+  }
+
+  /**
+   * Recursively collect divider panels from void tree
+   */
+  protected collectDividerPanels(voidNode: VoidNode, panels: PanelSnapshot[]): void {
+    const voidChildren = voidNode.getVoidChildren();
+
+    if (voidChildren.length === 0) {
+      // Leaf void - no dividers
+      return;
+    }
+
+    // Each pair of adjacent children creates a divider panel
+    // The divider info (axis, position) is stored on children with index >= 1
+    for (let i = 1; i < voidChildren.length; i++) {
+      const child = voidChildren[i];
+      const splitAxis = child.splitAxis;
+      const splitPosition = child.splitPosition;
+
+      if (splitAxis && splitPosition !== undefined) {
+        // Create divider panel
+        const dividerNode = new DividerPanelNode(voidNode, splitAxis, splitPosition);
+
+        // Apply stored edge extensions
+        const storedExtensions = this._panelEdgeExtensions.get(dividerNode.id);
+        if (storedExtensions) {
+          dividerNode.setEdgeExtensions(storedExtensions);
+        }
+
+        panels.push(dividerNode.serialize());
+      }
+    }
+
+    // Recurse into children
+    for (const child of voidChildren) {
+      this.collectDividerPanels(child, panels);
+    }
   }
 
   // ==========================================================================

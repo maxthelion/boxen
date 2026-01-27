@@ -170,22 +170,33 @@ Move panel generation logic from `panelGenerator.ts` into engine.
 - ✅ `DividerPanelNode.computeEdgeConfigs()` includes gender (always male)
 - ✅ `DividerPanelNode.getFingerData()` returns parent assembly's finger data
 - ✅ `DividerPanelNode.getEdgeAxisForPosition()` maps edges to world axes
+- ✅ `DividerPanelNode.computeEdgeAxisPosition()` computes axis positions for finger alignment
+- ✅ Engine-to-PanelPath converter (`panelSnapshotToPanelPath()`)
+- ✅ `Engine.generatePanelsFromNodes()` method for engine-first panel generation
+- ✅ Edge extensions stored at assembly level (`_panelEdgeExtensions`)
+- ✅ `SET_EDGE_EXTENSION` action implemented in Engine.dispatch()
+- ✅ Divider panels generated from void tree (`collectDividerPanels()`)
 
 **Current State:**
-- Engine nodes can now compute finger joints in `computeOutline()`
-- However, actual panel generation still uses `panelBridge.ts` → `panelGenerator.ts`
-- The engine's `computeOutline()` is ready but not yet integrated into panel generation
+- Engine can generate face panels and divider panels with finger joints
+- `Engine.generatePanelsFromNodes()` returns store-compatible `PanelCollection`
+- Edge extensions are preserved across panel regeneration
+- Tests verify engine output matches panelGenerator.ts for basic cases
 
 **Verified:**
 - ✅ Engine's `computeOutline()` produces output matching `panelGenerator.ts`
   - First 5 points identical
   - Engine: 20 points, Generator: 21 points (minor difference in closing)
-  - Tests in `src/engine/nodes/BasePanel.test.ts`
+- ✅ Divider panels have proper finger joints (60 points with larger box)
+- ✅ Edge extensions work via dispatch and persist
+- ✅ Tests in `src/engine/nodes/BasePanel.test.ts`
 
-**Remaining:**
-1. Switch `Engine.generatePanels()` to use engine nodes directly
-2. Handle edge extensions, slot holes, feet in engine (currently in panelGenerator)
-3. Remove `panelBridge.ts` and `generatePanelCollection()` dependency
+**Remaining (deferred to Phase 9):**
+1. Slot holes (when dividers intersect face panels)
+2. Feet-related panels
+3. Sub-assembly panels
+4. Switch store to use `Engine.generatePanelsFromNodes()` by default
+5. Remove `panelBridge.ts` dependency on `panelGenerator.ts`
 
 ### Phase 9: Edge Extensions & Augmentations
 1. Move edge extension logic into `BasePanel`

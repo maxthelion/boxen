@@ -89,4 +89,95 @@ describe('BasePanel finger joint generation', () => {
     console.log('Generator first 5 points:', generatorFront?.outline.points.slice(0, 5));
     console.log('Engine first 5 points:', engineFront?.derived.outline.points.slice(0, 5));
   });
+
+  it('Engine.generatePanelsFromNodes() returns store-compatible PanelCollection', () => {
+    // Generate panels using the engine-first approach
+    const collection = engine.generatePanelsFromNodes();
+
+    // Verify we get all 6 face panels
+    expect(collection.panels.length).toBe(6);
+
+    // Verify panel structure matches store PanelPath format
+    const frontPanel = collection.panels.find(p => p.source.faceId === 'front');
+    expect(frontPanel).toBeDefined();
+    expect(frontPanel!.source.type).toBe('face');
+    expect(frontPanel!.outline).toBeDefined();
+    expect(frontPanel!.outline.points.length).toBeGreaterThan(4); // Has finger joints
+    expect(frontPanel!.outline.closed).toBe(true);
+    expect(frontPanel!.width).toBeGreaterThan(0);
+    expect(frontPanel!.height).toBeGreaterThan(0);
+    expect(frontPanel!.thickness).toBe(3);
+    expect(frontPanel!.position).toHaveLength(3);
+    expect(frontPanel!.rotation).toHaveLength(3);
+    expect(frontPanel!.edgeExtensions).toBeDefined();
+
+    console.log('generatePanelsFromNodes() panel count:', collection.panels.length);
+  });
+
+  it('edge extensions are preserved in generated panels', () => {
+    const assembly = engine.assembly!;
+
+    // Set edge extension on front panel
+    assembly.setPanelEdgeExtension('face-front', 'top', 5);
+    assembly.setPanelEdgeExtension('face-front', 'left', 3);
+
+    // Generate panels
+    const collection = engine.generatePanelsFromNodes();
+    const frontPanel = collection.panels.find(p => p.source.faceId === 'front');
+
+    // Verify edge extensions are preserved
+    expect(frontPanel).toBeDefined();
+    expect(frontPanel!.edgeExtensions.top).toBe(5);
+    expect(frontPanel!.edgeExtensions.left).toBe(3);
+    expect(frontPanel!.edgeExtensions.bottom).toBe(0);
+    expect(frontPanel!.edgeExtensions.right).toBe(0);
+  });
+
+  it('SET_EDGE_EXTENSION action updates panel edge extensions', () => {
+    // Dispatch SET_EDGE_EXTENSION action
+    engine.dispatch({
+      type: 'SET_EDGE_EXTENSION',
+      targetId: 'main-assembly',
+      payload: { panelId: 'face-back', edge: 'bottom', value: 7 },
+    });
+
+    // Generate panels and verify
+    const collection = engine.generatePanelsFromNodes();
+    const backPanel = collection.panels.find(p => p.source.faceId === 'back');
+
+    expect(backPanel).toBeDefined();
+    expect(backPanel!.edgeExtensions.bottom).toBe(7);
+  });
+
+  it('generates divider panels from void subdivisions', () => {
+    // Use a larger box to ensure finger joints on all axes
+    const largeEngine = createEngine();
+    largeEngine.createAssembly(200, 150, 120, {
+      thickness: 3,
+      fingerWidth: 12.8,
+      fingerGap: 1.5,
+    });
+
+    // Subdivide the root void
+    largeEngine.dispatch({
+      type: 'ADD_SUBDIVISION',
+      targetId: 'main-assembly',
+      payload: { voidId: 'root', axis: 'x', position: 100 },
+    });
+
+    // Generate panels
+    const collection = largeEngine.generatePanelsFromNodes();
+
+    // Should have 6 face panels + 1 divider panel
+    expect(collection.panels.length).toBe(7);
+
+    // Find the divider panel
+    const dividerPanel = collection.panels.find(p => p.source.type === 'divider');
+    expect(dividerPanel).toBeDefined();
+    expect(dividerPanel!.source.axis).toBe('x');
+
+    // With larger dimensions, divider panel should have finger joints
+    console.log('Divider outline points:', dividerPanel!.outline.points.length);
+    expect(dividerPanel!.outline.points.length).toBeGreaterThan(4);
+  });
 });

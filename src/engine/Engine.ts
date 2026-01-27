@@ -20,7 +20,7 @@ import {
   EngineAction,
 } from './types';
 import { PanelCollection, PanelPath, Void } from '../types';
-import { generatePanelsWithVoid } from './panelBridge';
+import { generatePanelsWithVoid, generatePanelsFromEngine } from './panelBridge';
 
 export class Engine {
   private _scene: SceneNode;
@@ -182,6 +182,27 @@ export class Engine {
     return generatePanelsWithVoid(assembly, rootVoid, existingPanels);
   }
 
+  /**
+   * Generate panels using engine nodes directly (engine-first approach)
+   * This is the new Phase 8 approach where panels are computed by engine nodes.
+   *
+   * Edge extensions are preserved from the panel node state.
+   */
+  generatePanelsFromNodes(): PanelCollection {
+    // Ensure scene is up to date
+    if (this._scene.isDirty) {
+      this._scene.recompute();
+      this._scene.clearDirty();
+    }
+
+    const assembly = this._scene.primaryAssembly;
+    if (!assembly) {
+      return { panels: [], augmentations: [], generatedAt: Date.now() };
+    }
+
+    return generatePanelsFromEngine(assembly);
+  }
+
   // ==========================================================================
   // Action Dispatch
   // ==========================================================================
@@ -281,9 +302,18 @@ export class Engine {
         break;
       }
 
-      case 'SET_EDGE_EXTENSION':
-        // TODO: Find panel and set edge extension
+      case 'SET_EDGE_EXTENSION': {
+        // Edge extensions are stored at the assembly level
+        if (assembly) {
+          assembly.setPanelEdgeExtension(
+            action.payload.panelId,
+            action.payload.edge,
+            action.payload.value
+          );
+          return true;
+        }
         break;
+      }
 
       case 'CREATE_SUB_ASSEMBLY':
         // TODO: Create sub-assembly in void

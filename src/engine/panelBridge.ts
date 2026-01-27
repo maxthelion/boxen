@@ -15,12 +15,14 @@ import {
   BoxConfig,
   PanelCollection,
   PanelPath,
+  PanelSource,
+  PanelHole as StorePanelHole,
   AssemblyConfig as StoreAssemblyConfig,
 } from '../types';
 import { AssemblyNode } from './nodes/AssemblyNode';
 import { VoidNode } from './nodes/VoidNode';
 import { SceneNode } from './nodes/SceneNode';
-import { FaceId } from './types';
+import { FaceId, PanelSnapshot, FacePanelSnapshot, DividerPanelSnapshot } from './types';
 
 /**
  * Convert engine AssemblyNode to store BoxConfig
@@ -234,6 +236,114 @@ export function generatePanelsForScene(
 
   for (const assembly of scene.assemblies) {
     const collection = generatePanelsForAssembly(assembly, existingPanels);
+    allPanels.push(...collection.panels);
+  }
+
+  return {
+    panels: allPanels,
+    augmentations: [],
+    generatedAt: Date.now(),
+  };
+}
+
+// =============================================================================
+// Engine Panel Snapshot to Store PanelPath Conversion
+// =============================================================================
+
+/**
+ * Convert an engine PanelSnapshot to a store PanelPath
+ * This allows the engine to generate panels directly without panelGenerator.ts
+ */
+export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
+  const { id, kind, props, derived } = snapshot;
+
+  // Build source based on panel kind
+  let source: PanelSource;
+  if (kind === 'face-panel') {
+    const faceSnapshot = snapshot as FacePanelSnapshot;
+    source = {
+      type: 'face',
+      faceId: faceSnapshot.props.faceId,
+    };
+  } else {
+    const dividerSnapshot = snapshot as DividerPanelSnapshot;
+    source = {
+      type: 'divider',
+      subdivisionId: dividerSnapshot.props.voidId,
+      axis: dividerSnapshot.props.axis,
+    };
+  }
+
+  // Convert engine PanelHole[] to store PanelHole[]
+  const holes: StorePanelHole[] = derived.outline.holes.map(hole => {
+    // Map engine source type to store HoleType
+    const holeType = hole.source.type === 'custom' ? 'custom' : 'slot';
+
+    // Map engine source type to store source type
+    const sourceTypeMap: Record<string, 'divider-slot' | 'lid-slot' | 'extension-slot' | 'decorative' | 'functional'> = {
+      'divider-slot': 'divider-slot',
+      'sub-assembly-slot': 'divider-slot', // Sub-assembly slots are similar to divider slots
+      'custom': 'decorative',
+    };
+
+    return {
+      id: hole.id,
+      type: holeType,
+      path: {
+        points: hole.path,
+        closed: true,
+      },
+      source: {
+        type: sourceTypeMap[hole.source.type] || 'functional',
+        sourceId: hole.source.sourceId,
+      },
+    };
+  });
+
+  return {
+    id,
+    source,
+    outline: {
+      points: derived.outline.points,
+      closed: true,
+    },
+    holes,
+    width: derived.width,
+    height: derived.height,
+    thickness: derived.thickness,
+    position: derived.worldTransform.position,
+    rotation: derived.worldTransform.rotation,
+    visible: props.visible,
+    edgeExtensions: props.edgeExtensions,
+  };
+}
+
+/**
+ * Generate panels using engine nodes directly (without panelGenerator.ts)
+ * This is the new engine-first approach.
+ */
+export function generatePanelsFromEngine(assembly: AssemblyNode): PanelCollection {
+  // Get all panel snapshots from the assembly
+  const panelSnapshots = assembly.getPanels();
+
+  // Convert to store PanelPath format
+  const panels = panelSnapshots.map(panelSnapshotToPanelPath);
+
+  return {
+    panels,
+    augmentations: [],
+    generatedAt: Date.now(),
+  };
+}
+
+/**
+ * Generate panels using engine for entire scene
+ */
+export function generatePanelsFromEngineScene(scene: SceneNode): PanelCollection {
+  const allPanels: PanelPath[] = [];
+
+  for (const assembly of scene.assemblies) {
+    const collection = generatePanelsFromEngine(assembly);
     allPanels.push(...collection.panels);
   }
 
