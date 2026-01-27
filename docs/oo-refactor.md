@@ -176,12 +176,20 @@ Move panel generation logic from `panelGenerator.ts` into engine.
 - ✅ Edge extensions stored at assembly level (`_panelEdgeExtensions`)
 - ✅ `SET_EDGE_EXTENSION` action implemented in Engine.dispatch()
 - ✅ Divider panels generated from void tree (`collectDividerPanels()`)
+- ✅ Store switched to use `Engine.generatePanelsFromNodes()` by default
+- ✅ `syncStoreToEngine()` now syncs edge extensions from existing panels
+- ✅ `setEdgeExtension` action dispatches to engine
+- ✅ Removed `panelBridge.ts` dependency on `panelGenerator.ts`
+- ✅ Removed unused bridge functions (`generatePanelsWithVoid`, `generatePanelsForAssembly`)
 
 **Current State:**
+- **Engine-first panel generation is now the default**
+- Store's `generatePanels()` calls `syncStoreToEngine()` with void tree + edge extensions
+- Store's `setEdgeExtension()` dispatches `SET_EDGE_EXTENSION` to engine
 - Engine can generate face panels and divider panels with finger joints
-- `Engine.generatePanelsFromNodes()` returns store-compatible `PanelCollection`
 - Edge extensions are preserved across panel regeneration
-- Tests verify engine output matches panelGenerator.ts for basic cases
+- `panelBridge.ts` now only provides type conversion (no `panelGenerator.ts` dependency)
+- All 160 tests pass
 
 **Verified:**
 - ✅ Engine's `computeOutline()` produces output matching `panelGenerator.ts`
@@ -195,8 +203,6 @@ Move panel generation logic from `panelGenerator.ts` into engine.
 1. Slot holes (when dividers intersect face panels)
 2. Feet-related panels
 3. Sub-assembly panels
-4. Switch store to use `Engine.generatePanelsFromNodes()` by default
-5. Remove `panelBridge.ts` dependency on `panelGenerator.ts`
 
 ### Phase 9: Edge Extensions & Augmentations
 1. Move edge extension logic into `BasePanel`
@@ -207,7 +213,47 @@ Move panel generation logic from `panelGenerator.ts` into engine.
 1. Remove `useBoxStore` state, keep only actions
 2. React components render from `SceneSnapshot`
 3. UI interactions → `engine.dispatch()` → `setSnapshot()`
-4. Prepare for undo/redo with action history
+4. Add `executeCommand()` wrapper to prepare for history recording
+
+### Phase 11: Event Sourcing & Undo/Redo
+See full proposal: `docs/event-sourcing-proposal.md`
+
+**Core Concept:** Snapshot-based undo using command history
+- Each command stores `beforeSnapshot` for instant undo
+- Redo re-dispatches the command's `actions` array
+- Periodic checkpoints optimize memory for long histories
+
+**Integration with Operation Pattern (from `modification-pattern-plan.md`):**
+| Operation Type | History Behavior |
+|----------------|------------------|
+| Parameter (Push/Pull, Subdivide) | Record on **Apply** only |
+| Immediate (Toggle Face) | Record **immediately** |
+| View (Edit in 2D) | **Not recorded** |
+
+**Implementation Steps:**
+1. Add `EngineStateSnapshot` type and `getStateSnapshot()` to Engine
+2. Implement `restoreFromSnapshot()` in Engine
+3. Create `HistoryState` with commands array and checkpoint map
+4. Wrap store actions in `executeCommand()` for recording
+5. Integrate with unified operation pattern's `applyOperation()`
+6. Add undo/redo UI and keyboard shortcuts (⌘Z, ⌘⇧Z)
+
+**Key Types:**
+```typescript
+interface Command {
+  id: string;
+  type: CommandType;
+  actions: EngineAction[];
+  beforeSnapshot: EngineStateSnapshot;
+  metadata?: { operationName: string; target?: string };
+}
+
+interface HistoryState {
+  commands: Command[];
+  currentIndex: number;
+  checkpoints: Map<number, EngineStateSnapshot>;
+}
+```
 
 ---
 
@@ -217,8 +263,18 @@ Move panel generation logic from `panelGenerator.ts` into engine.
 ┌─────────────────────────────────────────────────────────────┐
 │                        React UI                              │
 │  - Renders SceneSnapshot (plain JSON)                        │
-│  - Dispatches EngineActions                                  │
+│  - Dispatches via executeCommand()                           │
 │  - Never touches class instances                             │
+│  - Undo/Redo buttons, keyboard shortcuts (⌘Z, ⌘⇧Z)          │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ executeCommand(type, actions)
+┌─────────────────────────────────────────────────────────────┐
+│                    History Layer                             │
+│  - Records commands with beforeSnapshot                      │
+│  - undo() → restore snapshot                                 │
+│  - redo() → re-dispatch actions                              │
+│  - Periodic checkpoints for memory efficiency                │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼ dispatch(action)
@@ -226,6 +282,7 @@ Move panel generation logic from `panelGenerator.ts` into engine.
 │                        Engine                                │
 │  - Owns SceneNode (root of OO tree)                         │
 │  - dispatch() mutates nodes, returns snapshot                │
+│  - getStateSnapshot() / restoreFromSnapshot()                │
 │  - findById() for fast node lookup                          │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -259,6 +316,8 @@ Move panel generation logic from `panelGenerator.ts` into engine.
 | Debug output | Clipboard pattern | Per CLAUDE.md, easy to paste and analyze |
 | Void IDs | Engine-first | Engine generates IDs (`node-N`), store inherits them |
 | Face geometry | Centralized in utils | Single source prevents adjacency map drift |
+| Undo strategy | Snapshot-based | Simpler than reverse operations; instant restore |
+| Command recording | On Apply only (params) | Preview is ephemeral; only committed changes recorded |
 
 ---
 

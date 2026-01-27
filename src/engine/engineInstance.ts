@@ -10,7 +10,7 @@
 
 import { Engine, createEngine } from './Engine';
 import { MaterialConfig, FeetConfig } from './types';
-import { Face, BoxConfig, Void } from '../types';
+import { Face, BoxConfig, Void, PanelPath } from '../types';
 import { syncVoidNodeFromStoreVoid, voidNodeToVoid } from './panelBridge';
 
 // Singleton engine instance
@@ -41,8 +41,14 @@ export function resetEngine(): void {
  * @param config - Box configuration
  * @param faces - Face configurations
  * @param rootVoid - Optional void tree to sync (if provided, syncs void structure)
+ * @param existingPanels - Optional existing panels to sync edge extensions from
  */
-export function syncStoreToEngine(config: BoxConfig, faces: Face[], rootVoid?: Void): void {
+export function syncStoreToEngine(
+  config: BoxConfig,
+  faces: Face[],
+  rootVoid?: Void,
+  existingPanels?: PanelPath[]
+): void {
   const engine = getEngine();
 
   const material: MaterialConfig = {
@@ -78,6 +84,15 @@ export function syncStoreToEngine(config: BoxConfig, faces: Face[], rootVoid?: V
         gap: 0,
       };
       assembly.setFeet(engineFeet);
+    }
+
+    // Sync edge extensions from existing panels (on first creation)
+    if (existingPanels) {
+      for (const panel of existingPanels) {
+        if (panel.edgeExtensions) {
+          assembly.setPanelEdgeExtensions(panel.id, panel.edgeExtensions);
+        }
+      }
     }
   } else {
     // Update existing assembly
@@ -119,6 +134,15 @@ export function syncStoreToEngine(config: BoxConfig, faces: Face[], rootVoid?: V
     if (rootVoid) {
       syncVoidNodeFromStoreVoid(assembly.rootVoid, rootVoid, config.materialThickness);
     }
+
+    // Sync edge extensions from existing panels
+    if (existingPanels) {
+      for (const panel of existingPanels) {
+        if (panel.edgeExtensions) {
+          assembly.setPanelEdgeExtensions(panel.id, panel.edgeExtensions);
+        }
+      }
+    }
   }
 }
 
@@ -140,9 +164,15 @@ export function getEngineVoidTree(): Void | null {
  * @param config - Box configuration (used to create assembly if needed)
  * @param faces - Face configurations
  * @param rootVoid - Optional void tree to sync
+ * @param existingPanels - Optional existing panels to sync edge extensions from
  */
-export function ensureEngineInitialized(config: BoxConfig, faces: Face[], rootVoid?: Void): void {
-  syncStoreToEngine(config, faces, rootVoid);
+export function ensureEngineInitialized(
+  config: BoxConfig,
+  faces: Face[],
+  rootVoid?: Void,
+  existingPanels?: PanelPath[]
+): void {
+  syncStoreToEngine(config, faces, rootVoid, existingPanels);
 }
 
 /**

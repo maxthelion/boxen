@@ -1732,17 +1732,18 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // Panel path actions
   generatePanels: () =>
     set((state) => {
-      // Sync config and faces to engine
-      syncStoreToEngine(state.config, state.faces);
-
-      // Generate panels via engine (uses engine's config/faces + store's rootVoid)
-      // The engine is now the source of truth for config and faces,
-      // while the store remains the source of truth for void tree structure.
-      const engine = getEngine();
-      const collection = engine.generatePanels(
+      // Sync config, faces, void tree, and edge extensions to engine
+      syncStoreToEngine(
+        state.config,
+        state.faces,
         state.rootVoid,
         state.panelCollection?.panels
       );
+
+      // Generate panels from engine nodes (engine-first approach)
+      // The engine is the source of truth for all model state.
+      const engine = getEngine();
+      const collection = engine.generatePanelsFromNodes();
 
       // Generate panels for all sub-assemblies
       const subAssemblies = getAllSubAssemblies(state.rootVoid);
@@ -1941,27 +1942,24 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     set((state) => {
       if (!state.panelCollection) return state;
 
-      // First, update the extension value on the panel
-      const updatedPanels = state.panelCollection.panels.map((panel) =>
-        panel.id === panelId
-          ? {
-              ...panel,
-              edgeExtensions: {
-                ...(panel.edgeExtensions || defaultEdgeExtensions),
-                [edge]: value,
-              },
-            }
-          : panel
-      );
-
-      // Now regenerate panels with the updated extensions
-      const collection = generatePanelCollection(
+      // Ensure engine is initialized with current state
+      syncStoreToEngine(
+        state.config,
         state.faces,
         state.rootVoid,
-        state.config,
-        1,
-        updatedPanels  // Pass updated panels to preserve new extensions
+        state.panelCollection.panels
       );
+
+      // Dispatch the edge extension update to the engine
+      const engine = getEngine();
+      dispatchToEngine({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId, edge, value },
+      });
+
+      // Regenerate panels from engine nodes
+      const collection = engine.generatePanelsFromNodes();
 
       return {
         panelCollection: collection,

@@ -19,8 +19,8 @@ import {
   PanelCollectionSnapshot,
   EngineAction,
 } from './types';
-import { PanelCollection, PanelPath, Void } from '../types';
-import { generatePanelsWithVoid, generatePanelsFromEngine } from './panelBridge';
+import { PanelCollection } from '../types';
+import { generatePanelsFromEngine } from './panelBridge';
 
 export class Engine {
   private _scene: SceneNode;
@@ -161,32 +161,8 @@ export class Engine {
   }
 
   /**
-   * Generate panels using the existing panelGenerator (store types)
-   * This bridges the engine to the existing panel generation logic.
-   *
-   * @param rootVoid - The void tree from the store (has subdivisions)
-   * @param existingPanels - Existing panels for preserving edge extensions
-   */
-  generatePanels(rootVoid: Void, existingPanels?: PanelPath[]): PanelCollection {
-    // Ensure scene is up to date
-    if (this._scene.isDirty) {
-      this._scene.recompute();
-      this._scene.clearDirty();
-    }
-
-    const assembly = this._scene.primaryAssembly;
-    if (!assembly) {
-      return { panels: [], augmentations: [], generatedAt: Date.now() };
-    }
-
-    return generatePanelsWithVoid(assembly, rootVoid, existingPanels);
-  }
-
-  /**
    * Generate panels using engine nodes directly (engine-first approach)
-   * This is the new Phase 8 approach where panels are computed by engine nodes.
-   *
-   * Edge extensions are preserved from the panel node state.
+   * Panels are computed by engine nodes with finger joints and edge extensions.
    */
   generatePanelsFromNodes(): PanelCollection {
     // Ensure scene is up to date

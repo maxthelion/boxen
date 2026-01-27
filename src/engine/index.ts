@@ -32,9 +32,9 @@ export { useEngine, useEngineInstance } from './useEngine';
 
 // Panel generation bridge
 export {
-  generatePanelsWithVoid,
   voidNodeToVoid,
   syncVoidNodeFromStoreVoid,
+  generatePanelsFromEngine,
 } from './panelBridge';
 
 // Node classes
