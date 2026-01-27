@@ -89,7 +89,7 @@ Consolidated duplicated code between engine and legacy implementation:
 
 - **Lines of Duplicate Code Removed**: ~200 lines across 5 files
 
-### ⚠️ Phase 6: Void Tree Migration (In Progress)
+### ✅ Phase 6: Void Tree Migration (Complete)
 - Removed duplicate void tree functions from `useBoxStore.ts`
 - Now uses `VoidTree` namespace from `utils/voidTree.ts`
 
@@ -109,37 +109,39 @@ Consolidated duplicated code between engine and legacy implementation:
 - `syncStoreToEngine()` now accepts optional `rootVoid` parameter
 - `getEngineVoidTree()` - reads engine void tree as store Void
 
-**Blocker: Void ID Mismatch**
-Store void IDs (generated randomly) don't match engine void IDs ("root-void", "node-N").
-When dispatching void operations to engine, the engine can't find voids by store ID.
+**Void ID Mismatch Resolved:**
+Previously, store void IDs (random) didn't match engine IDs ("root-void", "node-N").
+This caused engine dispatch to fail when looking up voids by store ID.
 
-**Options to Resolve:**
-1. **ID Mapping**: Maintain a Map<storeId, engineId> during sync
-2. **ID Preservation**: Create VoidNode with store's ID during sync
-3. **Position-based Lookup**: Find engine void by tree position instead of ID
-4. **Engine-first IDs**: Generate void IDs from engine, propagate to store
+**Solution: Engine-First IDs**
+- Changed engine root void ID from `'root-void'` to `'root'` (matches store)
+- `applySubdivision` now dispatches `ADD_SUBDIVISIONS` to engine
+- `removeVoid` now dispatches `REMOVE_SUBDIVISION` to engine
+- After engine operations, store reads back void tree via `getEngineVoidTree()`
+- Store's void IDs now come from engine (e.g., `node-1`, `node-2`)
 
-**Current State:**
-Store remains source of truth for void tree. Void operations use VoidTree utilities.
-Engine syncs from store for panel generation but doesn't own void mutations.
-
-**Remaining:**
-- Resolve void ID mismatch (one of the options above)
-- Route store void operations through engine dispatch
-- Make store derive void state from engine snapshot
+**Flow for void operations:**
+1. Sync current store state to engine (`syncStoreToEngine`)
+2. Dispatch void action to engine (`ADD_SUBDIVISIONS` / `REMOVE_SUBDIVISION`)
+3. Read back void tree from engine (`getEngineVoidTree`)
+4. Store updates its `rootVoid` with engine's tree (inherits engine IDs)
 
 ---
 
 ## Remaining Work
 
-### Phase 7: Engine as Source of Truth
-Currently the store is still source of truth, with engine synced from it.
-To complete the refactor:
+### Phase 7: Engine as Source of Truth (Partial)
+Void operations now route through engine and store reads back results.
 
-1. **Move void tree into engine**
-   - `AssemblyNode` owns root void and all subdivisions
-   - Store derives void state from engine snapshot
-   - `ADD_SUBDIVISION` / `REMOVE_SUBDIVISION` actions fully in engine
+**Completed:**
+- ✅ Void operations dispatch through engine (`ADD_SUBDIVISIONS`, `REMOVE_SUBDIVISION`)
+- ✅ Store reads back void tree from engine after operations
+- ✅ Engine generates void IDs (store inherits them)
+
+**Remaining:**
+1. **Initialize engine from store once, then engine owns state**
+   - Currently: store syncs TO engine before each void operation
+   - Target: engine initialized once, store only reads from engine
 
 2. **Dispatch returns snapshot**
    - Change `dispatch(action): boolean` → `dispatch(action): SceneSnapshot`
@@ -220,7 +222,7 @@ Move panel generation logic from `panelGenerator.ts` into engine:
 | Joint validation | Enforced (console error) | Catch placement bugs early |
 | Void anchors | Center of bounds | Natural reference for parent-child alignment |
 | Debug output | Clipboard pattern | Per CLAUDE.md, easy to paste and analyze |
-| Void tree | Still in store | Phased migration - engine will own it in Phase 7 |
+| Void IDs | Engine-first | Engine generates IDs (`node-N`), store inherits them |
 | Face geometry | Centralized in utils | Single source prevents adjacency map drift |
 
 ---

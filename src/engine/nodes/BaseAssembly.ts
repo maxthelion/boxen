@@ -293,7 +293,7 @@ export abstract class BaseAssembly extends BaseNode {
    */
   protected createRootVoid(): VoidNode {
     const bounds = this.computeInteriorBounds();
-    return new VoidNode(bounds, 'root-void');
+    return new VoidNode(bounds, 'root');
   }
 
   /**

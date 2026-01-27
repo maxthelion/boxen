@@ -655,47 +655,32 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const targetVoid = findVoid(state.rootVoid, preview.voidId);
       if (!targetVoid || targetVoid.children.length > 0) return state;
 
-      const { axis, count, positions } = preview;
-      const mt = state.config.materialThickness;
+      const { axis, positions } = preview;
 
-      // Use VoidTree to apply subdivision (store-side)
-      // This is more reliable than engine sync for now
-      const children: Void[] = [];
-      const dimStart = getBoundsStart(targetVoid.bounds, axis);
-      const dimSize = getBoundsSize(targetVoid.bounds, axis);
+      // Engine-first approach: dispatch to engine and read back void tree
+      // 1. Sync current void tree to engine
+      syncStoreToEngine(state.config, state.faces, state.rootVoid);
 
-      for (let i = 0; i <= count; i++) {
-        const childBounds = calculateChildRegionBounds(
-          targetVoid.bounds,
+      // 2. Dispatch ADD_SUBDIVISIONS to engine
+      const engine = getEngine();
+      const assembly = engine.assembly;
+      if (!assembly) return state;
+
+      const success = engine.dispatch({
+        type: 'ADD_SUBDIVISIONS',
+        targetId: assembly.id,
+        payload: {
+          voidId: preview.voidId,
           axis,
-          i,
-          count + 1,
           positions,
-          mt
-        );
+        },
+      });
 
-        const splitPos = i > 0 ? positions[i - 1] : undefined;
-        const splitAxis = i > 0 ? axis : undefined;
-        let splitPercentage: number | undefined;
-        if (splitPos !== undefined) {
-          splitPercentage = (splitPos - dimStart) / dimSize;
-        }
+      if (!success) return state;
 
-        children.push({
-          id: generateId(),
-          bounds: childBounds,
-          children: [],
-          splitAxis,
-          splitPosition: splitPos,
-          splitPositionMode: splitPos !== undefined ? 'percentage' : undefined,
-          splitPercentage,
-        });
-      }
-
-      const newRootVoid = VoidTree.update(state.rootVoid, preview.voidId, (v) => ({
-        ...v,
-        children,
-      }));
+      // 3. Read back void tree from engine (with engine-generated IDs)
+      const newRootVoid = getEngineVoidTree();
+      if (!newRootVoid) return state;
 
       return {
         rootVoid: newRootVoid,
@@ -711,10 +696,28 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const parent = findParent(state.rootVoid, voidId);
       if (!parent) return state;
 
-      const newRootVoid = VoidTree.update(state.rootVoid, parent.id, (v) => ({
-        ...v,
-        children: [],
-      }));
+      // Engine-first approach: dispatch to engine and read back void tree
+      // 1. Sync current void tree to engine
+      syncStoreToEngine(state.config, state.faces, state.rootVoid);
+
+      // 2. Dispatch REMOVE_SUBDIVISION to engine (with parent's ID)
+      const engine = getEngine();
+      const assembly = engine.assembly;
+      if (!assembly) return state;
+
+      const success = engine.dispatch({
+        type: 'REMOVE_SUBDIVISION',
+        targetId: assembly.id,
+        payload: {
+          voidId: parent.id,
+        },
+      });
+
+      if (!success) return state;
+
+      // 3. Read back void tree from engine
+      const newRootVoid = getEngineVoidTree();
+      if (!newRootVoid) return state;
 
       return {
         rootVoid: newRootVoid,
