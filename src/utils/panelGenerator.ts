@@ -135,7 +135,8 @@ export const getFaceDimensions = (
 };
 
 // Re-export EdgeInfo and getFaceEdges for backward compatibility
-export { EdgeInfo, getFaceEdges } from './faceGeometry';
+export type { EdgeInfo } from './faceGeometry';
+export { getFaceEdges } from './faceGeometry';
 
 // Get which edge of the adjacent face corresponds to this face's edge
 // For example: top face's right edge connects to right face's top edge
