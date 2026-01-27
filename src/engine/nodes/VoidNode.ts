@@ -13,7 +13,9 @@ import {
   NodeKind,
   Axis,
   Bounds3D,
+  Point3D,
   VoidSnapshot,
+  VoidAnchor,
 } from '../types';
 
 export class VoidNode extends BaseNode {
@@ -179,6 +181,70 @@ export class VoidNode extends BaseNode {
   }
 
   // ==========================================================================
+  // Anchor Point - For alignment validation
+  // ==========================================================================
+
+  /**
+   * Get the anchor point for this void
+   * The anchor is at the center of the void in its local coordinate space
+   * World position is computed by traversing up to the assembly
+   */
+  getAnchor(): VoidAnchor {
+    const { x, y, z, w, h, d } = this._bounds;
+
+    // Local point is center of bounds
+    const localPoint: Point3D = {
+      x: x + w / 2,
+      y: y + h / 2,
+      z: z + d / 2,
+    };
+
+    // World point requires finding the parent assembly and applying its transform
+    // For now, assume the void is in assembly-local coordinates
+    // The assembly positions voids relative to its center, so we need to offset
+    const worldPoint = this.computeWorldPoint(localPoint);
+
+    return {
+      voidId: this.id,
+      localPoint,
+      worldPoint,
+    };
+  }
+
+  /**
+   * Compute world point from void-local point
+   * Traverses up to find parent assembly and apply its transform
+   */
+  protected computeWorldPoint(localPoint: Point3D): Point3D {
+    // Find parent assembly
+    let node = this.parent;
+    while (node && node.kind !== 'assembly' && node.kind !== 'sub-assembly') {
+      node = node.parent;
+    }
+
+    if (!node) {
+      // No parent assembly, return local point
+      return localPoint;
+    }
+
+    // Get assembly dimensions to offset from center
+    // Void bounds are in assembly-local coords starting at materialThickness
+    // Assembly is centered at origin, so we need to offset by half dimensions
+    const assembly = node as any; // Type assertion - we know it's an assembly
+    const halfW = assembly.width / 2;
+    const halfH = assembly.height / 2;
+    const halfD = assembly.depth / 2;
+
+    const [ax, ay, az] = assembly.getWorldTransform().position;
+
+    return {
+      x: ax + localPoint.x - halfW,
+      y: ay + localPoint.y - halfH,
+      z: az + localPoint.z - halfD,
+    };
+  }
+
+  // ==========================================================================
   // Recomputation
   // ==========================================================================
 
@@ -208,6 +274,7 @@ export class VoidNode extends BaseNode {
       derived: {
         bounds: this.bounds,
         isLeaf: this.isLeaf,
+        anchor: this.getAnchor(),
       },
       children: this._children.map(c => c.serialize()) as (VoidSnapshot | any)[],
     };

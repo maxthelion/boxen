@@ -95,6 +95,128 @@ export interface FaceConfig {
 }
 
 // =============================================================================
+// Finger Joint Types - Assembly-level finger point calculation
+// =============================================================================
+
+/**
+ * Finger points for one axis
+ * Points are transition positions where fingers start/end
+ */
+export interface AxisFingerPoints {
+  axis: Axis;
+  points: number[];           // Transition positions along axis (from negative end after MT inset)
+  innerOffset: number;        // Distance from MT-inset edge to first finger transition
+  fingerLength: number;       // Actual finger/hole length used (may differ from config due to remainder distribution)
+  maxJointLength: number;     // axis_length - 2*MT
+}
+
+/**
+ * Assembly-level finger configuration
+ * Each assembly computes finger points for all 3 axes
+ * Panels derive their finger patterns from these shared points
+ */
+export interface AssemblyFingerData {
+  x: AxisFingerPoints;
+  y: AxisFingerPoints;
+  z: AxisFingerPoints;
+}
+
+/**
+ * Joint gender - determines tab/slot direction
+ */
+export type JointGender = 'male' | 'female';
+
+/**
+ * Edge joint specification - how one edge connects to another
+ */
+export interface EdgeJoint {
+  axis: Axis;                 // Which axis the joint is along
+  gender: JointGender;        // Male (tabs out) or female (slots)
+  startPos: number;           // Start position along axis (after MT inset)
+  endPos: number;             // End position along axis
+}
+
+// =============================================================================
+// Anchor Types - Reference points for alignment validation
+// =============================================================================
+
+/**
+ * An anchor point on a panel edge.
+ * Located at the center of the mating edge.
+ * Used to verify panels align correctly in world space.
+ */
+export interface EdgeAnchor {
+  edgePosition: EdgePosition;      // Which edge this anchor is on
+  localPoint: Point2D;             // Point in panel's local 2D coordinate space
+  worldPoint: Point3D;             // Computed world position after transform
+}
+
+/**
+ * A joint constraint between two panels.
+ * Both panels must have anchors at the same world-space point.
+ */
+export interface JointConstraint {
+  id: string;                      // Unique identifier for this joint
+  axis: Axis;                      // The axis along which the joint runs
+  panelAId: string;
+  panelAEdge: EdgePosition;
+  panelBId: string;
+  panelBEdge: EdgePosition;
+  expectedWorldPoint: Point3D;     // Where both anchors should be
+}
+
+/**
+ * A joint alignment error - anchors don't match
+ */
+export interface JointAlignmentError {
+  jointId: string;
+  panelAId: string;
+  panelAEdge: EdgePosition;
+  panelAWorldPoint: Point3D;
+  panelBId: string;
+  panelBEdge: EdgePosition;
+  panelBWorldPoint: Point3D;
+  deviation: Point3D;              // Difference between the two points
+  deviationMagnitude: number;      // Distance between points
+}
+
+/**
+ * An anchor point for void/sub-assembly alignment.
+ * Ensures child elements are correctly positioned within parents.
+ */
+export interface VoidAnchor {
+  voidId: string;
+  localPoint: Point3D;             // Point in void's local coordinate space
+  worldPoint: Point3D;             // Computed world position
+}
+
+/**
+ * Constraint between a void and its contents (sub-assembly or child void)
+ */
+export interface VoidContentConstraint {
+  id: string;
+  parentVoidId: string;
+  parentAnchor: Point3D;           // Parent's reference point (world space)
+  childId: string;                 // Sub-assembly or child void ID
+  childType: 'sub-assembly' | 'void';
+  childAnchor: Point3D;            // Child's reference point (world space)
+}
+
+/**
+ * Void alignment error - child not positioned correctly in parent
+ */
+export interface VoidAlignmentError {
+  constraintId: string;
+  parentVoidId: string;
+  parentWorldPoint: Point3D;
+  childId: string;
+  childType: 'sub-assembly' | 'void';
+  childWorldPoint: Point3D;
+  deviation: Point3D;
+  deviationMagnitude: number;
+}
+
+// =============================================================================
 // Panel Types
 // =============================================================================
 
@@ -165,8 +287,18 @@ export interface AssemblySnapshot extends BaseSnapshot {
   derived: {
     worldTransform: Transform3D;
     interiorBounds: Bounds3D;
+    // Finger points for this assembly (panels derive finger patterns from this)
+    fingerData: AssemblyFingerData;
     // Panels are derived from the assembly configuration
     panels: PanelSnapshot[];
+    // Joint registry - all panel-to-panel connections with their anchor points
+    joints: JointConstraint[];
+    // Any alignment errors detected (should be empty if everything is correct)
+    jointAlignmentErrors: JointAlignmentError[];
+    // Void content constraints (sub-assemblies and child voids)
+    voidConstraints: VoidContentConstraint[];
+    // Void alignment errors
+    voidAlignmentErrors: VoidAlignmentError[];
   };
 
   // Children are voids (interior spaces)
@@ -190,6 +322,8 @@ export interface VoidSnapshot extends BaseSnapshot {
   derived: {
     bounds: Bounds3D;
     isLeaf: boolean;
+    // Anchor point for alignment validation (center of void in world space)
+    anchor: VoidAnchor;
   };
 
   // Children are either more voids (subdivisions) or a sub-assembly
@@ -220,6 +354,10 @@ export interface BasePanelSnapshot extends BaseSnapshot {
 
     // 3D placement
     worldTransform: Transform3D;
+
+    // Edge anchors for alignment validation
+    // Each anchor is at the center of the mating edge
+    edgeAnchors: EdgeAnchor[];
   };
 }
 

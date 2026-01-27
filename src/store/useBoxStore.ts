@@ -230,33 +230,9 @@ export const getLeafVoids = (root: Void): Void[] => {
   return children.flatMap(getLeafVoids);
 };
 
-// Get all void IDs in a subtree (including the root)
-export const getVoidSubtreeIds = (root: Void): string[] => {
-  const ids = [root.id];
-  for (const child of (root.children || [])) {
-    ids.push(...getVoidSubtreeIds(child));
-  }
-  return ids;
-};
-
-// Get ancestor IDs of a void (path from root to the void, excluding the void itself)
-export const getVoidAncestorIds = (root: Void, targetId: string): string[] => {
-  const path: string[] = [];
-
-  const findPath = (node: Void, target: string): boolean => {
-    if (node.id === target) return true;
-    for (const child of (node.children || [])) {
-      if (findPath(child, target)) {
-        path.unshift(node.id);
-        return true;
-      }
-    }
-    return false;
-  };
-
-  findPath(root, targetId);
-  return path;
-};
+// Re-export from VoidTree for backwards compatibility
+export const getVoidSubtreeIds = VoidTree.getSubtreeIds;
+export const getVoidAncestorIds = VoidTree.getAncestorIds;
 
 // Check if a void should be visible given the visibility settings
 // Visibility is now managed by adding/removing from hiddenVoidIds during isolate
@@ -307,74 +283,11 @@ export const getAllSubdivisions = (root: Void): Subdivision[] => {
   return subdivisions;
 };
 
-// Deep clone a void tree - use VoidTree.clone for new code (including sub-assemblies)
-const cloneVoid = (v: Void): Void => ({
-  ...v,
-  bounds: { ...v.bounds },
-  children: (v.children || []).map(cloneVoid),
-  subAssembly: v.subAssembly ? {
-    ...v.subAssembly,
-    faces: (v.subAssembly.faces || []).map(f => ({ ...f })),
-    rootVoid: cloneVoid(v.subAssembly.rootVoid),
-  } : undefined,
-});
+// Internal aliases to VoidTree functions
+const findSubAssembly = VoidTree.findSubAssembly;
 
-// Find a sub-assembly by ID in the void tree
-const findSubAssembly = (root: Void, subAssemblyId: string): { void: Void; subAssembly: SubAssembly } | null => {
-  if (root.subAssembly?.id === subAssemblyId) {
-    return { void: root, subAssembly: root.subAssembly };
-  }
-  for (const child of (root.children || [])) {
-    const found = findSubAssembly(child, subAssemblyId);
-    if (found) return found;
-  }
-  // Also search within sub-assembly's own voids
-  if (root.subAssembly) {
-    const found = findSubAssembly(root.subAssembly.rootVoid, subAssemblyId);
-    if (found) return found;
-  }
-  return null;
-};
-
-// Get all sub-assemblies from the void tree
-export const getAllSubAssemblies = (root: Void): { voidId: string; subAssembly: SubAssembly; bounds: Bounds }[] => {
-  const result: { voidId: string; subAssembly: SubAssembly; bounds: Bounds }[] = [];
-
-  const traverse = (node: Void) => {
-    if (node.subAssembly) {
-      result.push({
-        voidId: node.id,
-        subAssembly: node.subAssembly,
-        bounds: node.bounds,
-      });
-      // Also traverse the sub-assembly's internal structure
-      traverse(node.subAssembly.rootVoid);
-    }
-    for (const child of (node.children || [])) {
-      traverse(child);
-    }
-  };
-
-  traverse(root);
-  return result;
-};
-
-// Update a void in the tree immutably (including inside sub-assemblies)
-const updateVoidInTree = (root: Void, id: string, updater: (v: Void) => Void): Void => {
-  if (root.id === id) {
-    return updater(cloneVoid(root));
-  }
-  return {
-    ...root,
-    bounds: { ...root.bounds },
-    children: (root.children || []).map(child => updateVoidInTree(child, id, updater)),
-    // Also update inside sub-assembly's void structure
-    subAssembly: root.subAssembly ? {
-      ...root.subAssembly,
-      rootVoid: updateVoidInTree(root.subAssembly.rootVoid, id, updater),
-    } : undefined,
-  };
-};
+// Re-export from VoidTree for backwards compatibility
+export const getAllSubAssemblies = VoidTree.getAllSubAssemblies;
 
 export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   config: {
@@ -426,17 +339,78 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const config = { ...state.config, ...newConfig };
       const oldConfig = state.config;
 
-      // Check if assembly structure changes (requires reset)
-      const assemblyStructureChanged =
-        config.assembly.assemblyAxis !== oldConfig.assembly.assemblyAxis ||
-        config.assembly.lids.positive.inset !== oldConfig.assembly.lids.positive.inset ||
-        config.assembly.lids.negative.inset !== oldConfig.assembly.lids.negative.inset;
+      // Route changes through engine (engine is source of truth)
+      const engine = getEngine();
 
       // Check if dimensions changed
       const dimensionsChanged =
         config.width !== oldConfig.width ||
         config.height !== oldConfig.height ||
         config.depth !== oldConfig.depth;
+
+      // Check if material changed
+      const materialChanged =
+        config.materialThickness !== oldConfig.materialThickness ||
+        config.fingerWidth !== oldConfig.fingerWidth ||
+        config.fingerGap !== oldConfig.fingerGap;
+
+      // Dispatch dimension changes to engine
+      if (dimensionsChanged) {
+        engine.dispatch({
+          type: 'SET_DIMENSIONS',
+          targetId: 'main-assembly',
+          payload: { width: config.width, height: config.height, depth: config.depth },
+        });
+      }
+
+      // Dispatch material changes to engine
+      if (materialChanged) {
+        engine.dispatch({
+          type: 'SET_MATERIAL',
+          targetId: 'main-assembly',
+          payload: {
+            thickness: config.materialThickness,
+            fingerWidth: config.fingerWidth,
+            fingerGap: config.fingerGap,
+          },
+        });
+      }
+
+      // Check if assembly structure changes (requires reset)
+      const axisChanged = config.assembly.assemblyAxis !== oldConfig.assembly.assemblyAxis;
+      const positiveLidChanged =
+        config.assembly.lids.positive.inset !== oldConfig.assembly.lids.positive.inset ||
+        config.assembly.lids.positive.tabDirection !== oldConfig.assembly.lids.positive.tabDirection;
+      const negativeLidChanged =
+        config.assembly.lids.negative.inset !== oldConfig.assembly.lids.negative.inset ||
+        config.assembly.lids.negative.tabDirection !== oldConfig.assembly.lids.negative.tabDirection;
+
+      const assemblyStructureChanged = axisChanged ||
+        config.assembly.lids.positive.inset !== oldConfig.assembly.lids.positive.inset ||
+        config.assembly.lids.negative.inset !== oldConfig.assembly.lids.negative.inset;
+
+      // Dispatch assembly config changes to engine
+      if (axisChanged) {
+        engine.dispatch({
+          type: 'SET_ASSEMBLY_AXIS',
+          targetId: 'main-assembly',
+          payload: { axis: config.assembly.assemblyAxis },
+        });
+      }
+      if (positiveLidChanged) {
+        engine.dispatch({
+          type: 'SET_LID_CONFIG',
+          targetId: 'main-assembly',
+          payload: { side: 'positive', config: config.assembly.lids.positive },
+        });
+      }
+      if (negativeLidChanged) {
+        engine.dispatch({
+          type: 'SET_LID_CONFIG',
+          targetId: 'main-assembly',
+          payload: { side: 'negative', config: config.assembly.lids.negative },
+        });
+      }
 
       // If assembly structure changes, reset everything
       if (assemblyStructureChanged) {
@@ -524,15 +498,28 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     }),
 
   toggleFace: (faceId) =>
-    set((state) => ({
-      faces: state.faces.map((face) =>
+    set((state) => {
+      // Route through engine (engine is source of truth for faces)
+      const engine = getEngine();
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId },
+      });
+
+      // Update store's faces to match engine (temporary until store derives from engine)
+      const newFaces = state.faces.map((face) =>
         face.id === faceId ? { ...face, solid: !face.solid } : face
-      ),
-      subdivisionPreview: null,  // Clear preview when faces change
-      previewState: null,  // Clear preview state when faces change
-      previewPanelCollection: null,  // Clear preview panels
-      panelsDirty: true,  // Mark panels as needing regeneration
-    })),
+      );
+
+      return {
+        faces: newFaces,
+        subdivisionPreview: null,  // Clear preview when faces change
+        previewState: null,  // Clear preview state when faces change
+        previewPanelCollection: null,  // Clear preview panels
+        panelsDirty: true,  // Mark panels as needing regeneration
+      };
+    }),
 
   setSelectionMode: (mode) =>
     set({
@@ -708,7 +695,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         });
       }
 
-      const newRootVoid = updateVoidInTree(state.rootVoid, preview.voidId, (v) => ({
+      const newRootVoid = VoidTree.update(state.rootVoid, preview.voidId, (v) => ({
         ...v,
         children,
       }));
@@ -727,7 +714,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const parent = findParent(state.rootVoid, voidId);
       if (!parent) return state;
 
-      const newRootVoid = updateVoidInTree(state.rootVoid, parent.id, (v) => ({
+      const newRootVoid = VoidTree.update(state.rootVoid, parent.id, (v) => ({
         ...v,
         children: [],
       }));
@@ -813,7 +800,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         },
       };
 
-      const newRootVoid = updateVoidInTree(state.rootVoid, voidId, (v) => ({
+      const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
         ...v,
         subAssembly,
       }));
@@ -829,7 +816,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   purgeVoid: (voidId) =>
     set((state) => {
-      const newRootVoid = updateVoidInTree(state.rootVoid, voidId, (v) => ({
+      const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
         ...v,
         children: [],
         subAssembly: undefined,
@@ -927,7 +914,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   removeSubAssembly: (voidId) =>
     set((state) => {
-      const newRootVoid = updateVoidInTree(state.rootVoid, voidId, (v) => ({
+      const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
         ...v,
         subAssembly: undefined,
       }));
@@ -2141,7 +2128,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const percentage = (targetVoid.splitPosition - parentStart) / parentSize;
 
       // Update the void in the tree
-      const newRootVoid = updateVoidInTree(state.rootVoid, voidId, (v) => ({
+      const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
         ...v,
         splitPositionMode: mode,
         splitPercentage: percentage,
@@ -2762,7 +2749,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Create new rootVoid with the subdivision applied
-      const newRootVoid = updateVoidInTree(baseRootVoid, voidId, (v) => ({
+      const newRootVoid = VoidTree.update(baseRootVoid, voidId, (v) => ({
         ...v,
         children,
       }));
@@ -2850,7 +2837,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       };
 
       // Create new rootVoid with the sub-assembly
-      const newRootVoid = updateVoidInTree(baseRootVoid, voidId, (v) => ({
+      const newRootVoid = VoidTree.update(baseRootVoid, voidId, (v) => ({
         ...v,
         subAssembly,
       }));

@@ -176,6 +176,16 @@ export class FacePanelNode extends BasePanel {
     return [];
   }
 
+  getMatingFaceId(edgePosition: EdgePosition): FaceId | null {
+    const adjacency = FACE_EDGE_ADJACENCY[this.faceId];
+    const adjacentFaceId = adjacency[edgePosition];
+    // Only return if the adjacent face is solid (actually exists)
+    if (adjacentFaceId && this._assembly.isFaceSolid(adjacentFaceId)) {
+      return adjacentFaceId;
+    }
+    return null;
+  }
+
   // ==========================================================================
   // Helper Methods
   // ==========================================================================

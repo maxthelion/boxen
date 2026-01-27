@@ -31,5 +31,20 @@ export { FacePanelNode } from './nodes/FacePanelNode';
 export { DividerPanelNode } from './nodes/DividerPanelNode';
 export { SceneNode } from './nodes/SceneNode';
 
+// Alignment debug utilities
+export {
+  startAlignmentDebug,
+  addJointAlignmentError,
+  addVoidAlignmentError,
+  formatAlignmentDebugLog,
+  hasAlignmentErrors,
+  getAlignmentErrorCount,
+  clearAlignmentDebug,
+  getAlignmentDebugLog,
+  ALIGNMENT_TOLERANCE,
+  pointsAligned,
+  calculateDeviation,
+} from './alignmentDebug';
+
 // Types
 export * from './types';

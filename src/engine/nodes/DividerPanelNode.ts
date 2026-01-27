@@ -180,6 +180,21 @@ export class DividerPanelNode extends BasePanel {
     return [];
   }
 
+  getMatingFaceId(edgePosition: EdgePosition): FaceId | null {
+    const assembly = this.findParentAssembly();
+    if (!assembly) {
+      return null;
+    }
+
+    const adjacency = DIVIDER_EDGE_ADJACENCY[this._axis];
+    const adjacentFaceId = adjacency[edgePosition];
+    // Only return if the adjacent face is solid (actually exists)
+    if (adjacentFaceId && assembly.isFaceSolid(adjacentFaceId)) {
+      return adjacentFaceId;
+    }
+    return null;
+  }
+
   // ==========================================================================
   // Helper Methods
   // ==========================================================================

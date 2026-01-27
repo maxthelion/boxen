@@ -18,11 +18,14 @@ import {
   EdgeExtensions,
   Transform3D,
   Point2D,
+  Point3D,
   PanelEdge,
   PanelHole,
   PanelOutline,
   BasePanelSnapshot,
   MaterialConfig,
+  EdgeAnchor,
+  FaceId,
 } from '../types';
 
 export interface PanelDimensions {
@@ -50,6 +53,7 @@ export abstract class BasePanel extends BaseNode {
   protected _cachedOutline: PanelOutline | null = null;
   protected _cachedEdges: PanelEdge[] | null = null;
   protected _cachedTransform: Transform3D | null = null;
+  protected _cachedEdgeAnchors: EdgeAnchor[] | null = null;
 
   constructor(id?: string) {
     super(id);
@@ -122,6 +126,12 @@ export abstract class BasePanel extends BaseNode {
    * Compute holes (slots for intersecting panels)
    */
   abstract computeHoles(): PanelHole[];
+
+  /**
+   * Get the face ID that an edge mates with (for face panels)
+   * Returns null if the edge doesn't mate with another face
+   */
+  abstract getMatingFaceId(edgePosition: EdgePosition): FaceId | null;
 
   // ==========================================================================
   // Derived Value Computation
@@ -264,6 +274,118 @@ export abstract class BasePanel extends BaseNode {
   }
 
   // ==========================================================================
+  // Edge Anchors - Reference points for alignment validation
+  // ==========================================================================
+
+  /**
+   * Get edge anchors for alignment validation (cached)
+   * Each anchor is at the center of the mating edge
+   */
+  getEdgeAnchors(): EdgeAnchor[] {
+    if (!this._cachedEdgeAnchors) {
+      this._cachedEdgeAnchors = this.computeEdgeAnchors();
+    }
+    return this._cachedEdgeAnchors;
+  }
+
+  /**
+   * Transform a local 2D point to world 3D coordinates
+   * The panel lies in its local XY plane, with Z being the thickness direction
+   */
+  protected transformLocalToWorld(localPoint: Point2D): Point3D {
+    const transform = this.getTransform();
+    const [px, py, pz] = transform.position;
+    const [rx, ry, rz] = transform.rotation;
+
+    // Apply rotation (simplified - assumes standard face orientations)
+    // For a full implementation, would use proper rotation matrices
+    let x = localPoint.x;
+    let y = localPoint.y;
+    let z = 0;
+
+    // Rotate around X axis
+    if (Math.abs(rx) > 0.001) {
+      const cosX = Math.cos(rx);
+      const sinX = Math.sin(rx);
+      const newY = y * cosX - z * sinX;
+      const newZ = y * sinX + z * cosX;
+      y = newY;
+      z = newZ;
+    }
+
+    // Rotate around Y axis
+    if (Math.abs(ry) > 0.001) {
+      const cosY = Math.cos(ry);
+      const sinY = Math.sin(ry);
+      const newX = x * cosY + z * sinY;
+      const newZ = -x * sinY + z * cosY;
+      x = newX;
+      z = newZ;
+    }
+
+    // Rotate around Z axis
+    if (Math.abs(rz) > 0.001) {
+      const cosZ = Math.cos(rz);
+      const sinZ = Math.sin(rz);
+      const newX = x * cosZ - y * sinZ;
+      const newY = x * sinZ + y * cosZ;
+      x = newX;
+      y = newY;
+    }
+
+    // Apply translation
+    return {
+      x: x + px,
+      y: y + py,
+      z: z + pz,
+    };
+  }
+
+  /**
+   * Compute edge anchors for all edges that mate with other panels
+   */
+  protected computeEdgeAnchors(): EdgeAnchor[] {
+    const dims = this.getDimensions();
+    const edges = this.getEdges();
+    const anchors: EdgeAnchor[] = [];
+
+    const halfW = dims.width / 2;
+    const halfH = dims.height / 2;
+
+    // Edge centers in local 2D coordinates
+    const edgeCenters: Record<EdgePosition, Point2D> = {
+      top: { x: 0, y: halfH },
+      bottom: { x: 0, y: -halfH },
+      left: { x: -halfW, y: 0 },
+      right: { x: halfW, y: 0 },
+    };
+
+    for (const edge of edges) {
+      // Only create anchors for edges that mate with other panels
+      if (edge.meetsFaceId || edge.meetsDividerId) {
+        const localPoint = edgeCenters[edge.position];
+        const worldPoint = this.transformLocalToWorld(localPoint);
+
+        anchors.push({
+          edgePosition: edge.position,
+          localPoint,
+          worldPoint,
+        });
+      }
+    }
+
+    return anchors;
+  }
+
+  /**
+   * Get the anchor for a specific edge (if it exists)
+   */
+  getEdgeAnchor(edgePosition: EdgePosition): EdgeAnchor | null {
+    const anchors = this.getEdgeAnchors();
+    return anchors.find(a => a.edgePosition === edgePosition) ?? null;
+  }
+
+  // ==========================================================================
   // Recomputation
   // ==========================================================================
 
@@ -273,6 +395,7 @@ export abstract class BasePanel extends BaseNode {
     this._cachedOutline = null;
     this._cachedEdges = null;
     this._cachedTransform = null;
+    this._cachedEdgeAnchors = null;
   }
 
   // ==========================================================================
@@ -297,6 +420,7 @@ export abstract class BasePanel extends BaseNode {
         outline: this.getOutline(),
         edges: this.getEdges(),
         worldTransform: this.getTransform(),
+        edgeAnchors: this.getEdgeAnchors(),
       },
     };
   }
