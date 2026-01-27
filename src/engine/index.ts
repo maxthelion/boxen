@@ -18,7 +18,7 @@ export { getEngine, resetEngine, syncStoreToEngine } from './engineInstance';
 export { useEngine, useEngineInstance } from './useEngine';
 
 // Panel generation bridge
-export { generatePanelsForAssembly, generatePanelsForScene } from './panelBridge';
+export { generatePanelsForAssembly, generatePanelsForScene, generatePanelsWithVoid } from './panelBridge';
 
 // Node classes
 export { BaseNode, generateId, resetIdCounter } from './nodes/BaseNode';

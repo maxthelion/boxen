@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS } from '../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
-import { syncStoreToEngine } from '../engine';
+import { syncStoreToEngine, getEngine } from '../engine';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { appendDebug } from '../utils/debug';
@@ -1740,16 +1740,15 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // Panel path actions
   generatePanels: () =>
     set((state) => {
-      // Sync state to engine (Phase 3: engine mirrors store state)
+      // Sync config and faces to engine
       syncStoreToEngine(state.config, state.faces);
 
-      // Generate panel paths from current configuration
-      // Pass existing panels to preserve edge extensions during regeneration
-      const collection = generatePanelCollection(
-        state.faces,
+      // Generate panels via engine (uses engine's config/faces + store's rootVoid)
+      // The engine is now the source of truth for config and faces,
+      // while the store remains the source of truth for void tree structure.
+      const engine = getEngine();
+      const collection = engine.generatePanels(
         state.rootVoid,
-        state.config,
-        1,  // Scale factor (1 = mm)
         state.panelCollection?.panels
       );
 

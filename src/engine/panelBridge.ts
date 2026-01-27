@@ -131,6 +131,22 @@ export function generatePanelsForAssembly(
 }
 
 /**
+ * Generate panels for an assembly using an external void tree
+ * This allows the store to provide its rootVoid (with subdivisions)
+ * while the engine provides config and faces.
+ */
+export function generatePanelsWithVoid(
+  assembly: AssemblyNode,
+  storeRootVoid: Void,
+  existingPanels?: PanelPath[]
+): PanelCollection {
+  const config = assemblyToBoxConfig(assembly);
+  const faces = assemblyToFaces(assembly);
+
+  return generatePanelCollection(faces, storeRootVoid, config, 1, existingPanels);
+}
+
+/**
  * Generate panels for an entire scene
  */
 export function generatePanelsForScene(

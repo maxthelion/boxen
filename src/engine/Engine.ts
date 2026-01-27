@@ -19,8 +19,8 @@ import {
   PanelCollectionSnapshot,
   EngineAction,
 } from './types';
-import { PanelCollection, PanelPath } from '../types';
-import { generatePanelsForScene } from './panelBridge';
+import { PanelCollection, PanelPath, Void } from '../types';
+import { generatePanelsWithVoid } from './panelBridge';
 
 export class Engine {
   private _scene: SceneNode;
@@ -126,14 +126,23 @@ export class Engine {
   /**
    * Generate panels using the existing panelGenerator (store types)
    * This bridges the engine to the existing panel generation logic.
+   *
+   * @param rootVoid - The void tree from the store (has subdivisions)
+   * @param existingPanels - Existing panels for preserving edge extensions
    */
-  generatePanels(existingPanels?: PanelPath[]): PanelCollection {
+  generatePanels(rootVoid: Void, existingPanels?: PanelPath[]): PanelCollection {
     // Ensure scene is up to date
     if (this._scene.isDirty) {
       this._scene.recompute();
       this._scene.clearDirty();
     }
-    return generatePanelsForScene(this._scene, existingPanels);
+
+    const assembly = this._scene.primaryAssembly;
+    if (!assembly) {
+      return { panels: [], augmentations: [], generatedAt: Date.now() };
+    }
+
+    return generatePanelsWithVoid(assembly, rootVoid, existingPanels);
   }
 
   // ==========================================================================
