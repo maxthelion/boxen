@@ -12,7 +12,15 @@
 export { Engine, createEngine, createEngineWithAssembly } from './Engine';
 
 // Singleton instance
-export { getEngine, resetEngine, syncStoreToEngine, getEngineVoidTree } from './engineInstance';
+export {
+  getEngine,
+  resetEngine,
+  syncStoreToEngine,
+  getEngineVoidTree,
+  ensureEngineInitialized,
+  getEngineConfig,
+  getEngineFaces,
+} from './engineInstance';
 
 // React integration
 export { useEngine, useEngineInstance } from './useEngine';

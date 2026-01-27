@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SubdivisionPreview, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, PreviewState, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS } from '../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
-import { syncStoreToEngine, getEngine, getEngineVoidTree } from '../engine';
+import { syncStoreToEngine, getEngine, getEngineVoidTree, ensureEngineInitialized, getEngineFaces } from '../engine';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { appendDebug } from '../utils/debug';
@@ -339,6 +339,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const config = { ...state.config, ...newConfig };
       const oldConfig = state.config;
 
+      // Ensure engine is initialized before dispatching
+      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+
       // Route changes through engine (engine is source of truth)
       const engine = getEngine();
 
@@ -499,6 +502,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   toggleFace: (faceId) =>
     set((state) => {
+      // Ensure engine is initialized before dispatching
+      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+
       // Route through engine (engine is source of truth for faces)
       const engine = getEngine();
       engine.dispatch({
@@ -507,10 +513,20 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         payload: { faceId },
       });
 
-      // Update store's faces to match engine (temporary until store derives from engine)
-      const newFaces = state.faces.map((face) =>
-        face.id === faceId ? { ...face, solid: !face.solid } : face
-      );
+      // Read faces back from engine (engine is source of truth)
+      const newFaces = getEngineFaces();
+      if (!newFaces) {
+        // Fallback to local update if engine not ready
+        return {
+          faces: state.faces.map((face) =>
+            face.id === faceId ? { ...face, solid: !face.solid } : face
+          ),
+          subdivisionPreview: null,
+          previewState: null,
+          previewPanelCollection: null,
+          panelsDirty: true,
+        };
+      }
 
       return {
         faces: newFaces,

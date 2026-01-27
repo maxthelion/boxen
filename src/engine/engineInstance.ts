@@ -132,3 +132,73 @@ export function getEngineVoidTree(): Void | null {
   if (!assembly) return null;
   return voidNodeToVoid(assembly.rootVoid);
 }
+
+/**
+ * Ensure the engine has an assembly initialized
+ * Call this before dispatching actions to the engine
+ *
+ * @param config - Box configuration (used to create assembly if needed)
+ * @param faces - Face configurations
+ * @param rootVoid - Optional void tree to sync
+ */
+export function ensureEngineInitialized(config: BoxConfig, faces: Face[], rootVoid?: Void): void {
+  syncStoreToEngine(config, faces, rootVoid);
+}
+
+/**
+ * Get the current box config from engine
+ * Returns null if engine has no assembly
+ */
+export function getEngineConfig(): BoxConfig | null {
+  const engine = getEngine();
+  const assembly = engine.assembly;
+  if (!assembly) return null;
+
+  const assemblyConfig = assembly.assemblyConfig;
+
+  return {
+    width: assembly.width,
+    height: assembly.height,
+    depth: assembly.depth,
+    materialThickness: assembly.material.thickness,
+    fingerWidth: assembly.material.fingerWidth,
+    fingerGap: assembly.material.fingerGap,
+    assembly: {
+      assemblyAxis: assemblyConfig.assemblyAxis,
+      lids: {
+        positive: {
+          enabled: true,
+          tabDirection: assemblyConfig.lids.positive.tabDirection,
+          inset: assemblyConfig.lids.positive.inset,
+        },
+        negative: {
+          enabled: true,
+          tabDirection: assemblyConfig.lids.negative.tabDirection,
+          inset: assemblyConfig.lids.negative.inset,
+        },
+      },
+      feet: assembly.feet ? {
+        enabled: assembly.feet.enabled,
+        height: assembly.feet.height,
+        width: 20, // Default width, not stored in engine
+        inset: assembly.feet.inset,
+      } : undefined,
+    },
+  };
+}
+
+/**
+ * Get the current faces from engine
+ * Returns null if engine has no assembly
+ */
+export function getEngineFaces(): Face[] | null {
+  const engine = getEngine();
+  const assembly = engine.assembly;
+  if (!assembly) return null;
+
+  const faceIds = ['front', 'back', 'left', 'right', 'top', 'bottom'] as const;
+  return faceIds.map(id => ({
+    id,
+    solid: assembly.isFaceSolid(id),
+  }));
+}
