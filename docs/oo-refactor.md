@@ -126,11 +126,7 @@ This caused engine dispatch to fail when looking up voids by store ID.
 3. Read back void tree from engine (`getEngineVoidTree`)
 4. Store updates its `rootVoid` with engine's tree (inherits engine IDs)
 
----
-
-## Remaining Work
-
-### Phase 7: Engine as Source of Truth (Partial)
+### ✅ Phase 7: Engine as Source of Truth (Complete)
 Store now routes operations through engine and reads back results.
 
 **Completed:**
@@ -142,32 +138,48 @@ Store now routes operations through engine and reads back results.
 - ✅ Config/material/assembly operations dispatch through engine
 - ✅ `ensureEngineInitialized()` ensures engine is ready before all dispatches
 - ✅ Helper functions: `getEngineVoidTree()`, `getEngineConfig()`, `getEngineFaces()`
+- ✅ `dispatchToEngine()` returns `DispatchResult` with state snapshot
+- ✅ `getEngineSnapshot()` provides unified state reading
+- ✅ Fast O(1) node lookup via lazy-rebuilt `Map<id, BaseNode>`
+- ✅ Node map invalidation on tree structure changes
 
 **Current Pattern:**
 ```
-Store action → ensureEngineInitialized() → engine.dispatch() → read back from engine
+Store action → ensureEngineInitialized() → dispatchToEngine() → use returned snapshot
 ```
 
+**Key Functions:**
+- `dispatchToEngine(action)` → `{ success, snapshot: { config, faces, rootVoid } }`
+- `getEngineSnapshot()` → `{ config, faces, rootVoid }` (for reading without dispatch)
+- `Engine.findById(id)` → O(1) lookup via internal Map
+
+---
+
+## Remaining Work
+
+### Phase 8: Panel Generation in Engine (In Progress)
+Move panel generation logic from `panelGenerator.ts` into engine.
+
+**Completed:**
+- ✅ `EdgeConfig` extended with `gender: JointGender | null` and `axis: Axis | null`
+- ✅ `BasePanel.getFingerData()` abstract method added
+- ✅ `BasePanel.computeOutline()` updated to use `generateFingerJointPathV2`
+- ✅ `FacePanelNode.computeEdgeConfigs()` includes gender (via `getEdgeGender`)
+- ✅ `FacePanelNode.getFingerData()` returns assembly's finger data
+- ✅ `FacePanelNode.computeEdgeAxisPosition()` computes axis positions
+- ✅ `DividerPanelNode.computeEdgeConfigs()` includes gender (always male)
+- ✅ `DividerPanelNode.getFingerData()` returns parent assembly's finger data
+- ✅ `DividerPanelNode.getEdgeAxisForPosition()` maps edges to world axes
+
+**Current State:**
+- Engine nodes can now compute finger joints in `computeOutline()`
+- However, actual panel generation still uses `panelBridge.ts` → `panelGenerator.ts`
+- The engine's `computeOutline()` is ready but not yet integrated into panel generation
+
 **Remaining:**
-1. **Dispatch returns snapshot**
-   - Change `dispatch(action): boolean` → `dispatch(action): SceneSnapshot`
-   - Store calls `setSnapshot(engine.dispatch(action))`
-
-2. **Remove store-side state duplication**
-   - Store should not hold `config`, `faces`, `rootVoid` separately
-   - All state derived from `engine.getSnapshot()`
-
-3. **Fast node lookup**
-   - Add `Map<id, BaseNode>` to Engine
-   - `findById()` uses map instead of tree traversal
-
-### Phase 8: Panel Generation in Engine
-Move panel generation logic from `panelGenerator.ts` into engine:
-
-1. `FacePanelNode.computeOutline()` generates finger joints
-2. `DividerPanelNode.computeOutline()` generates finger joints
-3. `BaseAssembly.computePanels()` generates all panels
-4. Remove `panelBridge.ts` and `generatePanelCollection()`
+1. Test engine's `computeOutline()` output matches `panelGenerator.ts` output
+2. Switch `Engine.generatePanels()` to use engine nodes directly
+3. Remove `panelBridge.ts` and `generatePanelCollection()` dependency
 
 ### Phase 9: Edge Extensions & Augmentations
 1. Move edge extension logic into `BasePanel`

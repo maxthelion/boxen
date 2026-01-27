@@ -21,11 +21,14 @@ import {
   Transform3D,
   PanelHole,
   DividerPanelSnapshot,
+  AssemblyFingerData,
+  JointGender,
 } from '../types';
 import {
   ALL_EDGE_POSITIONS,
   getDividerAdjacentFace,
 } from '../../utils/faceGeometry';
+import { getDividerEdgeGender } from '../../utils/genderRules';
 
 export class DividerPanelNode extends BasePanel {
   readonly kind: NodeKind = 'divider-panel';
@@ -98,15 +101,48 @@ export class DividerPanelNode extends BasePanel {
       const adjacentFaceId = getDividerAdjacentFace(this._axis, position);
       const meetsFace = assembly.isFaceSolid(adjacentFaceId);
 
+      // Dividers always have male joints (tabs) when meeting solid faces
+      const gender: JointGender | null = getDividerEdgeGender(meetsFace);
+
+      // Get the axis this edge runs along
+      const axis = meetsFace ? this.getEdgeAxisForPosition(position) : null;
+
       configs.push({
         position,
-        hasTabs: meetsFace,
+        hasTabs: gender === 'male',
         meetsFaceId: meetsFace ? adjacentFaceId : null,
         meetsDividerId: null, // TODO: Check for other dividers meeting this edge
+        gender,
+        axis,
       });
     }
 
     return configs;
+  }
+
+  /**
+   * Get the world axis that a divider edge runs along
+   */
+  private getEdgeAxisForPosition(position: EdgePosition): Axis {
+    // For a divider on axis A, the 2D panel has:
+    // - Width along one perpendicular axis
+    // - Height along the other perpendicular axis
+    // The edge axis depends on which edge we're looking at
+
+    switch (this._axis) {
+      case 'x':
+        // X-divider: width=Z, height=Y
+        // top/bottom edges run along Z, left/right edges run along Y
+        return (position === 'top' || position === 'bottom') ? 'z' : 'y';
+      case 'y':
+        // Y-divider: width=X, height=Z
+        // top/bottom edges run along X, left/right edges run along Z
+        return (position === 'top' || position === 'bottom') ? 'x' : 'z';
+      case 'z':
+        // Z-divider: width=X, height=Y
+        // top/bottom edges run along X, left/right edges run along Y
+        return (position === 'top' || position === 'bottom') ? 'x' : 'y';
+    }
   }
 
   computeTransform(): Transform3D {
@@ -186,6 +222,14 @@ export class DividerPanelNode extends BasePanel {
       return adjacentFaceId;
     }
     return null;
+  }
+
+  getFingerData(): AssemblyFingerData | null {
+    const assembly = this.findParentAssembly();
+    if (!assembly) {
+      return null;
+    }
+    return assembly.getFingerData();
   }
 
   // ==========================================================================

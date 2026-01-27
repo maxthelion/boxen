@@ -26,7 +26,11 @@ import {
   MaterialConfig,
   EdgeAnchor,
   FaceId,
+  JointGender,
+  Axis,
+  AssemblyFingerData,
 } from '../types';
+import { generateFingerJointPathV2, Point } from '../../utils/fingerJoints';
 
 export interface PanelDimensions {
   width: number;   // 2D width (horizontal in local coords)
@@ -38,6 +42,9 @@ export interface EdgeConfig {
   hasTabs: boolean;
   meetsFaceId: string | null;
   meetsDividerId: string | null;
+  // Finger joint information
+  gender: JointGender | null;  // male = tabs out, female = slots, null = straight edge
+  axis: Axis | null;           // Which world axis this edge runs along
 }
 
 /**
@@ -133,6 +140,12 @@ export abstract class BasePanel extends BaseNode {
    */
   abstract getMatingFaceId(edgePosition: EdgePosition): FaceId | null;
 
+  /**
+   * Get the assembly's finger data (for finger joint generation)
+   * Returns null if finger joints should not be generated
+   */
+  abstract getFingerData(): AssemblyFingerData | null;
+
   // ==========================================================================
   // Derived Value Computation
   // ==========================================================================
@@ -184,93 +197,226 @@ export abstract class BasePanel extends BaseNode {
   }
 
   /**
+   * Get the outward direction for an edge (away from panel center)
+   */
+  protected getEdgeOutwardDirection(position: EdgePosition): Point {
+    switch (position) {
+      case 'top': return { x: 0, y: 1 };
+      case 'bottom': return { x: 0, y: -1 };
+      case 'left': return { x: -1, y: 0 };
+      case 'right': return { x: 1, y: 0 };
+    }
+  }
+
+  /**
    * Compute the full outline with finger joints
-   * Uses edge configs to determine which edges have tabs
+   * Uses edge configs to determine which edges have tabs/slots
    */
   protected computeOutline(): PanelOutline {
     const dims = this.getDimensions();
-    const edges = this.getEdges();
+    const edgeConfigs = this.computeEdgeConfigs();
     const material = this.getMaterial();
     const holes = this.computeHoles();
+    const fingerData = this.getFingerData();
 
     // Calculate corners with insets for solid faces
     const halfW = dims.width / 2;
     const halfH = dims.height / 2;
     const mt = material.thickness;
 
-    // Determine corner insets based on edge configs
-    const topEdge = edges.find(e => e.position === 'top');
-    const bottomEdge = edges.find(e => e.position === 'bottom');
-    const leftEdge = edges.find(e => e.position === 'left');
-    const rightEdge = edges.find(e => e.position === 'right');
+    // Helper to get edge config by position
+    const getEdgeConfig = (pos: EdgePosition): EdgeConfig | undefined =>
+      edgeConfigs.find(e => e.position === pos);
 
-    const topHasTabs = topEdge?.hasTabs ?? false;
-    const bottomHasTabs = bottomEdge?.hasTabs ?? false;
-    const leftHasTabs = leftEdge?.hasTabs ?? false;
-    const rightHasTabs = rightEdge?.hasTabs ?? false;
+    const topEdge = getEdgeConfig('top');
+    const bottomEdge = getEdgeConfig('bottom');
+    const leftEdge = getEdgeConfig('left');
+    const rightEdge = getEdgeConfig('right');
 
-    // Apply extensions
+    // Check if edge has male joints (tabs extending out)
+    const edgeIsMale = (edge: EdgeConfig | undefined): boolean =>
+      edge?.gender === 'male';
+
+    const topHasTabs = edgeIsMale(topEdge);
+    const bottomHasTabs = edgeIsMale(bottomEdge);
+    const leftHasTabs = edgeIsMale(leftEdge);
+    const rightHasTabs = edgeIsMale(rightEdge);
+
+    // Apply extensions (only for edges that can extend)
     const extTop = this._edgeExtensions.top;
     const extBottom = this._edgeExtensions.bottom;
     const extLeft = this._edgeExtensions.left;
     const extRight = this._edgeExtensions.right;
 
-    // Base corners (with insets for edges that have tabs)
-    const corners = {
+    // Finger corners - used for finger pattern generation (no extensions)
+    // These must be consistent across all panels for proper joint alignment
+    const fingerCorners = {
       topLeft: {
-        x: -halfW + (leftHasTabs ? mt : 0) - extLeft,
-        y: halfH - (topHasTabs ? mt : 0) + extTop,
+        x: -halfW + (leftHasTabs ? mt : 0),
+        y: halfH - (topHasTabs ? mt : 0),
       },
       topRight: {
-        x: halfW - (rightHasTabs ? mt : 0) + extRight,
-        y: halfH - (topHasTabs ? mt : 0) + extTop,
+        x: halfW - (rightHasTabs ? mt : 0),
+        y: halfH - (topHasTabs ? mt : 0),
       },
       bottomRight: {
-        x: halfW - (rightHasTabs ? mt : 0) + extRight,
-        y: -halfH + (bottomHasTabs ? mt : 0) - extBottom,
+        x: halfW - (rightHasTabs ? mt : 0),
+        y: -halfH + (bottomHasTabs ? mt : 0),
       },
       bottomLeft: {
-        x: -halfW + (leftHasTabs ? mt : 0) - extLeft,
-        y: -halfH + (bottomHasTabs ? mt : 0) - extBottom,
+        x: -halfW + (leftHasTabs ? mt : 0),
+        y: -halfH + (bottomHasTabs ? mt : 0),
       },
     };
 
-    // Build outline points
-    // For now, just use straight edges - finger joint generation will be added later
+    // Outline corners (with extensions)
+    const outlineCorners = {
+      topLeft: {
+        x: fingerCorners.topLeft.x - extLeft,
+        y: fingerCorners.topLeft.y + extTop,
+      },
+      topRight: {
+        x: fingerCorners.topRight.x + extRight,
+        y: fingerCorners.topRight.y + extTop,
+      },
+      bottomRight: {
+        x: fingerCorners.bottomRight.x + extRight,
+        y: fingerCorners.bottomRight.y - extBottom,
+      },
+      bottomLeft: {
+        x: fingerCorners.bottomLeft.x - extLeft,
+        y: fingerCorners.bottomLeft.y - extBottom,
+      },
+    };
+
+    // Helper to generate edge points (with or without finger joints)
+    const generateEdgePoints = (
+      startCorner: Point,
+      endCorner: Point,
+      fingerStart: Point,
+      fingerEnd: Point,
+      edgeConfig: EdgeConfig | undefined
+    ): Point[] => {
+      // If no finger joints or no finger data, return straight edge
+      if (!edgeConfig?.gender || !edgeConfig?.axis || !fingerData) {
+        return [endCorner];
+      }
+
+      const axisFingerPoints = fingerData[edgeConfig.axis];
+      if (!axisFingerPoints || axisFingerPoints.points.length === 0) {
+        return [endCorner];
+      }
+
+      // Calculate edge axis positions
+      // The positions depend on which edge and which axis
+      const edgeStartPos = this.computeEdgeAxisPosition(edgeConfig.position, 'start', edgeConfig.axis);
+      const edgeEndPos = this.computeEdgeAxisPosition(edgeConfig.position, 'end', edgeConfig.axis);
+
+      // Generate finger joint path
+      const fingerPath = generateFingerJointPathV2(fingerStart, fingerEnd, {
+        fingerPoints: axisFingerPoints,
+        gender: edgeConfig.gender,
+        materialThickness: mt,
+        edgeStartPos,
+        edgeEndPos,
+        yUp: true,
+        outwardDirection: this.getEdgeOutwardDirection(edgeConfig.position),
+      });
+
+      // The finger path starts at fingerStart - we need to handle extensions
+      const result: Point[] = [];
+
+      // If start corner differs from finger start (due to extension), add connecting line
+      const startDx = Math.abs(startCorner.x - fingerStart.x);
+      const startDy = Math.abs(startCorner.y - fingerStart.y);
+      if (startDx > 0.001 || startDy > 0.001) {
+        result.push(fingerStart);
+      }
+
+      // Add finger path points (skip first point as it's already the start)
+      for (let i = 1; i < fingerPath.length; i++) {
+        result.push(fingerPath[i]);
+      }
+
+      // If end corner differs from finger end (due to extension), add it
+      const lastFingerPoint = fingerPath[fingerPath.length - 1];
+      const endDx = Math.abs(endCorner.x - lastFingerPoint.x);
+      const endDy = Math.abs(endCorner.y - lastFingerPoint.y);
+      if (endDx > 0.001 || endDy > 0.001) {
+        result.push(endCorner);
+      }
+
+      return result;
+    };
+
+    // Build outline points (clockwise from top-left)
     const points: Point2D[] = [];
 
+    // Start at top-left corner
+    points.push(outlineCorners.topLeft);
+
     // Top edge (left to right)
-    points.push(corners.topLeft);
-    if (topHasTabs) {
-      // TODO: Generate finger joint points
-      points.push(corners.topRight);
-    } else {
-      points.push(corners.topRight);
-    }
+    points.push(...generateEdgePoints(
+      outlineCorners.topLeft,
+      outlineCorners.topRight,
+      fingerCorners.topLeft,
+      fingerCorners.topRight,
+      topEdge
+    ));
 
     // Right edge (top to bottom)
-    if (rightHasTabs) {
-      // TODO: Generate finger joint points
-      points.push(corners.bottomRight);
-    } else {
-      points.push(corners.bottomRight);
-    }
+    points.push(...generateEdgePoints(
+      outlineCorners.topRight,
+      outlineCorners.bottomRight,
+      fingerCorners.topRight,
+      fingerCorners.bottomRight,
+      rightEdge
+    ));
 
     // Bottom edge (right to left)
-    if (bottomHasTabs) {
-      // TODO: Generate finger joint points
-      points.push(corners.bottomLeft);
-    } else {
-      points.push(corners.bottomLeft);
-    }
+    points.push(...generateEdgePoints(
+      outlineCorners.bottomRight,
+      outlineCorners.bottomLeft,
+      fingerCorners.bottomRight,
+      fingerCorners.bottomLeft,
+      bottomEdge
+    ));
 
-    // Left edge (bottom to top) - closes the shape
-    // Don't add topLeft again, shape auto-closes
+    // Left edge (bottom to top) - path auto-closes to start
+    const leftEdgePoints = generateEdgePoints(
+      outlineCorners.bottomLeft,
+      outlineCorners.topLeft,
+      fingerCorners.bottomLeft,
+      fingerCorners.topLeft,
+      leftEdge
+    );
+    // Don't add the last point if it's the same as the first (auto-close)
+    for (const pt of leftEdgePoints) {
+      const dx = Math.abs(pt.x - outlineCorners.topLeft.x);
+      const dy = Math.abs(pt.y - outlineCorners.topLeft.y);
+      if (dx > 0.001 || dy > 0.001) {
+        points.push(pt);
+      }
+    }
 
     return {
       points,
       holes,
     };
+  }
+
+  /**
+   * Compute the axis position for a corner of an edge
+   * Subclasses should override this to provide proper axis mapping
+   */
+  protected computeEdgeAxisPosition(
+    _edgePosition: EdgePosition,
+    _corner: 'start' | 'end',
+    _axis: Axis
+  ): number {
+    // Default implementation - subclasses should override
+    // This returns 0 which will result in straight edges
+    return 0;
   }
 
   // ==========================================================================

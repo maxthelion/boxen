@@ -18,11 +18,15 @@ import {
   Transform3D,
   PanelHole,
   FacePanelSnapshot,
+  AssemblyFingerData,
+  Axis,
 } from '../types';
 import {
   ALL_EDGE_POSITIONS,
   getAdjacentFace,
 } from '../../utils/faceGeometry';
+import { getEdgeGender } from '../../utils/genderRules';
+import { getEdgeAxis, Face as StoreFace, AssemblyConfig as StoreAssemblyConfig } from '../../types';
 
 export class FacePanelNode extends BasePanel {
   readonly kind: NodeKind = 'face-panel';
@@ -100,16 +104,28 @@ export class FacePanelNode extends BasePanel {
 
   computeEdgeConfigs(): EdgeConfig[] {
     const configs: EdgeConfig[] = [];
+    // Cast engine FaceConfig[] to store Face[] (structurally identical)
+    const faces = this._assembly.getFaces() as unknown as StoreFace[];
+    // Cast engine AssemblyConfig to store AssemblyConfig (compatible subset)
+    const assemblyConfig = this._assembly.assemblyConfig as unknown as StoreAssemblyConfig;
 
     for (const position of ALL_EDGE_POSITIONS) {
       const adjacentFaceId = getAdjacentFace(this.faceId, position);
       const meetsFace = this._assembly.isFaceSolid(adjacentFaceId);
 
+      // Get gender (male/female/null) for this edge
+      const gender = getEdgeGender(this.faceId, position, faces, assemblyConfig);
+
+      // Get the world axis this edge runs along
+      const axis = meetsFace ? getEdgeAxis(this.faceId, position) : null;
+
       configs.push({
         position,
-        hasTabs: meetsFace,
+        hasTabs: gender === 'male', // hasTabs means male joint (tabs extending out)
         meetsFaceId: meetsFace ? adjacentFaceId : null,
         meetsDividerId: null, // TODO: Check for dividers meeting this edge
+        gender,
+        axis,
       });
     }
 
@@ -175,6 +191,10 @@ export class FacePanelNode extends BasePanel {
     return null;
   }
 
+  getFingerData(): AssemblyFingerData | null {
+    return this._assembly.getFingerData();
+  }
+
   // ==========================================================================
   // Helper Methods
   // ==========================================================================
@@ -191,6 +211,73 @@ export class FacePanelNode extends BasePanel {
       depth: this._assembly.depth,
       assemblyAxis: this._assembly.assemblyAxis,
     };
+  }
+
+  /**
+   * Compute the axis position for a corner of an edge.
+   * This determines where the edge starts/ends along the world axis.
+   * Used for finger joint alignment across panels.
+   */
+  protected computeEdgeAxisPosition(
+    edgePosition: EdgePosition,
+    corner: 'start' | 'end',
+    axis: Axis
+  ): number {
+    const { width, height, depth } = this.getAssemblyDimensions();
+    const mt = this._assembly.material.thickness;
+    const edgeConfigs = this.computeEdgeConfigs();
+
+    // Get info about perpendicular edges to determine if they have tabs
+    const getEdgeHasTabs = (pos: EdgePosition): boolean => {
+      const config = edgeConfigs.find(e => e.position === pos);
+      return config?.gender === 'male';
+    };
+
+    const topHasTabs = getEdgeHasTabs('top');
+    const bottomHasTabs = getEdgeHasTabs('bottom');
+    const leftHasTabs = getEdgeHasTabs('left');
+    const rightHasTabs = getEdgeHasTabs('right');
+
+    // Calculate max joint length (axis dimension minus MT at both ends)
+    let maxJointLength: number;
+    switch (axis) {
+      case 'x': maxJointLength = width - 2 * mt; break;
+      case 'y': maxJointLength = height - 2 * mt; break;
+      case 'z': maxJointLength = depth - 2 * mt; break;
+    }
+
+    // Determine low/high positions based on perpendicular edge tabs
+    // If perpendicular edge has tabs, the position is 0 or maxJointLength
+    // If not, the position extends by MT
+    let lowHasTabs: boolean;
+    let highHasTabs: boolean;
+
+    // For horizontal edges (top/bottom), low=left, high=right
+    // For vertical edges (left/right), low=bottom, high=top
+    if (edgePosition === 'top' || edgePosition === 'bottom') {
+      lowHasTabs = leftHasTabs;
+      highHasTabs = rightHasTabs;
+    } else {
+      lowHasTabs = bottomHasTabs;
+      highHasTabs = topHasTabs;
+    }
+
+    const lowPos = lowHasTabs ? 0 : -mt;
+    const highPos = highHasTabs ? maxJointLength : maxJointLength + mt;
+
+    // Determine start/end based on edge direction
+    // Edges follow clockwise pattern in 2D:
+    // - top edge: left-to-right (low to high)
+    // - right edge: top-to-bottom (high to low)
+    // - bottom edge: right-to-left (high to low)
+    // - left edge: bottom-to-top (low to high)
+    const runsLowToHigh = edgePosition === 'top' || edgePosition === 'left';
+
+    if (corner === 'start') {
+      return runsLowToHigh ? lowPos : highPos;
+    } else {
+      return runsLowToHigh ? highPos : lowPos;
+    }
   }
 
   // ==========================================================================
