@@ -27,7 +27,14 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const setActiveTool = useBoxStore((state) => state.setActiveTool);
   const insetFace = useBoxStore((state) => state.insetFace);
 
-  // Preview system from store
+  // Operation system from store
+  const operationState = useBoxStore((state) => state.operationState);
+  const startOperation = useBoxStore((state) => state.startOperation);
+  const updateOperationParams = useBoxStore((state) => state.updateOperationParams);
+  const applyOperation = useBoxStore((state) => state.applyOperation);
+  const cancelOperation = useBoxStore((state) => state.cancelOperation);
+
+  // Legacy preview system (kept for compatibility during transition)
   const previewState = useBoxStore((state) => state.previewState);
   const startPreview = useBoxStore((state) => state.startPreview);
   const updatePreviewFaceOffset = useBoxStore((state) => state.updatePreviewFaceOffset);
@@ -48,25 +55,28 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     return selected ? selected.replace('face-', '') as FaceId : null;
   }, [selectedPanelIds]);
 
-  // Start preview when entering push-pull mode with a face selected
+  // Start operation when entering push-pull mode with a face selected
   useEffect(() => {
-    if (activeTool === 'push-pull' && selectedFaceId && !previewState) {
-      startPreview('push-pull', { faceId: selectedFaceId, mode: pushPullMode });
+    const isOperationActive = operationState.activeOperation === 'push-pull';
+    if (activeTool === 'push-pull' && selectedFaceId && !isOperationActive) {
+      startOperation('push-pull');
+      // Initialize params (no offset yet)
+      updateOperationParams({ faceId: selectedFaceId, offset: 0, mode: pushPullMode });
       setCurrentOffset(0);
     }
-  }, [activeTool, selectedFaceId, previewState, startPreview, pushPullMode]);
+  }, [activeTool, selectedFaceId, operationState.activeOperation, startOperation, updateOperationParams, pushPullMode]);
 
-  // Cancel preview when leaving push-pull mode or deselecting face
+  // Cancel operation when leaving push-pull mode or deselecting face
   useEffect(() => {
-    if (previewState?.type === 'push-pull') {
+    if (operationState.activeOperation === 'push-pull') {
       if (activeTool !== 'push-pull' || !selectedFaceId) {
-        cancelPreview();
+        cancelOperation();
         setCurrentOffset(0);
       }
     }
-  }, [activeTool, selectedFaceId, previewState, cancelPreview]);
+  }, [activeTool, selectedFaceId, operationState.activeOperation, cancelOperation]);
 
-  // Handle preview offset change (from palette slider or arrow drag)
+  // Handle offset change (from palette slider or arrow drag)
   const handlePreviewOffsetChange = useCallback((offset: number) => {
     logPushPull({
       action: 'Viewport3D - handlePreviewOffsetChange called',
@@ -74,29 +84,29 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
       offset,
       mode: pushPullMode,
       previewState: {
-        hasPreview: !!previewState,
-        type: previewState?.type,
+        hasPreview: operationState.activeOperation === 'push-pull',
+        type: operationState.activeOperation ?? undefined,
       },
       extra: {
-        willUpdate: !!(selectedFaceId && previewState?.type === 'push-pull'),
+        willUpdate: !!(selectedFaceId && operationState.activeOperation === 'push-pull'),
       },
     });
-    if (selectedFaceId && previewState?.type === 'push-pull') {
+    if (selectedFaceId && operationState.activeOperation === 'push-pull') {
       setCurrentOffset(offset);
-      updatePreviewFaceOffset(selectedFaceId, offset, pushPullMode);
+      updateOperationParams({ faceId: selectedFaceId, offset, mode: pushPullMode });
     }
-  }, [selectedFaceId, previewState, pushPullMode, updatePreviewFaceOffset]);
+  }, [selectedFaceId, operationState.activeOperation, pushPullMode, updateOperationParams]);
 
-  // Handle apply - commit the preview and close the operation
+  // Handle apply - commit the operation and close
   const handleApplyOffset = useCallback(() => {
-    if (previewState?.type === 'push-pull' && currentOffset !== 0) {
-      commitPreview();
+    if (operationState.activeOperation === 'push-pull' && currentOffset !== 0) {
+      applyOperation();
       setCurrentOffset(0);
       // Close the operation - switch back to select tool
       setActiveTool('select');
       clearSelection();
     }
-  }, [previewState, currentOffset, commitPreview, setActiveTool, clearSelection]);
+  }, [operationState.activeOperation, currentOffset, applyOperation, setActiveTool, clearSelection]);
 
   // Push-pull callbacks for Box3D (arrow dragging)
   const pushPullCallbacks: PushPullCallbacks = useMemo(() => ({
@@ -110,20 +120,20 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Handle inset face (open face + create divider at offset)
   const handleInsetFace = useCallback(() => {
     if (selectedFaceId && currentOffset < 0) {
-      // Cancel the preview first, then apply inset to main state
-      cancelPreview();
+      // Cancel the operation first, then apply inset to main state
+      cancelOperation();
       insetFace(selectedFaceId, Math.abs(currentOffset));
       setCurrentOffset(0);
       setActiveTool('select');
     }
-  }, [selectedFaceId, currentOffset, cancelPreview, insetFace, setActiveTool]);
+  }, [selectedFaceId, currentOffset, cancelOperation, insetFace, setActiveTool]);
 
   // Close palette when tool changes away from push-pull
   const handlePaletteClose = useCallback(() => {
-    cancelPreview();
+    cancelOperation();
     setCurrentOffset(0);
     setActiveTool('select');
-  }, [cancelPreview, setActiveTool]);
+  }, [cancelOperation, setActiveTool]);
 
   // Expose method to get the canvas element
   useImperativeHandle(ref, () => ({
@@ -172,8 +182,8 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
       }
 
       if (e.key === 'Escape') {
-        if (activeTool === 'push-pull' && previewState) {
-          cancelPreview();
+        if (activeTool === 'push-pull' && operationState.activeOperation === 'push-pull') {
+          cancelOperation();
           setCurrentOffset(0);
         }
         clearSelection();
@@ -191,7 +201,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [clearSelection, handleDeleteSelectedPanels, activeTool, setActiveTool, previewState, cancelPreview]);
+  }, [clearSelection, handleDeleteSelectedPanels, activeTool, setActiveTool, operationState.activeOperation, cancelOperation]);
 
   return (
     <div className="viewport-container" ref={canvasContainerRef}>
