@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect } from 'react';
 import { useBoxStore, getLeafVoids, getAllSubdivisions, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible, findVoid } from '../store/useBoxStore';
-import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
+import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels, useEngineMainPanels, useEngineMainConfig } from '../engine';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { FaceWithFingers } from './FaceWithFingers';
@@ -481,32 +481,26 @@ interface Box3DProps {
 }
 
 export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
-  // Model state from engine
-  const mainConfig = useEngineConfig();
-  const mainFaces = useEngineFaces();
-  const mainRootVoid = useEngineVoidTree();
-  const mainPanelCollection = useEnginePanels();
+  // Model state from engine (returns preview state when preview is active)
+  const config = useEngineConfig();
+  const faces = useEngineFaces();
+  const rootVoid = useEngineVoidTree();
+  const panelCollection = useEnginePanels();
+
+  // Main (committed) state - for arrow positioning during preview
+  const mainConfig = useEngineMainConfig();
+  const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
-  const { subdivisionPreview, subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, panelsDirty, generatePanels, showDebugAnchors, activeTool, previewState, previewPanelCollection } = useBoxStore();
+  const { subdivisionPreview, subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
 
-  // Use preview state if available, otherwise use main state
-  const config = previewState?.config ?? mainConfig;
-  const faces = previewState?.faces ?? mainFaces;
-  const rootVoid = previewState?.rootVoid ?? mainRootVoid;
-  const panelCollection = previewPanelCollection ?? mainPanelCollection;
+  // Check if a preview is currently active
+  const isPreviewActive = operationState.activeOperation !== null;
 
   // Early return if engine not initialized
-  if (!mainConfig || !mainRootVoid || !config || !rootVoid) return null;
+  if (!config || !rootVoid || !mainConfig) return null;
 
   const { width, height, depth } = config;
-
-  // Auto-generate panels when dirty
-  useEffect(() => {
-    if (panelsDirty) {
-      generatePanels();
-    }
-  }, [panelsDirty, generatePanels]);
 
   const scale = 100 / Math.max(width, height, depth);
   const scaledW = width * scale;
@@ -672,16 +666,16 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
 
   // Bounding box shows preview dimensions when previewing, otherwise main dimensions
   // Always centered at origin (no shift)
-  const boundingBoxW = previewState ? scaledW : mainScaledW;
-  const boundingBoxH = previewState ? scaledH : mainScaledH;
-  const boundingBoxD = previewState ? scaledD : mainScaledD;
+  const boundingBoxW = isPreviewActive ? scaledW : mainScaledW;
+  const boundingBoxH = isPreviewActive ? scaledH : mainScaledH;
+  const boundingBoxD = isPreviewActive ? scaledD : mainScaledD;
 
   return (
     <group>
       {/* Wireframe box outline - shows current assembly dimensions */}
       <lineSegments>
         <edgesGeometry args={[new THREE.BoxGeometry(boundingBoxW, boundingBoxH, boundingBoxD)]} />
-        <lineBasicMaterial color={previewState ? '#ffcc00' : '#ff0000'} linewidth={2} />
+        <lineBasicMaterial color={isPreviewActive ? '#ffcc00' : '#ff0000'} linewidth={2} />
       </lineSegments>
 
       {/* Debug anchor spheres at box corners (inset by half material thickness) */}
@@ -749,12 +743,12 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
             preview: { w: scaledW, h: scaledH, d: scaledD },
           },
           previewState: {
-            hasPreview: !!previewState,
-            type: previewState?.type,
-            configDimensions: previewState ? {
-              width: previewState.config.width,
-              height: previewState.config.height,
-              depth: previewState.config.depth,
+            hasPreview: isPreviewActive,
+            type: operationState.activeOperation ?? undefined,
+            configDimensions: isPreviewActive && config ? {
+              width: config.width,
+              height: config.height,
+              depth: config.depth,
             } : undefined,
           },
         });

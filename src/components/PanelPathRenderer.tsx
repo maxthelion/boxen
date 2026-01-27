@@ -262,10 +262,8 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
   onPanelDoubleClick,
   hiddenFaceIds = new Set(),
 }) => {
-  // Use preview panel collection when available, otherwise main collection from engine
-  const mainPanelCollection = useEnginePanels();
-  const previewPanelCollection = useBoxStore((state) => state.previewPanelCollection);
-  const panelCollection = previewPanelCollection ?? mainPanelCollection;
+  // Get panel collection from engine - automatically includes preview when active
+  const panelCollection = useEnginePanels();
 
   const hoveredPanelId = useBoxStore((state) => state.hoveredPanelId);
   const hoveredAssemblyId = useBoxStore((state) => state.hoveredAssemblyId);

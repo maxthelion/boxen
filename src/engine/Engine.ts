@@ -83,6 +83,14 @@ export class Engine {
     return this._previewScene ?? this._scene;
   }
 
+  /**
+   * Get the main (committed) scene, ignoring any active preview
+   * Useful for getting original state during preview operations
+   */
+  getMainScene(): SceneNode {
+    return this._scene;
+  }
+
   // ==========================================================================
   // Scene Access
   // ==========================================================================

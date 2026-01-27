@@ -15,7 +15,7 @@ import { saveProject, loadProject, captureThumbnail } from './utils/projectStora
 import { ProjectState } from './utils/urlState';
 import { defaultEdgeExtensions, EdgeExtensions, FaceId, PanelPath } from './types';
 import { hasDebug, getDebug } from './utils/debug';
-import { useEngine } from './engine';
+import { useEngine, useEnginePanels } from './engine';
 import './App.css';
 
 // Get the normal axis for any panel (face or divider)
@@ -73,11 +73,13 @@ function App() {
   // OO Engine integration (Phase 2)
   const { snapshot: engineSnapshot } = useEngine();
 
+  // Panel collection from engine (source of truth)
+  const panelCollection = useEnginePanels();
+
   const {
     config,
     faces,
     rootVoid,
-    panelCollection,
     selectedVoidIds,
     selectedPanelIds,
     selectedAssemblyId,
@@ -87,7 +89,6 @@ function App() {
     getShareableUrl,
     saveToUrl,
     generatePanels,
-    setConfig,
   } = useBoxStore();
 
   // Load state from URL on initial mount and initialize engine
@@ -182,26 +183,19 @@ function App() {
         config: loaded.config,
         faces: loaded.faces,
         rootVoid: loaded.rootVoid,
-        panelsDirty: true,
       });
 
-      // Generate panels
+      // Generate panels (this syncs to engine)
       generatePanels();
 
-      // Apply edge extensions after panel generation
+      // Apply edge extensions after panel generation via store action
       if (Object.keys(edgeExtensionsMap).length > 0) {
-        const currentPanels = useBoxStore.getState().panelCollection?.panels;
-        if (currentPanels) {
-          const updatedPanels = currentPanels.map(panel => ({
-            ...panel,
-            edgeExtensions: edgeExtensionsMap[panel.id] ?? panel.edgeExtensions ?? defaultEdgeExtensions,
-          }));
-          useBoxStore.setState({
-            panelCollection: {
-              ...useBoxStore.getState().panelCollection!,
-              panels: updatedPanels,
-            },
-          });
+        const setEdgeExtension = useBoxStore.getState().setEdgeExtension;
+        for (const [panelId, extensions] of Object.entries(edgeExtensionsMap)) {
+          if (extensions.top !== 0) setEdgeExtension(panelId, 'top', extensions.top);
+          if (extensions.bottom !== 0) setEdgeExtension(panelId, 'bottom', extensions.bottom);
+          if (extensions.left !== 0) setEdgeExtension(panelId, 'left', extensions.left);
+          if (extensions.right !== 0) setEdgeExtension(panelId, 'right', extensions.right);
         }
       }
 
@@ -246,7 +240,6 @@ function App() {
       selectedPanelIds: new Set<string>(),
       selectedAssemblyId: null,
       selectedSubAssemblyIds: new Set<string>(),
-      panelsDirty: true,
     });
     generatePanels();
 

@@ -36,6 +36,8 @@ export {
   useEngineVoidTree,
   useEnginePanels,
   useEnginePanel,
+  useEngineMainPanels,
+  useEngineMainConfig,
   notifyEngineStateChanged,
 } from './useEngineState';
 export type { EngineModelState } from './useEngineState';

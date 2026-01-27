@@ -127,6 +127,8 @@ function panelSnapshotsToPanelCollection(panels: PanelSnapshot[]): PanelCollecti
 
 let stateVersion = 0;
 let cachedState: EngineModelState | null = null;
+let cachedMainPanels: PanelCollection | null = null;
+let cachedMainConfig: BoxConfig | null = null;
 const listeners = new Set<() => void>();
 
 /**
@@ -152,6 +154,8 @@ function subscribe(callback: () => void): () => void {
 export function notifyEngineStateChanged(): void {
   stateVersion++;
   cachedState = null;
+  cachedMainPanels = null;
+  cachedMainConfig = null;
   listeners.forEach(cb => cb());
 }
 
@@ -268,4 +272,62 @@ export function useEnginePanels(): PanelCollection | null {
 export function useEnginePanel(panelId: string): PanelPath | null {
   const state = useEngineState();
   return state?.panelCollection?.panels.find(p => p.id === panelId) ?? null;
+}
+
+/**
+ * Get main scene panels (cached)
+ */
+function getMainPanels(): PanelCollection | null {
+  if (cachedMainPanels) {
+    return cachedMainPanels;
+  }
+
+  const engine = getEngine();
+  const mainScene = engine.getMainScene();
+  const assemblySnapshot = mainScene.serialize().children[0] as AssemblySnapshot | undefined;
+  if (!assemblySnapshot) return null;
+
+  cachedMainPanels = panelSnapshotsToPanelCollection(assemblySnapshot.derived.panels);
+  return cachedMainPanels;
+}
+
+/**
+ * Get main scene config (cached)
+ */
+function getMainConfig(): BoxConfig | null {
+  if (cachedMainConfig) {
+    return cachedMainConfig;
+  }
+
+  const engine = getEngine();
+  const mainScene = engine.getMainScene();
+  const assemblySnapshot = mainScene.serialize().children[0] as AssemblySnapshot | undefined;
+  if (!assemblySnapshot) return null;
+
+  cachedMainConfig = assemblySnapshotToConfig(assemblySnapshot);
+  return cachedMainConfig;
+}
+
+/**
+ * Hook to get panels from the MAIN scene (ignoring preview)
+ * Useful for getting original state during preview operations
+ */
+export function useEngineMainPanels(): PanelCollection | null {
+  return useSyncExternalStore(
+    subscribe,
+    getMainPanels,
+    () => null // Server render returns null
+  );
+}
+
+/**
+ * Hook to get config from the MAIN scene (ignoring preview)
+ * Useful for getting original dimensions during preview operations
+ */
+export function useEngineMainConfig(): BoxConfig | null {
+  return useSyncExternalStore(
+    subscribe,
+    getMainConfig,
+    () => null // Server render returns null
+  );
 }
