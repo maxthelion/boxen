@@ -99,7 +99,10 @@ export const getFaceEdges = (faceId: FaceId): EdgeInfo[] => {
  */
 export const MATING_EDGE_POSITION: Record<FaceId, Record<EdgePosition, EdgePosition>> = {
   front: { top: 'bottom', bottom: 'top', left: 'right', right: 'left' },
-  back: { top: 'top', bottom: 'bottom', left: 'left', right: 'right' },
+  // Back is rotated 180° around Y, so its local left/right are swapped in world space
+  // back.left → right.right (back's left edge meets right face's right edge)
+  // back.right → left.left (back's right edge meets left face's left edge)
+  back: { top: 'top', bottom: 'bottom', left: 'right', right: 'left' },
   left: { top: 'left', bottom: 'left', left: 'right', right: 'left' },
   right: { top: 'right', bottom: 'right', left: 'right', right: 'left' },
   top: { top: 'top', bottom: 'top', left: 'top', right: 'top' },

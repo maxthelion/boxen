@@ -618,22 +618,32 @@ export abstract class BasePanel extends BaseNode {
   }
 
   /**
-   * Compute edge anchors for all edges that mate with other panels
+   * Compute edge anchors for all edges that mate with other panels.
+   *
+   * Edge anchors are placed at the mating surface (inward by mt/2 from the
+   * panel's geometric edge) so that mating panels share the same world point.
+   *
+   * Without this offset, each panel's anchor would be at its own outer edge,
+   * and mating anchors would differ by ~sqrt(2)*mt/2 ≈ 2.12mm for mt=3.
    */
   protected computeEdgeAnchors(): EdgeAnchor[] {
     const dims = this.getDimensions();
     const edges = this.getEdges();
     const anchors: EdgeAnchor[] = [];
+    const mt = this.getMaterial().thickness;
+    const halfMt = mt / 2;
 
     const halfW = dims.width / 2;
     const halfH = dims.height / 2;
 
-    // Edge centers in local 2D coordinates
+    // Edge centers in local 2D coordinates, offset inward to the mating surface.
+    // The offset moves the anchor from the panel's outer edge to where it meets
+    // the adjacent panel's mid-plane.
     const edgeCenters: Record<EdgePosition, Point2D> = {
-      top: { x: 0, y: halfH },
-      bottom: { x: 0, y: -halfH },
-      left: { x: -halfW, y: 0 },
-      right: { x: halfW, y: 0 },
+      top: { x: 0, y: halfH - halfMt },      // offset down
+      bottom: { x: 0, y: -halfH + halfMt },  // offset up
+      left: { x: -halfW + halfMt, y: 0 },    // offset right
+      right: { x: halfW - halfMt, y: 0 },    // offset left
     };
 
     for (const edge of edges) {
