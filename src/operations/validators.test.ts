@@ -434,13 +434,14 @@ describe('validateSubdivideTwoPanelSelection', () => {
   describe('Face + Divider Panels', () => {
     it('accepts face panel + adjacent divider on same axis (right face + divider)', () => {
       // Subdivided void: left | child0 | divider | child1 | right
+      // Divider ID uses parent void ID ('root'), not child ID
       const subdividedRoot = createSubdividedVoid('root', ['child0', 'child1']);
       const panels = [
         createFacePanel('right'),
-        createDividerPanel('child0', 'x', 50),  // divider between child0 and child1
+        createDividerPanel('root', 'x', 50),  // divider between child0 and child1
       ];
       const result = validateSubdivideTwoPanelSelection(
-        new Set(['face-right', 'divider-child0-x-50']),
+        new Set(['face-right', 'divider-root-x-50']),
         createPanelCollection(panels),
         subdividedRoot
       );
@@ -451,13 +452,14 @@ describe('validateSubdivideTwoPanelSelection', () => {
 
     it('accepts face panel + adjacent divider on same axis (left face + divider)', () => {
       // Subdivided void: left | child0 | divider | child1 | right
+      // Divider ID uses parent void ID ('root'), not child ID
       const subdividedRoot = createSubdividedVoid('root', ['child0', 'child1']);
       const panels = [
         createFacePanel('left'),
-        createDividerPanel('child0', 'x', 50),
+        createDividerPanel('root', 'x', 50),
       ];
       const result = validateSubdivideTwoPanelSelection(
-        new Set(['face-left', 'divider-child0-x-50']),
+        new Set(['face-left', 'divider-root-x-50']),
         createPanelCollection(panels),
         subdividedRoot
       );
@@ -470,10 +472,10 @@ describe('validateSubdivideTwoPanelSelection', () => {
       const subdividedRoot = createSubdividedVoid('root', ['child0', 'child1']);
       const panels = [
         createFacePanel('top'),  // Y axis
-        createDividerPanel('child0', 'x', 50),  // X axis
+        createDividerPanel('root', 'x', 50),  // X axis - divider uses parent void ID
       ];
       const result = validateSubdivideTwoPanelSelection(
-        new Set(['face-top', 'divider-child0-x-50']),
+        new Set(['face-top', 'divider-root-x-50']),
         createPanelCollection(panels),
         subdividedRoot
       );
@@ -501,10 +503,10 @@ describe('validateSubdivideTwoPanelSelection', () => {
       };
       const panels = [
         createFacePanel('right'),
-        createDividerPanel('child0', 'x', 50),
+        createDividerPanel('root', 'x', 50),  // divider uses parent void ID
       ];
       const result = validateSubdivideTwoPanelSelection(
-        new Set(['face-right', 'divider-child0-x-50']),
+        new Set(['face-right', 'divider-root-x-50']),
         createPanelCollection(panels),
         nestedRoot
       );

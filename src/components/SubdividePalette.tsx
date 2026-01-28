@@ -1,9 +1,19 @@
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { FloatingPalette, PaletteSliderInput, PaletteButton, PaletteButtonRow } from './FloatingPalette';
-import { useBoxStore, findVoid, calculatePreviewPositions, getMainInteriorVoid } from '../store/useBoxStore';
+import { useBoxStore, findVoid, calculatePreviewPositions } from '../store/useBoxStore';
 import { useEngineVoidTree, useEngineFaces, useEngineMainVoidTree, useEnginePanels, getEngine, notifyEngineStateChanged } from '../engine';
 import { Face, Void, FaceId, PanelPath } from '../types';
 import { debug, enableDebugTag } from '../utils/debug';
+import {
+  getFaceNormalAxis,
+  getPanelNormalAxis,
+  getPerpendicularAxes,
+  getPanelDescription,
+  findVoidBetweenPanels,
+  getValidSubdivisionAxes,
+  getMainInteriorVoid,
+  isLeafVoid,
+} from '../operations';
 
 // Enable debug tag for two-panel subdivision debugging
 enableDebugTag('two-panel');
@@ -22,24 +32,8 @@ interface SubdividePaletteProps {
 }
 
 // =============================================================================
-// Helper functions for void-based subdivision
+// UI Helper functions (not shared with validators)
 // =============================================================================
-
-// Determine which axes are valid based on open faces
-const getValidAxes = (faces: Face[]): { x: boolean; y: boolean; z: boolean } => {
-  const isSolid = (id: string) => faces.find(f => f.id === id)?.solid ?? true;
-
-  // X subdivisions create YZ planes (parallel to left/right faces)
-  const xValid = isSolid('left') && isSolid('right');
-
-  // Y subdivisions create XZ planes (parallel to top/bottom faces)
-  const yValid = isSolid('top') && isSolid('bottom');
-
-  // Z subdivisions create XY planes (parallel to front/back faces)
-  const zValid = isSolid('front') && isSolid('back');
-
-  return { x: xValid, y: yValid, z: zValid };
-};
 
 const getAxisTooltip = (axis: 'x' | 'y' | 'z', isValid: boolean): string => {
   if (isValid) {
@@ -109,205 +103,8 @@ const selectPreferredAxis = (
 };
 
 // =============================================================================
-// Helper functions for two-panel subdivision
+// Two-panel selection analysis
 // =============================================================================
-
-// Get the normal axis for a face (the axis perpendicular to the face plane)
-const getFaceNormalAxis = (faceId: FaceId): 'x' | 'y' | 'z' => {
-  switch (faceId) {
-    case 'left':
-    case 'right':
-      return 'x';
-    case 'top':
-    case 'bottom':
-      return 'y';
-    case 'front':
-    case 'back':
-      return 'z';
-  }
-};
-
-// Get the normal axis for any panel (face or divider)
-const getPanelNormalAxis = (panel: PanelPath): 'x' | 'y' | 'z' | null => {
-  if (panel.source.type === 'face' && panel.source.faceId) {
-    return getFaceNormalAxis(panel.source.faceId);
-  }
-  if (panel.source.type === 'divider' && panel.source.axis) {
-    return panel.source.axis;
-  }
-  return null;
-};
-
-// Get the axes perpendicular to a normal axis (valid for subdivision)
-const getPerpendicularAxes = (normalAxis: 'x' | 'y' | 'z'): ('x' | 'y' | 'z')[] => {
-  switch (normalAxis) {
-    case 'x': return ['y', 'z'];
-    case 'y': return ['x', 'z'];
-    case 'z': return ['x', 'y'];
-  }
-};
-
-// Get panel description for display
-const getPanelDescription = (panel: PanelPath): string => {
-  if (panel.source.type === 'face' && panel.source.faceId) {
-    const labels: Record<FaceId, string> = {
-      front: 'Front', back: 'Back', left: 'Left',
-      right: 'Right', top: 'Top', bottom: 'Bottom',
-    };
-    return labels[panel.source.faceId];
-  }
-  if (panel.source.type === 'divider') {
-    return 'Divider';
-  }
-  return 'Panel';
-};
-
-// Extract void ID from subdivision ID
-const getVoidIdFromSubdivisionId = (subdivisionId: string): string => {
-  // Format is divider-{voidId}-{axis}-{position}
-  // We need to extract the voidId
-  const parts = subdivisionId.split('-');
-  if (parts.length >= 3 && parts[0] === 'divider') {
-    // Handle old format: divider-{voidId}-split
-    if (parts[parts.length - 1] === 'split') {
-      return parts.slice(1, -1).join('-');
-    }
-    // Handle new format: divider-{voidId}-{axis}-{position}
-    // voidId might contain hyphens, so we need to be careful
-    // Axis is single char (x, y, z) and position is a number
-    if (parts.length >= 4) {
-      const lastPart = parts[parts.length - 1];
-      const secondLastPart = parts[parts.length - 2];
-      if (['x', 'y', 'z'].includes(secondLastPart) && !isNaN(Number(lastPart))) {
-        return parts.slice(1, -2).join('-');
-      }
-    }
-  }
-  return subdivisionId;
-};
-
-// Find the parent void of a child void by the child's ID
-const findParentVoid = (root: Void, childVoidId: string): Void | null => {
-  for (const child of root.children) {
-    if (child.id === childVoidId) {
-      return root;
-    }
-  }
-  for (const child of root.children) {
-    const found = findParentVoid(child, childVoidId);
-    if (found) return found;
-  }
-  if (root.subAssembly) {
-    const found = findParentVoid(root.subAssembly.rootVoid, childVoidId);
-    if (found) return found;
-  }
-  return null;
-};
-
-// Find a leaf void between two parallel panels
-const findVoidBetweenPanels = (
-  panel1: PanelPath,
-  panel2: PanelPath,
-  rootVoid: Void
-): Void | null => {
-  // Case 1: Both are face panels (opposite faces)
-  if (panel1.source.type === 'face' && panel2.source.type === 'face') {
-    const mainVoid = getMainInteriorVoid(rootVoid);
-    if (mainVoid.children.length === 0 && !mainVoid.subAssembly) {
-      return mainVoid;
-    }
-    return null;
-  }
-
-  // Case 2: Both are dividers - find the void between them
-  if (panel1.source.type === 'divider' && panel2.source.type === 'divider') {
-    const subId1 = panel1.source.subdivisionId;
-    const subId2 = panel2.source.subdivisionId;
-    if (!subId1 || !subId2) return null;
-
-    const voidId1 = getVoidIdFromSubdivisionId(subId1);
-    const voidId2 = getVoidIdFromSubdivisionId(subId2);
-
-    const parent1 = findParentVoid(rootVoid, voidId1);
-    const parent2 = findParentVoid(rootVoid, voidId2);
-
-    if (!parent1 || !parent2) return null;
-
-    if (parent1.id === parent2.id) {
-      const childIds = parent1.children.map(c => c.id);
-      const idx1 = childIds.indexOf(voidId1);
-      const idx2 = childIds.indexOf(voidId2);
-
-      if (idx1 === -1 || idx2 === -1) return null;
-
-      const minIdx = Math.min(idx1, idx2);
-      const maxIdx = Math.max(idx1, idx2);
-
-      if (maxIdx - minIdx === 1) {
-        const voidBetween = parent1.children[minIdx];
-        if (voidBetween && voidBetween.children.length === 0 && !voidBetween.subAssembly) {
-          return voidBetween;
-        }
-      }
-    }
-    return null;
-  }
-
-  // Case 3: One face, one divider
-  if ((panel1.source.type === 'face' && panel2.source.type === 'divider') ||
-      (panel1.source.type === 'divider' && panel2.source.type === 'face')) {
-    const facePanel = panel1.source.type === 'face' ? panel1 : panel2;
-    const dividerPanel = panel1.source.type === 'divider' ? panel1 : panel2;
-
-    const subId = dividerPanel.source.subdivisionId;
-    if (!subId) return null;
-
-    const faceId = facePanel.source.faceId;
-    const dividerAxis = dividerPanel.source.axis;
-
-    if (!faceId || !dividerAxis) return null;
-
-    const faceAxis = (faceId === 'left' || faceId === 'right') ? 'x' :
-                     (faceId === 'top' || faceId === 'bottom') ? 'y' : 'z';
-
-    if (faceAxis !== dividerAxis) return null;
-
-    const mainInterior = getMainInteriorVoid(rootVoid);
-    if (mainInterior.children.length === 0) return null;
-
-    const voidId = getVoidIdFromSubdivisionId(subId);
-    const childIds = mainInterior.children.map(c => c.id);
-    const dividerIdx = childIds.indexOf(voidId);
-
-    if (dividerIdx === -1) return null;
-
-    // Determine which void is between the face and divider
-    // The divider sits AFTER children[dividerIdx], between children[dividerIdx] and children[dividerIdx + 1]
-    const isLowFace = faceId === 'left' || faceId === 'bottom' || faceId === 'back';
-
-    let targetIdx: number;
-    if (isLowFace) {
-      // Low face is adjacent to children[0]
-      // Void between low face and divider is children[dividerIdx]
-      targetIdx = dividerIdx;
-    } else {
-      // High face is adjacent to children[last]
-      // Void between high face and divider is children[dividerIdx + 1]
-      targetIdx = dividerIdx + 1;
-    }
-
-    if (targetIdx < 0 || targetIdx >= mainInterior.children.length) return null;
-
-    const targetVoid = mainInterior.children[targetIdx];
-
-    if (targetVoid && targetVoid.children.length === 0 && !targetVoid.subAssembly) {
-      return targetVoid;
-    }
-    return null;
-  }
-
-  return null;
-};
 
 interface TwoPanelSubdivisionInfo {
   isValid: boolean;
@@ -440,11 +237,10 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
   }, [selectedVoidId, rootVoid]);
 
   // Determine if the void can be subdivided
-  const isLeafVoid = mainSelectedVoid && mainSelectedVoid.children.length === 0 && !mainSelectedVoid.subAssembly;
-  const canSubdivideVoid = !!isLeafVoid;
+  const canSubdivideVoid = mainSelectedVoid ? isLeafVoid(mainSelectedVoid) : false;
 
   // Valid axes based on open faces (for void mode)
-  const validAxes = useMemo(() => getValidAxes(faces), [faces]);
+  const validAxes = useMemo(() => getValidSubdivisionAxes(faces), [faces]);
 
   // Local state for count (used before operation starts)
   const [localCount, setLocalCount] = useState(1);
@@ -478,7 +274,7 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
       if (validAxes.z) list.push('z');
     }
     return list;
-  }, [mode, twoPanelInfo?.validAxes, validAxes, targetVoidId]);
+  }, [mode, twoPanelInfo?.validAxes, validAxes]);
 
   // Auto-start operation when there are valid axes available
   // Prefers axis whose dividers touch open faces (can be slotted in)

@@ -53,6 +53,7 @@ src/
     ├── fingerJoints.ts     # Finger joint pattern generation
     ├── faceGeometry.ts     # Face/edge relationship helpers
     ├── genderRules.ts      # Finger joint gender determination
+    ├── panelIds.ts         # Panel ID creation/parsing (ALWAYS USE THIS)
     ├── svgExport.ts        # SVG export for laser cutting
     └── debug.ts            # Global debug system
 ```
@@ -150,10 +151,28 @@ Finger joints connect panels at intersections. The system determines:
 
 ## Common Patterns
 
-### ID Conventions
-- Face panels: `face-{faceId}` (e.g., `face-front`, `face-top`)
-- Divider panels: `divider-{voidId}-split` (e.g., `divider-root-split`)
-- Sub-assembly panels: `{subAsmId}-face-{faceId}`
+### Panel ID Conventions
+
+**Always use `src/utils/panelIds.ts` utilities for creating/parsing panel IDs. Never concatenate ID strings manually.**
+
+| Panel Type | Format | Example |
+|------------|--------|---------|
+| Face (main) | `face-{faceId}` | `face-front` |
+| Face (sub-assembly) | `{subAsmId}-face-{faceId}` | `sub123-face-front` |
+| Divider | `divider-{voidId}-{axis}-{position}` | `divider-abc123-x-50` |
+
+```typescript
+import { createFacePanelId, createDividerPanelId, getVoidIdFromDividerPanelId } from '../utils/panelIds';
+
+// Creating IDs
+const faceId = createFacePanelId('front');
+const dividerId = createDividerPanelId('void123', 'x', 50);
+
+// Parsing IDs
+const voidId = getVoidIdFromDividerPanelId('divider-abc-x-50'); // 'abc'
+```
+
+See `.claude/rules/panel-ids.md` for full API reference.
 
 ### Dispatching Model Changes
 

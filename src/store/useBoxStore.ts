@@ -8,6 +8,7 @@ import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { BoundsOps, getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions, InsetRegions } from '../utils/bounds';
 import { VoidTree } from '../utils/voidTree';
+import { getDividerPanelIdByVoidId, getAllDividerPanelIds, createDividerPanelId } from '../utils/panelIds';
 
 // Re-export bounds helpers for external use
 export { getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions };
@@ -939,8 +940,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           newHiddenVoidIds.add(id);
           newIsolateHiddenVoidIds.add(id);
           // Also hide the divider panel for this void (if it has one)
-          const dividerId = `divider-${id}-split`;
-          if (!state.hiddenFaceIds.has(dividerId)) {
+          const dividerId = getDividerPanelIdByVoidId(state.rootVoid, id);
+          if (dividerId && !state.hiddenFaceIds.has(dividerId)) {
             newHiddenFaceIds.add(dividerId);
             newIsolateHiddenFaceIds.add(dividerId);
           }
@@ -1033,8 +1034,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           newHiddenVoidIds.add(id);
           newIsolateHiddenVoidIds.add(id);
           // Also hide the divider panel for this void (if it has one)
-          const dividerId = `divider-${id}-split`;
-          if (!state.hiddenFaceIds.has(dividerId)) {
+          const dividerId = getDividerPanelIdByVoidId(state.rootVoid, id);
+          if (dividerId && !state.hiddenFaceIds.has(dividerId)) {
             newHiddenFaceIds.add(dividerId);
             newIsolateHiddenFaceIds.add(dividerId);
           }
@@ -1137,17 +1138,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Hide all divider panels except the isolated one
-      const getAllDividerIds = (node: Void): string[] => {
-        const ids: string[] = [];
-        for (const child of (node.children || [])) {
-          if (child.splitAxis) {
-            ids.push(`divider-${child.id}-split`);
-          }
-          ids.push(...getAllDividerIds(child));
-        }
-        return ids;
-      };
-      const allDividerIds = getAllDividerIds(state.rootVoid);
+      // Use centralized utility to get all divider panel IDs in correct format
+      const allDividerIds = getAllDividerPanelIds(state.rootVoid);
       for (const dividerId of allDividerIds) {
         if (dividerId !== panelId && !state.hiddenFaceIds.has(dividerId)) {
           newHiddenFaceIds.add(dividerId);

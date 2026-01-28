@@ -3,6 +3,10 @@ import * as THREE from 'three';
 import { PanelPath, PathPoint } from '../types';
 import { useBoxStore } from '../store/useBoxStore';
 import { useEnginePanels, useEngineMainPanels, getEngine } from '../engine';
+import { debug, enableDebugTag } from '../utils/debug';
+
+// Enable debug tag for selection debugging
+enableDebugTag('selection');
 
 interface PanelPathRendererProps {
   panel: PanelPath;
@@ -273,6 +277,19 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
   const selectedSubAssemblyIds = useBoxStore((state) => state.selectedSubAssemblyIds);
   const setHoveredPanel = useBoxStore((state) => state.setHoveredPanel);
 
+  // Debug: Log selection state
+  useEffect(() => {
+    debug('selection', `=== Selection State ===`);
+    debug('selection', `selectedPanelIds: ${JSON.stringify(Array.from(selectedPanelIds))}`);
+    debug('selection', `selectedAssemblyId: ${selectedAssemblyId}`);
+    debug('selection', `selectedSubAssemblyIds: ${JSON.stringify(Array.from(selectedSubAssemblyIds))}`);
+    debug('selection', `hoveredPanelId: ${hoveredPanelId}`);
+    debug('selection', `hoveredAssemblyId: ${hoveredAssemblyId}`);
+    if (panelCollection) {
+      debug('selection', `Panel IDs in collection: ${panelCollection.panels.map(p => p.id).join(', ')}`);
+    }
+  }, [selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, hoveredPanelId, hoveredAssemblyId, panelCollection]);
+
   // Check if we're rendering a preview
   const engine = getEngine();
   const isPreviewMode = engine.hasPreview();
@@ -312,6 +329,11 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
         const isSelected = isPanelSelected || isAssemblySelected;
         // Panel is "hovered" if directly hovered OR its assembly is hovered
         const isHovered = isPanelHovered || isAssemblyHovered;
+
+        // Debug: Log why each panel is selected/hovered
+        if (isSelected || isHovered) {
+          debug('selection', `Panel ${panel.id}: selected=${isSelected} (panel=${isPanelSelected}, asm=${isAssemblySelected}), hovered=${isHovered} (panel=${isPanelHovered}, asm=${isAssemblyHovered}), asmId=${panelAssemblyId}`);
+        }
 
         // Color based on panel type
         // New preview panels (not in main scene): bright green

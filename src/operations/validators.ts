@@ -11,6 +11,9 @@
 import { FaceId, Axis } from '../engine/types';
 import { Void, PanelPath, Face } from '../types';
 import { OperationId } from './types';
+import { debug, enableDebugTag } from '../utils/debug';
+
+enableDebugTag('void-between');
 
 // =============================================================================
 // Selection Requirement Types
@@ -327,37 +330,63 @@ export const findVoidBetweenPanels = (
     const faceAxis = getFaceNormalAxis(faceId);
     if (faceAxis !== dividerAxis) return null;
 
-    const mainInterior = getMainInteriorVoid(rootVoid);
-    if (mainInterior.children.length === 0) return null;
+    // The divider ID format is divider-{parentVoidId}-{axis}-{position}
+    // The parentVoidId is the void that WAS subdivided, not a child void
+    const parentVoidId = getVoidIdFromSubdivisionId(subId);
+    debug('void-between', `Case 3: faceId=${faceId}, dividerAxis=${dividerAxis}, faceAxis=${faceAxis}`);
+    debug('void-between', `subId=${subId}, parentVoidId=${parentVoidId}`);
 
-    const voidId = getVoidIdFromSubdivisionId(subId);
-    const childIds = mainInterior.children.map(c => c.id);
-    const dividerIdx = childIds.indexOf(voidId);
+    // Find the parent void that was subdivided
+    const parentVoid = parentVoidId === rootVoid.id ? rootVoid : findVoidById(rootVoid, parentVoidId);
+    if (!parentVoid) {
+      debug('void-between', `  -> parent void not found`);
+      return null;
+    }
 
-    if (dividerIdx === -1) return null;
+    debug('void-between', `parentVoid.id=${parentVoid.id}, children.length=${parentVoid.children.length}`);
 
-    // Determine which void is between the face and divider
-    // The divider sits AFTER children[dividerIdx], between children[dividerIdx] and children[dividerIdx + 1]
+    if (parentVoid.children.length === 0) {
+      debug('void-between', `  -> parent has no children`);
+      return null;
+    }
+
+    // Determine which child void is between the face and divider
+    // Low faces (left, bottom, back) are adjacent to children[0]
+    // High faces (right, top, front) are adjacent to children[last]
     const isLowFace = faceId === 'left' || faceId === 'bottom' || faceId === 'back';
+    const numChildren = parentVoid.children.length;
 
+    // With N children, there are N-1 dividers between them
+    // Divider 0 is between children[0] and children[1]
+    // Divider i is between children[i] and children[i+1]
+
+    // For a low face + divider selection:
+    //   - Low face is adjacent to children[0]
+    //   - The void between them is children[0] (if divider is between 0 and 1)
+    // For a high face + divider selection:
+    //   - High face is adjacent to children[last]
+    //   - The void between them is children[last] (if divider is between last-1 and last)
+
+    // Since we have the first divider (only one for now), use simple logic:
     let targetIdx: number;
     if (isLowFace) {
-      // Low face is adjacent to children[0]
-      // Void between low face and divider is children[dividerIdx] (the void just before the divider)
-      targetIdx = dividerIdx;
+      // Void between low face and first divider is children[0]
+      targetIdx = 0;
     } else {
-      // High face is adjacent to children[last]
-      // Void between high face and divider is children[dividerIdx + 1] (the void just after the divider)
-      targetIdx = dividerIdx + 1;
+      // Void between high face and first divider is children[last]
+      targetIdx = numChildren - 1;
     }
 
-    if (targetIdx < 0 || targetIdx >= mainInterior.children.length) return null;
+    debug('void-between', `isLowFace=${isLowFace}, targetIdx=${targetIdx}`);
 
-    const targetVoid = mainInterior.children[targetIdx];
+    const targetVoid = parentVoid.children[targetIdx];
 
     if (targetVoid && isLeafVoid(targetVoid)) {
+      debug('void-between', `  -> found leaf void: ${targetVoid.id}`);
       return targetVoid;
     }
+
+    debug('void-between', `  -> target void not a leaf or not found`);
     return null;
   }
 

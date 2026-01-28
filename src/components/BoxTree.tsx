@@ -3,6 +3,7 @@ import { useBoxStore, getMainInteriorVoid } from '../store/useBoxStore';
 import { useEngineFaces, useEngineVoidTree } from '../engine';
 import { Panel } from './UI/Panel';
 import { Void, SubAssembly, Face, FaceId } from '../types';
+import { createDividerPanelId, getVoidIdFromDividerPanelId } from '../utils/panelIds';
 
 // Represents a divider panel created by a subdivision
 interface DividerPanel {
@@ -31,6 +32,7 @@ const faceLabels: Record<FaceId, string> = {
 };
 
 // Extract divider panels from a void's children
+// Uses the same ID format as the engine: divider-{voidId}-{axis}-{position}
 const getDividerPanels = (parent: Void): DividerPanel[] => {
   const panels: DividerPanel[] = [];
   for (const child of parent.children) {
@@ -51,7 +53,8 @@ const getDividerPanels = (parent: Void): DividerPanel[] => {
           break;
       }
       panels.push({
-        id: `divider-${child.id}-split`,
+        // Use centralized ID utility to match engine format
+        id: createDividerPanelId(child.id, child.splitAxis, child.splitPosition),
         axis: child.splitAxis,
         position: child.splitPosition,
         width,
@@ -178,7 +181,8 @@ const DividerPanelNode: React.FC<{
   const isHidden = hiddenFaceIds.has(panel.id);
   const isIsolated = isolatedPanelId === panel.id;
   const axisLabel = panel.axis.toUpperCase();
-  const voidId = panel.id.replace('divider-', '').replace('-split', '');
+  // Use centralized ID parser to extract voidId
+  const voidId = getVoidIdFromDividerPanelId(panel.id) ?? '';
 
   return (
     <div className="tree-node">
@@ -391,7 +395,11 @@ const VoidNode: React.FC<VoidNodeProps> = ({
       {hasChildren && (
         <div className="tree-children">
           {node.children.map((child) => {
-            const panel = dividerPanels.find(p => p.id === `divider-${child.id}-split`);
+            // Look up panel using the correct ID format (must match what getDividerPanels creates)
+            const expectedPanelId = child.splitAxis && child.splitPosition !== undefined
+              ? createDividerPanelId(child.id, child.splitAxis, child.splitPosition)
+              : null;
+            const panel = expectedPanelId ? dividerPanels.find(p => p.id === expectedPanelId) : null;
 
             return (
               <React.Fragment key={child.id}>
