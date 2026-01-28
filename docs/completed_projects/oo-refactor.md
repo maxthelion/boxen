@@ -155,9 +155,7 @@ Store action → ensureEngineInitialized() → dispatchToEngine() → use return
 
 ---
 
-## Remaining Work
-
-### Phase 8: Panel Generation in Engine (In Progress)
+### ✅ Phase 8: Panel Generation in Engine (Complete)
 Move panel generation logic from `panelGenerator.ts` into engine.
 
 **Completed:**
@@ -227,7 +225,7 @@ All 163 tests pass. Engine-first panel generation now handles:
 - Feet on wall panels
 - Sub-assembly panels with unique IDs
 
-### Phase 9: Edge Extensions & Augmentations (Complete)
+### ✅ Phase 9: Edge Extensions & Augmentations (Complete)
 1. ✅ Edge extension logic already in `BasePanel.computeOutline()` - extensions applied to outline corners
 2. ⏸️ Corner chamfer/fillet - **Deferred** (currently visual-only in 2D editor, not persisted)
 3. ✅ Panel holes computed from intersecting dividers - `FacePanelNode.computeHoles()`
@@ -238,7 +236,7 @@ All 163 tests pass. Engine-first panel generation now handles:
 - Applying finishes in `computeOutline()`
 This can be implemented when corner finish persistence is needed.
 
-### Phase 10: React as Pure Renderer (Complete)
+### ✅ Phase 10: React as Pure Renderer (Complete)
 
 **Completed:**
 - ✅ Created `useEngineState.ts` - React hooks for reading engine state
@@ -264,45 +262,15 @@ This can be implemented when corner finish persistence is needed.
 **Phase 10 Complete!**
 All 163 tests pass. Components now read model state from engine, UI state from store.
 
+---
+
+## Remaining Work
+
 ### Phase 11: Event Sourcing & Undo/Redo
-See full proposal: `docs/event-sourcing-proposal.md`
 
-**Core Concept:** Snapshot-based undo using command history
-- Each command stores `beforeSnapshot` for instant undo
-- Redo re-dispatches the command's `actions` array
-- Periodic checkpoints optimize memory for long histories
+**Status:** Not started
 
-**Integration with Operation Pattern (from `modification-pattern-plan.md`):**
-| Operation Type | History Behavior |
-|----------------|------------------|
-| Parameter (Push/Pull, Subdivide) | Record on **Apply** only |
-| Immediate (Toggle Face) | Record **immediately** |
-| View (Edit in 2D) | **Not recorded** |
-
-**Implementation Steps:**
-1. Add `EngineStateSnapshot` type and `getStateSnapshot()` to Engine
-2. Implement `restoreFromSnapshot()` in Engine
-3. Create `HistoryState` with commands array and checkpoint map
-4. Wrap store actions in `executeCommand()` for recording
-5. Integrate with unified operation pattern's `applyOperation()`
-6. Add undo/redo UI and keyboard shortcuts (⌘Z, ⌘⇧Z)
-
-**Key Types:**
-```typescript
-interface Command {
-  id: string;
-  type: CommandType;
-  actions: EngineAction[];
-  beforeSnapshot: EngineStateSnapshot;
-  metadata?: { operationName: string; target?: string };
-}
-
-interface HistoryState {
-  commands: Command[];
-  currentIndex: number;
-  checkpoints: Map<number, EngineStateSnapshot>;
-}
-```
+See full proposal: [`docs/event-sourcing-proposal.md`](./event-sourcing-proposal.md)
 
 ---
 

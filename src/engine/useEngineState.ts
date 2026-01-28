@@ -43,8 +43,9 @@ export interface EngineModelState {
 
 /**
  * Convert engine VoidSnapshot to store Void format
+ * Exported for use by getEngineSnapshot() in engineInstance.ts
  */
-function voidSnapshotToVoid(snapshot: VoidSnapshot): Void {
+export function voidSnapshotToVoid(snapshot: VoidSnapshot): Void {
   debug('sub-assembly', `voidSnapshotToVoid: ${snapshot.id}, children: ${snapshot.children.map(c => c.kind).join(', ')}`);
 
   const storeVoid: Void = {
@@ -121,8 +122,9 @@ function assemblySnapshotToSubAssembly(snapshot: AssemblySnapshot): SubAssembly 
 
 /**
  * Convert engine AssemblySnapshot to store-compatible BoxConfig
+ * Exported for use by getEngineSnapshot() in engineInstance.ts
  */
-function assemblySnapshotToConfig(snapshot: AssemblySnapshot): BoxConfig {
+export function assemblySnapshotToConfig(snapshot: AssemblySnapshot): BoxConfig {
   const { props } = snapshot;
   return {
     width: props.width,
@@ -157,8 +159,9 @@ function assemblySnapshotToConfig(snapshot: AssemblySnapshot): BoxConfig {
 
 /**
  * Convert engine FaceConfig[] to store Face[]
+ * Exported for use by getEngineSnapshot() in engineInstance.ts
  */
-function faceConfigsToFaces(configs: { id: FaceId; solid: boolean }[]): Face[] {
+export function faceConfigsToFaces(configs: { id: FaceId; solid: boolean }[]): Face[] {
   return configs.map(fc => ({
     id: fc.id,
     solid: fc.solid,

@@ -40,6 +40,10 @@ export {
   useEngineMainConfig,
   useEngineMainVoidTree,
   notifyEngineStateChanged,
+  // Snapshot converters (for converting engine snapshots to store types)
+  voidSnapshotToVoid,
+  assemblySnapshotToConfig,
+  faceConfigsToFaces,
 } from './useEngineState';
 export type { EngineModelState } from './useEngineState';
 

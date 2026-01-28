@@ -188,6 +188,7 @@ const perpY = config.yUp ? unitX : -unitX;
 | CRITICAL | Region bounds calculation | 3 in useBoxStore | ✅ Done - `calculateChildRegionBounds()` |
 | HIGH | Nested bounds recalculation | 2 in useBoxStore | ✅ Done - uses `setBoundsRegion()` |
 | HIGH | findVoid duplication | store + SubdivisionControls | ✅ Done - exported from store |
+| HIGH | Engine state conversion | engineInstance + useEngineState | ✅ Done - snapshot path is canonical |
 | MEDIUM | Axis-based bounds access | 13+ locations | ✅ Done - `getBoundsStart/Size/setBoundsRegion` |
 | MEDIUM | Vector normalization | cornerFinish.ts x2 | ✅ Done - `computeCornerVectors()` |
 | MEDIUM | Finger joint unit vectors | fingerJoints.ts x2 | ✅ Done - `computeEdgeDirection()` |
@@ -272,3 +273,52 @@ export const VoidTree = {
 - **`defaultFaces`** constant in `types.ts` - eliminates repeated `{ id: 'front', solid: true }, ...` patterns
 - **`createAllSolidFaces()`** helper - creates fresh copy of default faces
 - **`BoundsOps.calculateInsetRegions()`** - consolidates `mainBounds` switch statements for lid inset calculations
+
+---
+
+## Engine State Conversion Consolidation (2026-01-28)
+
+### Problem
+
+Two parallel paths existed for converting engine state to store format:
+
+| Path | File | Works With |
+|------|------|------------|
+| Node path | `panelBridge.ts` | Live nodes (`VoidNode`, `SubAssemblyNode`) |
+| Snapshot path | `useEngineState.ts` | Serialized snapshots (`VoidSnapshot`, `AssemblySnapshot`) |
+
+This caused a bug where `voidSnapshotToVoid()` wasn't handling sub-assemblies, while `voidNodeToVoid()` was. The Structure tree (which uses React hooks → snapshot path) couldn't see sub-assemblies.
+
+### Solution
+
+Aligned with OO architecture principle: **"React should only see serialized snapshots"**
+
+1. **Exported snapshot converters from `useEngineState.ts`:**
+   - `voidSnapshotToVoid()` - converts VoidSnapshot to store Void
+   - `assemblySnapshotToConfig()` - converts AssemblySnapshot to store BoxConfig
+   - `faceConfigsToFaces()` - converts face configs to store Face[]
+
+2. **Updated `getEngineSnapshot()` in `engineInstance.ts`** to use the snapshot-based path:
+   ```typescript
+   export function getEngineSnapshot(): EngineStateSnapshot | null {
+     const engine = getEngine();
+     const sceneSnapshot = engine.getSnapshot();
+     const assemblySnapshot = sceneSnapshot.children[0];
+     // Use snapshot converters...
+   }
+   ```
+
+3. **Removed dead imports from `useBoxStore.ts`:**
+   - `getEngineVoidTree`, `getEngineConfig`, `getEngineFaces` (were imported but never used)
+
+4. **Deprecated node-based getters in `engineInstance.ts`:**
+   - `getEngineVoidTree()` - use `getEngineSnapshot().rootVoid`
+   - `getEngineConfig()` - use `getEngineSnapshot().config`
+   - `getEngineFaces()` - use `getEngineSnapshot().faces`
+
+### Result
+
+- Single code path for converting snapshots to store format
+- Bug fixed: sub-assemblies now appear in Structure tree
+- Aligns with OO architecture where React only sees serialized snapshots
+- Node-based converters remain for internal use (e.g., `syncVoidNodeFromStoreVoid`)

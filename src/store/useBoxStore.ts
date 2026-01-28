@@ -3,7 +3,7 @@ import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SelectionMode,
 import { getOperation, operationHasPreview, operationIsImmediate } from '../operations';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
-import { syncStoreToEngine, getEngine, getEngineVoidTree, ensureEngineInitialized, getEngineFaces, getEngineConfig, getEngineSnapshot, dispatchToEngine, notifyEngineStateChanged } from '../engine';
+import { syncStoreToEngine, getEngine, ensureEngineInitialized, getEngineSnapshot, dispatchToEngine, notifyEngineStateChanged } from '../engine';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { BoundsOps, getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions, InsetRegions } from '../utils/bounds';

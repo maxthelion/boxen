@@ -9,10 +9,15 @@
  */
 
 import { Engine, createEngine } from './Engine';
-import { MaterialConfig, FeetConfig } from './types';
+import { MaterialConfig, FeetConfig, AssemblySnapshot, VoidSnapshot } from './types';
 import { Face, BoxConfig, Void, PanelPath } from '../types';
 import { syncVoidNodeFromStoreVoid, voidNodeToVoid } from './panelBridge';
-import { notifyEngineStateChanged } from './useEngineState';
+import {
+  notifyEngineStateChanged,
+  voidSnapshotToVoid,
+  assemblySnapshotToConfig,
+  faceConfigsToFaces,
+} from './useEngineState';
 
 // Singleton engine instance
 let engineInstance: Engine | null = null;
@@ -154,7 +159,12 @@ export function syncStoreToEngine(
 
 /**
  * Get the current void tree from engine as a store Void
- * Useful for reading engine's void state after modifications
+ *
+ * @deprecated Use getEngineSnapshot().rootVoid instead.
+ * This function accesses live nodes directly, which doesn't align with the
+ * OO architecture where React should only see serialized snapshots.
+ * Kept for backward compatibility but getEngineSnapshot() now uses
+ * the snapshot-based conversion path.
  */
 export function getEngineVoidTree(): Void | null {
   const engine = getEngine();
@@ -183,7 +193,12 @@ export function ensureEngineInitialized(
 
 /**
  * Get the current box config from engine
- * Returns null if engine has no assembly
+ *
+ * @deprecated Use getEngineSnapshot().config instead.
+ * This function accesses live nodes directly, which doesn't align with the
+ * OO architecture where React should only see serialized snapshots.
+ * Kept for backward compatibility but getEngineSnapshot() now uses
+ * the snapshot-based conversion path.
  */
 export function getEngineConfig(): BoxConfig | null {
   const engine = getEngine();
@@ -225,7 +240,12 @@ export function getEngineConfig(): BoxConfig | null {
 
 /**
  * Get the current faces from engine
- * Returns null if engine has no assembly
+ *
+ * @deprecated Use getEngineSnapshot().faces instead.
+ * This function accesses live nodes directly, which doesn't align with the
+ * OO architecture where React should only see serialized snapshots.
+ * Kept for backward compatibility but getEngineSnapshot() now uses
+ * the snapshot-based conversion path.
  */
 export function getEngineFaces(): Face[] | null {
   const engine = getEngine();
@@ -262,16 +282,28 @@ export interface DispatchResult {
 
 /**
  * Get the complete engine state as a store-compatible snapshot
+ * Uses the snapshot-based conversion path (aligned with OO architecture)
  * Returns null if engine has no assembly
  */
 export function getEngineSnapshot(): EngineStateSnapshot | null {
-  const config = getEngineConfig();
-  const faces = getEngineFaces();
-  const rootVoid = getEngineVoidTree();
+  const engine = getEngine();
+  const sceneSnapshot = engine.getSnapshot();
+  const assemblySnapshot = sceneSnapshot.children[0] as AssemblySnapshot | undefined;
 
-  if (!config || !faces || !rootVoid) return null;
+  if (!assemblySnapshot) return null;
 
-  return { config, faces, rootVoid };
+  const rootVoidSnapshot = assemblySnapshot.children.find(
+    (c): c is VoidSnapshot => c.kind === 'void'
+  );
+
+  if (!rootVoidSnapshot) return null;
+
+  // Use snapshot-based converters (same ones used by useEngineState hooks)
+  return {
+    config: assemblySnapshotToConfig(assemblySnapshot),
+    faces: faceConfigsToFaces(assemblySnapshot.props.faces),
+    rootVoid: voidSnapshotToVoid(rootVoidSnapshot),
+  };
 }
 
 /**
