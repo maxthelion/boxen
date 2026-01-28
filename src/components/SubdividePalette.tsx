@@ -3,6 +3,10 @@ import { FloatingPalette, PaletteSliderInput, PaletteButton, PaletteButtonRow } 
 import { useBoxStore, findVoid, calculatePreviewPositions, getMainInteriorVoid } from '../store/useBoxStore';
 import { useEngineVoidTree, useEngineFaces, useEngineMainVoidTree, useEnginePanels, getEngine, notifyEngineStateChanged } from '../engine';
 import { Face, Void, FaceId, PanelPath } from '../types';
+import { debug, enableDebugTag } from '../utils/debug';
+
+// Enable debug tag for two-panel subdivision debugging
+enableDebugTag('two-panel');
 
 interface SubdividePaletteProps {
   /** Whether the palette is visible */
@@ -158,9 +162,28 @@ const getPanelDescription = (panel: PanelPath): string => {
   return 'Panel';
 };
 
-// Extract void ID from subdivision ID (removes '-split' suffix)
+// Extract void ID from subdivision ID
 const getVoidIdFromSubdivisionId = (subdivisionId: string): string => {
-  return subdivisionId.replace('-split', '');
+  // Format is divider-{voidId}-{axis}-{position}
+  // We need to extract the voidId
+  const parts = subdivisionId.split('-');
+  if (parts.length >= 3 && parts[0] === 'divider') {
+    // Handle old format: divider-{voidId}-split
+    if (parts[parts.length - 1] === 'split') {
+      return parts.slice(1, -1).join('-');
+    }
+    // Handle new format: divider-{voidId}-{axis}-{position}
+    // voidId might contain hyphens, so we need to be careful
+    // Axis is single char (x, y, z) and position is a number
+    if (parts.length >= 4) {
+      const lastPart = parts[parts.length - 1];
+      const secondLastPart = parts[parts.length - 2];
+      if (['x', 'y', 'z'].includes(secondLastPart) && !isNaN(Number(lastPart))) {
+        return parts.slice(1, -2).join('-');
+      }
+    }
+  }
+  return subdivisionId;
 };
 
 // Find the parent void of a child void by the child's ID
@@ -310,7 +333,10 @@ const analyzeTwoPanelSelection = (
     targetVoid: null,
   };
 
+  debug('two-panel', `analyzeTwoPanelSelection: selectedPanelIds=${JSON.stringify(Array.from(selectedPanelIds))}, panelCount=${panelCollection?.panels.length ?? 0}`);
+
   if (selectedPanelIds.size !== 2 || !panelCollection) {
+    debug('two-panel', `  -> rejected: size=${selectedPanelIds.size}, hasCollection=${!!panelCollection}`);
     return invalid;
   }
 
@@ -319,32 +345,40 @@ const analyzeTwoPanelSelection = (
     .map(id => panelCollection.panels.find(p => p.id === id))
     .filter((p): p is PanelPath => p !== undefined);
 
+  debug('two-panel', `  -> found ${panels.length} panels from IDs: ${panelIds.join(', ')}`);
   if (panels.length !== 2) {
+    debug('two-panel', `  -> rejected: couldn't find both panels in collection`);
     return invalid;
   }
 
   const axis1 = getPanelNormalAxis(panels[0]);
   const axis2 = getPanelNormalAxis(panels[1]);
 
+  debug('two-panel', `  -> panel axes: ${axis1}, ${axis2}`);
   if (!axis1 || !axis2 || axis1 !== axis2) {
+    debug('two-panel', `  -> rejected: axes don't match or null`);
     return invalid;
   }
 
   if (panels.some(p => p.source.subAssemblyId)) {
+    debug('two-panel', `  -> rejected: contains sub-assembly panel`);
     return invalid;
   }
 
   const normalAxis = axis1;
   const validAxes = getPerpendicularAxes(normalAxis);
 
+  debug('two-panel', `  -> calling findVoidBetweenPanels with rootVoid.children.length=${rootVoid.children.length}`);
   const targetVoid = findVoidBetweenPanels(panels[0], panels[1], rootVoid);
 
   if (!targetVoid) {
+    debug('two-panel', `  -> rejected: no void found between panels`);
     return invalid;
   }
 
   const panelDescriptions = panels.map(getPanelDescription);
 
+  debug('two-panel', `  -> SUCCESS: targetVoid=${targetVoid.id}, validAxes=${validAxes.join(',')}`);
   return {
     isValid: true,
     panels,
