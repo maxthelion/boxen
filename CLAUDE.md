@@ -84,7 +84,7 @@ React ← useEnginePanels() hook ← engine.getSnapshot()
 
 ### Operations System
 
-Operations are user actions that modify the model. Each operation has a defined lifecycle. See `docs/modification-pattern-plan.md` for the full specification.
+Operations are user actions that modify the model. See `docs/modification-pattern-plan.md` for full specification and `.claude/rules/operations.md` for quick reference when editing operation code.
 
 **Operation Types:**
 - `parameter`: Has a preview phase with adjustable parameters (push-pull, subdivide, chamfer)
@@ -92,37 +92,13 @@ Operations are user actions that modify the model. Each operation has a defined 
 - `view`: Changes view without model modification (edit in 2D)
 
 **Operation Phases:**
-1. `idle` - No operation active
-2. `awaiting-selection` - Operation started but needs valid target selection
-3. `active` - Operation has target, preview is live, parameters can be adjusted
+`idle` → `awaiting-selection` → `active` → (apply/cancel) → `idle`
 
 **Key Constraints:**
 - Only one operation can be active at a time
 - Operation parameters live in the store, not the engine
 - Preview mutations go to `engine._previewScene`, committed state to `engine._scene`
 - Components use `useEnginePanels()` which automatically returns preview if active
-
-**Adding New Operations:**
-1. Add operation ID to `src/operations/types.ts`
-2. Add definition to `src/operations/registry.ts` (type, selection requirements, availability)
-3. Add validator in `src/operations/validators.ts` with `SelectionRequirement` and constraints
-4. Add tests in `src/store/operations.test.ts` to verify preview cleanup on cancel
-5. If parameter operation, create palette component rendered when tool is active
-
-**Selection Validation (Declarative System):**
-Operations declare their selection requirements in `src/operations/validators.ts`:
-- `targetType`: What can be selected (`void`, `leaf-void`, `panel`, `face-panel`, `opposing-panels`)
-- `minCount` / `maxCount`: How many items required
-- `constraints`: Additional rules (`must-be-leaf-void`, `must-have-void-between`, etc.)
-
-Validators return `SelectionValidationResult` with derived state (target void, valid axes, etc.).
-
-**Testing Requirements:**
-Every parameter operation MUST have tests in `src/store/operations.test.ts` that verify:
-- Preview is created when operation starts
-- Preview is cleaned up (discarded) when operation is cancelled
-- Operation state resets to idle after cancel
-- Apply commits the preview correctly
 
 ### Event Sourcing (Future)
 
