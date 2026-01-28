@@ -37,7 +37,8 @@ export class FacePanelNode extends BasePanel {
   protected _assembly: BaseAssembly;
 
   constructor(faceId: FaceId, assembly: BaseAssembly, id?: string) {
-    super(id ?? `face-${faceId}`);
+    // Use UUID - faceId info is in props, not encoded in ID
+    super(id);
     this.faceId = faceId;
     this._assembly = assembly;
   }

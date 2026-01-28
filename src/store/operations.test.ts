@@ -113,7 +113,7 @@ describe('Divider ID Uniqueness', () => {
 
     // Find divider panels
     const dividerPanels = panels.panels.filter(p =>
-      p.id.startsWith('divider-')
+      p.source.type === 'divider'
     );
 
     // Should have 2 dividers
@@ -124,10 +124,11 @@ describe('Divider ID Uniqueness', () => {
     const uniqueIds = new Set(dividerIds);
     expect(uniqueIds.size).toBe(dividerIds.length);
 
-    // IDs should include axis and position
-    expect(dividerIds[0]).toContain('x');
-    expect(dividerIds[1]).toContain('x');
+    // All IDs should be unique UUIDs
     expect(dividerIds[0]).not.toBe(dividerIds[1]);
+    // Axis info is in source, not ID
+    expect(dividerPanels[0].source.axis).toBe('x');
+    expect(dividerPanels[1].source.axis).toBe('x');
   });
 
   it('should create unique IDs for dividers on different axes', () => {
@@ -177,7 +178,7 @@ describe('Divider ID Uniqueness', () => {
 
     // Find divider panels
     const dividerPanels = panels.panels.filter(p =>
-      p.id.startsWith('divider-')
+      p.source.type === 'divider'
     );
 
     // Should have 2 dividers
@@ -188,9 +189,9 @@ describe('Divider ID Uniqueness', () => {
     const uniqueIds = new Set(dividerIds);
     expect(uniqueIds.size).toBe(dividerIds.length);
 
-    // One should contain 'x', one should contain 'y'
-    expect(dividerIds.some(id => id.includes('-x-'))).toBe(true);
-    expect(dividerIds.some(id => id.includes('-y-'))).toBe(true);
+    // One should be x-axis, one should be y-axis
+    expect(dividerPanels.some(p => p.source.axis === 'x')).toBe(true);
+    expect(dividerPanels.some(p => p.source.axis === 'y')).toBe(true);
   });
 
   it('should create unique IDs for many dividers (stress test)', () => {
@@ -214,7 +215,7 @@ describe('Divider ID Uniqueness', () => {
 
     // Find divider panels
     const dividerPanels = panels.panels.filter(p =>
-      p.id.startsWith('divider-')
+      p.source.type === 'divider'
     );
 
     // Should have 5 dividers
@@ -276,7 +277,7 @@ describe('Preview Lifecycle', () => {
 
     // Verify preview has subdivision
     const previewPanels = engine.generatePanelsFromNodes();
-    const previewDividers = previewPanels.panels.filter(p => p.id.startsWith('divider-'));
+    const previewDividers = previewPanels.panels.filter(p => p.source.type === 'divider');
     expect(previewDividers.length).toBe(1);
 
     // Apply operation
@@ -287,7 +288,7 @@ describe('Preview Lifecycle', () => {
 
     // Main scene should have the subdivision
     const mainPanels = engine.generatePanelsFromNodes();
-    const mainDividers = mainPanels.panels.filter(p => p.id.startsWith('divider-'));
+    const mainDividers = mainPanels.panels.filter(p => p.source.type === 'divider');
     expect(mainDividers.length).toBe(1);
   });
 
@@ -307,7 +308,7 @@ describe('Preview Lifecycle', () => {
 
     // Verify preview has subdivision
     let panels = engine.generatePanelsFromNodes();
-    let dividers = panels.panels.filter(p => p.id.startsWith('divider-'));
+    let dividers = panels.panels.filter(p => p.source.type === 'divider');
     expect(dividers.length).toBe(1);
 
     // Cancel operation
@@ -318,7 +319,7 @@ describe('Preview Lifecycle', () => {
 
     // Main scene should NOT have the subdivision
     panels = engine.generatePanelsFromNodes();
-    dividers = panels.panels.filter(p => p.id.startsWith('divider-'));
+    dividers = panels.panels.filter(p => p.source.type === 'divider');
     expect(dividers.length).toBe(0);
   });
 });
@@ -400,7 +401,7 @@ describe('Cancel Cleanup for Parameter Operations', () => {
 
     // Main scene should be unchanged (no dividers)
     const panels = engine.generatePanelsFromNodes();
-    const dividers = panels.panels.filter(p => p.id.startsWith('divider-'));
+    const dividers = panels.panels.filter(p => p.source.type === 'divider');
     expect(dividers.length).toBe(0);
   });
 });
@@ -615,7 +616,7 @@ describe('Engine Preview State Consistency', () => {
     expect(mainPanels.panels.length).toBeGreaterThan(initialPanelCount);
 
     // Divider should exist
-    const dividers = mainPanels.panels.filter(p => p.id.startsWith('divider-'));
+    const dividers = mainPanels.panels.filter(p => p.source.type === 'divider');
     expect(dividers.length).toBe(1);
   });
 });
@@ -738,7 +739,7 @@ describe('Subdivide-Two-Panel Operation', () => {
 
     // Verify preview has divider
     let panels = engine.generatePanelsFromNodes();
-    expect(panels.panels.some(p => p.id.startsWith('divider-'))).toBe(true);
+    expect(panels.panels.some(p => p.source.type === 'divider')).toBe(true);
 
     // Cancel
     useBoxStore.getState().cancelOperation();
@@ -746,7 +747,7 @@ describe('Subdivide-Two-Panel Operation', () => {
     // Preview should be gone and no dividers in main scene
     expect(engine.hasPreview()).toBe(false);
     panels = engine.generatePanelsFromNodes();
-    expect(panels.panels.some(p => p.id.startsWith('divider-'))).toBe(false);
+    expect(panels.panels.some(p => p.source.type === 'divider')).toBe(false);
   });
 });
 

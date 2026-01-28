@@ -311,8 +311,16 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
   }, [mode, canSubdivideVoid, targetVoidId, targetVoid, isActive, validAxisList, faces, localCount, startOperation, updateOperationParams]);
 
   // Reset auto-start flag when selection changes
+  // But don't reset during an active operation (selection may change due to ID remapping)
   useEffect(() => {
-    hasAutoStarted.current = false;
+    const currentState = useBoxStore.getState();
+    const isOperationActive =
+      currentState.operationState.activeOperation === 'subdivide' ||
+      currentState.operationState.activeOperation === 'subdivide-two-panel';
+
+    if (!isOperationActive) {
+      hasAutoStarted.current = false;
+    }
   }, [selectedVoidId, selectedPanelIds]);
 
   // Handle axis selection (starts operation if not already started, or changes axis if active)
@@ -426,18 +434,19 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
     onClose();
   }, [isActive, cancelOperation, onClose]);
 
-  // Track isActive in a ref so cleanup can read current value (not stale closure)
-  const isActiveRef = useRef(isActive);
-  useEffect(() => {
-    isActiveRef.current = isActive;
-  }, [isActive]);
-
   // Clean up preview when palette unmounts or selection changes
+  // Only clean up hover previews (when no operation is active)
   useEffect(() => {
     return () => {
+      // Check current state directly from store - not from closure or ref
+      // This ensures we get the actual current state, not a stale value
+      const currentState = useBoxStore.getState();
+      const isOperationActive =
+        currentState.operationState.activeOperation === 'subdivide' ||
+        currentState.operationState.activeOperation === 'subdivide-two-panel';
+
       // Only clean up if not in an active operation
-      // Use ref to get current value, not stale closure value
-      if (!isActiveRef.current) {
+      if (!isOperationActive) {
         const engine = getEngine();
         if (engine.hasPreview()) {
           engine.discardPreview();

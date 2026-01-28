@@ -30,9 +30,22 @@ export class VoidNode extends BaseNode {
   protected _splitPositionMode?: 'absolute' | 'percentage';
   protected _splitPercentage?: number;
 
+  // Cached divider panel ID - preserves panel identity across scene clones
+  // The actual panel is created in BaseAssembly.collectDividerPanels()
+  protected _dividerPanelId?: string;
+
   constructor(bounds: Bounds3D, id?: string) {
     super(id);
     this._bounds = { ...bounds };
+  }
+
+  // Get/set the cached divider panel ID
+  get dividerPanelId(): string | undefined {
+    return this._dividerPanelId;
+  }
+
+  set dividerPanelId(id: string | undefined) {
+    this._dividerPanelId = id;
   }
 
   // ==========================================================================
@@ -513,6 +526,11 @@ export class VoidNode extends BaseNode {
       cloned._splitPosition = this._splitPosition;
       cloned._splitPositionMode = this._splitPositionMode;
       cloned._splitPercentage = this._splitPercentage;
+    }
+
+    // Copy cached divider panel ID - this preserves panel identity across clones
+    if (this._dividerPanelId !== undefined) {
+      cloned._dividerPanelId = this._dividerPanelId;
     }
 
     // Clone children (void nodes and sub-assemblies)

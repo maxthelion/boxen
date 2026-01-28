@@ -684,8 +684,16 @@ export abstract class BaseAssembly extends BaseNode {
       const splitPosition = child.splitPosition;
 
       if (splitAxis && splitPosition !== undefined) {
-        // Create divider panel
-        const dividerNode = new DividerPanelNode(voidNode, splitAxis, splitPosition);
+        // Create divider panel - uses parent voidNode for bounds
+        // Use cached panel ID if available (preserves identity across scene clones)
+        // Otherwise generate a new UUID and cache it
+        const cachedId = child.dividerPanelId;
+        const dividerNode = new DividerPanelNode(voidNode, splitAxis, splitPosition, cachedId);
+
+        // Cache the panel ID on the void for future clones
+        if (!cachedId) {
+          child.dividerPanelId = dividerNode.id;
+        }
 
         // Apply stored edge extensions
         const storedExtensions = this._panelEdgeExtensions.get(dividerNode.id);

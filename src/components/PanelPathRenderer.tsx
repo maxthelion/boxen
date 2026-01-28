@@ -1,7 +1,7 @@
 import React, { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { PanelPath, PathPoint } from '../types';
-import { useBoxStore } from '../store/useBoxStore';
+import { useBoxStore, isPanelSelectedIn3DView, getAssemblyIdForPanel } from '../store/useBoxStore';
 import { useEnginePanels, useEngineMainPanels, getEngine } from '../engine';
 import { debug, enableDebugTag } from '../utils/debug';
 
@@ -243,13 +243,6 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
   );
 };
 
-// Helper to get assembly ID from panel source
-const getAssemblyIdFromPanel = (panel: PanelPath): string => {
-  // Use source.subAssemblyId if set, otherwise it's 'main'
-  return panel.source.subAssemblyId ?? 'main';
-};
-
-
 // Render all panels from a collection
 interface PanelCollectionRendererProps {
   scale: number;
@@ -314,25 +307,27 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
         const isDivider = panel.source.type === 'divider';
         const isSubAssemblyPanel = !!panel.source.subAssemblyId;
 
-        // Get this panel's parent assembly
-        const panelAssemblyId = getAssemblyIdFromPanel(panel);
+        // Get this panel's parent assembly (using centralized helper)
+        const panelAssemblyId = getAssemblyIdForPanel(panel.id);
 
-        // Check if this panel or its assembly is selected/hovered
-        const isPanelSelected = selectedPanelIds.has(panel.id);
-        // Assembly can be selected via selectAssembly (selectedAssemblyId) or selectSubAssembly (selectedSubAssemblyIds)
-        const isAssemblySelected = selectedAssemblyId === panelAssemblyId ||
-          (panelAssemblyId !== 'main' && selectedSubAssemblyIds.has(panelAssemblyId));
+        // Check if this panel should appear selected in 3D view
+        // In 3D, we show cascade: selected assemblies highlight all their panels
+        const isSelected = isPanelSelectedIn3DView(panel.id, {
+          selectedPanelIds,
+          selectedAssemblyId,
+          selectedSubAssemblyIds,
+        });
+
+        // Check hover state
         const isPanelHovered = hoveredPanelId === panel.id;
         const isAssemblyHovered = hoveredAssemblyId === panelAssemblyId;
-
-        // Panel is "selected" if directly selected OR its assembly is selected
-        const isSelected = isPanelSelected || isAssemblySelected;
-        // Panel is "hovered" if directly hovered OR its assembly is hovered
         const isHovered = isPanelHovered || isAssemblyHovered;
 
         // Debug: Log why each panel is selected/hovered
         if (isSelected || isHovered) {
-          debug('selection', `Panel ${panel.id}: selected=${isSelected} (panel=${isPanelSelected}, asm=${isAssemblySelected}), hovered=${isHovered} (panel=${isPanelHovered}, asm=${isAssemblyHovered}), asmId=${panelAssemblyId}`);
+          const isPanelDirectlySelected = selectedPanelIds.has(panel.id);
+          const isAssemblySelected = selectedAssemblyId === panelAssemblyId;
+          debug('selection', `Panel ${panel.id}: visuallySelected=${isSelected} (direct=${isPanelDirectlySelected}, asmSel=${isAssemblySelected}), hovered=${isHovered}, asmId=${panelAssemblyId}`);
         }
 
         // Color based on panel type

@@ -166,6 +166,7 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
       type: 'divider',
       subdivisionId: dividerSnapshot.props.voidId,
       axis: dividerSnapshot.props.axis,
+      position: dividerSnapshot.props.position,
     };
   }
 

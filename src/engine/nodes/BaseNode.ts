@@ -10,14 +10,19 @@
 
 import { NodeKind, BaseSnapshot } from '../types';
 
-let nextId = 1;
-
+/**
+ * Generate a unique ID for a node.
+ * Uses crypto.randomUUID() for true uniqueness.
+ */
 export function generateId(): string {
-  return `node-${nextId++}`;
+  return crypto.randomUUID();
 }
 
+/**
+ * @deprecated No longer needed with UUID generation
+ */
 export function resetIdCounter(): void {
-  nextId = 1;
+  // No-op - UUIDs don't need resetting
 }
 
 export abstract class BaseNode {

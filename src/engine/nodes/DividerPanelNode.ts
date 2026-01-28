@@ -40,8 +40,8 @@ export class DividerPanelNode extends BasePanel {
   protected _position: number;
 
   constructor(voidNode: VoidNode, axis: Axis, position: number, id?: string) {
-    // Include axis and position in ID to ensure uniqueness when multiple dividers exist
-    super(id ?? `divider-${voidNode.id}-${axis}-${position}`);
+    // Use UUID - axis/position/voidId info is in props, not encoded in ID
+    super(id);
     this._voidNode = voidNode;
     this._axis = axis;
     this._position = position;

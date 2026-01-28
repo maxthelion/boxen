@@ -414,6 +414,7 @@ export interface PanelSource {
   // For dividers: the subdivision info
   subdivisionId?: string;
   axis?: 'x' | 'y' | 'z';
+  position?: number;  // Divider position along the axis
   // For sub-assembly panels
   subAssemblyId?: string;
 }

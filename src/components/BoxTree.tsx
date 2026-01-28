@@ -1,17 +1,54 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useBoxStore, getMainInteriorVoid } from '../store/useBoxStore';
-import { useEngineFaces, useEngineVoidTree } from '../engine';
+import { useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
 import { Panel } from './UI/Panel';
-import { Void, SubAssembly, Face, FaceId } from '../types';
-import { createDividerPanelId, getVoidIdFromDividerPanelId } from '../utils/panelIds';
+import { Void, SubAssembly, Face, FaceId, PanelPath } from '../types';
 
 // Represents a divider panel created by a subdivision
 interface DividerPanel {
   id: string;
+  voidId: string;  // The child void this divider belongs to (used for deletion)
   axis: 'x' | 'y' | 'z';
   position: number;
   width: number;
   height: number;
+}
+
+// Lookup maps for finding panel IDs from the engine
+interface PanelLookup {
+  // faceId → panel ID (for main assembly face panels)
+  facePanels: Map<FaceId, string>;
+  // "subAssemblyId-faceId" → panel ID (for sub-assembly face panels)
+  subAssemblyFacePanels: Map<string, string>;
+  // "voidId-axis" → panel ID (for dividers)
+  dividerPanels: Map<string, string>;
+}
+
+// Build lookup maps from engine panels
+function buildPanelLookup(panels: PanelPath[]): PanelLookup {
+  const facePanels = new Map<FaceId, string>();
+  const subAssemblyFacePanels = new Map<string, string>();
+  const dividerPanels = new Map<string, string>();
+
+  for (const panel of panels) {
+    if (panel.source.type === 'face' && panel.source.faceId) {
+      if (panel.source.subAssemblyId) {
+        // Sub-assembly face panel
+        const key = `${panel.source.subAssemblyId}-${panel.source.faceId}`;
+        subAssemblyFacePanels.set(key, panel.id);
+      } else {
+        // Main assembly face panel
+        facePanels.set(panel.source.faceId, panel.id);
+      }
+    } else if (panel.source.type === 'divider' && panel.source.subdivisionId && panel.source.axis) {
+      // Key: "voidId-axis-position" for uniqueness (multiple splits on same axis at different positions)
+      // Note: subdivisionId from engine is the parent void's ID (the void being subdivided)
+      const key = `${panel.source.subdivisionId}-${panel.source.axis}-${panel.source.position}`;
+      dividerPanels.set(key, panel.id);
+    }
+  }
+
+  return { facePanels, subAssemblyFacePanels, dividerPanels };
 }
 
 // Represents an outer face panel
@@ -32,11 +69,19 @@ const faceLabels: Record<FaceId, string> = {
 };
 
 // Extract divider panels from a void's children
-// Uses the same ID format as the engine: divider-{voidId}-{axis}-{position}
-const getDividerPanels = (parent: Void): DividerPanel[] => {
+// Looks up panel IDs from the engine via the lookup map
+const getDividerPanels = (parent: Void, lookup: PanelLookup): DividerPanel[] => {
   const panels: DividerPanel[] = [];
   for (const child of parent.children) {
     if (child.splitAxis && child.splitPosition !== undefined) {
+      // Look up the panel ID from the engine
+      // Key format: "parentVoidId-axis-position" (engine uses parent void ID, not child)
+      const lookupKey = `${parent.id}-${child.splitAxis}-${child.splitPosition}`;
+      const panelId = lookup.dividerPanels.get(lookupKey);
+
+      // Skip if we can't find this panel in the engine (shouldn't happen)
+      if (!panelId) continue;
+
       let width: number, height: number;
       switch (child.splitAxis) {
         case 'x':
@@ -53,8 +98,8 @@ const getDividerPanels = (parent: Void): DividerPanel[] => {
           break;
       }
       panels.push({
-        // Use centralized ID utility to match engine format
-        id: createDividerPanelId(child.id, child.splitAxis, child.splitPosition),
+        id: panelId,
+        voidId: child.id,  // Store child voidId for deletion (removing subdivision removes this child)
         axis: child.splitAxis,
         position: child.splitPosition,
         width,
@@ -97,6 +142,8 @@ interface TreeOpsProps {
   onSetIsolatedPanel: (panelId: string | null) => void;
   onDeleteVoid: (voidId: string) => void;
   onDeleteSubAssembly: (voidId: string) => void;
+  // Panel ID lookup from engine
+  panelLookup: PanelLookup;
 }
 
 // Outer face panel node (for main box or sub-assembly)
@@ -112,6 +159,7 @@ const OuterPanelNode: React.FC<{
   onToggleFaceVisibility: (faceId: string) => void;
   onSetIsolatedPanel: (panelId: string | null) => void;
 }> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, hiddenFaceIds, isolatedPanelId, onToggleFaceVisibility, onSetIsolatedPanel }) => {
+  // Tree shows actual selection only (no cascade from assembly selection)
   const isSelected = selectedPanelIds.has(panel.id);
   const isHovered = hoveredPanelId === panel.id;
   const isHidden = hiddenFaceIds.has(panel.id);
@@ -176,13 +224,12 @@ const DividerPanelNode: React.FC<{
   onSetIsolatedPanel: (panelId: string | null) => void;
   onDelete: (voidId: string) => void;
 }> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, hiddenFaceIds, isolatedPanelId, onToggleFaceVisibility, onSetIsolatedPanel, onDelete }) => {
+  // Tree shows actual selection only (no cascade from assembly selection)
   const isSelected = selectedPanelIds.has(panel.id);
   const isHovered = hoveredPanelId === panel.id;
   const isHidden = hiddenFaceIds.has(panel.id);
   const isIsolated = isolatedPanelId === panel.id;
   const axisLabel = panel.axis.toUpperCase();
-  // Use centralized ID parser to extract voidId
-  const voidId = getVoidIdFromDividerPanelId(panel.id) ?? '';
 
   return (
     <div className="tree-node">
@@ -225,7 +272,7 @@ const DividerPanelNode: React.FC<{
             className="tree-btn delete"
             onClick={(e) => {
               e.stopPropagation();
-              onDelete(voidId);
+              onDelete(panel.voidId);
             }}
             title="Delete subdivision"
           >
@@ -276,6 +323,7 @@ const VoidNode: React.FC<VoidNodeProps> = ({
   onSetIsolatedPanel,
   onDeleteVoid,
   onDeleteSubAssembly,
+  panelLookup,
 }) => {
   const isSelected = selectedVoidIds.has(node.id);
   const isHovered = hoveredVoidId === node.id;
@@ -285,7 +333,7 @@ const VoidNode: React.FC<VoidNodeProps> = ({
   const isHidden = hiddenVoidIds.has(node.id);
   const isIsolated = isolatedVoidId === node.id;
 
-  const dividerPanels = hasChildren ? getDividerPanels(node) : [];
+  const dividerPanels = hasChildren ? getDividerPanels(node, panelLookup) : [];
 
   const getLabel = () => {
     if (label) return label;
@@ -337,6 +385,7 @@ const VoidNode: React.FC<VoidNodeProps> = ({
     onSetIsolatedPanel,
     onDeleteVoid,
     onDeleteSubAssembly,
+    panelLookup,
   };
 
   return (
@@ -395,11 +444,8 @@ const VoidNode: React.FC<VoidNodeProps> = ({
       {hasChildren && (
         <div className="tree-children">
           {node.children.map((child) => {
-            // Look up panel using the correct ID format (must match what getDividerPanels creates)
-            const expectedPanelId = child.splitAxis && child.splitPosition !== undefined
-              ? createDividerPanelId(child.id, child.splitAxis, child.splitPosition)
-              : null;
-            const panel = expectedPanelId ? dividerPanels.find(p => p.id === expectedPanelId) : null;
+            // Find the panel for this child void by matching voidId
+            const panel = dividerPanels.find(p => p.voidId === child.id);
 
             return (
               <React.Fragment key={child.id}>
@@ -471,6 +517,7 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
   onSetIsolatedPanel,
   onDeleteVoid,
   onDeleteSubAssembly,
+  panelLookup,
 }) => {
   const isSelected = selectedSubAssemblyIds.has(subAssembly.id);
   const isAssemblySelected = selectedAssemblyId === subAssembly.id;
@@ -487,12 +534,20 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
     return `${w.toFixed(0)}×${h.toFixed(0)}×${d.toFixed(0)}`;
   };
 
-  const outerFacePanels: OuterFacePanel[] = subAssembly.faces.map((face) => ({
-    id: `subasm-${subAssembly.id}-face-${face.id}`,
-    faceId: face.id,
-    label: faceLabels[face.id],
-    solid: face.solid,
-  }));
+  // Look up face panel IDs from engine - skip faces that don't have a panel in the engine
+  const outerFacePanels: OuterFacePanel[] = subAssembly.faces
+    .map((face) => {
+      const lookupKey = `${subAssembly.id}-${face.id}`;
+      const panelId = panelLookup.subAssemblyFacePanels.get(lookupKey);
+      if (!panelId) return null;
+      return {
+        id: panelId,
+        faceId: face.id,
+        label: faceLabels[face.id],
+        solid: face.solid,
+      };
+    })
+    .filter((p): p is OuterFacePanel => p !== null);
 
   const treeOps: TreeOpsProps = {
     selectedVoidIds,
@@ -523,6 +578,7 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
     onSetIsolatedPanel,
     onDeleteVoid,
     onDeleteSubAssembly,
+    panelLookup,
   };
 
   return (
@@ -646,6 +702,7 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
   onSetIsolatedPanel,
   onDeleteVoid,
   onDeleteSubAssembly,
+  panelLookup,
 }) => {
   const isSelected = selectedAssemblyId === 'main';
   const isHovered = hoveredAssemblyId === 'main';
@@ -655,12 +712,19 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
   // When lid insets exist, this is the 'main-interior' child, otherwise it's rootVoid itself
   const interiorVoid = getMainInteriorVoid(rootVoid);
 
-  const outerFacePanels: OuterFacePanel[] = faces.map((face) => ({
-    id: `face-${face.id}`,
-    faceId: face.id,
-    label: faceLabels[face.id],
-    solid: face.solid,
-  }));
+  // Look up face panel IDs from engine - skip faces that don't have a panel in the engine
+  const outerFacePanels: OuterFacePanel[] = faces
+    .map((face) => {
+      const panelId = panelLookup.facePanels.get(face.id);
+      if (!panelId) return null;
+      return {
+        id: panelId,
+        faceId: face.id,
+        label: faceLabels[face.id],
+        solid: face.solid,
+      };
+    })
+    .filter((p): p is OuterFacePanel => p !== null);
 
   const treeOps: TreeOpsProps = {
     selectedVoidIds,
@@ -691,6 +755,7 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
     onSetIsolatedPanel,
     onDeleteVoid,
     onDeleteSubAssembly,
+    panelLookup,
   };
 
   return (
@@ -745,6 +810,13 @@ export const BoxTree: React.FC = () => {
   // Model state from engine
   const rootVoid = useEngineVoidTree();
   const faces = useEngineFaces();
+  const panelCollection = useEnginePanels();
+
+  // Build lookup maps from engine panels - memoize to avoid rebuilding on every render
+  const panelLookup = useMemo(
+    () => buildPanelLookup(panelCollection?.panels ?? []),
+    [panelCollection]
+  );
 
   // UI state and actions from store
   const {
@@ -824,6 +896,7 @@ export const BoxTree: React.FC = () => {
           onSetIsolatedPanel={setIsolatedPanel}
           onDeleteVoid={removeVoid}
           onDeleteSubAssembly={removeSubAssembly}
+          panelLookup={panelLookup}
         />
       </div>
       {hasIsolation && (
