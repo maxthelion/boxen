@@ -84,7 +84,7 @@ React ← useEnginePanels() hook ← engine.getSnapshot()
 
 ### Operations System
 
-Operations are user actions that modify the model. Each operation has a defined lifecycle:
+Operations are user actions that modify the model. Each operation has a defined lifecycle. See `docs/modification-pattern-plan.md` for the full specification.
 
 **Operation Types:**
 - `parameter`: Has a preview phase with adjustable parameters (push-pull, subdivide, chamfer)
@@ -101,6 +101,28 @@ Operations are user actions that modify the model. Each operation has a defined 
 - Operation parameters live in the store, not the engine
 - Preview mutations go to `engine._previewScene`, committed state to `engine._scene`
 - Components use `useEnginePanels()` which automatically returns preview if active
+
+**Adding New Operations:**
+1. Add operation ID to `src/operations/types.ts`
+2. Add definition to `src/operations/registry.ts` (type, selection requirements, availability)
+3. Add validator in `src/operations/validators.ts` with `SelectionRequirement` and constraints
+4. Add tests in `src/store/operations.test.ts` to verify preview cleanup on cancel
+5. If parameter operation, create palette component rendered when tool is active
+
+**Selection Validation (Declarative System):**
+Operations declare their selection requirements in `src/operations/validators.ts`:
+- `targetType`: What can be selected (`void`, `leaf-void`, `panel`, `face-panel`, `opposing-panels`)
+- `minCount` / `maxCount`: How many items required
+- `constraints`: Additional rules (`must-be-leaf-void`, `must-have-void-between`, etc.)
+
+Validators return `SelectionValidationResult` with derived state (target void, valid axes, etc.).
+
+**Testing Requirements:**
+Every parameter operation MUST have tests in `src/store/operations.test.ts` that verify:
+- Preview is created when operation starts
+- Preview is cleaned up (discarded) when operation is cancelled
+- Operation state resets to idle after cancel
+- Apply commits the preview correctly
 
 ### Event Sourcing (Future)
 
@@ -187,16 +209,33 @@ npm run typecheck # TypeScript type checking
 
 ## Debugging Patterns
 
-### Global Debug System
+### Tagged Debug System
 
-A simple global debug system exists in `src/utils/debug.ts`:
+A tagged debug system exists in `src/utils/debug.ts`. Debug statements can be left in the code permanently - only messages with active tags are collected for the clipboard.
 
 ```typescript
-import { setDebug } from './debug';
+import { debug, enableDebugTag, setDebugTags } from '../utils/debug';
 
-// In your debug utility, just set the debug content:
-setDebug(formattedDebugString);
+// Enable tags you want to capture
+enableDebugTag('subdivision');
+setDebugTags(['subdivision', 'preview', 'axis']);
+
+// Log with a tag - only outputs if tag is active
+debug('subdivision', 'Starting subdivision...');
+debug('preview', `Preview created for void ${voidId}`);
+debug('axis', `Selected axis: ${axis}`);
 ```
+
+**API:**
+- `debug(tag, content)` - Log with tag (only if tag is active)
+- `enableDebugTag(tag)` / `disableDebugTag(tag)` - Toggle individual tags
+- `setDebugTags(tags[])` - Set all active tags at once
+- `getDebugTags()` - Get currently active tags
+- `isDebugTagActive(tag)` - Check if a tag is active
+
+**Legacy API** (no filtering, always outputs):
+- `setDebug(content)` - Replace all debug content
+- `appendDebug(content)` - Append to debug content
 
 The Debug button in the header automatically appears when debug content exists and copies it to clipboard.
 
