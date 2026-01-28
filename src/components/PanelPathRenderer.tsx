@@ -5,8 +5,9 @@ import { useBoxStore, isPanelSelectedIn3DView, getAssemblyIdForPanel } from '../
 import { useEnginePanels, useEngineMainPanels, getEngine } from '../engine';
 import { debug, enableDebugTag } from '../utils/debug';
 
-// Enable debug tag for selection debugging
-enableDebugTag('selection');
+// Enable debug tags for debugging
+// enableDebugTag('selection');  // Disabled - too verbose
+enableDebugTag('slot-geometry');
 
 interface PanelPathRendererProps {
   panel: PanelPath;
@@ -21,37 +22,149 @@ interface PanelPathRendererProps {
   hoveredColor?: string;
 }
 
+// Helper to compute signed area (for winding order detection)
+const computeSignedArea = (points: PathPoint[]): number => {
+  let area = 0;
+  for (let i = 0; i < points.length; i++) {
+    const p1 = points[i];
+    const p2 = points[(i + 1) % points.length];
+    area += (p2.x - p1.x) * (p2.y + p1.y);
+  }
+  return area / 2;
+};
+
 // Convert stored PathPoints to THREE.js geometry
 const createGeometryFromPath = (
   outline: PathPoint[],
   holes: { points: PathPoint[] }[],
   thickness: number,
-  scale: number
+  scale: number,
+  panelId?: string
 ): THREE.ExtrudeGeometry => {
   const scaledThickness = thickness * scale;
 
+  // Debug: Log geometry info - check for issues with outline and holes
+  const outlineArea = computeSignedArea(outline);
+  const outlineMinX = Math.min(...outline.map(p => p.x));
+  const outlineMaxX = Math.max(...outline.map(p => p.x));
+  const outlineMinY = Math.min(...outline.map(p => p.y));
+  const outlineMaxY = Math.max(...outline.map(p => p.y));
+
+  debug('slot-geometry', `=== Panel ${panelId} Geometry ===`);
+  debug('slot-geometry', `Outline: ${outline.length} points, signedArea=${outlineArea.toFixed(2)} (${outlineArea > 0 ? 'CW' : 'CCW'})`);
+  debug('slot-geometry', `  Bounds: [${outlineMinX.toFixed(1)},${outlineMinY.toFixed(1)} to ${outlineMaxX.toFixed(1)},${outlineMaxY.toFixed(1)}]`);
+
+  // Check for duplicate/near-duplicate consecutive points in outline
+  const duplicateOutlinePoints: string[] = [];
+  for (let i = 0; i < outline.length; i++) {
+    const p1 = outline[i];
+    const p2 = outline[(i + 1) % outline.length];
+    const dist = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+    if (dist < 0.01) {
+      duplicateOutlinePoints.push(`[${i}→${(i + 1) % outline.length}]: (${p1.x.toFixed(2)},${p1.y.toFixed(2)}) → (${p2.x.toFixed(2)},${p2.y.toFixed(2)}) dist=${dist.toFixed(4)}`);
+    }
+  }
+  if (duplicateOutlinePoints.length > 0) {
+    debug('slot-geometry', `  ⚠️ DUPLICATE POINTS IN OUTLINE: ${duplicateOutlinePoints.length}`);
+    duplicateOutlinePoints.forEach(d => debug('slot-geometry', `    ${d}`));
+  }
+
+  // Log all outline points
+  debug('slot-geometry', `  Outline points: ${outline.map((p, i) => `[${i}](${p.x.toFixed(1)},${p.y.toFixed(1)})`).join(' → ')}`);
+
+  if (holes.length > 0) {
+    debug('slot-geometry', `Holes: ${holes.length}`);
+
+    for (let i = 0; i < holes.length; i++) {
+      const hole = holes[i];
+      const holeArea = computeSignedArea(hole.points);
+      const minX = Math.min(...hole.points.map(p => p.x));
+      const maxX = Math.max(...hole.points.map(p => p.x));
+      const minY = Math.min(...hole.points.map(p => p.y));
+      const maxY = Math.max(...hole.points.map(p => p.y));
+
+      // Check if hole is within outline bounds
+      const isWithinBounds = minX >= outlineMinX && maxX <= outlineMaxX && minY >= outlineMinY && maxY <= outlineMaxY;
+
+      // Check for same winding as outline (would cause extrusion instead of cut)
+      const sameWinding = (outlineArea > 0) === (holeArea > 0);
+
+      debug('slot-geometry', `  Hole ${i}: ${hole.points.length} pts, area=${holeArea.toFixed(2)} (${holeArea > 0 ? 'CW' : 'CCW'}) ${sameWinding ? '⚠️ SAME WINDING AS OUTLINE' : '✓ opposite winding'}`);
+      debug('slot-geometry', `    Bounds: [${minX.toFixed(1)},${minY.toFixed(1)} to ${maxX.toFixed(1)},${maxY.toFixed(1)}] within=${isWithinBounds}`);
+      debug('slot-geometry', `    Points: ${hole.points.map((p, j) => `[${j}](${p.x.toFixed(1)},${p.y.toFixed(1)})`).join(' → ')}`);
+
+      // Check for duplicate points in hole
+      for (let j = 0; j < hole.points.length; j++) {
+        const p1 = hole.points[j];
+        const p2 = hole.points[(j + 1) % hole.points.length];
+        const dist = Math.sqrt((p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2);
+        if (dist < 0.01) {
+          debug('slot-geometry', `    ⚠️ DUPLICATE POINT: [${j}→${(j + 1) % hole.points.length}] dist=${dist.toFixed(4)}`);
+        }
+      }
+    }
+  } else {
+    debug('slot-geometry', `Holes: none`);
+  }
+
+  // THREE.js expects:
+  // - Main shape: counter-clockwise (CCW) winding
+  // - Holes: clockwise (CW) winding
+  // Our outline is CW (positive area) and holes are CCW (negative area)
+  // So we need to reverse both to match THREE.js expectations
+
+  // Reverse outline to make it CCW (THREE.js expectation for main shape)
+  const outlineAreaForCorrection = computeSignedArea(outline);
+  const needsOutlineReverse = outlineAreaForCorrection > 0;
+  const correctedOutline = needsOutlineReverse ? [...outline].reverse() : outline;
+
+  if (needsOutlineReverse || holes.some(h => computeSignedArea(h.points) < 0)) {
+    debug('slot-geometry', `  Winding correction: outline=${needsOutlineReverse ? 'reversed' : 'ok'}, holes=${holes.filter(h => computeSignedArea(h.points) < 0).length} reversed`);
+  }
+
   // Create the main shape from outline points (scaled)
   const shape = new THREE.Shape();
-  if (outline.length > 0) {
-    const first = outline[0];
+  if (correctedOutline.length > 0) {
+    const first = correctedOutline[0];
     shape.moveTo(first.x * scale, first.y * scale);
 
-    for (let i = 1; i < outline.length; i++) {
-      const pt = outline[i];
+    for (let i = 1; i < correctedOutline.length; i++) {
+      const pt = correctedOutline[i];
       shape.lineTo(pt.x * scale, pt.y * scale);
     }
 
     shape.closePath();
   }
 
-  // Add holes (scaled)
+  // Add holes (scaled) - reverse to make CW (THREE.js expectation for holes)
+  // Also filter out degenerate holes that touch the outline boundary
   for (const hole of holes) {
     if (hole.points.length > 0) {
+      // Check if hole touches outline boundary - this creates degenerate geometry
+      // that THREE.js can't triangulate (happens when slot coincides with finger joint tab)
+      const holeMinX = Math.min(...hole.points.map(p => p.x));
+      const holeMaxX = Math.max(...hole.points.map(p => p.x));
+      const holeMinY = Math.min(...hole.points.map(p => p.y));
+      const holeMaxY = Math.max(...hole.points.map(p => p.y));
+
+      const touchesLeft = Math.abs(holeMinX - outlineMinX) < 0.01;
+      const touchesRight = Math.abs(holeMaxX - outlineMaxX) < 0.01;
+      const touchesBottom = Math.abs(holeMinY - outlineMinY) < 0.01;
+      const touchesTop = Math.abs(holeMaxY - outlineMaxY) < 0.01;
+
+      if (touchesLeft || touchesRight || touchesBottom || touchesTop) {
+        debug('slot-geometry', `  ⚠️ SKIPPING degenerate hole that touches outline boundary`);
+        continue;
+      }
+
+      const holeArea = computeSignedArea(hole.points);
+      const correctedHolePoints = holeArea < 0 ? [...hole.points].reverse() : hole.points;
+
       const holePath = new THREE.Path();
-      const first = hole.points[0];
+      const first = correctedHolePoints[0];
       holePath.moveTo(first.x * scale, first.y * scale);
-      for (let i = 1; i < hole.points.length; i++) {
-        holePath.lineTo(hole.points[i].x * scale, hole.points[i].y * scale);
+      for (let i = 1; i < correctedHolePoints.length; i++) {
+        holePath.lineTo(correctedHolePoints[i].x * scale, correctedHolePoints[i].y * scale);
       }
       holePath.closePath();
       shape.holes.push(holePath);
@@ -157,9 +270,10 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
       outline.points,
       holes.map(h => ({ points: h.path.points })),
       thickness,
-      scale
+      scale,
+      panel.id
     );
-  }, [outline, holes, thickness, scale, visible]);
+  }, [outline, holes, thickness, scale, visible, panel.id]);
 
   const edgeGeometry = useMemo(() => {
     if (!visible || outline.points.length === 0) return null;

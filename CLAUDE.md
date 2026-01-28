@@ -53,6 +53,7 @@ src/
     ├── fingerJoints.ts     # Finger joint pattern generation
     ├── faceGeometry.ts     # Face/edge relationship helpers
     ├── genderRules.ts      # Finger joint gender determination
+    ├── pathValidation.ts   # Path validation for detecting unrenderable geometry
     ├── svgExport.ts        # SVG export for laser cutting
     └── debug.ts            # Global debug system
 ```
@@ -266,3 +267,24 @@ debug('axis', `Selected axis: ${axis}`);
 The Debug button in the header automatically appears when debug content exists and copies it to clipboard.
 
 **When to suggest debugging**: If the user reports strange rendering behavior (objects in wrong positions, misaligned joints, unexpected scaling, etc.), suggest using the Debug button in the header to copy diagnostic info to clipboard.
+
+### 3D Rendering Issues
+
+For THREE.js panel rendering problems (holes appearing as extrusions, missing geometry, triangulation artifacts), see `docs/debugging-3d-rendering.md` for a comprehensive debugging guide.
+
+**Quick Reference - Common Causes:**
+- **Holes render as extrusions**: Winding order mismatch (outline and holes must have opposite winding)
+- **Missing geometry**: Degenerate holes touching outline boundary, or duplicate points
+- **Triangulation artifacts**: Self-intersecting paths or overlapping holes
+
+**Path Validation:** Use `src/utils/pathValidation.ts` to programmatically detect invalid geometry:
+```typescript
+import { validatePanelPath } from '../utils/pathValidation';
+
+const result = validatePanelPath(outline, holes);
+if (!result.valid) {
+  console.error('Invalid path:', result.errors);
+}
+```
+
+**Debug Tag:** Enable `slot-geometry` tag to log detailed geometry info in `PanelPathRenderer.tsx`.

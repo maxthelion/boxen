@@ -316,6 +316,17 @@ export class DividerPanelNode extends BasePanel {
             const offsetStart = sectionStart - maxJoint / 2;
             const offsetEnd = sectionEnd - maxJoint / 2;
 
+            // Check if the slot would touch or exceed the panel boundary
+            // This prevents degenerate geometry where slot holes coincide with finger joint tabs
+            const slotTouchesBoundary = isHorizontal
+              ? (slotY !== null && (Math.abs(slotY - halfMt - (-halfH)) < tolerance || Math.abs(slotY + halfMt - halfH) < tolerance))
+              : (slotX !== null && (Math.abs(slotX - halfMt - (-halfW)) < tolerance || Math.abs(slotX + halfMt - halfW) < tolerance));
+
+            if (slotTouchesBoundary) {
+              debug('divider-holes', `  Skipping slot at edge: slotX=${slotX?.toFixed(1)}, slotY=${slotY?.toFixed(1)}, halfW=${halfW.toFixed(1)}, halfH=${halfH.toFixed(1)}`);
+              continue;
+            }
+
             const holePoints = this.createSlotHolePoints(
               slotX, slotY, offsetStart, offsetEnd, isHorizontal, mt
             );
