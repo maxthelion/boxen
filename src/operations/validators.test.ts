@@ -430,6 +430,88 @@ describe('validateSubdivideTwoPanelSelection', () => {
       expect(result.derived?.panelDescriptions).toContain('Right');
     });
   });
+
+  describe('Face + Divider Panels', () => {
+    it('accepts face panel + adjacent divider on same axis (right face + divider)', () => {
+      // Subdivided void: left | child0 | divider | child1 | right
+      const subdividedRoot = createSubdividedVoid('root', ['child0', 'child1']);
+      const panels = [
+        createFacePanel('right'),
+        createDividerPanel('child0', 'x', 50),  // divider between child0 and child1
+      ];
+      const result = validateSubdivideTwoPanelSelection(
+        new Set(['face-right', 'divider-child0-x-50']),
+        createPanelCollection(panels),
+        subdividedRoot
+      );
+      expect(result.valid).toBe(true);
+      expect(result.derived?.targetVoidId).toBe('child1');  // void between right face and divider
+      expect(result.derived?.validAxes).toEqual(['y', 'z']);  // perpendicular to X
+    });
+
+    it('accepts face panel + adjacent divider on same axis (left face + divider)', () => {
+      // Subdivided void: left | child0 | divider | child1 | right
+      const subdividedRoot = createSubdividedVoid('root', ['child0', 'child1']);
+      const panels = [
+        createFacePanel('left'),
+        createDividerPanel('child0', 'x', 50),
+      ];
+      const result = validateSubdivideTwoPanelSelection(
+        new Set(['face-left', 'divider-child0-x-50']),
+        createPanelCollection(panels),
+        subdividedRoot
+      );
+      expect(result.valid).toBe(true);
+      expect(result.derived?.targetVoidId).toBe('child0');  // void between left face and divider
+      expect(result.derived?.validAxes).toEqual(['y', 'z']);
+    });
+
+    it('rejects face panel + divider on different axis', () => {
+      const subdividedRoot = createSubdividedVoid('root', ['child0', 'child1']);
+      const panels = [
+        createFacePanel('top'),  // Y axis
+        createDividerPanel('child0', 'x', 50),  // X axis
+      ];
+      const result = validateSubdivideTwoPanelSelection(
+        new Set(['face-top', 'divider-child0-x-50']),
+        createPanelCollection(panels),
+        subdividedRoot
+      );
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('parallel');
+    });
+
+    it('rejects when void between face and divider is not leaf', () => {
+      // Create nested subdivision where child1 has its own children
+      const nestedRoot: Void = {
+        id: 'root',
+        bounds: { x: 3, y: 3, z: 3, w: 94, h: 74, d: 54 },
+        children: [
+          { id: 'child0', bounds: { x: 3, y: 3, z: 3, w: 28, h: 74, d: 54 }, children: [] },
+          {
+            id: 'child1',
+            bounds: { x: 33, y: 3, z: 3, w: 28, h: 74, d: 54 },
+            children: [
+              { id: 'grandchild0', bounds: { x: 33, y: 3, z: 3, w: 14, h: 74, d: 54 }, children: [] },
+              { id: 'grandchild1', bounds: { x: 47, y: 3, z: 3, w: 14, h: 74, d: 54 }, children: [] },
+            ],
+          },
+        ],
+        splitAxis: 'x',
+      };
+      const panels = [
+        createFacePanel('right'),
+        createDividerPanel('child0', 'x', 50),
+      ];
+      const result = validateSubdivideTwoPanelSelection(
+        new Set(['face-right', 'divider-child0-x-50']),
+        createPanelCollection(panels),
+        nestedRoot
+      );
+      expect(result.valid).toBe(false);
+      expect(result.reason).toContain('empty void');
+    });
+  });
 });
 
 // =============================================================================

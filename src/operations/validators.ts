@@ -328,21 +328,28 @@ export const findVoidBetweenPanels = (
     if (faceAxis !== dividerAxis) return null;
 
     const mainInterior = getMainInteriorVoid(rootVoid);
+    if (mainInterior.children.length === 0) return null;
+
     const voidId = getVoidIdFromSubdivisionId(subId);
     const childIds = mainInterior.children.map(c => c.id);
     const dividerIdx = childIds.indexOf(voidId);
 
     if (dividerIdx === -1) return null;
 
-    // Determine if face is on low or high side
+    // Determine which void is between the face and divider
+    // The divider sits AFTER children[dividerIdx], between children[dividerIdx] and children[dividerIdx + 1]
     const isLowFace = faceId === 'left' || faceId === 'bottom' || faceId === 'back';
-    const isHighFace = faceId === 'right' || faceId === 'top' || faceId === 'front';
 
-    // Divider must be adjacent to the face
-    if (isHighFace && dividerIdx !== mainInterior.children.length - 1) return null;
-    if (isLowFace && dividerIdx !== 1) return null;
-
-    const targetIdx = isLowFace ? dividerIdx - 1 : dividerIdx;
+    let targetIdx: number;
+    if (isLowFace) {
+      // Low face is adjacent to children[0]
+      // Void between low face and divider is children[dividerIdx] (the void just before the divider)
+      targetIdx = dividerIdx;
+    } else {
+      // High face is adjacent to children[last]
+      // Void between high face and divider is children[dividerIdx + 1] (the void just after the divider)
+      targetIdx = dividerIdx + 1;
+    }
 
     if (targetIdx < 0 || targetIdx >= mainInterior.children.length) return null;
 
