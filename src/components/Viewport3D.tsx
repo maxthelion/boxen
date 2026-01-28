@@ -6,6 +6,7 @@ import { ViewportToolbar } from './ViewportToolbar';
 import { EditorToolbar } from './EditorToolbar';
 import { PushPullPalette, PushPullMode } from './PushPullPalette';
 import { SubdividePalette } from './SubdividePalette';
+import { CreateSubAssemblyPalette } from './CreateSubAssemblyPalette';
 import { useBoxStore } from '../store/useBoxStore';
 import { useEnginePanels } from '../engine';
 import { FaceId } from '../types';
@@ -45,6 +46,9 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // Subdivide palette state (local UI state only)
   const [subdividePalettePosition, setSubdividePalettePosition] = useState({ x: 20, y: 150 });
+
+  // Create sub-assembly palette state (local UI state only)
+  const [createSubAssemblyPalettePosition, setCreateSubAssemblyPalettePosition] = useState({ x: 20, y: 150 });
 
   // Get selected face ID for push-pull tool
   const selectedFaceId = useMemo(() => {
@@ -134,6 +138,11 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // Close subdivide palette
   const handleSubdividePaletteClose = useCallback(() => {
+    setActiveTool('select');
+  }, [setActiveTool]);
+
+  // Close create sub-assembly palette
+  const handleCreateSubAssemblyPaletteClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
 
@@ -235,6 +244,17 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
           position={subdividePalettePosition}
           onPositionChange={setSubdividePalettePosition}
           onClose={handleSubdividePaletteClose}
+          containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+        />
+      )}
+
+      {/* Create Sub-Assembly Tool Palette - only mount when tool is active */}
+      {activeTool === 'create-sub-assembly' && (
+        <CreateSubAssemblyPalette
+          visible={true}
+          position={createSubAssemblyPalettePosition}
+          onPositionChange={setCreateSubAssemblyPalettePosition}
+          onClose={handleCreateSubAssemblyPaletteClose}
           containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
         />
       )}

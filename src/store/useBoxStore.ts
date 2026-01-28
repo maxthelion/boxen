@@ -2295,93 +2295,25 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       const newParams = { ...state.operationState.params, ...params };
       const engine = getEngine();
+      const operation = getOperation(activeOperation);
 
-      // Handle operation-specific engine dispatches
-      if (activeOperation === 'subdivide' || activeOperation === 'subdivide-two-panel') {
-        // For subdivision, restart preview fresh and apply new subdivision
-        // This ensures we don't accumulate subdivisions on repeated param changes
-        const { voidId, axis, positions } = newParams as {
-          voidId?: string;
-          axis?: 'x' | 'y' | 'z';
-          positions?: number[];
-        };
+      // Use registry-defined preview action creator if available
+      if (operation.createPreviewAction) {
+        // Build context for operations that need it (e.g., push-pull needs dimensions)
+        const snapshot = engine.getSnapshot();
+        const assembly = snapshot.assemblies?.[0];
+        const context = assembly
+          ? { dimensions: { width: assembly.props.width, height: assembly.props.height, depth: assembly.props.depth } }
+          : undefined;
 
-        if (voidId && axis && positions && positions.length > 0) {
+        const action = operation.createPreviewAction(newParams, context);
+        if (action) {
           // Restart preview to get fresh clone
           // Note: Panel IDs are stable across clones (cached on VoidNode), so no remapping needed
           engine.discardPreview();
           engine.startPreview();
-
-          // Apply subdivision to preview
-          engine.dispatch({
-            type: 'ADD_SUBDIVISIONS',
-            targetId: 'main-assembly',
-            payload: { voidId, axis, positions },
-          }, { preview: true });
-
-          // Mark that engine state changed (notify AFTER set() completes)
+          engine.dispatch(action, { preview: true });
           engineStateChanged = true;
-
-          return {
-            operationState: {
-              ...state.operationState,
-              params: newParams,
-            },
-          };
-        }
-      } else if (activeOperation === 'push-pull') {
-        // For push-pull, dispatch dimension/face changes to preview
-        const { faceId, offset, mode } = newParams as {
-          faceId?: FaceId;
-          offset?: number;
-          mode?: 'scale' | 'extend';
-        };
-
-        if (faceId && offset !== undefined && mode) {
-          // Restart preview to get fresh clone
-          // Note: Panel IDs are stable across clones (cached on VoidNode), so no remapping needed
-          engine.discardPreview();
-          engine.startPreview();
-
-          // Calculate new dimensions based on face and offset
-          const snapshot = engine.getSnapshot();
-          const assembly = snapshot.assemblies?.[0];
-          if (assembly) {
-            const { width, height, depth } = assembly.props;
-            let newWidth = width, newHeight = height, newDepth = depth;
-
-            // Apply offset based on face
-            switch (faceId) {
-              case 'left':
-              case 'right':
-                newWidth = width + offset;
-                break;
-              case 'top':
-              case 'bottom':
-                newHeight = height + offset;
-                break;
-              case 'front':
-              case 'back':
-                newDepth = depth + offset;
-                break;
-            }
-
-            engine.dispatch({
-              type: 'SET_DIMENSIONS',
-              targetId: 'main-assembly',
-              payload: { width: newWidth, height: newHeight, depth: newDepth },
-            }, { preview: true });
-
-            // Mark that engine state changed (notify AFTER set() completes)
-            engineStateChanged = true;
-
-            return {
-              operationState: {
-                ...state.operationState,
-                params: newParams,
-              },
-            };
-          }
         }
       }
 

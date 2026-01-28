@@ -12,6 +12,7 @@ import {
   OperationType,
   SelectionType,
 } from './types';
+import { EngineAction, FaceId, Axis } from '../engine/types';
 
 // ==========================================================================
 // Operation Definition
@@ -36,6 +37,19 @@ export interface OperationDefinition {
   description?: string;
   /** Keyboard shortcut */
   shortcut?: string;
+  /**
+   * For parameter operations: creates the engine action for preview
+   * Returns null if params are incomplete (preview cannot be shown yet)
+   */
+  createPreviewAction?: (params: Record<string, unknown>, context?: PreviewActionContext) => EngineAction | null;
+}
+
+/**
+ * Context passed to createPreviewAction for operations that need additional data
+ */
+export interface PreviewActionContext {
+  /** Current box dimensions from engine snapshot */
+  dimensions?: { width: number; height: number; depth: number };
 }
 
 // ==========================================================================
@@ -54,6 +68,40 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     availableIn: ['3d'],
     description: 'Extend or contract a face panel',
     shortcut: 'p',
+    createPreviewAction: (params, context) => {
+      const { faceId, offset, mode } = params as {
+        faceId?: FaceId;
+        offset?: number;
+        mode?: 'scale' | 'extend';
+      };
+
+      if (!faceId || offset === undefined || !mode || !context?.dimensions) return null;
+
+      const { width, height, depth } = context.dimensions;
+      let newWidth = width, newHeight = height, newDepth = depth;
+
+      // Apply offset based on face
+      switch (faceId) {
+        case 'left':
+        case 'right':
+          newWidth = width + offset;
+          break;
+        case 'top':
+        case 'bottom':
+          newHeight = height + offset;
+          break;
+        case 'front':
+        case 'back':
+          newDepth = depth + offset;
+          break;
+      }
+
+      return {
+        type: 'SET_DIMENSIONS',
+        targetId: 'main-assembly',
+        payload: { width: newWidth, height: newHeight, depth: newDepth },
+      };
+    },
   },
 
   'subdivide': {
@@ -66,6 +114,21 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     availableIn: ['3d'],
     description: 'Add dividers to split a void',
     shortcut: 's',
+    createPreviewAction: (params) => {
+      const { voidId, axis, positions } = params as {
+        voidId?: string;
+        axis?: Axis;
+        positions?: number[];
+      };
+
+      if (!voidId || !axis || !positions?.length) return null;
+
+      return {
+        type: 'ADD_SUBDIVISIONS',
+        targetId: 'main-assembly',
+        payload: { voidId, axis, positions },
+      };
+    },
   },
 
   'subdivide-two-panel': {
@@ -77,6 +140,22 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     maxSelection: 2,
     availableIn: ['3d'],
     description: 'Subdivide the void between two parallel panels',
+    createPreviewAction: (params) => {
+      // Same as subdivide - once we have the voidId from analysis, it's the same action
+      const { voidId, axis, positions } = params as {
+        voidId?: string;
+        axis?: Axis;
+        positions?: number[];
+      };
+
+      if (!voidId || !axis || !positions?.length) return null;
+
+      return {
+        type: 'ADD_SUBDIVISIONS',
+        targetId: 'main-assembly',
+        payload: { voidId, axis, positions },
+      };
+    },
   },
 
   'create-sub-assembly': {
@@ -88,6 +167,23 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     maxSelection: 1,
     availableIn: ['3d'],
     description: 'Create a drawer, tray, or insert in a void',
+    createPreviewAction: (params) => {
+      const { voidId, clearance } = params as {
+        voidId?: string;
+        clearance?: number;
+      };
+
+      if (!voidId) return null;
+
+      return {
+        type: 'CREATE_SUB_ASSEMBLY',
+        targetId: 'main-assembly',
+        payload: {
+          voidId,
+          clearance: clearance ?? 2,
+        },
+      };
+    },
   },
 
   'chamfer-fillet': {

@@ -12,8 +12,9 @@
 import { useSyncExternalStore } from 'react';
 import { getEngine } from './engineInstance';
 import { SceneSnapshot, AssemblySnapshot, PanelSnapshot, VoidSnapshot } from './types';
-import { BoxConfig, Face, FaceId, Void, PanelCollection, PanelPath } from '../types';
+import { BoxConfig, Face, FaceId, Void, SubAssembly, PanelCollection, PanelPath, defaultFaceOffsets } from '../types';
 import { panelSnapshotToPanelPath } from './panelBridge';
+import { debug } from '../utils/debug';
 
 // =============================================================================
 // Engine State Types
@@ -44,7 +45,9 @@ export interface EngineModelState {
  * Convert engine VoidSnapshot to store Void format
  */
 function voidSnapshotToVoid(snapshot: VoidSnapshot): Void {
-  return {
+  debug('sub-assembly', `voidSnapshotToVoid: ${snapshot.id}, children: ${snapshot.children.map(c => c.kind).join(', ')}`);
+
+  const storeVoid: Void = {
     id: snapshot.id,
     bounds: {
       x: snapshot.derived.bounds.x,
@@ -61,6 +64,58 @@ function voidSnapshotToVoid(snapshot: VoidSnapshot): Void {
     children: snapshot.children
       .filter((c): c is VoidSnapshot => c.kind === 'void')
       .map(voidSnapshotToVoid),
+  };
+
+  // Convert sub-assembly if present
+  const subAssemblySnapshot = snapshot.children.find(
+    (c): c is AssemblySnapshot => c.kind === 'sub-assembly'
+  );
+
+  if (subAssemblySnapshot) {
+    debug('sub-assembly', `  Found sub-assembly: ${subAssemblySnapshot.id}`);
+    storeVoid.subAssembly = assemblySnapshotToSubAssembly(subAssemblySnapshot);
+  }
+
+  return storeVoid;
+}
+
+/**
+ * Convert engine AssemblySnapshot (sub-assembly) to store SubAssembly format
+ */
+function assemblySnapshotToSubAssembly(snapshot: AssemblySnapshot): SubAssembly {
+  const { props } = snapshot;
+
+  // Find the root void in the sub-assembly's children
+  const rootVoidSnapshot = snapshot.children.find(
+    (c): c is VoidSnapshot => c.kind === 'void'
+  );
+
+  if (!rootVoidSnapshot) {
+    throw new Error(`Sub-assembly ${snapshot.id} has no root void`);
+  }
+
+  return {
+    id: snapshot.id,
+    clearance: props.clearance ?? 1,
+    faceOffsets: { ...defaultFaceOffsets },
+    faces: props.faces.map(f => ({ id: f.id, solid: f.solid })),
+    rootVoid: voidSnapshotToVoid(rootVoidSnapshot),
+    materialThickness: props.material.thickness,
+    assembly: {
+      assemblyAxis: props.assembly.assemblyAxis,
+      lids: {
+        positive: {
+          enabled: true,
+          tabDirection: props.assembly.lids.positive.tabDirection,
+          inset: props.assembly.lids.positive.inset,
+        },
+        negative: {
+          enabled: true,
+          tabDirection: props.assembly.lids.negative.tabDirection,
+          inset: props.assembly.lids.negative.inset,
+        },
+      },
+    },
   };
 }
 

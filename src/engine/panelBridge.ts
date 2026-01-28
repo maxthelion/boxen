@@ -9,18 +9,22 @@
 
 import {
   Void,
+  SubAssembly,
   PanelCollection,
   PanelPath,
   PanelSource,
   PanelHole as StorePanelHole,
+  defaultFaceOffsets,
 } from '../types';
 import { AssemblyNode } from './nodes/AssemblyNode';
 import { VoidNode } from './nodes/VoidNode';
+import { SubAssemblyNode } from './nodes/SubAssemblyNode';
 import { PanelSnapshot, FacePanelSnapshot, DividerPanelSnapshot } from './types';
 import { debug, enableDebugTag } from '../utils/debug';
 
-// Enable debug tag for panel generation
+// Enable debug tags
 enableDebugTag('panel-gen');
+enableDebugTag('sub-assembly');
 
 // =============================================================================
 // Void Tree Conversion
@@ -32,6 +36,11 @@ enableDebugTag('panel-gen');
  */
 export function voidNodeToVoid(voidNode: VoidNode): Void {
   const bounds = voidNode.bounds;
+
+  debug('sub-assembly', `voidNodeToVoid: Converting void ${voidNode.id}`);
+  debug('sub-assembly', `  hasSubAssembly: ${voidNode.hasSubAssembly}`);
+  debug('sub-assembly', `  children count: ${voidNode.children.length}`);
+  debug('sub-assembly', `  children kinds: ${voidNode.children.map(c => c.kind).join(', ')}`);
 
   const storeVoid: Void = {
     id: voidNode.id,
@@ -59,10 +68,50 @@ export function voidNodeToVoid(voidNode: VoidNode): Void {
     if (child instanceof VoidNode) {
       storeVoid.children.push(voidNodeToVoid(child));
     }
-    // TODO: Handle sub-assemblies in voids
+  }
+
+  // Convert sub-assembly if present
+  const subAssemblyNode = voidNode.getSubAssembly();
+  debug('sub-assembly', `  getSubAssembly() returned: ${subAssemblyNode ? subAssemblyNode.id : 'null'}`);
+
+  if (subAssemblyNode && subAssemblyNode instanceof SubAssemblyNode) {
+    debug('sub-assembly', `  Converting sub-assembly ${subAssemblyNode.id}`);
+    storeVoid.subAssembly = subAssemblyNodeToSubAssembly(subAssemblyNode);
+    debug('sub-assembly', `  storeVoid.subAssembly set: ${!!storeVoid.subAssembly}`);
   }
 
   return storeVoid;
+}
+
+/**
+ * Convert engine SubAssemblyNode to store SubAssembly
+ */
+function subAssemblyNodeToSubAssembly(node: SubAssemblyNode): SubAssembly {
+  const engineConfig = node.assemblyConfig;
+
+  return {
+    id: node.id,
+    clearance: node.clearance,
+    faceOffsets: { ...defaultFaceOffsets }, // Sub-assemblies don't currently support per-face offsets
+    faces: node.getFaces().map(f => ({ id: f.id, solid: f.solid })),
+    rootVoid: voidNodeToVoid(node.rootVoid),
+    materialThickness: node.material.thickness,
+    assembly: {
+      assemblyAxis: engineConfig.assemblyAxis,
+      lids: {
+        positive: {
+          enabled: true,  // Sub-assemblies have solid lids by default
+          tabDirection: engineConfig.lids.positive.tabDirection,
+          inset: engineConfig.lids.positive.inset,
+        },
+        negative: {
+          enabled: true,
+          tabDirection: engineConfig.lids.negative.tabDirection,
+          inset: engineConfig.lids.negative.inset,
+        },
+      },
+    },
+  };
 }
 
 /**

@@ -9,7 +9,8 @@ export type EditorTool =
   | 'inset'
   | 'chamfer'
   | 'push-pull'
-  | 'subdivide';
+  | 'subdivide'
+  | 'create-sub-assembly';
 
 export type EditorMode = '2d' | '3d';
 
@@ -93,6 +94,13 @@ const tools: ToolButton[] = [
     icon: '⊞',
     label: 'Subdivide',
     tooltip: 'Subdivide void (S)',
+    modes: ['3d'],
+  },
+  {
+    id: 'create-sub-assembly',
+    icon: '⧉',
+    label: 'Sub-Box',
+    tooltip: 'Create nested box in void',
     modes: ['3d'],
   },
 ];
