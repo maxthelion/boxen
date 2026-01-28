@@ -2151,26 +2151,29 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   },
 
   saveToUrl: () => {
-    const state = get();
+    // Read from engine (source of truth) instead of store state
+    const engineSnapshot = getEngineSnapshot();
+    if (!engineSnapshot) return;
 
-    // Collect edge extensions from panels
+    // Get panels from engine to collect edge extensions
+    const engine = getEngine();
+    const panelCollection = engine.generatePanelsFromNodes();
+
     const edgeExtensions: Record<string, EdgeExtensions> = {};
-    if (state.panelCollection) {
-      for (const panel of state.panelCollection.panels) {
-        if (panel.edgeExtensions &&
-            (panel.edgeExtensions.top !== 0 ||
-             panel.edgeExtensions.bottom !== 0 ||
-             panel.edgeExtensions.left !== 0 ||
-             panel.edgeExtensions.right !== 0)) {
-          edgeExtensions[panel.id] = panel.edgeExtensions;
-        }
+    for (const panel of panelCollection.panels) {
+      if (panel.edgeExtensions &&
+          (panel.edgeExtensions.top !== 0 ||
+           panel.edgeExtensions.bottom !== 0 ||
+           panel.edgeExtensions.left !== 0 ||
+           panel.edgeExtensions.right !== 0)) {
+        edgeExtensions[panel.id] = panel.edgeExtensions;
       }
     }
 
     const projectState: ProjectState = {
-      config: state.config,
-      faces: state.faces,
-      rootVoid: state.rootVoid,
+      config: engineSnapshot.config,
+      faces: engineSnapshot.faces,
+      rootVoid: engineSnapshot.rootVoid,
       edgeExtensions,
     };
 
@@ -2178,26 +2181,29 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   },
 
   getShareableUrl: () => {
-    const state = get();
+    // Read from engine (source of truth) instead of store state
+    const engineSnapshot = getEngineSnapshot();
+    if (!engineSnapshot) return '';
 
-    // Collect edge extensions from panels
+    // Get panels from engine to collect edge extensions
+    const engine = getEngine();
+    const panelCollection = engine.generatePanelsFromNodes();
+
     const edgeExtensions: Record<string, EdgeExtensions> = {};
-    if (state.panelCollection) {
-      for (const panel of state.panelCollection.panels) {
-        if (panel.edgeExtensions &&
-            (panel.edgeExtensions.top !== 0 ||
-             panel.edgeExtensions.bottom !== 0 ||
-             panel.edgeExtensions.left !== 0 ||
-             panel.edgeExtensions.right !== 0)) {
-          edgeExtensions[panel.id] = panel.edgeExtensions;
-        }
+    for (const panel of panelCollection.panels) {
+      if (panel.edgeExtensions &&
+          (panel.edgeExtensions.top !== 0 ||
+           panel.edgeExtensions.bottom !== 0 ||
+           panel.edgeExtensions.left !== 0 ||
+           panel.edgeExtensions.right !== 0)) {
+        edgeExtensions[panel.id] = panel.edgeExtensions;
       }
     }
 
     const projectState: ProjectState = {
-      config: state.config,
-      faces: state.faces,
-      rootVoid: state.rootVoid,
+      config: engineSnapshot.config,
+      faces: engineSnapshot.faces,
+      rootVoid: engineSnapshot.rootVoid,
       edgeExtensions,
     };
 
