@@ -4,70 +4,94 @@ paths:
   - "src/**/*.tsx"
 ---
 
-# Panel ID Rules
+# Panel ID System
 
-## Always Use Centralized ID Utilities
+## Panel IDs are UUIDs
 
-Panel IDs must be created and parsed using the utilities in `src/utils/panelIds.ts`. **Never concatenate ID strings manually.**
+Panel IDs are generated using `crypto.randomUUID()`. They are **not** deterministic strings like `face-front` or `divider-void123-x-50`.
 
-### Creating IDs
+**Do NOT:**
+- Parse panel IDs to extract information
+- Construct panel IDs manually
+- Use utilities from `src/utils/panelIds.ts` (deprecated)
 
-```typescript
-import { createFacePanelId, createDividerPanelId } from '../utils/panelIds';
+**Instead:** Use `PanelPath.source` metadata to identify panels.
 
-// Face panels
-const faceId = createFacePanelId('front');              // 'face-front'
-const subFaceId = createFacePanelId('front', 'sub123'); // 'sub123-face-front'
+## Identifying Panels by Source
 
-// Divider panels
-const dividerId = createDividerPanelId('void123', 'x', 50); // 'divider-void123-x-50'
-```
-
-### Parsing IDs
+Each panel has a `source` object with semantic information:
 
 ```typescript
-import {
-  parseFacePanelId,
-  parseDividerPanelId,
-  getVoidIdFromDividerPanelId,
-  getPanelType
-} from '../utils/panelIds';
-
-// Extract components from panel IDs
-const faceInfo = parseFacePanelId('face-front');     // { faceId: 'front' }
-const dividerInfo = parseDividerPanelId('divider-abc-x-50'); // { voidId: 'abc', axis: 'x', position: 50 }
-
-// Get void ID from any divider format
-const voidId = getVoidIdFromDividerPanelId('divider-abc-x-50'); // 'abc'
-
-// Detect panel type
-const type = getPanelType('divider-abc-x-50'); // 'divider'
+interface PanelSource {
+  type: 'face' | 'divider';
+  faceId?: FaceId;           // For face panels: 'front', 'back', etc.
+  subdivisionId?: string;    // For dividers: parent void ID
+  axis?: 'x' | 'y' | 'z';    // For dividers: split axis
+  position?: number;         // For dividers: split position
+  subAssemblyId?: string;    // For sub-assembly panels
+}
 ```
 
-### Getting All Divider IDs from Void Tree
+### Examples
 
 ```typescript
-import { getAllDividerPanelIds, getDividerPanelIdByVoidId } from '../utils/panelIds';
+// Find a specific face panel
+const frontPanel = panels.find(p =>
+  p.source.type === 'face' &&
+  p.source.faceId === 'front' &&
+  !p.source.subAssemblyId
+);
 
-// Get all divider panel IDs in a void tree
-const allDividerIds = getAllDividerPanelIds(rootVoid);
+// Find all divider panels
+const dividers = panels.filter(p => p.source.type === 'divider');
 
-// Get divider ID for a specific void
-const dividerId = getDividerPanelIdByVoidId(rootVoid, 'targetVoidId');
+// Find divider by parent void and axis
+const xDivider = panels.find(p =>
+  p.source.type === 'divider' &&
+  p.source.subdivisionId === parentVoidId &&
+  p.source.axis === 'x'
+);
 ```
 
-## ID Formats (Reference)
+## Building Lookup Maps
 
-| Panel Type | Format | Example |
-|------------|--------|---------|
-| Face (main) | `face-{faceId}` | `face-front` |
-| Face (sub-assembly) | `{subAsmId}-face-{faceId}` | `sub123-face-front` |
-| Divider | `divider-{voidId}-{axis}-{position}` | `divider-abc123-x-50` |
-| Divider slot | `divider-slot-{id}-{index}` | `divider-slot-abc-0` |
+For components that need to map semantic info to panel IDs (e.g., tree views), build a lookup map:
 
-## Why This Matters
+```typescript
+function buildPanelLookup(panels: PanelPath[]) {
+  const facePanels = new Map<FaceId, string>();
+  const dividerPanels = new Map<string, string>();
 
-Inconsistent ID formats cause selection bugs where:
-- 3D view shows item as selected (using engine's ID format)
-- Tree view shows item as unselected (using different format)
-- Operations fail to find panels (ID mismatch)
+  for (const panel of panels) {
+    if (panel.source.type === 'face' && panel.source.faceId && !panel.source.subAssemblyId) {
+      facePanels.set(panel.source.faceId, panel.id);
+    } else if (panel.source.type === 'divider') {
+      // Key: "parentVoidId-axis-position"
+      const key = `${panel.source.subdivisionId}-${panel.source.axis}-${panel.source.position}`;
+      dividerPanels.set(key, panel.id);
+    }
+  }
+
+  return { facePanels, dividerPanels };
+}
+```
+
+See `BoxTree.tsx` for a complete example.
+
+## Why UUIDs?
+
+During operations like subdivision, the engine clones the scene for preview. With deterministic IDs:
+- Preview panels would get the same IDs as committed panels
+- Selection state would become invalid when switching between preview/committed state
+
+With UUIDs cached on VoidNode:
+- Existing panels keep their IDs across clones
+- Only new panels get new IDs
+- Selection remains valid throughout preview/commit cycles
+
+## ID Caching (Engine Internals)
+
+Divider panel IDs are cached on `VoidNode._dividerPanelId`:
+- When `BaseAssembly.collectDividerPanels()` creates a panel, it checks for cached ID
+- If cached, uses existing ID; if not, generates new UUID and caches it
+- `VoidNode.clone()` copies the cached ID to preserve identity

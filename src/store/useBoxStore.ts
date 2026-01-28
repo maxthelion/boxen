@@ -8,7 +8,6 @@ import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { BoundsOps, getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions, InsetRegions } from '../utils/bounds';
 import { VoidTree } from '../utils/voidTree';
-import { getDividerPanelIdByVoidId, getAllDividerPanelIds, createDividerPanelId } from '../utils/panelIds';
 
 // Re-export bounds helpers for external use
 export { getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions };
@@ -255,6 +254,70 @@ export const isSubAssemblyVisible = (
 ): boolean => {
   return !hiddenSubAssemblyIds.has(subAssemblyId);
 };
+
+// =============================================================================
+// Panel ID Lookup (from Engine)
+// =============================================================================
+//
+// Panel IDs are UUIDs, not deterministic strings. To find a panel by its
+// semantic properties (void ID, axis, etc.), we must look it up from the
+// engine's generated panels using PanelPath.source metadata.
+// =============================================================================
+
+/**
+ * Build a lookup map from child void ID to its divider panel ID.
+ *
+ * Divider panels are associated with child voids that have split info.
+ * The panel's source.subdivisionId is the PARENT void's ID (the void being subdivided),
+ * so we need to match by axis and position to find the right child.
+ */
+export function buildDividerPanelLookup(panels: PanelPath[]): Map<string, string> {
+  const lookup = new Map<string, string>();
+
+  for (const panel of panels) {
+    if (panel.source.type === 'divider' && panel.source.subdivisionId) {
+      // Key format: "parentVoidId-axis-position"
+      // This matches how getDividerPanels in BoxTree.tsx builds its lookup
+      const key = `${panel.source.subdivisionId}-${panel.source.axis}-${panel.source.position}`;
+      lookup.set(key, panel.id);
+    }
+  }
+
+  return lookup;
+}
+
+/**
+ * Get the divider panel ID for a child void that has split info.
+ * Returns null if no matching panel is found.
+ *
+ * @param panels - All panels from engine.generatePanelsFromNodes()
+ * @param parentVoidId - The ID of the parent void (void being subdivided)
+ * @param axis - The split axis
+ * @param position - The split position
+ */
+export function getDividerPanelId(
+  panels: PanelPath[],
+  parentVoidId: string,
+  axis: 'x' | 'y' | 'z',
+  position: number
+): string | null {
+  const panel = panels.find(p =>
+    p.source.type === 'divider' &&
+    p.source.subdivisionId === parentVoidId &&
+    p.source.axis === axis &&
+    p.source.position === position
+  );
+  return panel?.id ?? null;
+}
+
+/**
+ * Get all divider panel IDs from the engine panels.
+ */
+export function getAllDividerPanelIdsFromEngine(panels: PanelPath[]): string[] {
+  return panels
+    .filter(p => p.source.type === 'divider')
+    .map(p => p.id);
+}
 
 // =============================================================================
 // Selection Manager
@@ -1048,16 +1111,24 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const newHiddenSubAssemblyIds = new Set(state.hiddenSubAssemblyIds);
       const newIsolateHiddenSubAssemblyIds = new Set<string>();
 
-      // Hide voids that should not be visible, and their divider panels
+      // Hide voids that should not be visible
       for (const id of allVoidIds) {
         if (!visibleVoidIds.has(id) && !state.hiddenVoidIds.has(id)) {
           newHiddenVoidIds.add(id);
           newIsolateHiddenVoidIds.add(id);
-          // Also hide the divider panel for this void (if it has one)
-          const dividerId = getDividerPanelIdByVoidId(state.rootVoid, id);
-          if (dividerId && !state.hiddenFaceIds.has(dividerId)) {
-            newHiddenFaceIds.add(dividerId);
-            newIsolateHiddenFaceIds.add(dividerId);
+        }
+      }
+
+      // Hide divider panels whose parent void is not visible
+      // (divider.source.subdivisionId = parent void ID)
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes().panels;
+      for (const panel of panels) {
+        if (panel.source.type === 'divider' && panel.source.subdivisionId) {
+          // Show divider only if its parent void (subdivisionId) is visible
+          if (!visibleVoidIds.has(panel.source.subdivisionId) && !state.hiddenFaceIds.has(panel.id)) {
+            newHiddenFaceIds.add(panel.id);
+            newIsolateHiddenFaceIds.add(panel.id);
           }
         }
       }
@@ -1141,18 +1212,22 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const newHiddenSubAssemblyIds = new Set(state.hiddenSubAssemblyIds);
       const newIsolateHiddenSubAssemblyIds = new Set<string>();
 
-      // Hide all voids and their divider panels
+      // Hide all voids
       const allVoidIds = getVoidSubtreeIds(state.rootVoid);
       for (const id of allVoidIds) {
         if (!state.hiddenVoidIds.has(id)) {
           newHiddenVoidIds.add(id);
           newIsolateHiddenVoidIds.add(id);
-          // Also hide the divider panel for this void (if it has one)
-          const dividerId = getDividerPanelIdByVoidId(state.rootVoid, id);
-          if (dividerId && !state.hiddenFaceIds.has(dividerId)) {
-            newHiddenFaceIds.add(dividerId);
-            newIsolateHiddenFaceIds.add(dividerId);
-          }
+        }
+      }
+
+      // Hide all divider panels (isolating sub-assembly means hiding main assembly dividers)
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes().panels;
+      for (const panel of panels) {
+        if (panel.source.type === 'divider' && !state.hiddenFaceIds.has(panel.id)) {
+          newHiddenFaceIds.add(panel.id);
+          newIsolateHiddenFaceIds.add(panel.id);
         }
       }
 
@@ -1252,12 +1327,12 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Hide all divider panels except the isolated one
-      // Use centralized utility to get all divider panel IDs in correct format
-      const allDividerIds = getAllDividerPanelIds(state.rootVoid);
-      for (const dividerId of allDividerIds) {
-        if (dividerId !== panelId && !state.hiddenFaceIds.has(dividerId)) {
-          newHiddenFaceIds.add(dividerId);
-          newIsolateHiddenFaceIds.add(dividerId);
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes().panels;
+      for (const panel of panels) {
+        if (panel.source.type === 'divider' && panel.id !== panelId && !state.hiddenFaceIds.has(panel.id)) {
+          newHiddenFaceIds.add(panel.id);
+          newIsolateHiddenFaceIds.add(panel.id);
         }
       }
 

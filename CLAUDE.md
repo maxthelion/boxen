@@ -53,7 +53,6 @@ src/
     ├── fingerJoints.ts     # Finger joint pattern generation
     ├── faceGeometry.ts     # Face/edge relationship helpers
     ├── genderRules.ts      # Finger joint gender determination
-    ├── panelIds.ts         # Panel ID creation/parsing (ALWAYS USE THIS)
     ├── svgExport.ts        # SVG export for laser cutting
     └── debug.ts            # Global debug system
 ```
@@ -151,28 +150,60 @@ Finger joints connect panels at intersections. The system determines:
 
 ## Common Patterns
 
-### Panel ID Conventions
+### Panel ID System
 
-**Always use `src/utils/panelIds.ts` utilities for creating/parsing panel IDs. Never concatenate ID strings manually.**
+**Panel IDs are UUIDs**, not deterministic strings. This ensures uniqueness and stability across scene clones.
 
-| Panel Type | Format | Example |
-|------------|--------|---------|
-| Face (main) | `face-{faceId}` | `face-front` |
-| Face (sub-assembly) | `{subAsmId}-face-{faceId}` | `sub123-face-front` |
-| Divider | `divider-{voidId}-{axis}-{position}` | `divider-abc123-x-50` |
+**Why UUIDs?** During operations like subdivision, the engine clones the scene for preview. With deterministic IDs (e.g., `divider-void123-x-50`), new panels created during preview would get the same IDs as committed panels, causing selection bugs. UUIDs ensure each panel instance has a unique identity.
+
+**ID Stability Across Clones:** Divider panel IDs are cached on VoidNode (`_dividerPanelId`). When the scene is cloned:
+- Existing panels keep their cached UUIDs
+- Only NEW panels (from the current operation) get new UUIDs
+- This preserves selection state during preview/commit cycles
+
+**Identifying Panels:** Don't parse panel IDs - use `PanelPath.source` metadata instead:
 
 ```typescript
-import { createFacePanelId, createDividerPanelId, getVoidIdFromDividerPanelId } from '../utils/panelIds';
+// PanelPath.source contains semantic info about the panel
+interface PanelSource {
+  type: 'face' | 'divider';
+  faceId?: FaceId;           // For face panels
+  subdivisionId?: string;    // Parent void ID (for dividers)
+  axis?: 'x' | 'y' | 'z';    // Split axis (for dividers)
+  position?: number;         // Split position (for dividers)
+  subAssemblyId?: string;    // For sub-assembly panels
+}
 
-// Creating IDs
-const faceId = createFacePanelId('front');
-const dividerId = createDividerPanelId('void123', 'x', 50);
+// Example: Find a divider panel by its source info
+const dividerPanel = panels.find(p =>
+  p.source.type === 'divider' &&
+  p.source.subdivisionId === parentVoidId &&
+  p.source.axis === 'x'
+);
 
-// Parsing IDs
-const voidId = getVoidIdFromDividerPanelId('divider-abc-x-50'); // 'abc'
+// Example: Find face panels for the main assembly
+const mainFacePanels = panels.filter(p =>
+  p.source.type === 'face' && !p.source.subAssemblyId
+);
 ```
 
-See `.claude/rules/panel-ids.md` for full API reference.
+**Building Lookup Maps:** For components that need to map semantic info to panel IDs, build a lookup map from engine panels (see `BoxTree.tsx` for example):
+
+```typescript
+function buildPanelLookup(panels: PanelPath[]) {
+  const dividerPanels = new Map<string, string>();
+  for (const panel of panels) {
+    if (panel.source.type === 'divider') {
+      // Key: "parentVoidId-axis-position"
+      const key = `${panel.source.subdivisionId}-${panel.source.axis}-${panel.source.position}`;
+      dividerPanels.set(key, panel.id);
+    }
+  }
+  return { dividerPanels };
+}
+```
+
+**⚠️ Deprecated:** The utilities in `src/utils/panelIds.ts` construct deterministic IDs and are incompatible with the UUID system. Do not use them for new code.
 
 ### Dispatching Model Changes
 
