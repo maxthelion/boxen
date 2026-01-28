@@ -2657,6 +2657,69 @@ body {
   text-align: center;
 }
 
+.palette-hint-small {
+  font-size: 10px;
+  color: #666;
+  margin-top: 4px;
+  text-align: center;
+}
+
+/* Axis buttons */
+.palette-section {
+  margin-bottom: 12px;
+}
+
+.palette-axis-buttons {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.palette-axis-btn {
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #2a2a2a;
+  color: #ddd;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.palette-axis-btn:hover:not(:disabled) {
+  background: #3a3a3a;
+  border-color: #666;
+}
+
+.palette-axis-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.palette-axis-btn.selected {
+  background: #4a7c59;
+  border-color: #5a9c69;
+  color: #fff;
+}
+
+.palette-axis-btn.selected:hover:not(:disabled) {
+  background: #5a8c69;
+}
+
+.palette-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.palette-value {
+  font-size: 12px;
+  color: #aaa;
+}
+
 /* Checkboxes */
 
 .palette-checkbox-group {

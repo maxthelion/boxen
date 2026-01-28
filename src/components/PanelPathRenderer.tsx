@@ -2,7 +2,7 @@ import React, { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { PanelPath, PathPoint } from '../types';
 import { useBoxStore } from '../store/useBoxStore';
-import { useEnginePanels } from '../engine';
+import { useEnginePanels, useEngineMainPanels, getEngine } from '../engine';
 
 interface PanelPathRendererProps {
   panel: PanelPath;
@@ -264,12 +264,24 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
 }) => {
   // Get panel collection from engine - automatically includes preview when active
   const panelCollection = useEnginePanels();
+  // Get main (committed) panels to compare and identify new preview-only panels
+  const mainPanelCollection = useEngineMainPanels();
 
   const hoveredPanelId = useBoxStore((state) => state.hoveredPanelId);
   const hoveredAssemblyId = useBoxStore((state) => state.hoveredAssemblyId);
   const selectedAssemblyId = useBoxStore((state) => state.selectedAssemblyId);
   const selectedSubAssemblyIds = useBoxStore((state) => state.selectedSubAssemblyIds);
   const setHoveredPanel = useBoxStore((state) => state.setHoveredPanel);
+
+  // Check if we're rendering a preview
+  const engine = getEngine();
+  const isPreviewMode = engine.hasPreview();
+
+  // Build set of main panel IDs to identify which panels are new in preview
+  const mainPanelIds = useMemo(() => {
+    if (!mainPanelCollection) return new Set<string>();
+    return new Set(mainPanelCollection.panels.map(p => p.id));
+  }, [mainPanelCollection]);
 
   if (!panelCollection) {
     return null;
@@ -302,8 +314,10 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
         const isHovered = isPanelHovered || isAssemblyHovered;
 
         // Color based on panel type
+        // New preview panels (not in main scene): bright green
         // Sub-assembly: teal, Divider: orange, Main box: blue
-        const color = isSubAssemblyPanel ? '#1abc9c' : isDivider ? '#f39c12' : '#3498db';
+        const isNewPreviewPanel = isPreviewMode && !mainPanelIds.has(panel.id);
+        const color = isNewPreviewPanel ? '#00ff00' : isSubAssemblyPanel ? '#1abc9c' : isDivider ? '#f39c12' : '#3498db';
 
         return (
           <PanelPathRenderer

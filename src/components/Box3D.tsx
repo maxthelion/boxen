@@ -492,7 +492,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
-  const { subdivisionPreview, subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
+  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectedAssemblyId, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
 
   // Check if a preview is currently active
   const isPreviewActive = operationState.activeOperation !== null;
@@ -526,124 +526,6 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
 
   // Get all sub-assemblies
   const subAssemblies = getAllSubAssemblies(rootVoid);
-
-  // Get preview void bounds if preview is active, with insets for panel thickness
-  const previewVoid = subdivisionPreview ? findVoid(rootVoid, subdivisionPreview.voidId) : null;
-
-  // Calculate offset for preview voids to convert from void coordinates to centered world coordinates
-  // This needs to account for: main wall thickness, sub-assembly position, and main box center
-  const previewOffset = useMemo(() => {
-    if (!subdivisionPreview) return { x: 0, y: 0, z: 0 };
-
-    const mainCenterX = config.width / 2;
-    const mainCenterY = config.height / 2;
-    const mainCenterZ = config.depth / 2;
-
-    // Find the sub-assembly that contains this void
-    const subAssemblyInfo = findParentSubAssemblyInfo(rootVoid, subdivisionPreview.voidId);
-
-    if (!subAssemblyInfo) {
-      // Void is in main box - offset just centers the coordinates
-      // Void coords use exterior dimensions (0 to width), so we just need to subtract the center
-      return {
-        x: -mainCenterX,
-        y: -mainCenterY,
-        z: -mainCenterZ,
-      };
-    }
-
-    const { subAssembly, parentBounds } = subAssemblyInfo;
-
-    // Sub-assembly outer dimensions
-    const subOuterW = subAssembly.rootVoid.bounds.w + 2 * subAssembly.materialThickness;
-    const subOuterH = subAssembly.rootVoid.bounds.h + 2 * subAssembly.materialThickness;
-    const subOuterD = subAssembly.rootVoid.bounds.d + 2 * subAssembly.materialThickness;
-
-    const offsets = subAssembly.faceOffsets || { left: 0, right: 0, top: 0, bottom: 0, front: 0, back: 0 };
-
-    // Sub-assembly center in main interior coordinates
-    const subCenterX = parentBounds.x + subAssembly.clearance - offsets.left + subOuterW / 2;
-    const subCenterY = parentBounds.y + subAssembly.clearance - offsets.bottom + subOuterH / 2;
-    const subCenterZ = parentBounds.z + subAssembly.clearance - offsets.back + subOuterD / 2;
-
-    // Sub-assembly interior dimensions
-    const subInteriorW = subAssembly.rootVoid.bounds.w;
-    const subInteriorH = subAssembly.rootVoid.bounds.h;
-    const subInteriorD = subAssembly.rootVoid.bounds.d;
-
-    // Offset to convert from sub-assembly interior coordinates to main-box-centered world coordinates
-    // Interior coords (0,0,0) is the interior corner of the sub-assembly
-    // This corner is at: main wall thickness + sub-assembly position + sub-assembly wall thickness
-    // = mainMaterialThickness + (subCenter - subOuterSize/2 + subMaterialThickness)
-    // = mainMaterialThickness + subCenter - subInteriorSize/2 - subMaterialThickness + subMaterialThickness
-    // = mainMaterialThickness + subCenter - subInteriorSize/2
-    return {
-      x: config.materialThickness + subCenterX - subInteriorW / 2 - mainCenterX,
-      y: config.materialThickness + subCenterY - subInteriorH / 2 - mainCenterY,
-      z: config.materialThickness + subCenterZ - subInteriorD / 2 - mainCenterZ,
-    };
-  }, [rootVoid, subdivisionPreview, config]);
-
-  // Find the sub-assembly that contains this void (for face solid checks)
-  const previewSubAssembly = useMemo(() => {
-    if (!subdivisionPreview) return null;
-    for (const { subAssembly } of subAssemblies) {
-      if (findVoid(subAssembly.rootVoid, subdivisionPreview.voidId)) {
-        return subAssembly;
-      }
-    }
-    return null;
-  }, [subdivisionPreview, subAssemblies]);
-
-  // Calculate inset bounds for preview (accounting for solid outer faces)
-  const previewInsetBounds = useMemo(() => {
-    if (!previewVoid) return null;
-    const { bounds } = previewVoid;
-    const tolerance = 0.01;
-
-    // Use sub-assembly's material thickness and faces if inside one
-    const mt = previewSubAssembly?.materialThickness ?? config.materialThickness;
-    const previewFaces = previewSubAssembly?.faces ?? faces;
-
-    // For sub-assembly voids, check against the sub-assembly's interior dimensions
-    // The sub-assembly rootVoid bounds represent the interior space
-    const containerW = previewSubAssembly?.rootVoid.bounds.w ?? width;
-    const containerH = previewSubAssembly?.rootVoid.bounds.h ?? height;
-    const containerD = previewSubAssembly?.rootVoid.bounds.d ?? depth;
-
-    // Check which edges are at outer boundaries (of the containing box/sub-assembly)
-    const atLeft = bounds.x < tolerance;
-    const atRight = Math.abs(bounds.x + bounds.w - containerW) < tolerance;
-    const atBottom = bounds.y < tolerance;
-    const atTop = Math.abs(bounds.y + bounds.h - containerH) < tolerance;
-    const atBack = bounds.z < tolerance;
-    const atFront = Math.abs(bounds.z + bounds.d - containerD) < tolerance;
-
-    // Check which faces are solid (from main box or sub-assembly)
-    const leftSolid = previewFaces.find(f => f.id === 'left')?.solid ?? false;
-    const rightSolid = previewFaces.find(f => f.id === 'right')?.solid ?? false;
-    const bottomSolid = previewFaces.find(f => f.id === 'bottom')?.solid ?? false;
-    const topSolid = previewFaces.find(f => f.id === 'top')?.solid ?? false;
-    const backSolid = previewFaces.find(f => f.id === 'back')?.solid ?? false;
-    const frontSolid = previewFaces.find(f => f.id === 'front')?.solid ?? false;
-
-    // Calculate insets
-    const insetLeft = (atLeft && leftSolid) ? mt : 0;
-    const insetRight = (atRight && rightSolid) ? mt : 0;
-    const insetBottom = (atBottom && bottomSolid) ? mt : 0;
-    const insetTop = (atTop && topSolid) ? mt : 0;
-    const insetBack = (atBack && backSolid) ? mt : 0;
-    const insetFront = (atFront && frontSolid) ? mt : 0;
-
-    return {
-      x: bounds.x + insetLeft,
-      y: bounds.y + insetBottom,
-      z: bounds.z + insetBack,
-      w: bounds.w - insetLeft - insetRight,
-      h: bounds.h - insetBottom - insetTop,
-      d: bounds.d - insetBack - insetFront,
-    };
-  }, [previewVoid, config.materialThickness, width, height, depth, faces, previewSubAssembly]);
 
   // Calculate the 8 box corner anchor points (inset by half material thickness)
   // This represents the center of the panel material at each corner.
@@ -912,53 +794,6 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
               selectPanel(`sub-${sub.id}`, e?.shiftKey);
             } : undefined}
           />
-        );
-      })}
-
-      {/* Preview panels (semi-transparent, different color) with thickness */}
-      {subdivisionPreview && previewVoid && previewInsetBounds && subdivisionPreview.positions.map((pos, idx) => {
-        const bounds = previewInsetBounds;
-        let position: [number, number, number];
-        let rotation: [number, number, number];
-        let size: [number, number];
-
-        // Apply offset for converting void coords to centered world coords
-        // The offset already includes the main center subtraction
-        const offsetX = previewOffset.x;
-        const offsetY = previewOffset.y;
-        const offsetZ = previewOffset.z;
-
-        const centerX = (bounds.x + bounds.w / 2 + offsetX) * scale;
-        const centerY = (bounds.y + bounds.h / 2 + offsetY) * scale;
-        const centerZ = (bounds.z + bounds.d / 2 + offsetZ) * scale;
-
-        switch (subdivisionPreview.axis) {
-          case 'x':
-            position = [(pos + offsetX) * scale, centerY, centerZ];
-            rotation = [0, Math.PI / 2, 0];
-            size = [bounds.d * scale, bounds.h * scale];
-            break;
-          case 'y':
-            position = [centerX, (pos + offsetY) * scale, centerZ];
-            rotation = [Math.PI / 2, 0, 0];
-            size = [bounds.w * scale, bounds.d * scale];
-            break;
-          case 'z':
-            position = [centerX, centerY, (pos + offsetZ) * scale];
-            rotation = [0, 0, 0];
-            size = [bounds.w * scale, bounds.h * scale];
-            break;
-        }
-
-        return (
-          <mesh key={`preview-${idx}`} position={position} rotation={rotation}>
-            <boxGeometry args={[size[0], size[1], scaledThickness]} />
-            <meshStandardMaterial
-              color="#2ecc71"
-              transparent
-              opacity={0.7}
-            />
-          </mesh>
         );
       })}
 

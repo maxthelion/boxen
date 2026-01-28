@@ -22,6 +22,7 @@ import {
 } from './types';
 import { PanelCollection } from '../types';
 import { generatePanelsFromEngine } from './panelBridge';
+import { appendDebug } from '../utils/debug';
 
 export class Engine {
   private _scene: SceneNode;
@@ -41,6 +42,8 @@ export class Engine {
    * All subsequent dispatches with preview: true will modify the preview scene
    */
   startPreview(): void {
+    const stack = new Error().stack?.split('\n').slice(2, 5).map(s => s.trim()).join('\n    ') || '';
+    appendDebug(`[${new Date().toISOString()}] startPreview (existing: ${!!this._previewScene})\n    ${stack}`);
     if (this._previewScene) {
       console.warn('Preview already active, discarding previous preview');
     }
@@ -52,6 +55,8 @@ export class Engine {
    * Commit the preview, making it the new main scene
    */
   commitPreview(): void {
+    const stack = new Error().stack?.split('\n').slice(2, 5).map(s => s.trim()).join('\n    ') || '';
+    appendDebug(`[${new Date().toISOString()}] commitPreview (has: ${!!this._previewScene})\n    ${stack}`);
     if (this._previewScene) {
       this._scene = this._previewScene;
       this._previewScene = null;
@@ -63,6 +68,8 @@ export class Engine {
    * Discard the preview, reverting to the main scene
    */
   discardPreview(): void {
+    const stack = new Error().stack?.split('\n').slice(2, 5).map(s => s.trim()).join('\n    ') || '';
+    appendDebug(`[${new Date().toISOString()}] discardPreview (has: ${!!this._previewScene})\n    ${stack}`);
     if (this._previewScene) {
       this._previewScene = null;
       this.invalidateNodeMap();

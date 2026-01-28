@@ -19,6 +19,7 @@ import {
   MAIN_FACE_PANEL_IDS,
 } from '../types';
 import { useBoxStore } from './useBoxStore';
+import { dispatchToEngine, syncStoreToEngine } from '../engine';
 
 // Mock the store creation for testing
 // We test the logic directly without the full store implementation
@@ -304,16 +305,23 @@ describe('Isolate Functionality', () => {
 });
 
 describe('Push/Pull Face Offset', () => {
-  // Helper to create a subdivision in the root void
+  // Helper to create a subdivision in the root void using engine dispatch
   const createSubdivision = (axis: 'x' | 'y' | 'z', position: number) => {
     const store = useBoxStore.getState();
-    store.setSubdivisionPreview({
-      voidId: 'root',
-      axis,
-      count: 1,
-      positions: [position],
+    // Use engine dispatch to add subdivision
+    syncStoreToEngine(store.config, store.faces, store.rootVoid);
+    const result = dispatchToEngine({
+      type: 'ADD_SUBDIVISIONS',
+      targetId: 'main-assembly',
+      payload: {
+        voidId: 'root',
+        axis,
+        positions: [position],
+      },
     });
-    store.applySubdivision();
+    if (result.success && result.snapshot) {
+      useBoxStore.setState({ rootVoid: result.snapshot.rootVoid });
+    }
   };
 
   beforeEach(() => {
@@ -333,7 +341,6 @@ describe('Push/Pull Face Offset', () => {
         bounds: { x: 0, y: 0, z: 0, w: 100, h: 80, d: 60 },
         children: [],
       },
-      subdivisionPreview: null,
     });
   });
 
@@ -603,370 +610,3 @@ describe('Push/Pull Face Offset', () => {
   });
 });
 
-describe('Preview System', () => {
-  beforeEach(() => {
-    // Reset store to initial state before each test
-    useBoxStore.setState({
-      config: {
-        width: 100,
-        height: 80,
-        depth: 60,
-        materialThickness: 3,
-        fingerWidth: 10,
-        fingerGap: 3,
-        assembly: defaultAssemblyConfig,
-      },
-      faces: [
-        { id: 'front', solid: true },
-        { id: 'back', solid: true },
-        { id: 'left', solid: true },
-        { id: 'right', solid: true },
-        { id: 'top', solid: true },
-        { id: 'bottom', solid: true },
-      ],
-      rootVoid: {
-        id: 'root',
-        bounds: { x: 0, y: 0, z: 0, w: 100, h: 80, d: 60 },
-        children: [],
-      },
-      previewState: null,
-      previewPanelCollection: null,
-      panelsDirty: true,
-    });
-
-    // Generate initial panels
-    useBoxStore.getState().generatePanels();
-  });
-
-  describe('startPreview', () => {
-    it('should create a preview state that is independent from main state', () => {
-      const store = useBoxStore.getState();
-
-      // Start a preview
-      store.startPreview('push-pull', { faceId: 'front', mode: 'scale' });
-
-      const state = useBoxStore.getState();
-
-      // Preview state should exist
-      expect(state.previewState).not.toBeNull();
-      expect(state.previewState?.type).toBe('push-pull');
-      expect(state.previewState?.metadata?.faceId).toBe('front');
-
-      // Preview config should match main config initially
-      expect(state.previewState?.config.width).toBe(state.config.width);
-      expect(state.previewState?.config.height).toBe(state.config.height);
-      expect(state.previewState?.config.depth).toBe(state.config.depth);
-
-      // Preview should be a separate object (not the same reference)
-      expect(state.previewState?.config).not.toBe(state.config);
-      expect(state.previewState?.rootVoid).not.toBe(state.rootVoid);
-    });
-
-    it('should generate preview panel collection', () => {
-      const store = useBoxStore.getState();
-
-      store.startPreview('push-pull', { faceId: 'front', mode: 'scale' });
-
-      const state = useBoxStore.getState();
-
-      // Preview panel collection should exist
-      expect(state.previewPanelCollection).not.toBeNull();
-      expect(state.previewPanelCollection?.panels.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('updatePreviewFaceOffset', () => {
-    it('should apply offset relative to MAIN state dimensions, not accumulated preview', () => {
-      const store = useBoxStore.getState();
-      const initialDepth = store.config.depth; // 60
-
-      // Start preview
-      store.startPreview('push-pull', { faceId: 'front', mode: 'scale' });
-
-      // Apply offset of 10
-      store.updatePreviewFaceOffset('front', 10, 'scale');
-
-      let state = useBoxStore.getState();
-      expect(state.previewState?.config.depth).toBe(initialDepth + 10); // 70
-
-      // Apply offset of 20 (should be relative to ORIGINAL 60, not 70)
-      store.updatePreviewFaceOffset('front', 20, 'scale');
-
-      state = useBoxStore.getState();
-      expect(state.previewState?.config.depth).toBe(initialDepth + 20); // 80, NOT 90
-
-      // Main state should remain unchanged
-      expect(state.config.depth).toBe(initialDepth);
-    });
-
-    it('should NOT modify main state when updating preview', () => {
-      const store = useBoxStore.getState();
-      const initialWidth = store.config.width;
-      const initialHeight = store.config.height;
-      const initialDepth = store.config.depth;
-
-      // Start preview and apply offset
-      store.startPreview('push-pull', { faceId: 'right', mode: 'scale' });
-      store.updatePreviewFaceOffset('right', 50, 'scale');
-
-      const state = useBoxStore.getState();
-
-      // Main state should be unchanged
-      expect(state.config.width).toBe(initialWidth);
-      expect(state.config.height).toBe(initialHeight);
-      expect(state.config.depth).toBe(initialDepth);
-
-      // Preview state should have the changes
-      expect(state.previewState?.config.width).toBe(initialWidth + 50);
-    });
-
-    it('should update preview panel positions', () => {
-      const store = useBoxStore.getState();
-
-      store.startPreview('push-pull', { faceId: 'front', mode: 'scale' });
-
-      // Get initial preview panel position
-      let state = useBoxStore.getState();
-      const initialPanel = state.previewPanelCollection?.panels.find(p => p.id === 'face-front');
-      const initialZ = initialPanel?.position[2];
-
-      // Apply offset
-      store.updatePreviewFaceOffset('front', 30, 'scale');
-
-      state = useBoxStore.getState();
-      const updatedPanel = state.previewPanelCollection?.panels.find(p => p.id === 'face-front');
-      const updatedZ = updatedPanel?.position[2];
-
-      // Panel Z position should have increased
-      expect(updatedZ).toBeGreaterThan(initialZ!);
-    });
-
-    it('should move both faces proportionally (scale around center)', () => {
-      const store = useBoxStore.getState();
-
-      // Get initial panel positions
-      const initialRightX = store.panelCollection?.panels.find(p => p.id === 'face-right')?.position[0];
-      const initialLeftX = store.panelCollection?.panels.find(p => p.id === 'face-left')?.position[0];
-
-      // Start preview and push right face outward by 20
-      store.startPreview('push-pull', { faceId: 'right', mode: 'scale' });
-      store.updatePreviewFaceOffset('right', 20, 'scale');
-
-      const state = useBoxStore.getState();
-      const previewRightX = state.previewPanelCollection?.panels.find(p => p.id === 'face-right')?.position[0];
-      const previewLeftX = state.previewPanelCollection?.panels.find(p => p.id === 'face-left')?.position[0];
-
-      // Box scales around center - both faces move by half the offset
-      // Right face moves +10 (outward)
-      expect(previewRightX).toBeCloseTo(initialRightX! + 10, 1);
-
-      // Left face moves -10 (outward in negative direction)
-      expect(previewLeftX).toBeCloseTo(initialLeftX! - 10, 1);
-    });
-
-    it('should keep all preview panels within the bounding box centered at origin', () => {
-      const store = useBoxStore.getState();
-      const { width, height, depth } = store.config;
-      const mt = store.config.materialThickness;
-
-      // Start preview and push right face outward by 30
-      store.startPreview('push-pull', { faceId: 'right', mode: 'scale' });
-      store.updatePreviewFaceOffset('right', 30, 'scale');
-
-      const state = useBoxStore.getState();
-      const previewConfig = state.previewState!.config;
-
-      // New dimensions
-      const newWidth = previewConfig.width;
-      expect(newWidth).toBe(width + 30);
-
-      // Bounding box centered at origin with new dimensions
-      const expectedMinX = -newWidth / 2;
-      const expectedMaxX = newWidth / 2;
-      const expectedMinY = -height / 2;
-      const expectedMaxY = height / 2;
-      const expectedMinZ = -depth / 2;
-      const expectedMaxZ = depth / 2;
-
-      // Check each panel is within bounds (allowing for material thickness)
-      const panels = state.previewPanelCollection?.panels || [];
-      for (const panel of panels) {
-        const [px, py, pz] = panel.position;
-
-        // Panel positions should be within the expected bounding box
-        // (with some tolerance for material thickness positioning)
-        expect(px).toBeGreaterThanOrEqual(expectedMinX - mt);
-        expect(px).toBeLessThanOrEqual(expectedMaxX + mt);
-        expect(py).toBeGreaterThanOrEqual(expectedMinY - mt);
-        expect(py).toBeLessThanOrEqual(expectedMaxY + mt);
-        expect(pz).toBeGreaterThanOrEqual(expectedMinZ - mt);
-        expect(pz).toBeLessThanOrEqual(expectedMaxZ + mt);
-      }
-    });
-
-    it('should keep preview panels within bounds for negative offset (pull inward)', () => {
-      const store = useBoxStore.getState();
-      const { width, height, depth } = store.config;
-      const mt = store.config.materialThickness;
-
-      // Start preview and pull left face inward by -15 (shrinks box)
-      store.startPreview('push-pull', { faceId: 'left', mode: 'scale' });
-      store.updatePreviewFaceOffset('left', -15, 'scale');
-
-      const state = useBoxStore.getState();
-      const previewConfig = state.previewState!.config;
-
-      // New dimensions (smaller)
-      const newWidth = previewConfig.width;
-      expect(newWidth).toBe(width - 15);
-
-      // Bounding box centered at origin with new dimensions
-      const expectedMinX = -newWidth / 2;
-      const expectedMaxX = newWidth / 2;
-
-      // Check face panels are within bounds
-      const panels = state.previewPanelCollection?.panels || [];
-      for (const panel of panels) {
-        const [px, py, pz] = panel.position;
-        expect(px).toBeGreaterThanOrEqual(expectedMinX - mt);
-        expect(px).toBeLessThanOrEqual(expectedMaxX + mt);
-        expect(py).toBeGreaterThanOrEqual(-height / 2 - mt);
-        expect(py).toBeLessThanOrEqual(height / 2 + mt);
-        expect(pz).toBeGreaterThanOrEqual(-depth / 2 - mt);
-        expect(pz).toBeLessThanOrEqual(depth / 2 + mt);
-      }
-    });
-
-    it('should NOT modify main panel positions when updating preview', () => {
-      const store = useBoxStore.getState();
-
-      // Record original main panel positions
-      const originalMainPositions: Record<string, [number, number, number]> = {};
-      for (const p of store.panelCollection?.panels || []) {
-        originalMainPositions[p.id] = [...p.position] as [number, number, number];
-      }
-
-      // Start preview and apply a large offset
-      store.startPreview('push-pull', { faceId: 'right', mode: 'scale' });
-      store.updatePreviewFaceOffset('right', 50, 'scale');
-
-      const state = useBoxStore.getState();
-
-      // Main panel positions should be EXACTLY the same
-      for (const p of state.panelCollection?.panels || []) {
-        const original = originalMainPositions[p.id];
-        expect(p.position[0]).toBe(original[0]);
-        expect(p.position[1]).toBe(original[1]);
-        expect(p.position[2]).toBe(original[2]);
-      }
-    });
-  });
-
-  describe('commitPreview', () => {
-    it('should copy preview state to main state', () => {
-      const store = useBoxStore.getState();
-      const initialDepth = store.config.depth;
-
-      // Start preview and apply offset
-      store.startPreview('push-pull', { faceId: 'front', mode: 'scale' });
-      store.updatePreviewFaceOffset('front', 25, 'scale');
-
-      // Verify preview has changes
-      let state = useBoxStore.getState();
-      expect(state.previewState?.config.depth).toBe(initialDepth + 25);
-      expect(state.config.depth).toBe(initialDepth);
-
-      // Commit the preview
-      store.commitPreview();
-
-      state = useBoxStore.getState();
-
-      // Main state should now have the changes
-      expect(state.config.depth).toBe(initialDepth + 25);
-
-      // Preview should be cleared
-      expect(state.previewState).toBeNull();
-      expect(state.previewPanelCollection).toBeNull();
-    });
-
-    it('should regenerate panels centered at origin after commit', () => {
-      const store = useBoxStore.getState();
-      const initialDepth = store.config.depth; // 60
-      const mt = store.config.materialThickness; // 3
-
-      store.startPreview('push-pull', { faceId: 'front', mode: 'scale' });
-      store.updatePreviewFaceOffset('front', 40, 'scale');
-
-      // Commit
-      store.commitPreview();
-
-      // Trigger panel regeneration (panelsDirty was set to true)
-      store.generatePanels();
-
-      const state = useBoxStore.getState();
-
-      // Config should have new depth
-      expect(state.config.depth).toBe(initialDepth + 40); // 100
-
-      // Main panel collection should be regenerated centered at origin
-      // Front panel should be at (newDepth/2 - mt/2) accounting for material thickness
-      const mainPanel = state.panelCollection?.panels.find(p => p.id === 'face-front');
-      const newDepth = initialDepth + 40; // 100
-      const expectedZ = newDepth / 2 - mt / 2; // 50 - 1.5 = 48.5
-      expect(mainPanel?.position[2]).toBeCloseTo(expectedZ, 1);
-    });
-  });
-
-  describe('cancelPreview', () => {
-    it('should discard preview without affecting main state', () => {
-      const store = useBoxStore.getState();
-      const initialDepth = store.config.depth;
-      const initialPanelZ = store.panelCollection?.panels.find(p => p.id === 'face-front')?.position[2];
-
-      // Start preview and apply offset
-      store.startPreview('push-pull', { faceId: 'front', mode: 'scale' });
-      store.updatePreviewFaceOffset('front', 100, 'scale');
-
-      // Cancel the preview
-      store.cancelPreview();
-
-      const state = useBoxStore.getState();
-
-      // Preview should be cleared
-      expect(state.previewState).toBeNull();
-      expect(state.previewPanelCollection).toBeNull();
-
-      // Main state should be unchanged
-      expect(state.config.depth).toBe(initialDepth);
-
-      // Main panel positions should be unchanged
-      const mainPanel = state.panelCollection?.panels.find(p => p.id === 'face-front');
-      expect(mainPanel?.position[2]).toBeCloseTo(initialPanelZ!, 1);
-    });
-  });
-
-  describe('Preview Panel Collection Usage', () => {
-    it('previewPanelCollection should be separate from main panelCollection', () => {
-      const store = useBoxStore.getState();
-
-      // Get initial main panel
-      let state = useBoxStore.getState();
-      const mainPanelBefore = state.panelCollection?.panels.find(p => p.id === 'face-front');
-
-      // Start preview and modify
-      store.startPreview('push-pull', { faceId: 'front', mode: 'scale' });
-      store.updatePreviewFaceOffset('front', 50, 'scale');
-
-      state = useBoxStore.getState();
-
-      // Main panel collection should still exist and be unchanged
-      expect(state.panelCollection).not.toBeNull();
-      const mainPanelAfter = state.panelCollection?.panels.find(p => p.id === 'face-front');
-      expect(mainPanelAfter?.position[2]).toBeCloseTo(mainPanelBefore?.position[2]!, 1);
-
-      // Preview panel collection should have different positions
-      const previewPanel = state.previewPanelCollection?.panels.find(p => p.id === 'face-front');
-      expect(previewPanel?.position[2]).toBeGreaterThan(mainPanelAfter?.position[2]!);
-    });
-  });
-});

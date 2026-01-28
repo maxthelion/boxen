@@ -8,7 +8,8 @@ export type EditorTool =
   | 'path'
   | 'inset'
   | 'chamfer'
-  | 'push-pull';
+  | 'push-pull'
+  | 'subdivide';
 
 export type EditorMode = '2d' | '3d';
 
@@ -85,6 +86,13 @@ const tools: ToolButton[] = [
     icon: '⇅',
     label: 'Push/Pull',
     tooltip: 'Push or pull faces (Q)',
+    modes: ['3d'],
+  },
+  {
+    id: 'subdivide',
+    icon: '⊞',
+    label: 'Subdivide',
+    tooltip: 'Subdivide void (S)',
     modes: ['3d'],
   },
 ];

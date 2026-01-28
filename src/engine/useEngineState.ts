@@ -156,6 +156,7 @@ export function notifyEngineStateChanged(): void {
   cachedState = null;
   cachedMainPanels = null;
   cachedMainConfig = null;
+  cachedMainVoidTree = null;
   listeners.forEach(cb => cb());
 }
 
@@ -308,6 +309,29 @@ function getMainConfig(): BoxConfig | null {
   return cachedMainConfig;
 }
 
+// Cache for main scene void tree
+let cachedMainVoidTree: Void | null = null;
+
+/**
+ * Get main scene void tree (cached)
+ */
+function getMainVoidTree(): Void | null {
+  if (cachedMainVoidTree) {
+    return cachedMainVoidTree;
+  }
+
+  const engine = getEngine();
+  const mainScene = engine.getMainScene();
+  const assemblySnapshot = mainScene.serialize().children[0] as AssemblySnapshot | undefined;
+  if (!assemblySnapshot) return null;
+
+  const rootVoidSnapshot = assemblySnapshot.children[0] as VoidSnapshot | undefined;
+  if (!rootVoidSnapshot) return null;
+
+  cachedMainVoidTree = voidSnapshotToVoid(rootVoidSnapshot);
+  return cachedMainVoidTree;
+}
+
 /**
  * Hook to get panels from the MAIN scene (ignoring preview)
  * Useful for getting original state during preview operations
@@ -328,6 +352,18 @@ export function useEngineMainConfig(): BoxConfig | null {
   return useSyncExternalStore(
     subscribe,
     getMainConfig,
+    () => null // Server render returns null
+  );
+}
+
+/**
+ * Hook to get void tree from the MAIN scene (ignoring preview)
+ * Useful for UI state that shouldn't change during hover previews
+ */
+export function useEngineMainVoidTree(): Void | null {
+  return useSyncExternalStore(
+    subscribe,
+    getMainVoidTree,
     () => null // Server render returns null
   );
 }

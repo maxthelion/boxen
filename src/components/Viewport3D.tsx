@@ -5,6 +5,7 @@ import { Box3D, PushPullCallbacks } from './Box3D';
 import { ViewportToolbar } from './ViewportToolbar';
 import { EditorToolbar } from './EditorToolbar';
 import { PushPullPalette, PushPullMode } from './PushPullPalette';
+import { SubdividePalette } from './SubdividePalette';
 import { useBoxStore } from '../store/useBoxStore';
 import { useEnginePanels } from '../engine';
 import { FaceId } from '../types';
@@ -34,13 +35,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const applyOperation = useBoxStore((state) => state.applyOperation);
   const cancelOperation = useBoxStore((state) => state.cancelOperation);
 
-  // Legacy preview system (kept for compatibility during transition)
-  const previewState = useBoxStore((state) => state.previewState);
-  const startPreview = useBoxStore((state) => state.startPreview);
-  const updatePreviewFaceOffset = useBoxStore((state) => state.updatePreviewFaceOffset);
-  const commitPreview = useBoxStore((state) => state.commitPreview);
-  const cancelPreview = useBoxStore((state) => state.cancelPreview);
-
   const canvasContainerRef = useRef<HTMLDivElement>(null);
 
   // Push/Pull palette state (local UI state only)
@@ -48,6 +42,9 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const [palettePosition, setPalettePosition] = useState({ x: 20, y: 150 });
   const [isDraggingArrow, setIsDraggingArrow] = useState(false);
   const [currentOffset, setCurrentOffset] = useState(0); // Track current offset for UI display
+
+  // Subdivide palette state (local UI state only)
+  const [subdividePalettePosition, setSubdividePalettePosition] = useState({ x: 20, y: 150 });
 
   // Get selected face ID for push-pull tool
   const selectedFaceId = useMemo(() => {
@@ -135,6 +132,11 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     setActiveTool('select');
   }, [cancelOperation, setActiveTool]);
 
+  // Close subdivide palette
+  const handleSubdividePaletteClose = useCallback(() => {
+    setActiveTool('select');
+  }, [setActiveTool]);
+
   // Expose method to get the canvas element
   useImperativeHandle(ref, () => ({
     getCanvas: () => {
@@ -195,6 +197,8 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         handleDeleteSelectedPanels();
       } else if (e.key === 'q' || e.key === 'Q') {
         setActiveTool(activeTool === 'push-pull' ? 'select' : 'push-pull');
+      } else if (e.key === 's' || e.key === 'S') {
+        setActiveTool(activeTool === 'subdivide' ? 'select' : 'subdivide');
       } else if (e.key === 'v' || e.key === 'V') {
         setActiveTool('select');
       }
@@ -223,6 +227,17 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         onPositionChange={setPalettePosition}
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
       />
+
+      {/* Subdivide Tool Palette - only mount when tool is active */}
+      {activeTool === 'subdivide' && (
+        <SubdividePalette
+          visible={true}
+          position={subdividePalettePosition}
+          onPositionChange={setSubdividePalettePosition}
+          onClose={handleSubdividePaletteClose}
+          containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+        />
+      )}
 
       <Canvas
         camera={{ position: [150, 150, 150], fov: 50 }}

@@ -24,7 +24,7 @@ export {
   type OperationDefinition,
 } from './registry';
 
-// Validation
+// Validation (basic)
 export {
   meetsSelectionRequirements,
   canStartOperation,
@@ -32,3 +32,34 @@ export {
   validateOperationSpecific,
   type SelectionState,
 } from './validation';
+
+// Validation (declarative system)
+export {
+  // Types
+  type SelectionTargetType,
+  type SelectionRequirement,
+  type SelectionConstraint,
+  type SelectionValidationResult,
+  type DerivedSelectionState,
+  type ValidationContext,
+  // Requirement functions
+  getSelectionRequirements,
+  // Validation functions
+  validateSelection,
+  validateSubdivideSelection,
+  validateSubdivideTwoPanelSelection,
+  validatePushPullSelection,
+  validateCreateSubAssemblySelection,
+  validateToggleFaceSelection,
+  // Helper functions
+  getFaceNormalAxis,
+  getPanelNormalAxis,
+  getPerpendicularAxes,
+  areOpposingFaces,
+  isLeafVoid,
+  findVoidById,
+  findVoidBetweenPanels,
+  getValidSubdivisionAxes,
+  getPanelDescription,
+  getMainInteriorVoid,
+} from './validators';

@@ -17,6 +17,8 @@ export interface FloatingPaletteProps {
   visible?: boolean;
   /** Optional container ref to constrain palette within (defaults to window) */
   containerRef?: React.RefObject<HTMLElement>;
+  /** Whether to close on click outside (defaults to true) */
+  closeOnClickOutside?: boolean;
 }
 
 export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
@@ -28,6 +30,7 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
   minWidth = 180,
   visible = true,
   containerRef,
+  closeOnClickOutside = true,
 }) => {
   const paletteRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -43,6 +46,8 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
 
   // Handle clicking outside to close
   useEffect(() => {
+    if (!closeOnClickOutside) return;
+
     const handleClickOutside = (e: MouseEvent) => {
       if (paletteRef.current && !paletteRef.current.contains(e.target as Node)) {
         onClose();
@@ -58,7 +63,7 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
       clearTimeout(timer);
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [onClose]);
+  }, [onClose, closeOnClickOutside]);
 
   // Handle Escape key to close
   useEffect(() => {
