@@ -240,6 +240,11 @@ export class Engine {
    */
   generatePanelsFromNodes(): PanelCollection {
     const scene = this.getActiveScene();
+    const isPreview = this._previewScene !== null;
+
+    // Debug: Log which scene we're generating from
+    appendDebug(`[${new Date().toISOString()}] generatePanelsFromNodes (preview=${isPreview})`);
+
     // Ensure scene is up to date
     if (scene.isDirty) {
       scene.recompute();

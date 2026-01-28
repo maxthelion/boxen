@@ -492,38 +492,6 @@ export class FacePanelNode extends BasePanel {
       case 'z': return bounds.z + bounds.d;
     }
   }
-  /**
-   * Create the points for a slot hole rectangle
-   */
-  private createSlotHolePoints(
-    slotX: number | null,
-    slotY: number | null,
-    start: number,
-    end: number,
-    isHorizontal: boolean,
-    mt: number
-  ): Point2D[] {
-    const halfMt = mt / 2;
-
-    if (isHorizontal) {
-      const y = slotY!;
-      return [
-        { x: start, y: y - halfMt },
-        { x: end, y: y - halfMt },
-        { x: end, y: y + halfMt },
-        { x: start, y: y + halfMt },
-      ];
-    } else {
-      const x = slotX!;
-      return [
-        { x: x - halfMt, y: start },
-        { x: x + halfMt, y: start },
-        { x: x + halfMt, y: end },
-        { x: x - halfMt, y: end },
-      ];
-    }
-  }
-
   getMatingFaceId(edgePosition: EdgePosition): FaceId | null {
     const adjacentFaceId = getAdjacentFace(this.faceId, edgePosition);
     // Only return if the adjacent face is solid (actually exists)

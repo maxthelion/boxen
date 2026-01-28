@@ -29,6 +29,9 @@ import {
   getDividerAdjacentFace,
 } from '../../utils/faceGeometry';
 import { getDividerEdgeGender } from '../../utils/genderRules';
+import { debug, enableDebugTag } from '../../utils/debug';
+
+enableDebugTag('divider-holes');
 
 export class DividerPanelNode extends BasePanel {
   readonly kind: NodeKind = 'divider-panel';
@@ -75,18 +78,44 @@ export class DividerPanelNode extends BasePanel {
 
   computeDimensions(): PanelDimensions {
     const bounds = this._voidNode.bounds;
+    const assembly = this.findParentAssembly();
 
-    // Divider dimensions depend on axis
+    // Fallback to simple bounds-based dimensions if no assembly found
+    if (!assembly) {
+      switch (this._axis) {
+        case 'x':
+          return { width: bounds.d, height: bounds.h };
+        case 'y':
+          return { width: bounds.w, height: bounds.d };
+        case 'z':
+          return { width: bounds.w, height: bounds.h };
+      }
+    }
+
+    const mt = assembly.material.thickness;
+
+    // Compute body spans for each relevant axis
+    // Total span = mt (face A) + void_space + mt (panel B)
+    // Body extends on divider side, tabs extend on face side
     switch (this._axis) {
-      case 'x':
-        // X-axis divider: spans Y and Z of the void
-        return { width: bounds.d, height: bounds.h };
-      case 'y':
-        // Y-axis divider: spans X and Z of the void
-        return { width: bounds.w, height: bounds.d };
-      case 'z':
-        // Z-axis divider: spans X and Y of the void
-        return { width: bounds.w, height: bounds.h };
+      case 'x': {
+        // X-axis divider: width spans Z, height spans Y
+        const zSpan = this.computeBodySpan(bounds.z, bounds.d, assembly.depth, mt);
+        const ySpan = this.computeBodySpan(bounds.y, bounds.h, assembly.height, mt);
+        return { width: zSpan.size, height: ySpan.size };
+      }
+      case 'y': {
+        // Y-axis divider: width spans X, height spans Z
+        const xSpan = this.computeBodySpan(bounds.x, bounds.w, assembly.width, mt);
+        const zSpan = this.computeBodySpan(bounds.z, bounds.d, assembly.depth, mt);
+        return { width: xSpan.size, height: zSpan.size };
+      }
+      case 'z': {
+        // Z-axis divider: width spans X, height spans Y
+        const xSpan = this.computeBodySpan(bounds.x, bounds.w, assembly.width, mt);
+        const ySpan = this.computeBodySpan(bounds.y, bounds.h, assembly.height, mt);
+        return { width: xSpan.size, height: ySpan.size };
+      }
     }
   }
 
@@ -153,15 +182,17 @@ export class DividerPanelNode extends BasePanel {
     }
 
     const bounds = this._voidNode.bounds;
+    const mt = assembly.material.thickness;
 
     // Get assembly world transform
     const assemblyTransform = assembly.getWorldTransform();
     const [ax, ay, az] = assemblyTransform.position;
 
-    // Calculate centers of the void bounds
-    const boundsCenterX = bounds.x + bounds.w / 2;
-    const boundsCenterY = bounds.y + bounds.h / 2;
-    const boundsCenterZ = bounds.z + bounds.d / 2;
+    // Compute body span centers (accounts for extensions toward dividers)
+    // These centers may differ from void centers when body extends beyond void bounds
+    const xSpan = this.computeBodySpan(bounds.x, bounds.w, assembly.width, mt);
+    const ySpan = this.computeBodySpan(bounds.y, bounds.h, assembly.height, mt);
+    const zSpan = this.computeBodySpan(bounds.z, bounds.d, assembly.depth, mt);
 
     // Adjust for assembly being centered at origin
     // (void bounds are in assembly-local coordinates starting at mt)
@@ -172,33 +203,36 @@ export class DividerPanelNode extends BasePanel {
     switch (this._axis) {
       case 'x':
         // X-axis divider: positioned at splitPosition on X
+        // Body spans Y and Z, so use ySpan.center and zSpan.center
         // Rotation -90° around Y so 2D right (+X) maps to world +Z (front)
         return {
           position: [
             ax + this._position - halfW,
-            ay + boundsCenterY - halfH,
-            az + boundsCenterZ - halfD,
+            ay + ySpan.center - halfH,
+            az + zSpan.center - halfD,
           ],
           rotation: [0, -Math.PI / 2, 0],
         };
       case 'y':
         // Y-axis divider: positioned at splitPosition on Y
+        // Body spans X and Z, so use xSpan.center and zSpan.center
         // Rotation -90° around X so 2D top maps to world +Z
         return {
           position: [
-            ax + boundsCenterX - halfW,
+            ax + xSpan.center - halfW,
             ay + this._position - halfH,
-            az + boundsCenterZ - halfD,
+            az + zSpan.center - halfD,
           ],
           rotation: [-Math.PI / 2, 0, 0],
         };
       case 'z':
         // Z-axis divider: positioned at splitPosition on Z
+        // Body spans X and Y, so use xSpan.center and ySpan.center
         // No rotation needed (2D X/Y map to world X/Y)
         return {
           position: [
-            ax + boundsCenterX - halfW,
-            ay + boundsCenterY - halfH,
+            ax + xSpan.center - halfW,
+            ay + ySpan.center - halfH,
             az + this._position - halfD,
           ],
           rotation: [0, 0, 0],
@@ -207,8 +241,163 @@ export class DividerPanelNode extends BasePanel {
   }
 
   computeHoles(): PanelHole[] {
-    // TODO: Compute holes from other dividers and sub-assemblies that intersect
-    return [];
+    const assembly = this.findParentAssembly();
+    if (!assembly) return [];
+
+    const holes: PanelHole[] = [];
+    const subdivisions = assembly.getSubdivisions();
+    const mt = assembly.material.thickness;
+    const halfMt = mt / 2;
+    const tolerance = 0.01;
+    const fingerData = this.getFingerData();
+    const dims = this.getDimensions();
+    const halfW = dims.width / 2;
+    const halfH = dims.height / 2;
+
+    debug('divider-holes', `=== computeHoles for ${this.id} ===`);
+    debug('divider-holes', `  dims: ${dims.width.toFixed(1)}x${dims.height.toFixed(1)}, halfW=${halfW.toFixed(1)}, halfH=${halfH.toFixed(1)}`);
+
+    // This divider's position and axis
+    const myAxis = this._axis;
+    const myPosition = this._position;
+    const bounds = this._voidNode.bounds;
+
+    // For each subdivision, check if its divider intersects this one
+    for (const sub of subdivisions) {
+      // Skip subdivisions on the same axis (parallel dividers don't intersect)
+      if (sub.axis === myAxis) continue;
+
+      // Check if the other divider's void bounds span includes our position
+      // Get the extent of the other divider along our axis
+      let otherExtentLow: number;
+      let otherExtentHigh: number;
+
+      switch (myAxis) {
+        case 'x':
+          otherExtentLow = sub.bounds.x - mt;
+          otherExtentHigh = sub.bounds.x + sub.bounds.w + mt;
+          break;
+        case 'y':
+          otherExtentLow = sub.bounds.y - mt;
+          otherExtentHigh = sub.bounds.y + sub.bounds.h + mt;
+          break;
+        case 'z':
+          otherExtentLow = sub.bounds.z - mt;
+          otherExtentHigh = sub.bounds.z + sub.bounds.d + mt;
+          break;
+      }
+
+      // Check if our position falls within the other divider's extent
+      if (myPosition < otherExtentLow - tolerance || myPosition > otherExtentHigh + tolerance) {
+        continue; // No intersection
+      }
+
+      // Calculate slot info for this intersection
+      const slotInfo = this.calculateDividerSlotInfo(sub, bounds, assembly, mt);
+      if (!slotInfo) continue;
+
+      const { slotX, slotY, isHorizontal, slotAxis } = slotInfo;
+
+      // Generate slot holes at finger positions (same pattern as FacePanelNode)
+      if (fingerData && fingerData[slotAxis]) {
+        const axisFingerData = fingerData[slotAxis];
+        const { points: transitionPoints, innerOffset, maxJointLength: maxJoint } = axisFingerData;
+
+        // Build section boundaries
+        const allBoundaries = [innerOffset, ...transitionPoints, maxJoint - innerOffset];
+
+        let slotIndex = 0;
+        for (let i = 0; i < allBoundaries.length - 1; i++) {
+          if (i % 2 === 0) {  // Finger section (where divider tabs go)
+            const sectionStart = allBoundaries[i];
+            const sectionEnd = allBoundaries[i + 1];
+
+            // Convert from 0-based axis coords to 2D panel coords (centered)
+            const offsetStart = sectionStart - maxJoint / 2;
+            const offsetEnd = sectionEnd - maxJoint / 2;
+
+            const holePoints = this.createSlotHolePoints(
+              slotX, slotY, offsetStart, offsetEnd, isHorizontal, mt
+            );
+
+            holes.push({
+              id: `divider-slot-${sub.id}-on-${this.id}-${slotIndex}`,
+              source: { type: 'divider-slot', sourceId: sub.id },
+              path: holePoints,
+            });
+            slotIndex++;
+          }
+        }
+      }
+    }
+
+    return holes;
+  }
+
+  /**
+   * Calculate slot info for an intersecting divider
+   */
+  private calculateDividerSlotInfo(
+    sub: { axis: Axis; position: number; bounds: { x: number; y: number; z: number; w: number; h: number; d: number } },
+    bounds: { x: number; y: number; z: number; w: number; h: number; d: number },
+    assembly: BaseAssembly,
+    mt: number
+  ): { slotX: number | null; slotY: number | null; isHorizontal: boolean; slotAxis: Axis } | null {
+    let slotX: number | null = null;
+    let slotY: number | null = null;
+    let isHorizontal = false;
+    let slotAxis: Axis = 'x';
+
+    switch (this._axis) {
+      case 'x':
+        // X-axis divider: width=Z, height=Y
+        if (sub.axis === 'z') {
+          // Z-axis divider creates a vertical slot
+          const zSpan = this.computeBodySpan(bounds.z, bounds.d, assembly.depth, mt);
+          slotX = sub.position - zSpan.center;
+          isHorizontal = false;
+          slotAxis = 'y';
+        } else { // sub.axis === 'y'
+          const ySpan = this.computeBodySpan(bounds.y, bounds.h, assembly.height, mt);
+          slotY = sub.position - ySpan.center;
+          isHorizontal = true;
+          slotAxis = 'z';
+        }
+        break;
+
+      case 'y':
+        // Y-axis divider: width=X, height=Z
+        if (sub.axis === 'x') {
+          const xSpan = this.computeBodySpan(bounds.x, bounds.w, assembly.width, mt);
+          slotX = sub.position - xSpan.center;
+          isHorizontal = false;
+          slotAxis = 'z';
+        } else { // sub.axis === 'z'
+          const zSpan = this.computeBodySpan(bounds.z, bounds.d, assembly.depth, mt);
+          slotY = sub.position - zSpan.center;
+          isHorizontal = true;
+          slotAxis = 'x';
+        }
+        break;
+
+      case 'z':
+        // Z-axis divider: width=X, height=Y
+        if (sub.axis === 'x') {
+          const xSpan = this.computeBodySpan(bounds.x, bounds.w, assembly.width, mt);
+          slotX = sub.position - xSpan.center;
+          isHorizontal = false;
+          slotAxis = 'y';
+        } else { // sub.axis === 'y'
+          const ySpan = this.computeBodySpan(bounds.y, bounds.h, assembly.height, mt);
+          slotY = sub.position - ySpan.center;
+          isHorizontal = true;
+          slotAxis = 'x';
+        }
+        break;
+    }
+
+    if (slotX === null && slotY === null) return null;
+    return { slotX, slotY, isHorizontal, slotAxis };
   }
 
   getMatingFaceId(edgePosition: EdgePosition): FaceId | null {
@@ -402,6 +591,55 @@ export class DividerPanelNode extends BasePanel {
   // ==========================================================================
   // Helper Methods
   // ==========================================================================
+
+  /**
+   * Compute the actual body span for a given axis.
+   * Returns the start and end positions of the panel body in assembly coordinates.
+   *
+   * Geometry explanation:
+   * The divider's total span = mt (face A) + void_space + mt (panel B)
+   *
+   * - Face side (at wall): Finger tabs extend mt into the face's slot.
+   *   Panel body edge aligns with face's inner surface (at mt from outer).
+   *   Tabs provide the extension to the face's outer edge.
+   *
+   * - Divider side (not at wall): No finger joints between dividers yet.
+   *   Panel body must extend mt beyond void boundary to reach the
+   *   adjacent divider's far edge (void boundary = divider's near edge,
+   *   far edge = near edge + mt since divider has material thickness mt).
+   *
+   * Result: body extends mt beyond void on divider side, tabs extend mt on face side.
+   * Total span = void_size + 2*mt, achieved via body extension + tabs.
+   */
+  protected computeBodySpan(
+    boundsLow: number,    // void bounds low edge (e.g., bounds.x)
+    boundsSize: number,   // void bounds size (e.g., bounds.w)
+    axisDim: number,      // assembly dimension (e.g., assembly.width)
+    mt: number            // material thickness
+  ): { start: number; end: number; center: number; size: number } {
+    const tolerance = 0.01;
+
+    // Check if void reaches each wall (interior surface at mt from outer edge)
+    const atLowWall = boundsLow <= mt + tolerance;
+    const atHighWall = boundsLow + boundsSize >= axisDim - mt - tolerance;
+
+    // Panel body start position (low end)
+    // At face wall: body starts at void boundary (face inner surface)
+    // At divider: body extends mt beyond void to reach divider's far edge
+    const bodyStart = atLowWall ? boundsLow : boundsLow - mt;
+
+    // Panel body end position (high end)
+    // At face wall: body ends at void boundary (face inner surface)
+    // At divider: body extends mt beyond void to reach divider's far edge
+    const bodyEnd = atHighWall ? boundsLow + boundsSize : boundsLow + boundsSize + mt;
+
+    return {
+      start: bodyStart,
+      end: bodyEnd,
+      center: (bodyStart + bodyEnd) / 2,
+      size: bodyEnd - bodyStart,
+    };
+  }
 
   protected findParentAssembly(): BaseAssembly | null {
     let node = this._voidNode.parent;

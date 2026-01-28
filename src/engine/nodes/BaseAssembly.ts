@@ -383,10 +383,9 @@ export abstract class BaseAssembly extends BaseNode {
       }
     };
 
-    // Start traversal from root void's children
-    for (const child of this._rootVoid.getVoidChildren()) {
-      traverse(child, this._rootVoid.bounds);
-    }
+    // Start traversal from root void itself (not just its children)
+    // This ensures the root void's split is included
+    traverse(this._rootVoid, this._rootVoid.bounds);
 
     return subdivisions;
   }

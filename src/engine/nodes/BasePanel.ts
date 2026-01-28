@@ -698,6 +698,43 @@ export abstract class BasePanel extends BaseNode {
   }
 
   // ==========================================================================
+  // Shared Hole Generation Helpers
+  // ==========================================================================
+
+  /**
+   * Create the points for a slot hole rectangle.
+   * Used by both FacePanelNode and DividerPanelNode for divider slots.
+   */
+  protected createSlotHolePoints(
+    slotX: number | null,
+    slotY: number | null,
+    start: number,
+    end: number,
+    isHorizontal: boolean,
+    mt: number
+  ): Point2D[] {
+    const halfMt = mt / 2;
+
+    if (isHorizontal) {
+      const y = slotY!;
+      return [
+        { x: start, y: y - halfMt },
+        { x: end, y: y - halfMt },
+        { x: end, y: y + halfMt },
+        { x: start, y: y + halfMt },
+      ];
+    } else {
+      const x = slotX!;
+      return [
+        { x: x - halfMt, y: start },
+        { x: x + halfMt, y: start },
+        { x: x + halfMt, y: end },
+        { x: x - halfMt, y: end },
+      ];
+    }
+  }
+
+  // ==========================================================================
   // Base Serialization Helper
   // ==========================================================================
 

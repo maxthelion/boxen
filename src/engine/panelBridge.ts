@@ -17,6 +17,10 @@ import {
 import { AssemblyNode } from './nodes/AssemblyNode';
 import { VoidNode } from './nodes/VoidNode';
 import { PanelSnapshot, FacePanelSnapshot, DividerPanelSnapshot } from './types';
+import { debug, enableDebugTag } from '../utils/debug';
+
+// Enable debug tag for panel generation
+enableDebugTag('panel-gen');
 
 // =============================================================================
 // Void Tree Conversion
@@ -216,6 +220,36 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
 export function generatePanelsFromEngine(assembly: AssemblyNode): PanelCollection {
   // Get all panel snapshots from the assembly
   const panelSnapshots = assembly.getPanels();
+  const subdivisions = assembly.getSubdivisions();
+
+  // Debug: Log panel generation details
+  debug('panel-gen', `=== Panel Generation ===`);
+  debug('panel-gen', `Assembly: ${assembly.width}x${assembly.height}x${assembly.depth}, mt=${assembly.material.thickness}`);
+  debug('panel-gen', `Subdivisions: ${subdivisions.length}`);
+  for (const sub of subdivisions) {
+    const b = sub.bounds;
+    debug('panel-gen', `  Sub: ${sub.id} (${sub.axis}-axis at ${sub.position}) bounds=[${b.x.toFixed(1)},${b.y.toFixed(1)},${b.z.toFixed(1)} ${b.w.toFixed(1)}x${b.h.toFixed(1)}x${b.d.toFixed(1)}]`);
+  }
+  debug('panel-gen', `Total panels: ${panelSnapshots.length}`);
+
+  for (const snapshot of panelSnapshots) {
+    const holesCount = snapshot.derived.outline.holes.length;
+    const dims = `${snapshot.derived.width.toFixed(1)}x${snapshot.derived.height.toFixed(1)}`;
+
+    if (snapshot.kind === 'divider-panel') {
+      const divSnapshot = snapshot as DividerPanelSnapshot;
+      debug('panel-gen', `  DIVIDER: ${snapshot.id} (${divSnapshot.props.axis}-axis at ${divSnapshot.props.position}) dims=${dims} holes=${holesCount}`);
+    } else {
+      const faceSnapshot = snapshot as FacePanelSnapshot;
+      debug('panel-gen', `  FACE: ${snapshot.id} (${faceSnapshot.props.faceId}) dims=${dims} holes=${holesCount}`);
+    }
+
+    // Log hole details
+    for (const hole of snapshot.derived.outline.holes) {
+      const pathPoints = hole.path.length;
+      debug('panel-gen', `    Hole: ${hole.id} (${hole.source.type}) points=${pathPoints}`);
+    }
+  }
 
   // Convert to store PanelPath format
   const panels = panelSnapshots.map(panelSnapshotToPanelPath);
