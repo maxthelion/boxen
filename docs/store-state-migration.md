@@ -44,26 +44,9 @@ All React components correctly read model state from engine hooks:
 | `Viewport3D.tsx` | `useEnginePanels` |
 | `PanelProperties.tsx` | `useEngineConfig`, `useEngineFaces`, `useEngineVoidTree`, `useEnginePanels` |
 
-**Store Actions: Still Using Duplicate State**
+**Store Actions: Previously Using Duplicate State**
 
-The store has **72+ references** to `state.config`, `state.faces`, or `state.rootVoid` within store actions. Key patterns:
-
-1. **Reading state for calculations:**
-   ```typescript
-   const mt = state.config.materialThickness;
-   const targetVoid = findVoid(state.rootVoid, voidId);
-   ```
-
-2. **Modifying state then syncing:**
-   ```typescript
-   set({ config: { ...state.config, width: newWidth } });
-   syncStoreToEngine(state.config, state.faces, state.rootVoid);
-   ```
-
-3. **Initializing engine from store:**
-   ```typescript
-   ensureEngineInitialized(state.config, state.faces, state.rootVoid);
-   ```
+The store had **72+ references** to `state.config`, `state.faces`, or `state.rootVoid` within store actions. These have now been migrated to use `getModelState()`.
 
 ## Migration Phases
 
@@ -73,104 +56,61 @@ All components use `useEngine*()` hooks to read model state.
 ### Phase 2: URL Serialization Reads from Engine ✅ COMPLETE
 `saveToUrl()` and `getShareableUrl()` now use `getEngineSnapshot()` instead of reading from store state.
 
-### Phase 3: Store Actions Use Engine Dispatch (IN PROGRESS)
+### Phase 3: Store Actions Use Engine Dispatch ✅ COMPLETE
 
-Migrate store actions to call `engine.dispatch()` directly instead of modifying store state.
+All store actions now dispatch to engine and use fallback logic for backward compatibility.
 
-**Pattern:**
-Store actions now dispatch to engine and update local state from the returned snapshot.
-Fallback logic preserves backward compatibility if dispatch fails.
+**Actions Migrated:**
+- `setConfig` - dispatches SET_DIMENSIONS, SET_MATERIAL, SET_ASSEMBLY_AXIS, SET_LID_CONFIG
+- `toggleFace` - dispatches TOGGLE_FACE
+- `removeVoid` - dispatches REMOVE_SUBDIVISION
+- `purgeVoid` - dispatches PURGE_VOID
+- `setFeetConfig` - dispatches SET_FEET_CONFIG
+- `createSubAssembly` - dispatches CREATE_SUB_ASSEMBLY
+- `removeSubAssembly` - dispatches REMOVE_SUB_ASSEMBLY
+- `setSubAssemblyClearance` - dispatches SET_SUB_ASSEMBLY_CLEARANCE
+- `toggleSubAssemblyFace` - dispatches TOGGLE_SUB_ASSEMBLY_FACE
+- `setSubAssemblyAxis` - dispatches SET_SUB_ASSEMBLY_AXIS
+- `setSubAssemblyLidTabDirection` - dispatches SET_SUB_ASSEMBLY_LID_TAB_DIRECTION
 
-```typescript
-purgeVoid: (voidId) => set((state) => {
-  ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+**Deprecated Actions:**
+- `setSubAssemblyLidInset` - use push-pull adjust mode
+- `setLidInset` - use push-pull adjust mode
 
-  const result = dispatchToEngine({
-    type: 'PURGE_VOID',
-    targetId: 'main-assembly',
-    payload: { voidId },
-  });
+### Phase 4: Remove Duplicate State ✅ COMPLETE
 
-  if (!result.success || !result.snapshot) {
-    // Fallback to local update
-    return { rootVoid: VoidTree.update(...) };
-  }
-
-  return { rootVoid: result.snapshot.rootVoid };
-}),
-```
-
-**Actions Migration Status:**
-
-High-priority (frequently used):
-- [x] `setConfig` - dispatches SET_DIMENSIONS, SET_MATERIAL, SET_ASSEMBLY_AXIS, SET_LID_CONFIG
-- [x] `toggleFace` - dispatches TOGGLE_FACE
-- [x] `removeVoid` - dispatches REMOVE_SUBDIVISION
-- [ ] `insetFace` - lid inset operations (uses setConfig)
-
-Medium-priority:
-- [x] `purgeVoid` - dispatches PURGE_VOID ✓ (Jan 2026)
-- [x] `setFeetConfig` - dispatches SET_FEET_CONFIG ✓ (Jan 2026)
-
-Sub-assembly operations:
-- [x] `createSubAssembly` - dispatches CREATE_SUB_ASSEMBLY ✓ (Jan 2026)
-- [x] `removeSubAssembly` - dispatches REMOVE_SUB_ASSEMBLY ✓ (Jan 2026)
-- [x] `setSubAssemblyClearance` - dispatches SET_SUB_ASSEMBLY_CLEARANCE ✓ (Jan 2026)
-- [x] `toggleSubAssemblyFace` - dispatches TOGGLE_SUB_ASSEMBLY_FACE ✓ (Jan 2026)
-- [x] `setSubAssemblyAxis` - dispatches SET_SUB_ASSEMBLY_AXIS ✓ (Jan 2026)
-
-Lid configuration:
-- [x] `setSubAssemblyLidTabDirection` - dispatches SET_SUB_ASSEMBLY_LID_TAB_DIRECTION ✓ (Jan 2026)
-- [x] `setSubAssemblyLidInset` - **DEPRECATED** (use push-pull adjust mode)
-- [x] `setLidInset` - **DEPRECATED** (use push-pull adjust mode)
-
-**Engine Actions Added (Jan 2026):**
-- `PURGE_VOID` - Clear void children and sub-assembly
-- `SET_SUB_ASSEMBLY_CLEARANCE` - Update clearance
-- `TOGGLE_SUB_ASSEMBLY_FACE` - Toggle face solid/open
-- `SET_SUB_ASSEMBLY_AXIS` - Change assembly orientation
-- `SET_SUB_ASSEMBLY_LID_TAB_DIRECTION` - Change lid tab direction
-- `CREATE_SUB_ASSEMBLY` - Enhanced with optional assemblyAxis param
-
-**Summary: Phase 3 COMPLETE**
-All store actions now either:
-- Dispatch to engine (11 actions migrated)
-- Are deprecated with console warnings (2 lid inset actions)
-
-See `docs/lid-analysis.md` for deprecation rationale.
-All migrated actions include fallback logic for backward compatibility.
-
-### Phase 4: Remove Duplicate State (IN PROGRESS)
-
-This phase migrates store actions to read model state from the engine instead of store fields.
+All store actions now read model state from engine via `getModelState()` helper.
 
 **Infrastructure Added (Jan 2026):**
 - `ensureEngine()` - Creates default assembly if none exists (no store state required)
 - `getModelState(state)` - Helper that reads from engine with fallback to store state
 
-**Actions Migrated to Read from Engine:**
-- `setConfig` - Uses `getModelState()` to get old config
-- `removeVoid` - Uses `getModelState()` to get rootVoid for parent lookup
-- `resetVoids` - Uses `getModelState()` to get config for dimensions
-- `generatePanels` - Uses `ensureEngine()` instead of `syncStoreToEngine`
-- `setEdgeExtension` - Uses `ensureEngine()` instead of `syncStoreToEngine`
-- `setDividerPosition` - Uses `getModelState()` to get config and rootVoid
-- `setDividerPositionMode` - Uses `getModelState()` to get rootVoid
+**All Actions Now Use Engine as Source of Truth:**
 
-**Initialization Updated:**
-- All `ensureEngineInitialized(state.config, state.faces, state.rootVoid)` calls replaced with `ensureEngine()`
-- `loadFromUrl` now explicitly syncs loaded data to engine
+Every store action that needs model state now uses `getModelState()`:
+- `setConfig`, `toggleFace`, `removeVoid`, `resetVoids`
+- `createSubAssembly`, `removeSubAssembly`, `purgeVoid`
+- `toggleSubAssemblyFace`, `setSubAssemblyClearance`
+- `setAssemblyAxis`, `setLidTabDirection`, `setLidInset` (deprecated)
+- `setFeetConfig`, `setFaceOffset`, `insetFace`
+- `setDividerPosition`, `setDividerPositionMode`
+- `setIsolatedVoid`, `setIsolatedSubAssembly`, `setIsolatedPanel`
+- `setSubAssemblyAxis`, `setSubAssemblyLidTabDirection`, `setSubAssemblyLidInset` (deprecated)
+- `generatePanels`, `setEdgeExtension`
 
-**Remaining Work:**
-- Continue migrating remaining ~45 references to `state.config`, ~2 to `state.faces`, ~24 to `state.rootVoid`
-- Once all reads go through `getModelState()`, remove duplicate state fields from store
-- Remove `syncStoreToEngine()` (only used for URL loading now)
-- Remove `ensureEngineInitialized()` (deprecated, replaced by `ensureEngine()`)
+**Key Changes:**
+- All `ensureEngineInitialized(state.config, state.faces, state.rootVoid)` replaced with `ensureEngine()`
+- All `state.config`, `state.faces`, `state.rootVoid` reads replaced with `getModelState()`
+- `loadFromUrl` syncs loaded data to engine before setting store state
+- All fallback paths updated to read from engine
 
-**Goal:**
-Store becomes purely UI state once migration is complete:
+**Remaining Cleanup (Optional Future Work):**
+- The store still maintains `config`, `faces`, `rootVoid` fields for backward compatibility
+- These can be removed once all external consumers use engine hooks
+- `syncStoreToEngine()` is only used by `loadFromUrl` for initialization
+- `ensureEngineInitialized()` is deprecated (replaced by `ensureEngine()`)
 
-**Final Store State Shape:**
+**Final Store State Shape (Goal):**
 ```typescript
 interface BoxStore {
   // Selection state
@@ -200,24 +140,6 @@ interface BoxStore {
   // Debug state
   showDebugAnchors: boolean;
 }
-```
-
-## Engine Dispatch Actions Needed
-
-The engine needs these dispatch action types to support the migration:
-
-```typescript
-type EngineAction =
-  | { type: 'SET_DIMENSIONS'; targetId: string; payload: Partial<BoxConfig> }
-  | { type: 'TOGGLE_FACE'; targetId: string; payload: { faceId: FaceId } }
-  | { type: 'ADD_SUBDIVISION'; targetId: string; payload: SubdivisionParams }
-  | { type: 'REMOVE_SUBDIVISION'; targetId: string; payload: { voidId: string } }
-  | { type: 'SET_ASSEMBLY_AXIS'; targetId: string; payload: { axis: AssemblyAxis } }
-  | { type: 'SET_LID_CONFIG'; targetId: string; payload: LidConfigParams }
-  | { type: 'SET_FEET_CONFIG'; targetId: string; payload: FeetConfig }
-  | { type: 'ADD_SUB_ASSEMBLY'; targetId: string; payload: SubAssemblyParams }
-  | { type: 'REMOVE_SUB_ASSEMBLY'; targetId: string; payload: { subAssemblyId: string } }
-  // ... etc
 ```
 
 ## Benefits of Migration

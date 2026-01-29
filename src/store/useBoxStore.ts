@@ -739,8 +739,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       if (!result.success || !result.snapshot) {
         // Fallback to local update if dispatch failed
+        // Get model state from engine (source of truth)
+        const modelState = getModelState(state);
         return {
-          faces: state.faces.map((face) =>
+          faces: modelState.faces.map((face) =>
             face.id === faceId ? { ...face, solid: !face.solid } : face
           ),
         };
@@ -946,14 +948,18 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       if (!result.success || !result.snapshot) {
         // Fallback to local creation if dispatch failed
-        const targetVoid = findVoid(state.rootVoid, voidId);
+        // Get model state from engine (source of truth)
+        const modelState = getModelState(state);
+        const { config, rootVoid } = modelState;
+
+        const targetVoid = findVoid(rootVoid, voidId);
         if (!targetVoid || targetVoid.children.length > 0 || targetVoid.subAssembly) {
           return state;
         }
 
         const faceOffsets = options?.faceOffsets ?? { front: 0, back: 0, left: 0, right: 0, top: 0, bottom: 0 };
         const { bounds } = targetVoid;
-        const mt = state.config.materialThickness;
+        const mt = config.materialThickness;
 
         const outerWidth = bounds.w - (clearance * 2) + faceOffsets.left + faceOffsets.right;
         const outerHeight = bounds.h - (clearance * 2) + faceOffsets.top + faceOffsets.bottom;
@@ -987,7 +993,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           },
         };
 
-        const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
+        const newRootVoid = VoidTree.update(rootVoid, voidId, (v) => ({
           ...v,
           subAssembly,
         }));
@@ -1026,7 +1032,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       if (!result.success || !result.snapshot) {
         // Fallback to local update if dispatch failed
-        const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
+        // Get model state from engine (source of truth)
+        const modelState = getModelState(state);
+        const newRootVoid = VoidTree.update(modelState.rootVoid, voidId, (v) => ({
           ...v,
           children: [],
           subAssembly: undefined,
@@ -1061,7 +1069,11 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       if (!result.success || !result.snapshot) {
         // Fallback to local update if dispatch failed
-        const found = findSubAssembly(state.rootVoid, subAssemblyId);
+        // Get model state from engine (source of truth)
+        const modelState = getModelState(state);
+        const { rootVoid } = modelState;
+
+        const found = findSubAssembly(rootVoid, subAssemblyId);
         if (!found) return state;
 
         const updateSubAssemblyInVoid = (v: Void): Void => {
@@ -1087,7 +1099,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         };
 
         return {
-          rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+          rootVoid: updateSubAssemblyInVoid(rootVoid),
           panelsDirty: true,
         };
       }
@@ -1112,6 +1124,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       if (!result.success || !result.snapshot) {
         // Fallback to local update if dispatch failed
+        // Get model state from engine (source of truth)
+        const modelState = getModelState(state);
+        const { rootVoid } = modelState;
+
         const updateSubAssemblyInVoid = (v: Void): Void => {
           if (v.subAssembly?.id === subAssemblyId) {
             const newClearance = Math.max(0, clearance);
@@ -1150,7 +1166,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         };
 
         return {
-          rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+          rootVoid: updateSubAssemblyInVoid(rootVoid),
           panelsDirty: true,
         };
       }
@@ -1163,8 +1179,12 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   removeSubAssembly: (voidId) =>
     set((state) => {
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const { rootVoid } = modelState;
+
       // Find the sub-assembly ID from the void
-      const targetVoid = findVoid(state.rootVoid, voidId);
+      const targetVoid = findVoid(rootVoid, voidId);
       const subAssemblyId = targetVoid?.subAssembly?.id;
 
       if (!subAssemblyId) {
@@ -1183,7 +1203,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       if (!result.success || !result.snapshot) {
         // Fallback to local removal if dispatch failed
-        const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
+        const newRootVoid = VoidTree.update(rootVoid, voidId, (v) => ({
           ...v,
           subAssembly: undefined,
         }));
@@ -1247,14 +1267,18 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Isolating: hide everything except the isolated void and its descendants
-      const isolatedVoid = findVoid(state.rootVoid, voidId);
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const rootVoid = modelState.rootVoid;
+
+      const isolatedVoid = findVoid(rootVoid, voidId);
       if (!isolatedVoid) return state;
 
       // Get all void IDs that should remain visible (isolated + descendants)
       const visibleVoidIds = new Set(getVoidSubtreeIds(isolatedVoid));
 
       // Get all void IDs in the tree
-      const allVoidIds = getVoidSubtreeIds(state.rootVoid);
+      const allVoidIds = getVoidSubtreeIds(rootVoid);
 
       // Build new hidden sets
       const newHiddenVoidIds = new Set(state.hiddenVoidIds);
@@ -1295,7 +1319,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Hide sub-assemblies that are not in the isolated subtree
-      const allSubAssemblies = getAllSubAssemblies(state.rootVoid);
+      const allSubAssemblies = getAllSubAssemblies(rootVoid);
       for (const { subAssembly, voidId: parentVoidId } of allSubAssemblies) {
         // Sub-assembly is visible only if its parent void is in the visible subtree
         if (!visibleVoidIds.has(parentVoidId) && !state.hiddenSubAssemblyIds.has(subAssembly.id)) {
@@ -1358,6 +1382,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Isolating: hide everything except the isolated sub-assembly
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const rootVoid = modelState.rootVoid;
+
       const newHiddenVoidIds = new Set(state.hiddenVoidIds);
       const newIsolateHiddenVoidIds = new Set<string>();
       const newHiddenFaceIds = new Set(state.hiddenFaceIds);
@@ -1366,7 +1394,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const newIsolateHiddenSubAssemblyIds = new Set<string>();
 
       // Hide all voids
-      const allVoidIds = getVoidSubtreeIds(state.rootVoid);
+      const allVoidIds = getVoidSubtreeIds(rootVoid);
       for (const id of allVoidIds) {
         if (!state.hiddenVoidIds.has(id)) {
           newHiddenVoidIds.add(id);
@@ -1393,7 +1421,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Hide all other sub-assemblies
-      const allSubAssemblies = getAllSubAssemblies(state.rootVoid);
+      const allSubAssemblies = getAllSubAssemblies(rootVoid);
       for (const { subAssembly } of allSubAssemblies) {
         if (subAssembly.id !== subAssemblyId && !state.hiddenSubAssemblyIds.has(subAssembly.id)) {
           newHiddenSubAssemblyIds.add(subAssembly.id);
@@ -1455,6 +1483,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Isolating: hide everything except the isolated panel
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const rootVoid = modelState.rootVoid;
+
       const newHiddenVoidIds = new Set(state.hiddenVoidIds);
       const newIsolateHiddenVoidIds = new Set<string>();
       const newHiddenFaceIds = new Set(state.hiddenFaceIds);
@@ -1463,7 +1495,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const newIsolateHiddenSubAssemblyIds = new Set<string>();
 
       // Hide all voids
-      const allVoidIds = getVoidSubtreeIds(state.rootVoid);
+      const allVoidIds = getVoidSubtreeIds(rootVoid);
       for (const id of allVoidIds) {
         if (!state.hiddenVoidIds.has(id)) {
           newHiddenVoidIds.add(id);
@@ -1490,7 +1522,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Hide all sub-assemblies and their panels
-      const allSubAssemblies = getAllSubAssemblies(state.rootVoid);
+      const allSubAssemblies = getAllSubAssemblies(rootVoid);
       for (const { subAssembly } of allSubAssemblies) {
         if (!state.hiddenSubAssemblyIds.has(subAssembly.id)) {
           newHiddenSubAssemblyIds.add(subAssembly.id);
@@ -1520,25 +1552,29 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // Assembly config actions for main box
   setAssemblyAxis: (axis) =>
     set((state) => {
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const { config, rootVoid } = modelState;
+
       const newAssembly: AssemblyConfig = {
-        ...state.config.assembly,
+        ...config.assembly,
         assemblyAxis: axis,
       };
 
       // Rebuild the void structure with the new axis
       // Preserve user subdivisions from the main interior
-      const userSubdivisions = getUserSubdivisions(state.rootVoid);
+      const userSubdivisions = getUserSubdivisions(rootVoid);
       const newRootVoid = createRootVoidWithInsets(
-        state.config.width,
-        state.config.height,
-        state.config.depth,
+        config.width,
+        config.height,
+        config.depth,
         newAssembly,
         userSubdivisions
       );
 
       return {
         config: {
-          ...state.config,
+          ...config,
           assembly: newAssembly,
         },
         rootVoid: newRootVoid,
@@ -1551,13 +1587,17 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   setLidTabDirection: (side, direction) =>
     set((state) => {
-      const newInset = direction === 'tabs-in' ? 0 : state.config.assembly.lids[side].inset;
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const { config, rootVoid } = modelState;
+
+      const newInset = direction === 'tabs-in' ? 0 : config.assembly.lids[side].inset;
       const newAssembly: AssemblyConfig = {
-        ...state.config.assembly,
+        ...config.assembly,
         lids: {
-          ...state.config.assembly.lids,
+          ...config.assembly.lids,
           [side]: {
-            ...state.config.assembly.lids[side],
+            ...config.assembly.lids[side],
             tabDirection: direction,
             // If setting tabs-in and there's an inset, reset inset to 0
             // (tabs-in doesn't work with inset)
@@ -1567,18 +1607,18 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       };
 
       // Rebuild the void structure if inset changed
-      const userSubdivisions = getUserSubdivisions(state.rootVoid);
+      const userSubdivisions = getUserSubdivisions(rootVoid);
       const newRootVoid = createRootVoidWithInsets(
-        state.config.width,
-        state.config.height,
-        state.config.depth,
+        config.width,
+        config.height,
+        config.depth,
         newAssembly,
         userSubdivisions
       );
 
       return {
         config: {
-          ...state.config,
+          ...config,
           assembly: newAssembly,
         },
         rootVoid: newRootVoid,
@@ -1593,34 +1633,38 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   setLidInset: (side, inset) =>
     set((state) => {
       console.warn('setLidInset is deprecated. Use push-pull adjust mode instead.');
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const { config, rootVoid } = modelState;
+
       const newInset = Math.max(0, inset);
       const newAssembly: AssemblyConfig = {
-        ...state.config.assembly,
+        ...config.assembly,
         lids: {
-          ...state.config.assembly.lids,
+          ...config.assembly.lids,
           [side]: {
-            ...state.config.assembly.lids[side],
+            ...config.assembly.lids[side],
             inset: newInset,
             // If setting inset > 0, force tabs-out (tabs-in doesn't work with inset)
-            tabDirection: newInset > 0 ? 'tabs-out' : state.config.assembly.lids[side].tabDirection,
+            tabDirection: newInset > 0 ? 'tabs-out' : config.assembly.lids[side].tabDirection,
           },
         },
       };
 
       // Rebuild the void structure with the new insets
       // Preserve user subdivisions from the main interior
-      const userSubdivisions = getUserSubdivisions(state.rootVoid);
+      const userSubdivisions = getUserSubdivisions(rootVoid);
       const newRootVoid = createRootVoidWithInsets(
-        state.config.width,
-        state.config.height,
-        state.config.depth,
+        config.width,
+        config.height,
+        config.depth,
         newAssembly,
         userSubdivisions
       );
 
       return {
         config: {
-          ...state.config,
+          ...config,
           assembly: newAssembly,
         },
         rootVoid: newRootVoid,
@@ -1654,11 +1698,15 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       if (!result.success || !result.snapshot) {
         // Fallback to local update if dispatch failed
+        // Get model state from engine (source of truth)
+        const modelState = getModelState(state);
+        const { config } = modelState;
+
         return {
           config: {
-            ...state.config,
+            ...config,
             assembly: {
-              ...state.config.assembly,
+              ...config.assembly,
               feet: feetConfig,
             },
           },
@@ -1674,29 +1722,33 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   setFaceOffset: (faceId, offset, mode) =>
     set((state) => {
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const { config, rootVoid } = modelState;
+
       // Both modes resize the bounding box, but differ in how children are handled
-      let newWidth = state.config.width;
-      let newHeight = state.config.height;
-      let newDepth = state.config.depth;
+      let newWidth = config.width;
+      let newHeight = config.height;
+      let newDepth = config.depth;
 
       // Calculate new dimensions
       switch (faceId) {
         case 'front':
         case 'back':
-          newDepth = Math.max(state.config.materialThickness * 3, state.config.depth + offset);
+          newDepth = Math.max(config.materialThickness * 3, config.depth + offset);
           break;
         case 'left':
         case 'right':
-          newWidth = Math.max(state.config.materialThickness * 3, state.config.width + offset);
+          newWidth = Math.max(config.materialThickness * 3, config.width + offset);
           break;
         case 'top':
         case 'bottom':
-          newHeight = Math.max(state.config.materialThickness * 3, state.config.height + offset);
+          newHeight = Math.max(config.materialThickness * 3, config.height + offset);
           break;
       }
 
       const newConfig = {
-        ...state.config,
+        ...config,
         width: newWidth,
         height: newHeight,
         depth: newDepth,
@@ -1707,9 +1759,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       if (mode === 'scale') {
         // Scale mode: Scale all children proportionally
-        const scaleX = newWidth / state.config.width;
-        const scaleY = newHeight / state.config.height;
-        const scaleZ = newDepth / state.config.depth;
+        const scaleX = newWidth / config.width;
+        const scaleY = newHeight / config.height;
+        const scaleZ = newDepth / config.depth;
 
         const scaleVoidBounds = (v: Void): Void => {
           const scaledBounds: Bounds = {
@@ -1733,7 +1785,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         };
 
         const newRootVoid = {
-          ...scaleVoidBounds(state.rootVoid),
+          ...scaleVoidBounds(rootVoid),
           bounds: newRootBounds,
         };
 
@@ -1747,9 +1799,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         // Children stay at their absolute positions, but we need to expand the
         // adjacent void to fill the new space
 
-        const deltaW = newWidth - state.config.width;
-        const deltaH = newHeight - state.config.height;
-        const deltaD = newDepth - state.config.depth;
+        const deltaW = newWidth - config.width;
+        const deltaH = newHeight - config.height;
+        const deltaD = newDepth - config.depth;
 
         // Helper to adjust void bounds based on which face moved
         // Also adjusts splitPosition when voids shift (so divider panels move with their voids)
@@ -1762,7 +1814,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           switch (faceId) {
             case 'right':
               // Right face moved: voids at the right edge grow
-              if (v.bounds.x + v.bounds.w >= state.config.width - 0.1) {
+              if (v.bounds.x + v.bounds.w >= config.width - 0.1) {
                 newBounds.w += deltaW;
               }
               break;
@@ -1780,7 +1832,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
               break;
             case 'top':
               // Top face moved: voids at the top edge grow
-              if (v.bounds.y + v.bounds.h >= state.config.height - 0.1) {
+              if (v.bounds.y + v.bounds.h >= config.height - 0.1) {
                 newBounds.h += deltaH;
               }
               break;
@@ -1798,7 +1850,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
               break;
             case 'front':
               // Front face moved: voids at the front edge grow
-              if (v.bounds.z + v.bounds.d >= state.config.depth - 0.1) {
+              if (v.bounds.z + v.bounds.d >= config.depth - 0.1) {
                 newBounds.d += deltaD;
               }
               break;
@@ -1825,7 +1877,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         };
 
         const newRootVoid = {
-          ...adjustVoidBounds(state.rootVoid),
+          ...adjustVoidBounds(rootVoid),
           bounds: newRootBounds,
         };
 
@@ -1839,11 +1891,15 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   insetFace: (faceId, insetAmount) =>
     set((state) => {
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const { config, faces, rootVoid } = modelState;
+
       // Make the outer face open and create a divider at the inset position
       // This creates a new subdivision at the inset depth
 
       // First, toggle the face to open
-      const newFaces = state.faces.map(f =>
+      const newFaces = faces.map(f =>
         f.id === faceId ? { ...f, solid: false } : f
       );
 
@@ -1854,7 +1910,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       switch (faceId) {
         case 'front':
           axis = 'z';
-          position = state.config.depth - insetAmount;
+          position = config.depth - insetAmount;
           break;
         case 'back':
           axis = 'z';
@@ -1866,11 +1922,11 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           break;
         case 'right':
           axis = 'x';
-          position = state.config.width - insetAmount;
+          position = config.width - insetAmount;
           break;
         case 'top':
           axis = 'y';
-          position = state.config.height - insetAmount;
+          position = config.height - insetAmount;
           break;
         case 'bottom':
           axis = 'y';
@@ -1879,9 +1935,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Create the subdivision in the root void
-      const mt = state.config.materialThickness;
+      const mt = config.materialThickness;
       const halfMt = mt / 2;
-      const { width, height, depth } = state.config;
+      const { width, height, depth } = config;
 
       let child1Bounds: Bounds;
       let child2Bounds: Bounds;
@@ -1903,7 +1959,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       const newRootVoid: Void = {
-        ...state.rootVoid,
+        ...rootVoid,
         children: [
           {
             id: `void-${Date.now()}-1`,
@@ -1941,6 +1997,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       if (!result.success || !result.snapshot) {
         // Fallback to local update if dispatch failed
+        // Get model state from engine (source of truth)
+        const modelState = getModelState(state);
+        const { rootVoid } = modelState;
+
         const updateSubAssemblyInVoid = (v: Void): Void => {
           if (v.subAssembly?.id === subAssemblyId) {
             return {
@@ -1965,7 +2025,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         };
 
         return {
-          rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+          rootVoid: updateSubAssemblyInVoid(rootVoid),
           panelsDirty: true,
         };
       }
@@ -1990,6 +2050,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       if (!result.success || !result.snapshot) {
         // Fallback to local update if dispatch failed
+        // Get model state from engine (source of truth)
+        const modelState = getModelState(state);
+        const { rootVoid } = modelState;
+
         const updateSubAssemblyInVoid = (v: Void): Void => {
           if (v.subAssembly?.id === subAssemblyId) {
             return {
@@ -2020,7 +2084,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         };
 
         return {
-          rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+          rootVoid: updateSubAssemblyInVoid(rootVoid),
           panelsDirty: true,
         };
       }
@@ -2038,6 +2102,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   setSubAssemblyLidInset: (subAssemblyId, side, inset) =>
     set((state) => {
       console.warn('setSubAssemblyLidInset is deprecated. Use push-pull adjust mode instead.');
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const { rootVoid } = modelState;
+
       const updateSubAssemblyInVoid = (v: Void): Void => {
         if (v.subAssembly?.id === subAssemblyId) {
           return {
@@ -2069,7 +2137,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       };
 
       return {
-        rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+        rootVoid: updateSubAssemblyInVoid(rootVoid),
         panelsDirty: true,
       };
     }),
