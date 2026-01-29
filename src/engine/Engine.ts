@@ -653,6 +653,17 @@ export class Engine {
         break;
       }
 
+      case 'SET_EDGE_EXTENSIONS_BATCH': {
+        // Batch edge extensions - atomic operation for undo/redo
+        if (assembly) {
+          for (const ext of action.payload.extensions) {
+            assembly.setPanelEdgeExtension(ext.panelId, ext.edge, ext.value);
+          }
+          return true;
+        }
+        break;
+      }
+
       case 'CREATE_SUB_ASSEMBLY': {
         const voidNodeRaw = findInScene(action.payload.voidId);
         const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;

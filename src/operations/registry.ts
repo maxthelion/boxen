@@ -373,6 +373,42 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     shortcut: 'c',
   },
 
+  'inset-outset': {
+    id: 'inset-outset',
+    name: 'Inset/Outset',
+    type: 'parameter',
+    selectionType: 'edge',
+    minSelection: 1,
+    maxSelection: Infinity,
+    availableIn: ['3d'],
+    description: 'Extend or retract panel edges',
+    shortcut: 'i',
+    createPreviewAction: (params) => {
+      const { edges, offset } = params as {
+        edges?: string[];  // Format: "panelId:edge"
+        offset?: number;
+      };
+
+      if (!edges?.length || offset === undefined) return null;
+
+      // Convert edge keys to extension objects
+      const extensions = edges.map(edgeKey => {
+        const [panelId, edge] = edgeKey.split(':');
+        return {
+          panelId,
+          edge: edge as 'top' | 'bottom' | 'left' | 'right',
+          value: offset,
+        };
+      });
+
+      return {
+        type: 'SET_EDGE_EXTENSIONS_BATCH',
+        targetId: 'main-assembly',
+        payload: { extensions },
+      };
+    },
+  },
+
   // Immediate operations (no preview)
   'toggle-face': {
     id: 'toggle-face',

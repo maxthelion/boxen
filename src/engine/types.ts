@@ -483,6 +483,7 @@ export type EngineAction =
   | { type: 'ADD_GRID_SUBDIVISION'; targetId: string; payload: { voidId: string; axes: { axis: Axis; positions: number[] }[] } }
   | { type: 'REMOVE_SUBDIVISION'; targetId: string; payload: { voidId: string } }
   | { type: 'SET_EDGE_EXTENSION'; targetId: string; payload: { panelId: string; edge: EdgePosition; value: number } }
+  | { type: 'SET_EDGE_EXTENSIONS_BATCH'; targetId: string; payload: { extensions: Array<{ panelId: string; edge: EdgePosition; value: number }> } }
   | { type: 'CREATE_SUB_ASSEMBLY'; targetId: string; payload: { voidId: string; clearance?: number; assemblyAxis?: Axis } }
   | { type: 'REMOVE_SUB_ASSEMBLY'; targetId: string; payload: { subAssemblyId: string } }
   | { type: 'PURGE_VOID'; targetId: string; payload: { voidId: string } }

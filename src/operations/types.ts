@@ -25,6 +25,7 @@ export type OperationId =
   | 'scale'
   | 'chamfer-fillet'
   | 'move'
+  | 'inset-outset'
   // Immediate operations (execute instantly)
   | 'toggle-face'
   | 'remove-subdivision'
@@ -135,6 +136,16 @@ export interface ChamferFilletParams {
 }
 
 /**
+ * Parameters for inset-outset operation
+ */
+export interface InsetOutsetParams {
+  /** Selected edges in format "panelId:edge" */
+  edges: string[];
+  /** Extension value (positive = outward, negative = inward) */
+  offset: number;
+}
+
+/**
  * Parameters for toggle-face operation
  */
 export interface ToggleFaceParams {
@@ -182,6 +193,7 @@ export type OperationParams =
   | ConfigureAssemblyParams
   | ScaleParams
   | ChamferFilletParams
+  | InsetOutsetParams
   | ToggleFaceParams
   | RemoveSubdivisionParams
   | RemoveSubAssemblyParams
