@@ -26,6 +26,7 @@ import {
   CrossLapSlot,
   PanelOutline,
   Point2D,
+  EdgeStatusInfo,
 } from '../types';
 import {
   ALL_EDGE_POSITIONS,
@@ -480,6 +481,38 @@ export class DividerPanelNode extends BasePanel {
       return null;
     }
     return assembly.getFingerData();
+  }
+
+  computeEdgeStatuses(): EdgeStatusInfo[] {
+    const assembly = this.findParentAssembly();
+    if (!assembly) {
+      // No assembly, all edges unlocked
+      return ALL_EDGE_POSITIONS.map(position => ({
+        position,
+        status: 'unlocked' as const,
+        adjacentFaceId: undefined,
+      }));
+    }
+
+    // Use edge configs to determine which edges meet solid faces
+    const edgeConfigs = this.computeEdgeConfigs();
+
+    return ALL_EDGE_POSITIONS.map((position): EdgeStatusInfo => {
+      const config = edgeConfigs.find(e => e.position === position);
+      const meetsFace = config?.meetsFaceId;
+      const adjacentFaceId = meetsFace as FaceId | undefined;
+
+      // Dividers always have female joints where they meet solid faces
+      // so they're outward-only (can extend but not retract)
+      // Where they don't meet a face, they're unlocked
+      const status: EdgeStatusInfo['status'] = meetsFace ? 'outward-only' : 'unlocked';
+
+      return {
+        position,
+        status,
+        adjacentFaceId,
+      };
+    });
   }
 
   /**

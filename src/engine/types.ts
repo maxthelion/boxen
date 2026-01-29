@@ -23,6 +23,23 @@ export type FaceId = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 
 export type EdgePosition = 'top' | 'bottom' | 'left' | 'right';
 
+/**
+ * Edge status for inset/outset operations
+ * - locked: male joint (tabs out), cannot modify
+ * - outward-only: female joint (slots), can extend outward only
+ * - unlocked: open face (straight edge), can extend or retract
+ */
+export type EdgeStatus = 'locked' | 'outward-only' | 'unlocked';
+
+/**
+ * Edge status info for a panel edge
+ */
+export interface EdgeStatusInfo {
+  position: EdgePosition;
+  status: EdgeStatus;
+  adjacentFaceId?: FaceId;
+}
+
 // =============================================================================
 // Geometry Types
 // =============================================================================
@@ -400,6 +417,10 @@ export interface BasePanelSnapshot extends BaseSnapshot {
     // Edge anchors for alignment validation
     // Each anchor is at the center of the mating edge
     edgeAnchors: EdgeAnchor[];
+
+    // Edge statuses for inset/outset tool
+    // Determines which edges can be modified
+    edgeStatuses: EdgeStatusInfo[];
   };
 }
 

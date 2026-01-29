@@ -22,6 +22,7 @@ import {
   Axis,
   Subdivision,
   Bounds3D,
+  EdgeStatusInfo,
 } from '../types';
 import {
   ALL_EDGE_POSITIONS,
@@ -506,6 +507,50 @@ export class FacePanelNode extends BasePanel {
 
   getFingerData(): AssemblyFingerData | null {
     return this._assembly.getFingerData();
+  }
+
+  computeEdgeStatuses(): EdgeStatusInfo[] {
+    const faces = this._assembly.getFaces();
+    const assemblyConfig = this._assembly.assemblyConfig;
+
+    // Convert to store format for getEdgeGender compatibility
+    const storeFaces: StoreFace[] = faces.map(f => ({ id: f.id, solid: f.solid }));
+    const storeAssembly: StoreAssemblyConfig = {
+      assemblyAxis: assemblyConfig.assemblyAxis,
+      lids: {
+        positive: {
+          enabled: true,
+          tabDirection: assemblyConfig.lids.positive.tabDirection,
+          inset: assemblyConfig.lids.positive.inset,
+        },
+        negative: {
+          enabled: true,
+          tabDirection: assemblyConfig.lids.negative.tabDirection,
+          inset: assemblyConfig.lids.negative.inset,
+        },
+      },
+    };
+
+    return ALL_EDGE_POSITIONS.map((position): EdgeStatusInfo => {
+      const adjacentFaceId = getAdjacentFace(this.faceId, position);
+      const gender = getEdgeGender(this.faceId, position, storeFaces, storeAssembly);
+
+      // Convert gender to edge status
+      let status: EdgeStatusInfo['status'];
+      if (gender === 'male') {
+        status = 'locked';
+      } else if (gender === 'female') {
+        status = 'outward-only';
+      } else {
+        status = 'unlocked';
+      }
+
+      return {
+        position,
+        status,
+        adjacentFaceId,
+      };
+    });
   }
 
   // ==========================================================================

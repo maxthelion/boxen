@@ -29,6 +29,7 @@ import {
   JointGender,
   Axis,
   AssemblyFingerData,
+  EdgeStatusInfo,
 } from '../types';
 import { generateFingerJointPathV2, Point } from '../../utils/fingerJoints';
 
@@ -151,6 +152,15 @@ export abstract class BasePanel extends BaseNode {
    * Returns null if finger joints should not be generated
    */
   abstract getFingerData(): AssemblyFingerData | null;
+
+  /**
+   * Compute edge statuses for inset/outset operations.
+   * Determines which edges can be modified:
+   * - locked: male joint, cannot modify
+   * - outward-only: female joint, can extend outward only
+   * - unlocked: open face, can extend or retract
+   */
+  abstract computeEdgeStatuses(): EdgeStatusInfo[];
 
   /**
    * Get feet configuration if this panel should have feet
@@ -775,6 +785,7 @@ export abstract class BasePanel extends BaseNode {
         edges: this.getEdges(),
         worldTransform: this.getTransform(),
         edgeAnchors: this.getEdgeAnchors(),
+        edgeStatuses: this.computeEdgeStatuses(),
       },
     };
   }
