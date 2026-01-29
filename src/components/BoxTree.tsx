@@ -191,6 +191,8 @@ interface TreeOpsProps {
   panelLookup: PanelLookup;
   // Edit panel in 2D view
   onEditPanel: (panelId: string) => void;
+  // Configure face panel settings
+  onConfigureFace: (panelId: string) => void;
 }
 
 // Outer face panel node (for main box or sub-assembly)
@@ -206,7 +208,8 @@ const OuterPanelNode: React.FC<{
   onToggleFaceVisibility: (faceId: string) => void;
   onSetIsolatedPanel: (panelId: string | null) => void;
   onEditPanel: (panelId: string) => void;
-}> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, hiddenFaceIds, isolatedPanelId, onToggleFaceVisibility, onSetIsolatedPanel, onEditPanel }) => {
+  onConfigureFace: (panelId: string) => void;
+}> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, hiddenFaceIds, isolatedPanelId, onToggleFaceVisibility, onSetIsolatedPanel, onEditPanel, onConfigureFace }) => {
   // Tree shows actual selection only (no cascade from assembly selection)
   const isSelected = selectedPanelIds.has(panel.id);
   const isHovered = hoveredPanelId === panel.id;
@@ -231,6 +234,16 @@ const OuterPanelNode: React.FC<{
         </span>
         {panel.solid && (
           <span className="tree-controls">
+            <button
+              className="tree-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onConfigureFace(panel.id);
+              }}
+              title="Configure face"
+            >
+              ⚙
+            </button>
             <button
               className="tree-btn"
               onClick={(e) => {
@@ -394,6 +407,7 @@ const VoidNode: React.FC<VoidNodeProps> = ({
   onDeleteSubAssembly,
   panelLookup,
   onEditPanel,
+  onConfigureFace,
 }) => {
   const isSelected = selectedVoidIds.has(node.id);
   const isHovered = hoveredVoidId === node.id;
@@ -457,6 +471,7 @@ const VoidNode: React.FC<VoidNodeProps> = ({
     onDeleteSubAssembly,
     panelLookup,
     onEditPanel,
+    onConfigureFace,
   };
 
   return (
@@ -625,6 +640,7 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
   onDeleteSubAssembly,
   panelLookup,
   onEditPanel,
+  onConfigureFace,
 }) => {
   const isSelected = selectedSubAssemblyIds.has(subAssembly.id);
   const isAssemblySelected = selectedAssemblyId === subAssembly.id;
@@ -687,6 +703,7 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
     onDeleteSubAssembly,
     panelLookup,
     onEditPanel,
+    onConfigureFace,
   };
 
   return (
@@ -755,6 +772,7 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
             onToggleFaceVisibility={onToggleFaceVisibility}
             onSetIsolatedPanel={onSetIsolatedPanel}
             onEditPanel={onEditPanel}
+            onConfigureFace={onConfigureFace}
           />
         ))}
       </div>
@@ -813,6 +831,7 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
   onDeleteSubAssembly,
   panelLookup,
   onEditPanel,
+  onConfigureFace,
 }) => {
   const isSelected = selectedAssemblyId === 'main';
   const isHovered = hoveredAssemblyId === 'main';
@@ -867,6 +886,7 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
     onDeleteSubAssembly,
     panelLookup,
     onEditPanel,
+    onConfigureFace,
   };
 
   return (
@@ -901,6 +921,7 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
             onToggleFaceVisibility={onToggleFaceVisibility}
             onSetIsolatedPanel={onSetIsolatedPanel}
             onEditPanel={onEditPanel}
+            onConfigureFace={onConfigureFace}
           />
         ))}
       </div>
@@ -961,6 +982,7 @@ export const BoxTree: React.FC = () => {
     removeVoid,
     removeSubAssembly,
     enterSketchView,
+    setActiveTool,
   } = useBoxStore();
 
   // Early return if engine not initialized
@@ -972,6 +994,12 @@ export const BoxTree: React.FC = () => {
     setIsolatedVoid(null);
     setIsolatedSubAssembly(null);
     setIsolatedPanel(null);
+  };
+
+  // Handle configure face - select the panel and open the configure palette
+  const handleConfigureFace = (panelId: string) => {
+    selectPanel(panelId, false);
+    setActiveTool('configure-face');
   };
 
   return (
@@ -1011,6 +1039,7 @@ export const BoxTree: React.FC = () => {
           onDeleteSubAssembly={removeSubAssembly}
           panelLookup={panelLookup}
           onEditPanel={enterSketchView}
+          onConfigureFace={handleConfigureFace}
         />
       </div>
       {hasIsolation && (

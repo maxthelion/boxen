@@ -12,6 +12,7 @@ export type EditorTool =
   | 'move'
   | 'create-sub-assembly'
   | 'configure-assembly'
+  | 'configure-face'
   | 'scale';
 
 export type EditorMode = '2d' | '3d';

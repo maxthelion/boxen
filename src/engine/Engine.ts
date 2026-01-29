@@ -515,7 +515,7 @@ export class Engine {
 
       case 'CONFIGURE_ASSEMBLY': {
         if (assembly) {
-          const { width, height, depth, materialConfig, assemblyAxis, lids } = action.payload;
+          const { width, height, depth, materialConfig, assemblyAxis, lids, feet } = action.payload;
 
           // Update dimensions
           if (width !== undefined || height !== undefined || depth !== undefined) {
@@ -544,6 +544,11 @@ export class Engine {
             if (lids.negative) {
               assembly.setLidConfig('negative', lids.negative);
             }
+          }
+
+          // Update feet config
+          if (feet !== undefined) {
+            assembly.setFeet(feet);
           }
 
           return true;

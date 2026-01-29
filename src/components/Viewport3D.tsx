@@ -10,6 +10,7 @@ import { MovePalette } from './MovePalette';
 import { CreateSubAssemblyPalette } from './CreateSubAssemblyPalette';
 import { AssemblyPalette } from './AssemblyPalette';
 import { ScalePalette } from './ScalePalette';
+import { FacePalette } from './FacePalette';
 import { useBoxStore } from '../store/useBoxStore';
 import { useEnginePanels } from '../engine';
 import { FaceId } from '../types';
@@ -61,6 +62,9 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // Scale palette state (local UI state only)
   const [scalePalettePosition, setScalePalettePosition] = useState({ x: 20, y: 150 });
+
+  // Face palette state (local UI state only)
+  const [facePalettePosition, setFacePalettePosition] = useState({ x: 20, y: 150 });
 
   // Get selected face ID for push-pull tool
   // Panel IDs are UUIDs, so we need to look up the panel source metadata
@@ -177,6 +181,11 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // Close scale palette
   const handleScalePaletteClose = useCallback(() => {
+    setActiveTool('select');
+  }, [setActiveTool]);
+
+  // Close face palette
+  const handleFacePaletteClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
 
@@ -325,6 +334,15 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         position={scalePalettePosition}
         onPositionChange={setScalePalettePosition}
         onClose={handleScalePaletteClose}
+        containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+      />
+
+      {/* Face Palette - for configuring face settings */}
+      <FacePalette
+        visible={activeTool === 'configure-face'}
+        position={facePalettePosition}
+        onPositionChange={setFacePalettePosition}
+        onClose={handleFacePaletteClose}
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
       />
 

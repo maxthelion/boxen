@@ -12,7 +12,7 @@ import {
   OperationType,
   SelectionType,
 } from './types';
-import { EngineAction, FaceId, Axis } from '../engine/types';
+import { EngineAction, FaceId, Axis, FeetConfig } from '../engine/types';
 
 // ==========================================================================
 // Operation Definition
@@ -259,6 +259,7 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
         lidPositiveInset,
         lidNegativeTabDirection,
         lidNegativeInset,
+        feet,
       } = params as {
         thickness?: number;
         fingerWidth?: number;
@@ -268,6 +269,7 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
         lidPositiveInset?: number;
         lidNegativeTabDirection?: 'tabs-in' | 'tabs-out';
         lidNegativeInset?: number;
+        feet?: FeetConfig;
       };
 
       // Build material config if any material properties are set
@@ -299,6 +301,7 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
           ...(Object.keys(materialConfig).length > 0 && { materialConfig }),
           ...(assemblyAxis !== undefined && { assemblyAxis }),
           ...(Object.keys(lids).length > 0 && { lids }),
+          ...(feet !== undefined && { feet }),
         },
       };
     },
@@ -343,6 +346,19 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     availableIn: ['2d'],
     description: 'Add chamfers or fillets to corners',
     shortcut: 'c',
+  },
+
+  // Face configuration
+  'configure-face': {
+    id: 'configure-face',
+    name: 'Configure Face',
+    type: 'view',  // View type since changes are immediate via store actions
+    selectionType: 'panel',
+    minSelection: 1,
+    maxSelection: 1,
+    availableIn: ['3d'],
+    description: 'Configure face settings (open/closed, tab direction)',
+    shortcut: 'f',
   },
 
   // Immediate operations (no preview)

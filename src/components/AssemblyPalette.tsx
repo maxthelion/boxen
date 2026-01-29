@@ -9,6 +9,7 @@ import { NumberInput } from './UI/NumberInput';
 import { useBoxStore, getAllSubAssemblies } from '../store/useBoxStore';
 import { useEngineConfig, useEngineVoidTree, getEngine, notifyEngineStateChanged } from '../engine';
 import { Axis } from '../engine/types';
+import { defaultFeetConfig, FeetConfig } from '../types';
 
 interface AssemblyPaletteProps {
   /** Whether the palette is visible */
@@ -89,6 +90,7 @@ export const AssemblyPalette: React.FC<AssemblyPaletteProps> = ({
   const [localFingerWidth, setLocalFingerWidth] = useState(config?.fingerWidth ?? 10);
   const [localFingerGap, setLocalFingerGap] = useState(config?.fingerGap ?? 1.5);
   const [localAxis, setLocalAxis] = useState<Axis>(config?.assembly?.assemblyAxis ?? 'y');
+  const [localFeet, setLocalFeet] = useState<FeetConfig>(config?.assembly?.feet ?? defaultFeetConfig);
 
   // Initialize local state from config when it changes
   useEffect(() => {
@@ -97,6 +99,7 @@ export const AssemblyPalette: React.FC<AssemblyPaletteProps> = ({
       setLocalFingerWidth(config.fingerWidth);
       setLocalFingerGap(config.fingerGap);
       setLocalAxis(config.assembly?.assemblyAxis ?? 'y');
+      setLocalFeet(config.assembly?.feet ?? defaultFeetConfig);
     }
   }, [config]);
 
@@ -107,6 +110,7 @@ export const AssemblyPalette: React.FC<AssemblyPaletteProps> = ({
     fingerWidth?: number;
     fingerGap?: number;
     assemblyAxis?: Axis;
+    feet?: FeetConfig;
   };
 
   // Current values (from operation if active, otherwise local)
@@ -114,6 +118,7 @@ export const AssemblyPalette: React.FC<AssemblyPaletteProps> = ({
   const currentFingerWidth = isActive ? (opParams.fingerWidth ?? localFingerWidth) : localFingerWidth;
   const currentFingerGap = isActive ? (opParams.fingerGap ?? localFingerGap) : localFingerGap;
   const currentAxis = isActive ? (opParams.assemblyAxis ?? localAxis) : localAxis;
+  const currentFeet = isActive ? (opParams.feet ?? localFeet) : localFeet;
 
   // Auto-start operation when palette becomes visible and assembly is selected
   useEffect(() => {
@@ -130,6 +135,7 @@ export const AssemblyPalette: React.FC<AssemblyPaletteProps> = ({
       fingerWidth: config.fingerWidth,
       fingerGap: config.fingerGap,
       assemblyAxis: config.assembly?.assemblyAxis ?? 'y',
+      feet: config.assembly?.feet ?? defaultFeetConfig,
     });
   }, [visible, isActive, config, selectedAssemblyId, startOperation, updateOperationParams]);
 
@@ -161,6 +167,7 @@ export const AssemblyPalette: React.FC<AssemblyPaletteProps> = ({
     if (updates.fingerWidth !== undefined) setLocalFingerWidth(updates.fingerWidth);
     if (updates.fingerGap !== undefined) setLocalFingerGap(updates.fingerGap);
     if (updates.assemblyAxis !== undefined) setLocalAxis(updates.assemblyAxis);
+    if (updates.feet !== undefined) setLocalFeet(updates.feet);
 
     // Update operation params if active
     if (isActive) {
@@ -170,6 +177,17 @@ export const AssemblyPalette: React.FC<AssemblyPaletteProps> = ({
       });
     }
   }, [isActive, opParams, updateOperationParams]);
+
+  // Handle feet toggle and updates
+  const handleFeetToggle = useCallback((enabled: boolean) => {
+    const newFeet = { ...currentFeet, enabled };
+    handleParamChange({ feet: newFeet });
+  }, [currentFeet, handleParamChange]);
+
+  const handleFeetUpdate = useCallback((updates: Partial<FeetConfig>) => {
+    const newFeet = { ...currentFeet, ...updates };
+    handleParamChange({ feet: newFeet });
+  }, [currentFeet, handleParamChange]);
 
   // Handle apply
   const handleApply = useCallback(() => {
@@ -311,6 +329,62 @@ export const AssemblyPalette: React.FC<AssemblyPaletteProps> = ({
                 </div>
               </label>
             </div>
+          </div>
+
+          {/* Feet Section */}
+          <div className="palette-section">
+            <div className="palette-section-title">Feet</div>
+            <label className="palette-checkbox">
+              <input
+                type="checkbox"
+                checked={currentFeet.enabled}
+                onChange={(e) => handleFeetToggle(e.target.checked)}
+              />
+              <span>Add feet to box</span>
+            </label>
+            {currentFeet.enabled && (
+              <div className="palette-form-grid">
+                <label>
+                  <span>Height</span>
+                  <div className="input-with-unit">
+                    <NumberInput
+                      value={currentFeet.height}
+                      onChange={(v) => handleFeetUpdate({ height: v })}
+                      min={5}
+                      max={100}
+                      step={5}
+                    />
+                    <span className="unit">mm</span>
+                  </div>
+                </label>
+                <label>
+                  <span>Width</span>
+                  <div className="input-with-unit">
+                    <NumberInput
+                      value={currentFeet.width}
+                      onChange={(v) => handleFeetUpdate({ width: v })}
+                      min={10}
+                      max={100}
+                      step={5}
+                    />
+                    <span className="unit">mm</span>
+                  </div>
+                </label>
+                <label>
+                  <span>Inset</span>
+                  <div className="input-with-unit">
+                    <NumberInput
+                      value={currentFeet.inset}
+                      onChange={(v) => handleFeetUpdate({ inset: v })}
+                      min={0}
+                      max={50}
+                      step={1}
+                    />
+                    <span className="unit">mm</span>
+                  </div>
+                </label>
+              </div>
+            )}
           </div>
 
           {/* Actions */}

@@ -4,7 +4,6 @@ import { Viewport3D, Viewport3DHandle } from './components/Viewport3D';
 import { SketchView2D } from './components/SketchView2D';
 import { SketchSidebar } from './components/SketchSidebar';
 import { SubdivisionControls } from './components/SubdivisionControls';
-import { AssemblyProperties } from './components/AssemblyProperties';
 import { ExportModal } from './components/ExportModal';
 import { ProjectBrowserModal } from './components/ProjectBrowserModal';
 import { SaveProjectModal } from './components/SaveProjectModal';
@@ -320,12 +319,7 @@ function App() {
       return <SubdivisionControls />;
     }
 
-    // Assembly or sub-assembly selected - show assembly properties
-    if (selectedAssemblyId || selectedSubAssemblyIds.size > 0) {
-      return <AssemblyProperties />;
-    }
-
-    // Nothing selected or panel selected - no sidebar
+    // Nothing selected, panel, or assembly selected - no sidebar
     return null;
   };
 

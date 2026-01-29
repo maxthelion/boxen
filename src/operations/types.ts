@@ -22,6 +22,7 @@ export type OperationId =
   | 'subdivide-grid'
   | 'create-sub-assembly'
   | 'configure-assembly'
+  | 'configure-face'
   | 'scale'
   | 'chamfer-fillet'
   | 'move'
