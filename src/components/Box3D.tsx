@@ -1,11 +1,12 @@
 import React, { useMemo } from 'react';
 import { useBoxStore, getLeafVoids, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible } from '../store/useBoxStore';
-import { useEngineConfig, useEngineVoidTree, useEnginePanels, useEngineMainPanels, useEngineMainConfig } from '../engine';
+import { useEngineConfig, useEngineVoidTree, useEnginePanels, useEngineMainPanels, useEngineMainConfig, useEngineFaces } from '../engine';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { PanelCollectionRenderer } from './PanelPathRenderer';
 import { PushPullArrow } from './PushPullArrow';
 import { AssemblyAxisIndicator, LidFaceHighlight } from './AssemblyAxisIndicator';
+import { PanelToggleOverlay } from './PanelToggleOverlay';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
 import * as THREE from 'three';
@@ -25,13 +26,14 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   const config = useEngineConfig();
   const rootVoid = useEngineVoidTree();
   const panelCollection = useEnginePanels();
+  const faces = useEngineFaces();
 
   // Main (committed) state - for arrow positioning during preview
   const mainConfig = useEngineMainConfig();
   const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
-  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectPanel, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
+  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedVoidIds, selectPanel, selectAssembly, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
 
   // Check if a preview is currently active
   const isPreviewActive = operationState.activeOperation !== null;
@@ -108,6 +110,20 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
           />
         </>
       )}
+
+      {/* Panel toggle buttons - show when main assembly selected and no specific panel/void selected */}
+      {selectedAssemblyId === 'main' &&
+        selectedPanelIds.size === 0 &&
+        selectedVoidIds.size === 0 &&
+        faces && (
+          <PanelToggleOverlay
+            faces={faces}
+            dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
+            thickness={scaledThickness}
+            onToggle={toggleFace}
+            visible={!isPreviewActive}
+          />
+        )}
 
       {/* Debug anchor spheres at box corners (inset by half material thickness) */}
       {showDebugAnchors && anchorCorners.map((corner, idx) => (

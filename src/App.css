@@ -209,6 +209,59 @@ body {
   line-height: 1.4;
 }
 
+/* Panel Toggle Buttons (3D overlay) */
+.panel-toggle-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  background: rgba(30, 30, 50, 0.9);
+  border: 1px solid #444;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 50px;
+}
+
+.panel-toggle-btn:hover {
+  background: rgba(40, 40, 70, 0.95);
+  border-color: #4a90d9;
+  transform: scale(1.05);
+}
+
+.panel-toggle-btn.solid {
+  border-color: #4a90d9;
+}
+
+.panel-toggle-btn.solid .panel-toggle-icon {
+  color: #4a90d9;
+}
+
+.panel-toggle-btn.open {
+  border-color: #666;
+}
+
+.panel-toggle-btn.open .panel-toggle-icon {
+  color: #888;
+}
+
+.panel-toggle-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.panel-toggle-label {
+  font-size: 9px;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.panel-toggle-btn:hover .panel-toggle-label {
+  color: #ccc;
+}
+
 /* Form Styles */
 .form-grid {
   display: flex;
