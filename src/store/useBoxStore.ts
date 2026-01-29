@@ -1794,32 +1794,50 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // Assembly config actions for sub-assemblies
   setSubAssemblyAxis: (subAssemblyId, axis) =>
     set((state) => {
-      const updateSubAssemblyInVoid = (v: Void): Void => {
-        if (v.subAssembly?.id === subAssemblyId) {
+      // Ensure engine is initialized
+      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+
+      // Dispatch to engine
+      const result = dispatchToEngine({
+        type: 'SET_SUB_ASSEMBLY_AXIS',
+        targetId: 'main-assembly',
+        payload: { subAssemblyId, axis },
+      });
+
+      if (!result.success || !result.snapshot) {
+        // Fallback to local update if dispatch failed
+        const updateSubAssemblyInVoid = (v: Void): Void => {
+          if (v.subAssembly?.id === subAssemblyId) {
+            return {
+              ...v,
+              subAssembly: {
+                ...v.subAssembly,
+                assembly: {
+                  ...v.subAssembly.assembly,
+                  assemblyAxis: axis,
+                },
+              },
+            };
+          }
           return {
             ...v,
-            subAssembly: {
+            children: v.children.map(updateSubAssemblyInVoid),
+            subAssembly: v.subAssembly ? {
               ...v.subAssembly,
-              assembly: {
-                ...v.subAssembly.assembly,
-                assemblyAxis: axis,
-              },
-            },
+              rootVoid: updateSubAssemblyInVoid(v.subAssembly.rootVoid),
+            } : undefined,
           };
-        }
-        return {
-          ...v,
-          children: v.children.map(updateSubAssemblyInVoid),
-          subAssembly: v.subAssembly ? {
-            ...v.subAssembly,
-            rootVoid: updateSubAssemblyInVoid(v.subAssembly.rootVoid),
-          } : undefined,
         };
-      };
+
+        return {
+          rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+          panelsDirty: true,
+        };
+      }
 
       return {
-        rootVoid: updateSubAssemblyInVoid(state.rootVoid),
-        panelsDirty: true,  // Mark panels as needing regeneration
+        rootVoid: result.snapshot.rootVoid,
+        panelsDirty: true,
       };
     }),
 

@@ -73,54 +73,58 @@ All components use `useEngine*()` hooks to read model state.
 ### Phase 2: URL Serialization Reads from Engine ✅ COMPLETE
 `saveToUrl()` and `getShareableUrl()` now use `getEngineSnapshot()` instead of reading from store state.
 
-### Phase 3: Store Actions Use Engine Dispatch (PENDING)
+### Phase 3: Store Actions Use Engine Dispatch (IN PROGRESS)
 
 Migrate store actions to call `engine.dispatch()` directly instead of modifying store state.
 
-**Before:**
+**Pattern:**
+Store actions now dispatch to engine and update local state from the returned snapshot.
+Fallback logic preserves backward compatibility if dispatch fails.
+
 ```typescript
-setConfig: (newConfig) => set((state) => {
-  const config = { ...state.config, ...newConfig };
-  syncStoreToEngine(config, state.faces, state.rootVoid);
-  return { config };
+purgeVoid: (voidId) => set((state) => {
+  ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+
+  const result = dispatchToEngine({
+    type: 'PURGE_VOID',
+    targetId: 'main-assembly',
+    payload: { voidId },
+  });
+
+  if (!result.success || !result.snapshot) {
+    // Fallback to local update
+    return { rootVoid: VoidTree.update(...) };
+  }
+
+  return { rootVoid: result.snapshot.rootVoid };
 }),
 ```
 
-**After:**
-```typescript
-setConfig: (newConfig) => {
-  const engine = getEngine();
-  engine.dispatch({
-    type: 'SET_DIMENSIONS',
-    targetId: 'main-assembly',
-    payload: newConfig,
-  });
-  notifyEngineStateChanged();
-},
-```
-
-**Actions to Migrate:**
+**Actions Migration Status:**
 
 High-priority (frequently used):
-- [ ] `setConfig` - dimension changes
-- [ ] `toggleFace` - face solid/open toggle
-- [ ] `addSubdivision` - adding dividers
-- [ ] `removeVoid` - removing subdivisions
-- [ ] `insetFace` - lid inset operations
+- [x] `setConfig` - dispatches SET_DIMENSIONS, SET_MATERIAL, SET_ASSEMBLY_AXIS, SET_LID_CONFIG
+- [x] `toggleFace` - dispatches TOGGLE_FACE
+- [x] `removeVoid` - dispatches REMOVE_SUBDIVISION
+- [ ] `insetFace` - lid inset operations (uses setConfig)
 
 Medium-priority:
-- [ ] `setAssemblyAxis` - assembly orientation
-- [ ] `setLidTabDirection` - tab direction changes
-- [ ] `setLidInset` - lid inset amount
-- [ ] `purgeVoid` - clearing void contents
+- [x] `purgeVoid` - dispatches PURGE_VOID ✓ (Jan 2026)
 - [ ] `setFeetConfig` - feet configuration
 
-Lower-priority (sub-assembly operations):
-- [ ] `addSubAssembly` - creating sub-assemblies
-- [ ] `removeSubAssembly` - removing sub-assemblies
-- [ ] `setSubAssemblyClearance` - sub-assembly clearance
-- [ ] `toggleSubAssemblyFace` - sub-assembly face toggle
-- [ ] `setSubAssemblyAxis` - sub-assembly orientation
+Sub-assembly operations:
+- [ ] `createSubAssembly` - engine supports but store doesn't use it yet
+- [ ] `removeSubAssembly` - needs to get subAssemblyId from voidId
+- [x] `setSubAssemblyClearance` - dispatches SET_SUB_ASSEMBLY_CLEARANCE ✓ (Jan 2026)
+- [x] `toggleSubAssemblyFace` - dispatches TOGGLE_SUB_ASSEMBLY_FACE ✓ (Jan 2026)
+- [x] `setSubAssemblyAxis` - dispatches SET_SUB_ASSEMBLY_AXIS ✓ (Jan 2026)
+
+**Engine Actions Added (Jan 2026):**
+- `PURGE_VOID` - Clear void children and sub-assembly
+- `SET_SUB_ASSEMBLY_CLEARANCE` - Update clearance
+- `TOGGLE_SUB_ASSEMBLY_FACE` - Toggle face solid/open
+- `SET_SUB_ASSEMBLY_AXIS` - Change assembly orientation
+- `CREATE_SUB_ASSEMBLY` - Enhanced with optional assemblyAxis param
 
 ### Phase 4: Remove Duplicate State (PENDING)
 
