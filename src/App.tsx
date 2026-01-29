@@ -10,12 +10,15 @@ import { DimensionForm } from './components/DimensionForm';
 import { ExportModal } from './components/ExportModal';
 import { ProjectBrowserModal } from './components/ProjectBrowserModal';
 import { SaveProjectModal } from './components/SaveProjectModal';
+import { TemplateBrowserModal } from './components/TemplateBrowserModal';
+import { TemplateConfigModal } from './components/TemplateConfigModal';
 import { useBoxStore } from './store/useBoxStore';
 import { saveProject, loadProject, captureThumbnail } from './utils/projectStorage';
 import { ProjectState } from './utils/urlState';
 import { EdgeExtensions, FaceId, PanelPath } from './types';
 import { hasDebug, getDebug } from './utils/debug';
 import { useEngine, useEnginePanels, getEngineSnapshot } from './engine';
+import { ProjectTemplate } from './templates';
 import './App.css';
 
 // Get the normal axis for any panel (face or divider)
@@ -64,6 +67,8 @@ function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isProjectBrowserOpen, setIsProjectBrowserOpen] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isTemplateBrowserOpen, setIsTemplateBrowserOpen] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<ProjectTemplate | null>(null);
   const [shareStatus, setShareStatus] = useState<'idle' | 'copied'>('idle');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
   const [debugCopyStatus, setDebugCopyStatus] = useState<'idle' | 'copied'>('idle');
@@ -308,6 +313,13 @@ function App() {
           </button>
           <button
             className="header-btn secondary"
+            onClick={() => setIsTemplateBrowserOpen(true)}
+          >
+            <span className="header-btn-icon">📋</span>
+            Templates
+          </button>
+          <button
+            className="header-btn secondary"
             onClick={() => setIsProjectBrowserOpen(true)}
           >
             <span className="header-btn-icon">📁</span>
@@ -388,6 +400,26 @@ function App() {
         isOpen={isSaveModalOpen}
         onClose={() => setIsSaveModalOpen(false)}
         onSave={handleSaveProject}
+      />
+
+      <TemplateBrowserModal
+        isOpen={isTemplateBrowserOpen}
+        onClose={() => setIsTemplateBrowserOpen(false)}
+        onSelectTemplate={(template) => {
+          setSelectedTemplate(template);
+          setIsTemplateBrowserOpen(false);
+        }}
+      />
+
+      <TemplateConfigModal
+        isOpen={selectedTemplate !== null}
+        template={selectedTemplate}
+        onClose={() => setSelectedTemplate(null)}
+        onApply={() => {
+          setSelectedTemplate(null);
+          // Sync the new state to the store
+          generatePanels();
+        }}
       />
 
       {/* Engine Debug Panel */}

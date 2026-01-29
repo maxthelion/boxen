@@ -714,3 +714,119 @@ Future possibilities:
    - "Y Divisions" variable suggested with default=3
    - Rename to "Drawer Count", save
    - New from template → shows "Drawer Count" input
+
+---
+
+## Testing with Playwright MCP
+
+Use the Playwright MCP browser tools to interactively test template functionality. This enables automated UI testing through browser snapshots and interactions.
+
+### Setup
+
+1. Start the dev server: `npm run dev`
+2. Use `mcp__playwright__browser_navigate` to open `http://localhost:5173`
+3. Use `mcp__playwright__browser_snapshot` to capture the current UI state
+
+### Test Scenarios
+
+#### 1. Template Selection Flow
+
+```
+1. Navigate to the app
+2. Take snapshot to see current state
+3. Click "New from Template" button (find ref in snapshot)
+4. Take snapshot to verify template browser opened
+5. Click on "Drawer Unit" template
+6. Take snapshot to verify configuration dialog appeared
+```
+
+#### 2. Variable Configuration
+
+```
+1. With configuration dialog open, take snapshot
+2. Find dimension input refs (width, height, depth)
+3. Use browser_type to change width to 250
+4. Take snapshot to verify preview updated
+5. Find "Drawer Count" input ref
+6. Use browser_type to change count to 5
+7. Take snapshot to verify 5 compartments visible in preview
+```
+
+#### 3. Apply/Cancel Flow
+
+```
+# Test Cancel:
+1. Open template, modify variables
+2. Click Cancel button
+3. Take snapshot to verify dialog closed, no changes applied
+
+# Test Apply:
+1. Open template, set variables
+2. Click Apply button
+3. Take snapshot to verify template instantiated
+4. Verify box tree shows expected structure
+```
+
+#### 4. Grid Organizer (Multiple Variables)
+
+```
+1. Select Grid Organizer template
+2. Take snapshot - verify both "Columns" and "Rows" inputs shown
+3. Set Columns=4, Rows=3
+4. Take snapshot - verify 4×3 grid in preview
+5. Apply and verify final structure
+```
+
+### Example Test Session
+
+```typescript
+// Navigate to app
+mcp__playwright__browser_navigate({ url: "http://localhost:5173" })
+
+// Capture initial state
+mcp__playwright__browser_snapshot({})
+
+// Click "New from Template" - use ref from snapshot
+mcp__playwright__browser_click({ ref: "btn-new-template", element: "New from Template button" })
+
+// Verify template browser opened
+mcp__playwright__browser_snapshot({})
+
+// Select Drawer Unit template
+mcp__playwright__browser_click({ ref: "template-drawer-unit", element: "Drawer Unit template card" })
+
+// Verify configuration dialog
+mcp__playwright__browser_snapshot({})
+
+// Change drawer count
+mcp__playwright__browser_type({ ref: "input-drawer-count", text: "5" })
+
+// Verify preview updated
+mcp__playwright__browser_snapshot({})
+
+// Apply template
+mcp__playwright__browser_click({ ref: "btn-apply", element: "Apply button" })
+
+// Verify final state
+mcp__playwright__browser_snapshot({})
+```
+
+### Debugging Tips
+
+- **Use snapshots liberally**: After each interaction, take a snapshot to verify the UI state
+- **Check console messages**: Use `mcp__playwright__browser_console_messages` to catch errors
+- **Wait for updates**: Use `mcp__playwright__browser_wait_for` if preview needs time to render
+- **Screenshot for visuals**: Use `mcp__playwright__browser_take_screenshot` to capture the 3D viewport
+
+### Validation Checklist
+
+| Scenario | What to Verify |
+|----------|----------------|
+| Template browser opens | Dialog visible, templates listed |
+| Template selection | Config dialog appears with correct variables |
+| Dimension change | Preview updates, proportions correct |
+| Subdivision count change | Correct number of dividers in preview |
+| Apply | Dialog closes, box tree shows structure |
+| Cancel | Dialog closes, no changes to scene |
+| Basic Box | No subdivision inputs shown |
+| Grid Organizer | Both Columns and Rows inputs shown |
