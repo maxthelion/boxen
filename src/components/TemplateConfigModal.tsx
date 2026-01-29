@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment } from '@react-three/drei';
 import {
@@ -65,7 +65,10 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
     }
   }, [template]);
 
-  // Update preview when values change
+  // Debounce timer ref
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Update preview when values change (debounced)
   const updatePreview = useCallback(() => {
     if (!template) return;
 
@@ -81,11 +84,24 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
     notifyEngineStateChanged();
   }, [template, width, height, depth, subdivisionCounts]);
 
-  // Update preview when modal opens or values change
+  // Update preview when modal opens or values change (with debounce)
   useEffect(() => {
     if (isOpen && template) {
-      updatePreview();
+      // Clear any pending update
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+      // Debounce the preview update by 150ms
+      debounceRef.current = setTimeout(() => {
+        updatePreview();
+      }, 150);
     }
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
   }, [isOpen, template, updatePreview]);
 
   // Handle apply
@@ -164,45 +180,36 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
           <div className="template-config-form">
             <div className="template-config-section">
               <h3>Dimensions</h3>
-              <div className="template-form-grid">
+              <div className="template-dimensions-row">
                 <label>
-                  <span>Width</span>
-                  <div className="input-with-unit">
-                    <input
-                      type="number"
-                      value={width}
-                      onChange={(e) => handleWidthChange(Number(e.target.value))}
-                      min={variables.dimensions.width.min}
-                      max={variables.dimensions.width.max}
-                    />
-                    <span className="unit">mm</span>
-                  </div>
+                  <span>W</span>
+                  <input
+                    type="number"
+                    value={width}
+                    onChange={(e) => handleWidthChange(Number(e.target.value))}
+                    min={variables.dimensions.width.min}
+                    max={variables.dimensions.width.max}
+                  />
                 </label>
                 <label>
-                  <span>Height</span>
-                  <div className="input-with-unit">
-                    <input
-                      type="number"
-                      value={height}
-                      onChange={(e) => handleHeightChange(Number(e.target.value))}
-                      min={variables.dimensions.height.min}
-                      max={variables.dimensions.height.max}
-                    />
-                    <span className="unit">mm</span>
-                  </div>
+                  <span>H</span>
+                  <input
+                    type="number"
+                    value={height}
+                    onChange={(e) => handleHeightChange(Number(e.target.value))}
+                    min={variables.dimensions.height.min}
+                    max={variables.dimensions.height.max}
+                  />
                 </label>
                 <label>
-                  <span>Depth</span>
-                  <div className="input-with-unit">
-                    <input
-                      type="number"
-                      value={depth}
-                      onChange={(e) => handleDepthChange(Number(e.target.value))}
-                      min={variables.dimensions.depth.min}
-                      max={variables.dimensions.depth.max}
-                    />
-                    <span className="unit">mm</span>
-                  </div>
+                  <span>D</span>
+                  <input
+                    type="number"
+                    value={depth}
+                    onChange={(e) => handleDepthChange(Number(e.target.value))}
+                    min={variables.dimensions.depth.min}
+                    max={variables.dimensions.depth.max}
+                  />
                 </label>
               </div>
             </div>
@@ -265,7 +272,7 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
 
           {/* Right side: 3D Preview */}
           <div className="template-preview-container">
-            <Canvas camera={{ position: [150, 100, 150], fov: 50 }}>
+            <Canvas camera={{ position: [80, 60, 80], fov: 50 }}>
               <ambientLight intensity={0.5} />
               <directionalLight position={[10, 10, 5]} intensity={1} />
               <OrbitControls
@@ -282,8 +289,8 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
                 sectionSize={50}
                 sectionThickness={1}
                 sectionColor="#666"
-                fadeDistance={300}
-                position={[0, -50, 0]}
+                fadeDistance={200}
+                position={[0, -30, 0]}
               />
               <Environment preset="studio" />
               <TemplatePreview />

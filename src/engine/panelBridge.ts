@@ -213,6 +213,7 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
     source = {
       type: 'face',
       faceId: faceSnapshot.props.faceId,
+      subAssemblyId: faceSnapshot.props.assemblyId,
     };
   } else {
     const dividerSnapshot = snapshot as DividerPanelSnapshot;

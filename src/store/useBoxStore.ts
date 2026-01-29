@@ -2635,7 +2635,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       if (operation.createPreviewAction) {
         // Build context for operations that need it (e.g., push-pull needs dimensions)
         const snapshot = engine.getSnapshot();
-        const assembly = snapshot.assemblies?.[0];
+        const assembly = snapshot.children?.[0];
         const context = assembly
           ? { dimensions: { width: assembly.props.width, height: assembly.props.height, depth: assembly.props.depth } }
           : undefined;

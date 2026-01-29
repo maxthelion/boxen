@@ -462,6 +462,36 @@ describe('My Operation', () => {
 });
 ```
 
+### 6. Geometry Checker Integration Test (Required)
+
+**All new operations that modify geometry MUST have an integration test that passes the result through the geometry checker.**
+
+Add an integration test to `src/engine/integration/` or the relevant test file:
+
+```typescript
+import { checkEngineGeometry } from '../geometryChecker';
+
+describe('My Operation Integration', () => {
+  it('should produce valid geometry', () => {
+    const engine = createEngineWithAssembly(100, 80, 60, defaultMaterial);
+
+    // Perform the operation
+    engine.dispatch({
+      type: 'MY_OPERATION_ACTION',
+      targetId: 'main-assembly',
+      payload: { /* ... */ },
+    });
+
+    // Verify geometry is valid
+    const result = checkEngineGeometry(engine);
+    expect(result.valid).toBe(true);
+    expect(result.summary.errors).toBe(0);
+  });
+});
+```
+
+**Important**: The geometry checker rules in `src/engine/geometryChecker.ts` should NOT be modified without consulting the user first. These rules encode critical geometric constraints for laser-cut assembly.
+
 ### Operation Types
 
 - **parameter**: Has preview phase, user adjusts parameters before applying

@@ -59,10 +59,17 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const [scalePalettePosition, setScalePalettePosition] = useState({ x: 20, y: 150 });
 
   // Get selected face ID for push-pull tool
+  // Panel IDs are UUIDs, so we need to look up the panel source metadata
   const selectedFaceId = useMemo(() => {
-    const selected = Array.from(selectedPanelIds).find(id => id.startsWith('face-'));
-    return selected ? selected.replace('face-', '') as FaceId : null;
-  }, [selectedPanelIds]);
+    if (!panelCollection) return null;
+    for (const panelId of selectedPanelIds) {
+      const panel = panelCollection.panels.find(p => p.id === panelId);
+      if (panel?.source.type === 'face' && panel.source.faceId) {
+        return panel.source.faceId;
+      }
+    }
+    return null;
+  }, [selectedPanelIds, panelCollection]);
 
   // Start operation when entering push-pull mode with a face selected
   useEffect(() => {
