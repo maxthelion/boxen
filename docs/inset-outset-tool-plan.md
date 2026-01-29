@@ -242,9 +242,9 @@ interface InsetPaletteProps {
 - Apply/Cancel buttons
 
 **Behavior:**
-- Shows current extension value (average if multi-select with different values)
+- Single offset value applies to all selected edges
 - Preview updates in real-time as slider moves
-- Locked edges shown but disabled in any edge list
+- Locked edges cannot be selected
 
 ### 5.2 Selection Prompt
 
@@ -538,7 +538,7 @@ describe('Inset/Outset Operation', () => {
 
 1. ~~Should the inset tool work on sub-assembly panels, or main assembly only initially?~~ **RESOLVED: Both** - tool works on main assembly and sub-assembly panels from the start.
 2. ~~Should there be visual feedback showing the extension amount on the 3D edge (like a dimension annotation)?~~ **RESOLVED: No** - the existing preview mechanism shows the panel's new shape in real-time, which is sufficient.
-3. Should batch operations apply the same offset to all edges, or allow per-edge values?
+3. ~~Should batch operations apply the same offset to all edges, or allow per-edge values?~~ **RESOLVED: Same offset** - all selected edges get the same extension value.
 4. **Batch action or individual actions?** The plan proposes `SET_EDGE_EXTENSIONS_BATCH` but no batch actions exist yet in the codebase. Options:
    - **Option A**: Use individual `SET_EDGE_EXTENSION` actions in sequence (simpler, works now)
    - **Option B**: Add new `SET_EDGE_EXTENSIONS_BATCH` action (cleaner for multi-select, matches plan)
