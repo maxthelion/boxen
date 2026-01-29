@@ -552,6 +552,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // Tool state
   activeTool: 'select' as EditorTool,
   selectedCornerIds: new Set<string>(),
+  // Edge selection state (for inset/outset tool)
+  selectedEdges: new Set<string>(),  // Format: "panelId:edge" e.g. "uuid:top"
+  hoveredEdge: null as string | null,  // Format: "panelId:edge"
   // Operation state
   operationState: {
     activeOperation: null,
@@ -814,6 +817,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         selectedVoidIds: newSet,
         selectedSubAssemblyIds: new Set<string>(),
         selectedPanelIds: new Set<string>(),
+        selectedEdges: new Set<string>(),
         selectedAssemblyId: null,
       };
     }),
@@ -825,6 +829,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           selectedPanelIds: new Set<string>(),
           selectedVoidIds: new Set<string>(),
           selectedSubAssemblyIds: new Set<string>(),
+          selectedEdges: new Set<string>(),
           selectedAssemblyId: null,
         };
       }
@@ -842,6 +847,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         selectedPanelIds: newSet,
         selectedVoidIds: new Set<string>(),
         selectedSubAssemblyIds: new Set<string>(),
+        selectedEdges: new Set<string>(),
         selectedAssemblyId: null,
       };
     }),
@@ -852,6 +858,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       selectedVoidIds: new Set<string>(),
       selectedSubAssemblyIds: new Set<string>(),
       selectedPanelIds: new Set<string>(),
+      selectedEdges: new Set<string>(),
     }),
 
   selectSubAssembly: (subAssemblyId, additive = false) =>
@@ -898,6 +905,43 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   setHoveredAssembly: (assemblyId) =>
     set({ hoveredAssemblyId: assemblyId }),
+
+  // Edge selection (for inset/outset tool)
+  selectEdge: (panelId: string, edge: string, additive = false) =>
+    set((state) => {
+      const edgeKey = `${panelId}:${edge}`;
+      const newSet = new Set(additive ? state.selectedEdges : []);
+      if (newSet.has(edgeKey)) {
+        newSet.delete(edgeKey);
+      } else {
+        newSet.add(edgeKey);
+      }
+      // When selecting edges, clear other selection types (unless additive)
+      if (additive) {
+        return { selectedEdges: newSet };
+      }
+      return {
+        selectedEdges: newSet,
+        selectedVoidIds: new Set<string>(),
+        selectedPanelIds: new Set<string>(),
+        selectedSubAssemblyIds: new Set<string>(),
+        selectedAssemblyId: null,
+      };
+    }),
+
+  deselectEdge: (panelId: string, edge: string) =>
+    set((state) => {
+      const edgeKey = `${panelId}:${edge}`;
+      const newSet = new Set(state.selectedEdges);
+      newSet.delete(edgeKey);
+      return { selectedEdges: newSet };
+    }),
+
+  clearEdgeSelection: () =>
+    set({ selectedEdges: new Set<string>() }),
+
+  setHoveredEdge: (panelId: string | null, edge: string | null) =>
+    set({ hoveredEdge: panelId && edge ? `${panelId}:${edge}` : null }),
 
   setSubAssemblyPreview: (preview) =>
     set({ subAssemblyPreview: preview }),

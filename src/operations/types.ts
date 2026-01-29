@@ -40,7 +40,7 @@ export type OperationType = 'parameter' | 'immediate' | 'view';
 /**
  * Selection target type
  */
-export type SelectionType = 'void' | 'panel' | 'corner' | 'assembly' | 'none';
+export type SelectionType = 'void' | 'panel' | 'corner' | 'assembly' | 'edge' | 'none';
 
 // ==========================================================================
 // Operation Phase
