@@ -310,12 +310,16 @@ describe('BasePanel finger joint generation', () => {
     // Sub-assembly panels should have smaller dimensions
     // Main assembly interior is 200-6=194 x 150-6=144 x 120-6=114
     // Sub-assembly with clearance 2 is 194-4=190 x 144-4=140 x 114-4=110
-    const mainFront = collection.panels.find(p => p.id === 'face-front');
-    // Sub-assembly panels have different IDs - find by comparing dimensions
+    const mainFront = collection.panels.find(p =>
+      p.source.type === 'face' &&
+      p.source.faceId === 'front' &&
+      !p.source.subAssemblyId
+    );
+    // Sub-assembly panels have subAssemblyId in their source
     const subFront = collection.panels.find(p =>
       p.source.type === 'face' &&
       p.source.faceId === 'front' &&
-      p.id !== 'face-front'
+      p.source.subAssemblyId
     );
 
     expect(mainFront).toBeDefined();

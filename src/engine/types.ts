@@ -410,6 +410,8 @@ export interface FacePanelSnapshot extends BasePanelSnapshot {
   kind: 'face-panel';
   props: BasePanelSnapshot['props'] & {
     faceId: FaceId;
+    /** ID of the parent assembly (undefined for main assembly, set for sub-assemblies) */
+    assemblyId?: string;
   };
 }
 
