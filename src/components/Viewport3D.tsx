@@ -7,6 +7,8 @@ import { EditorToolbar } from './EditorToolbar';
 import { PushPullPalette, PushPullMode } from './PushPullPalette';
 import { SubdividePalette } from './SubdividePalette';
 import { CreateSubAssemblyPalette } from './CreateSubAssemblyPalette';
+import { AssemblyPalette } from './AssemblyPalette';
+import { ScalePalette } from './ScalePalette';
 import { useBoxStore } from '../store/useBoxStore';
 import { useEnginePanels } from '../engine';
 import { FaceId } from '../types';
@@ -49,6 +51,12 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // Create sub-assembly palette state (local UI state only)
   const [createSubAssemblyPalettePosition, setCreateSubAssemblyPalettePosition] = useState({ x: 20, y: 150 });
+
+  // Configure assembly palette state (local UI state only)
+  const [assemblyPalettePosition, setAssemblyPalettePosition] = useState({ x: 20, y: 150 });
+
+  // Scale palette state (local UI state only)
+  const [scalePalettePosition, setScalePalettePosition] = useState({ x: 20, y: 150 });
 
   // Get selected face ID for push-pull tool
   const selectedFaceId = useMemo(() => {
@@ -146,6 +154,16 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     setActiveTool('select');
   }, [setActiveTool]);
 
+  // Close assembly palette
+  const handleAssemblyPaletteClose = useCallback(() => {
+    setActiveTool('select');
+  }, [setActiveTool]);
+
+  // Close scale palette
+  const handleScalePaletteClose = useCallback(() => {
+    setActiveTool('select');
+  }, [setActiveTool]);
+
   // Expose method to get the canvas element
   useImperativeHandle(ref, () => ({
     getCanvas: () => {
@@ -210,6 +228,10 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         setActiveTool(activeTool === 'subdivide' ? 'select' : 'subdivide');
       } else if (e.key === 'v' || e.key === 'V') {
         setActiveTool('select');
+      } else if (e.key === 'g' || e.key === 'G') {
+        setActiveTool(activeTool === 'configure-assembly' ? 'select' : 'configure-assembly');
+      } else if (e.key === 'r' || e.key === 'R') {
+        setActiveTool(activeTool === 'scale' ? 'select' : 'scale');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -258,6 +280,24 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
           containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
         />
       )}
+
+      {/* Configure Assembly Palette - only mount when tool is active */}
+      <AssemblyPalette
+        visible={activeTool === 'configure-assembly'}
+        position={assemblyPalettePosition}
+        onPositionChange={setAssemblyPalettePosition}
+        onClose={handleAssemblyPaletteClose}
+        containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+      />
+
+      {/* Scale Palette - only mount when tool is active */}
+      <ScalePalette
+        visible={activeTool === 'scale'}
+        position={scalePalettePosition}
+        onPositionChange={setScalePalettePosition}
+        onClose={handleScalePaletteClose}
+        containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+      />
 
       <Canvas
         camera={{ position: [150, 150, 150], fov: 50 }}

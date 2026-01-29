@@ -21,6 +21,7 @@ export type OperationId =
   | 'subdivide-two-panel'
   | 'create-sub-assembly'
   | 'configure-assembly'
+  | 'scale'
   | 'chamfer-fillet'
   // Immediate operations (execute instantly)
   | 'toggle-face'
@@ -92,12 +93,9 @@ export interface CreateSubAssemblyParams {
 }
 
 /**
- * Parameters for configure-assembly operation
+ * Parameters for configure-assembly operation (no dimensions - use scale for that)
  */
 export interface ConfigureAssemblyParams {
-  width?: number;
-  height?: number;
-  depth?: number;
   thickness?: number;
   fingerWidth?: number;
   fingerGap?: number;
@@ -106,6 +104,15 @@ export interface ConfigureAssemblyParams {
   lidPositiveInset?: number;
   lidNegativeTabDirection?: 'tabs-in' | 'tabs-out';
   lidNegativeInset?: number;
+}
+
+/**
+ * Parameters for scale operation
+ */
+export interface ScaleParams {
+  width?: number;
+  height?: number;
+  depth?: number;
 }
 
 /**
@@ -154,6 +161,7 @@ export type OperationParams =
   | SubdivideTwoPanelParams
   | CreateSubAssemblyParams
   | ConfigureAssemblyParams
+  | ScaleParams
   | ChamferFilletParams
   | ToggleFaceParams
   | RemoveSubdivisionParams

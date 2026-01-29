@@ -471,6 +471,7 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
       position={position}
       onPositionChange={onPositionChange}
       onClose={handleCancel}
+      onApply={handleApply}
       containerRef={containerRef}
       minWidth={200}
       closeOnClickOutside={false}

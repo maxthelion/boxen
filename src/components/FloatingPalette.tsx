@@ -7,8 +7,10 @@ export interface FloatingPaletteProps {
   title?: string;
   /** Content to render inside the palette */
   children: React.ReactNode;
-  /** Called when the palette should close */
+  /** Called when the palette should close (Cancel/Escape) */
   onClose: () => void;
+  /** Called when the user confirms (Enter key) - if not provided, Enter does nothing */
+  onApply?: () => void;
   /** Called when position changes (from dragging) */
   onPositionChange?: (position: { x: number; y: number }) => void;
   /** Minimum width of the palette */
@@ -26,6 +28,7 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
   title,
   children,
   onClose,
+  onApply,
   onPositionChange,
   minWidth = 180,
   visible = true,
@@ -65,17 +68,28 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
     };
   }, [onClose, closeOnClickOutside]);
 
-  // Handle Escape key to close
+  // Handle keyboard shortcuts: Escape to cancel, Enter to apply
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
+      } else if (e.key === 'Enter' && onApply) {
+        // Don't trigger apply if user is typing in a text input (except number inputs)
+        const target = e.target as HTMLElement;
+        const isTextInput = target.tagName === 'INPUT' &&
+          (target as HTMLInputElement).type !== 'number';
+        const isTextArea = target.tagName === 'TEXTAREA';
+
+        if (!isTextInput && !isTextArea) {
+          e.preventDefault();
+          onApply();
+        }
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, onApply]);
 
   // Dragging handlers
   const handleDragStart = useCallback((e: React.MouseEvent) => {

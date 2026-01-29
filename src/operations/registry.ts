@@ -194,12 +194,10 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     minSelection: 1,
     maxSelection: 1,
     availableIn: ['3d'],
-    description: 'Configure assembly dimensions, material, and axis',
+    description: 'Configure assembly orientation, material, and joints',
+    shortcut: 'g',
     createPreviewAction: (params) => {
       const {
-        width,
-        height,
-        depth,
         thickness,
         fingerWidth,
         fingerGap,
@@ -209,9 +207,6 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
         lidNegativeTabDirection,
         lidNegativeInset,
       } = params as {
-        width?: number;
-        height?: number;
-        depth?: number;
         thickness?: number;
         fingerWidth?: number;
         fingerGap?: number;
@@ -248,12 +243,38 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
         type: 'CONFIGURE_ASSEMBLY',
         targetId: 'main-assembly',
         payload: {
-          ...(width !== undefined && { width }),
-          ...(height !== undefined && { height }),
-          ...(depth !== undefined && { depth }),
           ...(Object.keys(materialConfig).length > 0 && { materialConfig }),
           ...(assemblyAxis !== undefined && { assemblyAxis }),
           ...(Object.keys(lids).length > 0 && { lids }),
+        },
+      };
+    },
+  },
+
+  'scale': {
+    id: 'scale',
+    name: 'Scale',
+    type: 'parameter',
+    selectionType: 'assembly',
+    minSelection: 1,
+    maxSelection: 1,
+    availableIn: ['3d'],
+    description: 'Change assembly dimensions',
+    shortcut: 'r',
+    createPreviewAction: (params) => {
+      const { width, height, depth } = params as {
+        width?: number;
+        height?: number;
+        depth?: number;
+      };
+
+      return {
+        type: 'SET_DIMENSIONS',
+        targetId: 'main-assembly',
+        payload: {
+          ...(width !== undefined && { width }),
+          ...(height !== undefined && { height }),
+          ...(depth !== undefined && { depth }),
         },
       };
     },

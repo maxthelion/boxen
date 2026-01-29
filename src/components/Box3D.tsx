@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { useBoxStore, getLeafVoids, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible } from '../store/useBoxStore';
+import { useBoxStore, getLeafVoids, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible, computeVisuallySelectedPanelIds } from '../store/useBoxStore';
 import { useEngineConfig, useEngineVoidTree, useEnginePanels, useEngineMainPanels, useEngineMainConfig, useEngineFaces } from '../engine';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
@@ -33,7 +33,28 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
-  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedVoidIds, selectPanel, selectAssembly, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
+  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectPanel, selectAssembly, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
+
+  // Compute visually selected panels (includes cascade from assembly selection)
+  const allPanelIds = panelCollection?.panels.map(p => p.id) ?? [];
+  const visuallySelectedPanelIds = computeVisuallySelectedPanelIds(
+    { selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds },
+    allPanelIds
+  );
+
+  // Get the set of visually selected face IDs
+  const selectedFaceIds = useMemo(() => {
+    const faceIds = new Set<FaceId>();
+    for (const panelId of visuallySelectedPanelIds) {
+      if (panelId.startsWith('face-')) {
+        faceIds.add(panelId.replace('face-', '') as FaceId);
+      }
+    }
+    return faceIds;
+  }, [visuallySelectedPanelIds]);
+
+  // Check if any face panels are visually selected
+  const hasFacePanelsSelected = selectedFaceIds.size > 0;
 
   // Check if a preview is currently active
   const isPreviewActive = operationState.activeOperation !== null;
@@ -95,8 +116,8 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
         <lineBasicMaterial color={isPreviewActive ? '#ffcc00' : '#ff0000'} linewidth={2} />
       </lineSegments>
 
-      {/* Assembly axis indicator - shows when main assembly is selected */}
-      {selectedAssemblyId === 'main' && config.assembly?.assemblyAxis && (
+      {/* Assembly axis indicator - shows when main assembly is selected or configure tool is active */}
+      {(selectedAssemblyId === 'main' || activeTool === 'configure-assembly') && config.assembly?.assemblyAxis && (
         <>
           <AssemblyAxisIndicator
             axis={config.assembly.assemblyAxis}
@@ -111,17 +132,16 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
         </>
       )}
 
-      {/* Panel toggle buttons - show when main assembly selected and no specific panel/void selected */}
-      {selectedAssemblyId === 'main' &&
-        selectedPanelIds.size === 0 &&
-        selectedVoidIds.size === 0 &&
+      {/* Panel toggle buttons - show when any face panels are visually selected or configure tool is active */}
+      {(hasFacePanelsSelected || activeTool === 'configure-assembly') &&
         faces && (
           <PanelToggleOverlay
             faces={faces}
             dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
             thickness={scaledThickness}
             onToggle={toggleFace}
-            visible={!isPreviewActive}
+            visible={true}
+            selectedFaceIds={activeTool === 'configure-assembly' ? undefined : selectedFaceIds}
           />
         )}
 

@@ -786,6 +786,8 @@ describe('Operation Registry', () => {
       'subdivide',
       'subdivide-two-panel',
       'create-sub-assembly',
+      'configure-assembly',
+      'scale',
       'chamfer-fillet',
       'toggle-face',
       'remove-subdivision',
@@ -797,5 +799,220 @@ describe('Operation Registry', () => {
       expect(OPERATION_DEFINITIONS[id]).toBeDefined();
       expect(OPERATION_DEFINITIONS[id].id).toBe(id);
     }
+  });
+});
+
+// ==========================================================================
+// Configure Assembly Operation Tests
+// ==========================================================================
+
+describe('Configure Assembly Operation', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  afterEach(() => {
+    // Clean up any preview
+    const engine = getEngine();
+    if (engine.hasPreview()) {
+      engine.discardPreview();
+    }
+  });
+
+  it('should start preview when operation starts', () => {
+    const engine = getEngine();
+    expect(engine.hasPreview()).toBe(false);
+
+    useBoxStore.getState().startOperation('configure-assembly');
+    expect(engine.hasPreview()).toBe(true);
+  });
+
+  it('should update material config in preview', () => {
+    const engine = getEngine();
+
+    // Start operation
+    useBoxStore.getState().startOperation('configure-assembly');
+
+    // Update material params - note: fingerWidth may be constrained by validation
+    // With 60mm smallest dimension, thickness=5, fingerGap=3:
+    // maxJointLength = 60 - 10 = 50mm
+    // maxFingerWidth = 50 / (3 + 2*3) = 5.5mm
+    // So fingerWidth=15 will be constrained to ~5.5mm
+    useBoxStore.getState().updateOperationParams({
+      thickness: 5,
+      fingerWidth: 8, // Use a value that should be valid (will be slightly constrained)
+    });
+
+    // Check preview has new material config
+    const snapshot = engine.getSnapshot();
+    const assembly = snapshot.children?.[0];
+    expect(assembly?.props.material.thickness).toBe(5);
+    // fingerWidth is constrained to ensure 3 sections fit on smallest edge
+    expect(assembly?.props.material.fingerWidth).toBeLessThanOrEqual(8);
+    expect(assembly?.props.material.fingerWidth).toBeGreaterThan(0);
+  });
+
+  it('should update assembly axis in preview', () => {
+    const engine = getEngine();
+
+    // Start operation
+    useBoxStore.getState().startOperation('configure-assembly');
+
+    // Update axis
+    useBoxStore.getState().updateOperationParams({
+      assemblyAxis: 'x',
+    });
+
+    // Check preview has new axis
+    const snapshot = engine.getSnapshot();
+    const assembly = snapshot.children?.[0];
+    expect(assembly?.props.assembly.assemblyAxis).toBe('x');
+  });
+
+  it('should commit material changes on apply', () => {
+    const engine = getEngine();
+
+    // Start operation
+    useBoxStore.getState().startOperation('configure-assembly');
+
+    // Update params
+    useBoxStore.getState().updateOperationParams({
+      thickness: 6,
+    });
+
+    // Apply
+    useBoxStore.getState().applyOperation();
+
+    // Preview should be gone
+    expect(engine.hasPreview()).toBe(false);
+
+    // Main scene should have new material config
+    const snapshot = engine.getSnapshot();
+    const assembly = snapshot.children?.[0];
+    expect(assembly?.props.material.thickness).toBe(6);
+  });
+
+  it('should discard changes on cancel', () => {
+    const engine = getEngine();
+
+    // Get original thickness
+    const originalSnapshot = engine.getSnapshot();
+    const originalThickness = originalSnapshot.children?.[0]?.props.material.thickness;
+
+    // Start operation
+    useBoxStore.getState().startOperation('configure-assembly');
+
+    // Update params
+    useBoxStore.getState().updateOperationParams({
+      thickness: 99,
+    });
+
+    // Cancel
+    useBoxStore.getState().cancelOperation();
+
+    // Preview should be gone
+    expect(engine.hasPreview()).toBe(false);
+
+    // Main scene should have original thickness
+    const snapshot = engine.getSnapshot();
+    const assembly = snapshot.children?.[0];
+    expect(assembly?.props.material.thickness).toBe(originalThickness);
+  });
+});
+
+// ==========================================================================
+// Scale Operation Tests
+// ==========================================================================
+
+describe('Scale Operation', () => {
+  beforeEach(() => {
+    resetStore();
+  });
+
+  afterEach(() => {
+    // Clean up any preview
+    const engine = getEngine();
+    if (engine.hasPreview()) {
+      engine.discardPreview();
+    }
+  });
+
+  it('should start preview when operation starts', () => {
+    const engine = getEngine();
+    expect(engine.hasPreview()).toBe(false);
+
+    useBoxStore.getState().startOperation('scale');
+    expect(engine.hasPreview()).toBe(true);
+  });
+
+  it('should update dimensions in preview', () => {
+    const engine = getEngine();
+
+    // Start operation
+    useBoxStore.getState().startOperation('scale');
+
+    // Update params
+    useBoxStore.getState().updateOperationParams({
+      width: 150,
+      height: 100,
+      depth: 80,
+    });
+
+    // Check preview has new dimensions
+    const snapshot = engine.getSnapshot();
+    const assembly = snapshot.children?.[0];
+    expect(assembly?.props.width).toBe(150);
+    expect(assembly?.props.height).toBe(100);
+    expect(assembly?.props.depth).toBe(80);
+  });
+
+  it('should commit dimensions on apply', () => {
+    const engine = getEngine();
+
+    // Start operation
+    useBoxStore.getState().startOperation('scale');
+
+    // Update params
+    useBoxStore.getState().updateOperationParams({
+      width: 200,
+    });
+
+    // Apply
+    useBoxStore.getState().applyOperation();
+
+    // Preview should be gone
+    expect(engine.hasPreview()).toBe(false);
+
+    // Main scene should have new dimensions
+    const snapshot = engine.getSnapshot();
+    const assembly = snapshot.children?.[0];
+    expect(assembly?.props.width).toBe(200);
+  });
+
+  it('should discard dimensions on cancel', () => {
+    const engine = getEngine();
+
+    // Get original dimensions
+    const originalSnapshot = engine.getSnapshot();
+    const originalWidth = originalSnapshot.children?.[0]?.props.width;
+
+    // Start operation
+    useBoxStore.getState().startOperation('scale');
+
+    // Update params
+    useBoxStore.getState().updateOperationParams({
+      width: 999,
+    });
+
+    // Cancel
+    useBoxStore.getState().cancelOperation();
+
+    // Preview should be gone
+    expect(engine.hasPreview()).toBe(false);
+
+    // Main scene should have original dimensions
+    const snapshot = engine.getSnapshot();
+    const assembly = snapshot.children?.[0];
+    expect(assembly?.props.width).toBe(originalWidth);
   });
 });
