@@ -278,13 +278,7 @@ export abstract class BasePanel extends BaseNode {
     const leftHasTabs = edgeIsMale(leftEdge);
     const rightHasTabs = edgeIsMale(rightEdge);
 
-    // Apply extensions (only for edges that can extend)
-    const extTop = this._edgeExtensions.top;
-    const extBottom = this._edgeExtensions.bottom;
-    const extLeft = this._edgeExtensions.left;
-    const extRight = this._edgeExtensions.right;
-
-    // Finger corners - used for finger pattern generation (no extensions)
+    // Finger corners - used for finger pattern generation and base outline
     // These must be consistent across all panels for proper joint alignment
     const fingerCorners = {
       topLeft: {
@@ -305,114 +299,34 @@ export abstract class BasePanel extends BaseNode {
       },
     };
 
-    // Outline corners (with extensions)
-    const outlineCorners = {
-      topLeft: {
-        x: fingerCorners.topLeft.x - extLeft,
-        y: fingerCorners.topLeft.y + extTop,
-      },
-      topRight: {
-        x: fingerCorners.topRight.x + extRight,
-        y: fingerCorners.topRight.y + extTop,
-      },
-      bottomRight: {
-        x: fingerCorners.bottomRight.x + extRight,
-        y: fingerCorners.bottomRight.y - extBottom,
-      },
-      bottomLeft: {
-        x: fingerCorners.bottomLeft.x - extLeft,
-        y: fingerCorners.bottomLeft.y - extBottom,
-      },
-    };
-
     // Get blocking ranges for finger generation (can be overridden by subclasses)
     const fingerBlockingRanges = this.getFingerBlockingRanges();
 
-    // Helper to check if an edge has an extension applied to it
-    // This only checks the extension on the specific edge, not adjacent corners
-    const getEdgeExtension = (edgePosition: EdgePosition): number => {
-      switch (edgePosition) {
-        case 'top': return extTop;
-        case 'bottom': return extBottom;
-        case 'left': return extLeft;
-        case 'right': return extRight;
-      }
-    };
-
-    // Helper to generate edge points (with or without finger joints)
+    // Helper to generate edge points with finger joints
+    // This is simplified - no extension handling, just finger patterns
     const generateEdgePoints = (
-      startCorner: Point,
-      endCorner: Point,
       fingerStart: Point,
       fingerEnd: Point,
       edgeConfig: EdgeConfig | undefined
     ): Point[] => {
-      // Check if THIS specific edge has an extension (not adjacent edges)
-      const edgeExtension = edgeConfig ? getEdgeExtension(edgeConfig.position) : 0;
-      const hasExtensionOnThisEdge = edgeExtension > 0.001;
-
-      // If no finger joints or no finger data, return straight edge with extension handling
+      // If no finger joints or no finger data, return just the end point
       if (!edgeConfig?.gender || !edgeConfig?.axis || !fingerData) {
-        if (hasExtensionOnThisEdge) {
-          // Edge has extension: go across at extended level, then to finger level, then to end
-          return [endCorner, fingerEnd];
-        }
-        return [endCorner];
+        return [fingerEnd];
       }
 
       const axisFingerPoints = fingerData[edgeConfig.axis];
       if (!axisFingerPoints || axisFingerPoints.points.length === 0) {
-        if (hasExtensionOnThisEdge) {
-          return [endCorner, fingerEnd];
-        }
-        return [endCorner];
+        return [fingerEnd];
       }
 
       // Calculate edge axis positions
-      // The positions depend on which edge and which axis
       const edgeStartPos = this.computeEdgeAxisPosition(edgeConfig.position, 'start', edgeConfig.axis);
       const edgeEndPos = this.computeEdgeAxisPosition(edgeConfig.position, 'end', edgeConfig.axis);
 
       // Get edge-specific blocking ranges
       const edgeBlockingRanges = fingerBlockingRanges.get(edgeConfig.position) || [];
 
-      // When there's an extension on THIS edge, we need to:
-      // 1. First go across at the extended level (the extension cap)
-      // 2. Then drop down to finger level at the END
-      // 3. Generate fingers going BACKWARD (from end to start)
-      // This creates a proper closed shape with the extension cap included
-      if (hasExtensionOnThisEdge) {
-        const result: Point[] = [];
-
-        // Step 1: Add the extension cap - go from start corner to end corner at extended level
-        result.push(endCorner);
-
-        // Step 2: Drop down to finger level at the end
-        result.push(fingerEnd);
-
-        // Step 3: Generate fingers going BACKWARD (from fingerEnd to fingerStart)
-        // Swap the start/end positions for the finger generator
-        const reversedFingerPath = generateFingerJointPathV2(fingerEnd, fingerStart, {
-          fingerPoints: axisFingerPoints,
-          gender: edgeConfig.gender,
-          materialThickness: mt,
-          edgeStartPos: edgeEndPos,  // Swap positions for reversed direction
-          edgeEndPos: edgeStartPos,
-          yUp: true,
-          outwardDirection: this.getEdgeOutwardDirection(edgeConfig.position),
-          fingerBlockingRanges: edgeBlockingRanges,
-        });
-
-        // Add reversed finger path (skip first point as it's fingerEnd which we just added)
-        for (let i = 1; i < reversedFingerPath.length; i++) {
-          result.push(reversedFingerPath[i]);
-        }
-
-        // Note: The path ends at fingerStart - next edge connects from there
-        return result;
-      }
-
-      // No extension on this edge: original logic with corner connection handling
+      // Generate finger joint path
       const fingerPath = generateFingerJointPathV2(fingerStart, fingerEnd, {
         fingerPoints: axisFingerPoints,
         gender: edgeConfig.gender,
@@ -424,42 +338,18 @@ export abstract class BasePanel extends BaseNode {
         fingerBlockingRanges: edgeBlockingRanges,
       });
 
-      const result: Point[] = [];
-
-      // If start corner differs from finger start (due to adjacent edge's extension),
-      // add fingerStart to connect properly
-      const startDx = Math.abs(startCorner.x - fingerStart.x);
-      const startDy = Math.abs(startCorner.y - fingerStart.y);
-      if (startDx > 0.001 || startDy > 0.001) {
-        result.push(fingerStart);
-      }
-
-      // Add finger path points (skip first point as it's fingerStart)
-      for (let i = 1; i < fingerPath.length; i++) {
-        result.push(fingerPath[i]);
-      }
-
-      // If end corner differs from finger end (due to adjacent edge's extension), add it
-      const lastFingerPoint = fingerPath[fingerPath.length - 1];
-      const endDx = Math.abs(endCorner.x - lastFingerPoint.x);
-      const endDy = Math.abs(endCorner.y - lastFingerPoint.y);
-      if (endDx > 0.001 || endDy > 0.001) {
-        result.push(endCorner);
-      }
-
-      return result;
+      // Return all points except the first (which is fingerStart, already in path)
+      return fingerPath.slice(1);
     };
 
-    // Build outline points (clockwise from top-left)
+    // Build outline points (clockwise from top-left) using finger corners
     const points: Point2D[] = [];
 
     // Start at top-left corner
-    points.push(outlineCorners.topLeft);
+    points.push(fingerCorners.topLeft);
 
     // Top edge (left to right)
     points.push(...generateEdgePoints(
-      outlineCorners.topLeft,
-      outlineCorners.topRight,
       fingerCorners.topLeft,
       fingerCorners.topRight,
       topEdge
@@ -467,8 +357,6 @@ export abstract class BasePanel extends BaseNode {
 
     // Right edge (top to bottom)
     points.push(...generateEdgePoints(
-      outlineCorners.topRight,
-      outlineCorners.bottomRight,
       fingerCorners.topRight,
       fingerCorners.bottomRight,
       rightEdge
@@ -476,8 +364,6 @@ export abstract class BasePanel extends BaseNode {
 
     // Bottom edge (right to left)
     points.push(...generateEdgePoints(
-      outlineCorners.bottomRight,
-      outlineCorners.bottomLeft,
       fingerCorners.bottomRight,
       fingerCorners.bottomLeft,
       bottomEdge
@@ -485,19 +371,33 @@ export abstract class BasePanel extends BaseNode {
 
     // Left edge (bottom to top) - path auto-closes to start
     const leftEdgePoints = generateEdgePoints(
-      outlineCorners.bottomLeft,
-      outlineCorners.topLeft,
       fingerCorners.bottomLeft,
       fingerCorners.topLeft,
       leftEdge
     );
     // Don't add the last point if it's the same as the first (auto-close)
     for (const pt of leftEdgePoints) {
-      const dx = Math.abs(pt.x - outlineCorners.topLeft.x);
-      const dy = Math.abs(pt.y - outlineCorners.topLeft.y);
+      const dx = Math.abs(pt.x - fingerCorners.topLeft.x);
+      const dy = Math.abs(pt.y - fingerCorners.topLeft.y);
       if (dx > 0.001 || dy > 0.001) {
         points.push(pt);
       }
+    }
+
+    // Apply extensions as post-processing (similar to feet)
+    // Extensions replace edge segments with: cap + reversed finger path
+    const extensions = this._edgeExtensions;
+    if (extensions.top > 0.001) {
+      this.applyExtensionToEdge(points, 'top', extensions.top, fingerCorners, fingerData, topEdge, mt, fingerBlockingRanges);
+    }
+    if (extensions.right > 0.001) {
+      this.applyExtensionToEdge(points, 'right', extensions.right, fingerCorners, fingerData, rightEdge, mt, fingerBlockingRanges);
+    }
+    if (extensions.bottom > 0.001) {
+      this.applyExtensionToEdge(points, 'bottom', extensions.bottom, fingerCorners, fingerData, bottomEdge, mt, fingerBlockingRanges);
+    }
+    if (extensions.left > 0.001) {
+      this.applyExtensionToEdge(points, 'left', extensions.left, fingerCorners, fingerData, leftEdge, mt, fingerBlockingRanges);
     }
 
     // Apply feet if configured
@@ -619,6 +519,190 @@ export abstract class BasePanel extends BaseNode {
     points.push({ x: leftFootOuterX, y: baseY });
 
     return points;
+  }
+
+  /**
+   * Apply extension to an edge (similar pattern to applyFeetToOutline)
+   * Replaces the edge segment with: extended cap + reversed finger path
+   */
+  protected applyExtensionToEdge(
+    points: Point2D[],
+    edgePosition: EdgePosition,
+    extensionAmount: number,
+    fingerCorners: { topLeft: Point2D; topRight: Point2D; bottomRight: Point2D; bottomLeft: Point2D },
+    fingerData: AssemblyFingerData | null,
+    edgeConfig: EdgeConfig | undefined,
+    materialThickness: number,
+    fingerBlockingRanges: Map<EdgePosition, { start: number; end: number }[]>
+  ): void {
+    // Determine the start and end corners for this edge (in clockwise traversal order)
+    let startCorner: Point2D, endCorner: Point2D;
+    switch (edgePosition) {
+      case 'top':
+        startCorner = fingerCorners.topLeft;
+        endCorner = fingerCorners.topRight;
+        break;
+      case 'right':
+        startCorner = fingerCorners.topRight;
+        endCorner = fingerCorners.bottomRight;
+        break;
+      case 'bottom':
+        startCorner = fingerCorners.bottomRight;
+        endCorner = fingerCorners.bottomLeft;
+        break;
+      case 'left':
+        startCorner = fingerCorners.bottomLeft;
+        endCorner = fingerCorners.topLeft;
+        break;
+    }
+
+    // Find indices of these corners in the outline
+    const tolerance = 0.1;
+    let startIdx = -1;
+    let endIdx = -1;
+
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      if (startIdx === -1 && Math.abs(p.x - startCorner.x) < tolerance && Math.abs(p.y - startCorner.y) < tolerance) {
+        startIdx = i;
+      }
+      if (Math.abs(p.x - endCorner.x) < tolerance && Math.abs(p.y - endCorner.y) < tolerance) {
+        endIdx = i;
+      }
+    }
+
+    // If we didn't find both corners, can't apply extension
+    if (startIdx === -1 || endIdx === -1) {
+      return;
+    }
+
+    // Calculate extended corners
+    const extendedStart = this.getExtendedCorner(startCorner, edgePosition, extensionAmount, 'start');
+    const extendedEnd = this.getExtendedCorner(endCorner, edgePosition, extensionAmount, 'end');
+
+    // Generate the extension path: extendedStart → extendedEnd (cap) → endCorner → reversed fingers → startCorner
+    const extensionPath = this.generateExtensionPath(
+      startCorner,
+      endCorner,
+      extendedStart,
+      extendedEnd,
+      edgePosition,
+      edgeConfig,
+      fingerData,
+      materialThickness,
+      fingerBlockingRanges
+    );
+
+    // Replace the segment from startIdx to endIdx with the extension path
+    // The extension path starts at extendedStart and ends at startCorner (the original start)
+    if (startIdx < endIdx) {
+      // Normal case: start comes before end in the array
+      const beforeSegment = points.slice(0, startIdx);
+      const afterSegment = points.slice(endIdx + 1);
+
+      points.length = 0;
+      points.push(...beforeSegment);
+      points.push(...extensionPath);
+      points.push(...afterSegment);
+    } else {
+      // Edge wraps around (e.g., left edge: bottomLeft to topLeft where topLeft is at index 0)
+      // The segment is at the end of the array (startIdx to end) + beginning (0 to endIdx)
+      const middleSegment = points.slice(endIdx + 1, startIdx);
+
+      points.length = 0;
+      points.push(...extensionPath.slice(1)); // Skip extendedStart as it becomes the new "start"
+      points.push(...middleSegment);
+      // Path closes back to extensionPath[0]
+    }
+  }
+
+  /**
+   * Get the extended position of a corner for an edge extension
+   */
+  protected getExtendedCorner(
+    corner: Point2D,
+    edgePosition: EdgePosition,
+    extensionAmount: number,
+    cornerType: 'start' | 'end'
+  ): Point2D {
+    // Extension direction depends on the edge
+    switch (edgePosition) {
+      case 'top':
+        return { x: corner.x, y: corner.y + extensionAmount };
+      case 'bottom':
+        return { x: corner.x, y: corner.y - extensionAmount };
+      case 'left':
+        return { x: corner.x - extensionAmount, y: corner.y };
+      case 'right':
+        return { x: corner.x + extensionAmount, y: corner.y };
+    }
+  }
+
+  /**
+   * Generate the extension path for an edge
+   * Path goes: extendedStart → extendedEnd (cap) → endCorner → reversed fingers → startCorner
+   */
+  protected generateExtensionPath(
+    startCorner: Point2D,
+    endCorner: Point2D,
+    extendedStart: Point2D,
+    extendedEnd: Point2D,
+    edgePosition: EdgePosition,
+    edgeConfig: EdgeConfig | undefined,
+    fingerData: AssemblyFingerData | null,
+    materialThickness: number,
+    fingerBlockingRanges: Map<EdgePosition, { start: number; end: number }[]>
+  ): Point2D[] {
+    const path: Point2D[] = [];
+
+    // 1. Start at extended start corner
+    path.push(extendedStart);
+
+    // 2. Go across to extended end corner (the cap)
+    path.push(extendedEnd);
+
+    // 3. Drop down to end corner at finger level
+    path.push(endCorner);
+
+    // 4. Generate reversed finger path (from endCorner back to startCorner)
+    if (edgeConfig?.gender && edgeConfig?.axis && fingerData) {
+      const axisFingerPoints = fingerData[edgeConfig.axis];
+      if (axisFingerPoints && axisFingerPoints.points.length > 0) {
+        // Calculate edge axis positions (swapped for reversed direction)
+        const edgeStartPos = this.computeEdgeAxisPosition(edgeConfig.position, 'start', edgeConfig.axis);
+        const edgeEndPos = this.computeEdgeAxisPosition(edgeConfig.position, 'end', edgeConfig.axis);
+        const edgeBlockingRanges = fingerBlockingRanges.get(edgeConfig.position) || [];
+
+        // Generate fingers going backward (from endCorner to startCorner)
+        const reversedFingerPath = generateFingerJointPathV2(
+          { x: endCorner.x, y: endCorner.y },
+          { x: startCorner.x, y: startCorner.y },
+          {
+            fingerPoints: axisFingerPoints,
+            gender: edgeConfig.gender,
+            materialThickness,
+            edgeStartPos: edgeEndPos,  // Swapped for reversed direction
+            edgeEndPos: edgeStartPos,
+            yUp: true,
+            outwardDirection: this.getEdgeOutwardDirection(edgeConfig.position),
+            fingerBlockingRanges: edgeBlockingRanges,
+          }
+        );
+
+        // Add reversed finger path (skip first point as it's endCorner which we just added)
+        for (let i = 1; i < reversedFingerPath.length; i++) {
+          path.push(reversedFingerPath[i]);
+        }
+      }
+    }
+
+    // Make sure we end at startCorner (the path should already end there from reversed fingers)
+    const lastPoint = path[path.length - 1];
+    if (Math.abs(lastPoint.x - startCorner.x) > 0.001 || Math.abs(lastPoint.y - startCorner.y) > 0.001) {
+      path.push(startCorner);
+    }
+
+    return path;
   }
 
   /**
