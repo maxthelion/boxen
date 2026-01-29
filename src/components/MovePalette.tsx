@@ -20,15 +20,53 @@ interface MovePaletteProps {
 /**
  * Find the child void that corresponds to a divider at the given position
  * Returns the child void ID and its bounds constraints
+ *
+ * Handles both regular subdivisions (child voids have splitAxis/splitPosition)
+ * and grid subdivisions (parent void has gridSubdivision)
  */
 function findChildVoidForDivider(
   parentVoid: Void,
   axis: Axis,
   position: number
-): { childVoidId: string; minPosition: number; maxPosition: number } | null {
+): { childVoidId: string; minPosition: number; maxPosition: number; isGridDivider?: boolean; gridPositionIndex?: number } | null {
   const tolerance = 0.01;
 
-  // Find child void with matching split info
+  // Get the material thickness from the engine
+  const engine = getEngine();
+  const snapshot = engine.getSnapshot();
+  const assembly = snapshot.children.find(c => c.kind === 'assembly');
+  const mt = assembly?.props.material.thickness ?? 3;
+
+  const dimStart = axis === 'x' ? parentVoid.bounds.x : axis === 'y' ? parentVoid.bounds.y : parentVoid.bounds.z;
+  const dimSize = axis === 'x' ? parentVoid.bounds.w : axis === 'y' ? parentVoid.bounds.h : parentVoid.bounds.d;
+  const dimEnd = dimStart + dimSize;
+
+  // Check for grid subdivision first
+  if (parentVoid.gridSubdivision) {
+    const gridPositions = parentVoid.gridSubdivision.positions[axis];
+    if (gridPositions) {
+      // Find the position index in the grid
+      const posIndex = gridPositions.findIndex(p => Math.abs(p - position) < tolerance);
+      if (posIndex >= 0) {
+        // Calculate bounds based on adjacent grid positions
+        const prevPosition = posIndex > 0 ? gridPositions[posIndex - 1] : null;
+        const nextPosition = posIndex < gridPositions.length - 1 ? gridPositions[posIndex + 1] : null;
+
+        const minPosition = prevPosition !== null ? prevPosition + mt : dimStart + mt;
+        const maxPosition = nextPosition !== null ? nextPosition - mt : dimEnd - mt;
+
+        return {
+          childVoidId: parentVoid.id, // For grid dividers, use parent void ID
+          minPosition,
+          maxPosition,
+          isGridDivider: true,
+          gridPositionIndex: posIndex,
+        };
+      }
+    }
+  }
+
+  // Regular subdivision handling - find child void with matching split info
   for (let i = 0; i < parentVoid.children.length; i++) {
     const child = parentVoid.children[i];
     if (
@@ -40,16 +78,6 @@ function findChildVoidForDivider(
       // Calculate position bounds based on adjacent siblings
       const prevSibling = i > 0 ? parentVoid.children[i - 1] : null;
       const nextSibling = i < parentVoid.children.length - 1 ? parentVoid.children[i + 1] : null;
-
-      const dimStart = axis === 'x' ? parentVoid.bounds.x : axis === 'y' ? parentVoid.bounds.y : parentVoid.bounds.z;
-      const dimSize = axis === 'x' ? parentVoid.bounds.w : axis === 'y' ? parentVoid.bounds.h : parentVoid.bounds.d;
-      const dimEnd = dimStart + dimSize;
-
-      // Get the material thickness from the engine
-      const engine = getEngine();
-      const snapshot = engine.getSnapshot();
-      const assembly = snapshot.children.find(c => c.kind === 'assembly');
-      const mt = assembly?.props.material.thickness ?? 3;
 
       // Min position: after previous divider or start of parent + mt
       let minPosition: number;
@@ -91,6 +119,9 @@ interface MoveOperationInfo {
     currentPosition: number;
     minPosition: number;
     maxPosition: number;
+    isGridDivider?: boolean;
+    gridPositionIndex?: number;
+    parentVoidId?: string; // For grid dividers, this is the void with gridSubdivision
   }[];
   errorMessage?: string;
 }
@@ -170,6 +201,9 @@ function analyzeMoveSelection(
       currentPosition: position,
       minPosition: childInfo.minPosition,
       maxPosition: childInfo.maxPosition,
+      isGridDivider: childInfo.isGridDivider,
+      gridPositionIndex: childInfo.gridPositionIndex,
+      parentVoidId: childInfo.isGridDivider ? subdivisionId : undefined,
     });
   }
 
@@ -293,6 +327,11 @@ export const MovePalette: React.FC<MovePaletteProps> = ({
       const moves = cachedInfo.moves.map(m => ({
         subdivisionId: m.childVoidId,
         newPosition: m.currentPosition + clampedDelta,
+        // For grid dividers, include extra info for the engine
+        isGridDivider: m.isGridDivider,
+        gridPositionIndex: m.gridPositionIndex,
+        parentVoidId: m.parentVoidId,
+        axis: cachedInfo.axis,
       }));
 
       updateOperationParams({ moves });

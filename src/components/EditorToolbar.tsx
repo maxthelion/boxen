@@ -2,7 +2,6 @@ import React from 'react';
 
 export type EditorTool =
   | 'select'
-  | 'pan'
   | 'rectangle'
   | 'circle'
   | 'path'
@@ -41,13 +40,6 @@ const tools: ToolButton[] = [
     icon: '↖',
     label: 'Select',
     tooltip: 'Select elements (V)',
-    modes: ['2d', '3d'],
-  },
-  {
-    id: 'pan',
-    icon: '✋',
-    label: 'Pan',
-    tooltip: 'Pan view (Space+drag)',
     modes: ['2d', '3d'],
   },
   {

@@ -12,12 +12,21 @@ import { ProjectBrowserModal } from './components/ProjectBrowserModal';
 import { SaveProjectModal } from './components/SaveProjectModal';
 import { TemplateBrowserModal } from './components/TemplateBrowserModal';
 import { TemplateConfigModal } from './components/TemplateConfigModal';
+import { AboutModal } from './components/AboutModal';
 import { useBoxStore } from './store/useBoxStore';
 import { saveProject, loadProject, captureThumbnail } from './utils/projectStorage';
 import { ProjectState } from './utils/urlState';
 import { EdgeExtensions, FaceId, PanelPath } from './types';
 import { hasDebug, getDebug } from './utils/debug';
-import { useEngine, useEnginePanels, getEngineSnapshot } from './engine';
+import {
+  useEnginePanels,
+  getEngineSnapshot,
+  getEngine,
+  voidSnapshotToVoid,
+  assemblySnapshotToConfig,
+  faceConfigsToFaces,
+} from './engine';
+import { AssemblySnapshot, VoidSnapshot } from './engine/types';
 import { ProjectTemplate } from './templates';
 import './App.css';
 
@@ -68,15 +77,12 @@ function App() {
   const [isProjectBrowserOpen, setIsProjectBrowserOpen] = useState(false);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [isTemplateBrowserOpen, setIsTemplateBrowserOpen] = useState(false);
+  const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<ProjectTemplate | null>(null);
   const [shareStatus, setShareStatus] = useState<'idle' | 'copied'>('idle');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
   const [debugCopyStatus, setDebugCopyStatus] = useState<'idle' | 'copied'>('idle');
-  const [showEngineDebug, setShowEngineDebug] = useState(false);
   const viewportRef = useRef<Viewport3DHandle>(null);
-
-  // OO Engine integration (Phase 2)
-  const { snapshot: engineSnapshot } = useEngine();
 
   // Panel collection from engine (source of truth)
   const panelCollection = useEnginePanels();
@@ -99,7 +105,41 @@ function App() {
     // Always generate panels to initialize the engine
     // (syncStoreToEngine is called inside generatePanels)
     generatePanels();
+
+    // Check for #about hash on initial load
+    if (window.location.hash === '#about') {
+      setIsAboutModalOpen(true);
+    }
   }, []);
+
+  // Handle hash changes (browser back/forward navigation)
+  useEffect(() => {
+    const handleHashChange = () => {
+      if (window.location.hash === '#about') {
+        setIsAboutModalOpen(true);
+      } else if (isAboutModalOpen && window.location.hash !== '#about') {
+        setIsAboutModalOpen(false);
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [isAboutModalOpen]);
+
+  // Handle opening the About modal
+  const handleOpenAbout = () => {
+    setIsAboutModalOpen(true);
+    window.history.pushState(null, '', '#about');
+  };
+
+  // Handle closing the About modal
+  const handleCloseAbout = () => {
+    setIsAboutModalOpen(false);
+    // Remove the hash without adding to history
+    if (window.location.hash === '#about') {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  };
 
   // Handle debug copy - combines all debug logs
   const handleCopyDebug = async () => {
@@ -357,12 +397,12 @@ function App() {
             </button>
           )}
           <button
-            className={`header-btn secondary ${showEngineDebug ? 'active' : ''}`}
-            onClick={() => setShowEngineDebug(!showEngineDebug)}
-            title="Toggle engine snapshot view"
+            className="header-btn secondary"
+            onClick={handleOpenAbout}
+            title="About Boxen"
           >
-            <span className="header-btn-icon">⚙</span>
-            Engine
+            <span className="header-btn-icon">ℹ</span>
+            About
           </button>
         </div>
       </header>
@@ -417,40 +457,42 @@ function App() {
         onClose={() => setSelectedTemplate(null)}
         onApply={() => {
           setSelectedTemplate(null);
-          // Sync the new state to the store
+
+          // Sync engine state back to the store after template is committed
+          // This ensures the store has the fresh template state, not stale data
+          const engine = getEngine();
+          const snapshot = engine.getSnapshot();
+          const assemblySnapshot = snapshot.children.find(
+            (c): c is AssemblySnapshot => c.kind === 'assembly'
+          );
+
+          if (assemblySnapshot) {
+            const rootVoidSnapshot = assemblySnapshot.children.find(
+              (c): c is VoidSnapshot => c.kind === 'void'
+            );
+
+            useBoxStore.setState({
+              config: assemblySnapshotToConfig(assemblySnapshot),
+              faces: faceConfigsToFaces(assemblySnapshot.props.faces),
+              rootVoid: rootVoidSnapshot
+                ? voidSnapshotToVoid(rootVoidSnapshot)
+                : { id: 'root', bounds: { x: 0, y: 0, z: 0, w: 0, h: 0, d: 0 }, children: [] },
+              selectedVoidIds: new Set<string>(),
+              selectedPanelIds: new Set<string>(),
+              selectedAssemblyId: null,
+              selectedSubAssemblyIds: new Set<string>(),
+            });
+          }
+
+          // Regenerate panels from the new engine state
           generatePanels();
         }}
       />
 
-      {/* Engine Debug Panel */}
-      {showEngineDebug && (
-        <div
-          style={{
-            position: 'fixed',
-            bottom: 20,
-            right: 20,
-            width: 400,
-            maxHeight: 400,
-            backgroundColor: '#1e1e1e',
-            color: '#e0e0e0',
-            border: '1px solid #444',
-            borderRadius: 8,
-            padding: 12,
-            fontFamily: 'monospace',
-            fontSize: 11,
-            overflow: 'auto',
-            zIndex: 1000,
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-            <strong>Engine Snapshot</strong>
-            <button onClick={() => setShowEngineDebug(false)} style={{ cursor: 'pointer' }}>×</button>
-          </div>
-          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-            {JSON.stringify(engineSnapshot, null, 2)}
-          </pre>
-        </div>
-      )}
+      <AboutModal
+        isOpen={isAboutModalOpen}
+        onClose={handleCloseAbout}
+      />
     </div>
   );
 }

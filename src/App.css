@@ -3567,3 +3567,62 @@ body {
   background: #0a0a15;
   position: relative;
 }
+
+/* About Modal Styles */
+.about-modal-content {
+  max-width: 500px;
+  line-height: 1.6;
+  color: #e0e0e0;
+}
+
+.about-section {
+  margin-bottom: 1.5rem;
+}
+
+.about-section:last-child {
+  margin-bottom: 0;
+}
+
+.about-section h3 {
+  color: #4a90d9;
+  font-size: 1rem;
+  margin: 0 0 0.75rem 0;
+  font-weight: 600;
+}
+
+.about-section p {
+  margin: 0;
+  color: #ccc;
+  font-size: 0.9rem;
+}
+
+.about-section ul,
+.about-section ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #ccc;
+  font-size: 0.9rem;
+}
+
+.about-section li {
+  margin-bottom: 0.5rem;
+}
+
+.about-section li:last-child {
+  margin-bottom: 0;
+}
+
+.about-section li strong {
+  color: #e0e0e0;
+}
+
+.about-footer {
+  padding-top: 1rem;
+  border-top: 1px solid #333;
+}
+
+.about-footer p {
+  font-size: 0.8rem;
+  color: #888;
+  text-align: center;
+}

@@ -483,5 +483,13 @@ export type EngineAction =
       };
     }}
   | { type: 'MOVE_SUBDIVISIONS'; targetId: string; payload: {
-      moves: { subdivisionId: string; newPosition: number }[];
+      moves: {
+        subdivisionId: string;
+        newPosition: number;
+        // For grid dividers:
+        isGridDivider?: boolean;
+        gridPositionIndex?: number;
+        parentVoidId?: string;
+        axis?: Axis;
+      }[];
     }};
