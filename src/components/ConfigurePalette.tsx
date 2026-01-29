@@ -367,6 +367,7 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
       onApply={handleApply}
       containerRef={containerRef}
       minWidth={260}
+      maxWidth={260}
       closeOnClickOutside={false}
     >
       {/* No valid selection - show selection prompt */}
@@ -579,7 +580,7 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
                   disabled={true}
                 />
                 <p className="palette-hint-small">
-                  Tab direction can only be changed on lid faces (faces on the assembly axis)
+                  Only applies to lid faces
                 </p>
               </>
             )}

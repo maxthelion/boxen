@@ -15,6 +15,8 @@ export interface FloatingPaletteProps {
   onPositionChange?: (position: { x: number; y: number }) => void;
   /** Minimum width of the palette */
   minWidth?: number;
+  /** Maximum width of the palette */
+  maxWidth?: number;
   /** Whether the palette is visible */
   visible?: boolean;
   /** Optional container ref to constrain palette within (defaults to window) */
@@ -31,6 +33,7 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
   onApply,
   onPositionChange,
   minWidth = 180,
+  maxWidth,
   visible = true,
   containerRef,
   closeOnClickOutside = true,
@@ -220,6 +223,7 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
         left: localPosition.x,
         top: localPosition.y,
         minWidth,
+        maxWidth,
       }}
       onMouseDown={handleDragStart}
     >
