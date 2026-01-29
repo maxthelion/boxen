@@ -186,6 +186,79 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     },
   },
 
+  'configure-assembly': {
+    id: 'configure-assembly',
+    name: 'Configure Assembly',
+    type: 'parameter',
+    selectionType: 'assembly',
+    minSelection: 1,
+    maxSelection: 1,
+    availableIn: ['3d'],
+    description: 'Configure assembly dimensions, material, and axis',
+    createPreviewAction: (params) => {
+      const {
+        width,
+        height,
+        depth,
+        thickness,
+        fingerWidth,
+        fingerGap,
+        assemblyAxis,
+        lidPositiveTabDirection,
+        lidPositiveInset,
+        lidNegativeTabDirection,
+        lidNegativeInset,
+      } = params as {
+        width?: number;
+        height?: number;
+        depth?: number;
+        thickness?: number;
+        fingerWidth?: number;
+        fingerGap?: number;
+        assemblyAxis?: Axis;
+        lidPositiveTabDirection?: 'tabs-in' | 'tabs-out';
+        lidPositiveInset?: number;
+        lidNegativeTabDirection?: 'tabs-in' | 'tabs-out';
+        lidNegativeInset?: number;
+      };
+
+      // Build material config if any material properties are set
+      const materialConfig: { thickness?: number; fingerWidth?: number; fingerGap?: number } = {};
+      if (thickness !== undefined) materialConfig.thickness = thickness;
+      if (fingerWidth !== undefined) materialConfig.fingerWidth = fingerWidth;
+      if (fingerGap !== undefined) materialConfig.fingerGap = fingerGap;
+
+      // Build lid configs if any lid properties are set
+      const lids: {
+        positive?: { tabDirection?: 'tabs-in' | 'tabs-out'; inset?: number };
+        negative?: { tabDirection?: 'tabs-in' | 'tabs-out'; inset?: number };
+      } = {};
+      if (lidPositiveTabDirection !== undefined || lidPositiveInset !== undefined) {
+        lids.positive = {};
+        if (lidPositiveTabDirection !== undefined) lids.positive.tabDirection = lidPositiveTabDirection;
+        if (lidPositiveInset !== undefined) lids.positive.inset = lidPositiveInset;
+      }
+      if (lidNegativeTabDirection !== undefined || lidNegativeInset !== undefined) {
+        lids.negative = {};
+        if (lidNegativeTabDirection !== undefined) lids.negative.tabDirection = lidNegativeTabDirection;
+        if (lidNegativeInset !== undefined) lids.negative.inset = lidNegativeInset;
+      }
+
+      return {
+        type: 'CONFIGURE_ASSEMBLY',
+        targetId: 'main-assembly',
+        payload: {
+          ...(width !== undefined && { width }),
+          ...(height !== undefined && { height }),
+          ...(depth !== undefined && { depth }),
+          ...(Object.keys(materialConfig).length > 0 && { materialConfig }),
+          ...(assemblyAxis !== undefined && { assemblyAxis }),
+          ...(Object.keys(lids).length > 0 && { lids }),
+        },
+      };
+    },
+  },
+
   'chamfer-fillet': {
     id: 'chamfer-fillet',
     name: 'Chamfer/Fillet',

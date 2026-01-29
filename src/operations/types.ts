@@ -20,6 +20,7 @@ export type OperationId =
   | 'subdivide'
   | 'subdivide-two-panel'
   | 'create-sub-assembly'
+  | 'configure-assembly'
   | 'chamfer-fillet'
   // Immediate operations (execute instantly)
   | 'toggle-face'
@@ -91,6 +92,23 @@ export interface CreateSubAssemblyParams {
 }
 
 /**
+ * Parameters for configure-assembly operation
+ */
+export interface ConfigureAssemblyParams {
+  width?: number;
+  height?: number;
+  depth?: number;
+  thickness?: number;
+  fingerWidth?: number;
+  fingerGap?: number;
+  assemblyAxis?: Axis;
+  lidPositiveTabDirection?: 'tabs-in' | 'tabs-out';
+  lidPositiveInset?: number;
+  lidNegativeTabDirection?: 'tabs-in' | 'tabs-out';
+  lidNegativeInset?: number;
+}
+
+/**
  * Parameters for chamfer-fillet operation
  */
 export interface ChamferFilletParams {
@@ -135,6 +153,7 @@ export type OperationParams =
   | SubdivideParams
   | SubdivideTwoPanelParams
   | CreateSubAssemblyParams
+  | ConfigureAssemblyParams
   | ChamferFilletParams
   | ToggleFaceParams
   | RemoveSubdivisionParams
