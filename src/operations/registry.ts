@@ -251,6 +251,7 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     shortcut: 'g',
     createPreviewAction: (params) => {
       const {
+        // Assembly params
         thickness,
         fingerWidth,
         fingerGap,
@@ -260,6 +261,11 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
         lidNegativeTabDirection,
         lidNegativeInset,
         feet,
+        // Face params
+        faceId,
+        faceSolid,
+        faceTabDirection,
+        faceLidSide,
       } = params as {
         thickness?: number;
         fingerWidth?: number;
@@ -270,8 +276,27 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
         lidNegativeTabDirection?: 'tabs-in' | 'tabs-out';
         lidNegativeInset?: number;
         feet?: FeetConfig;
+        // Face-specific params
+        faceId?: FaceId;
+        faceSolid?: boolean;
+        faceTabDirection?: 'tabs-in' | 'tabs-out';
+        faceLidSide?: 'positive' | 'negative';
       };
 
+      // Face configuration mode - use CONFIGURE_FACE action
+      if (faceId !== undefined) {
+        return {
+          type: 'CONFIGURE_FACE',
+          targetId: 'main-assembly',
+          payload: {
+            faceId,
+            ...(faceSolid !== undefined && { solid: faceSolid }),
+            ...(faceTabDirection !== undefined && { lidTabDirection: faceTabDirection }),
+          },
+        };
+      }
+
+      // Assembly configuration mode
       // Build material config if any material properties are set
       const materialConfig: { thickness?: number; fingerWidth?: number; fingerGap?: number } = {};
       if (thickness !== undefined) materialConfig.thickness = thickness;

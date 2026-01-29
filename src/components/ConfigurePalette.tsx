@@ -56,6 +56,22 @@ const tabDirectionOptions = [
 
 type SelectionMode = 'none' | 'assembly' | 'face';
 
+// Operation params type for assembly mode
+interface AssemblyParams {
+  thickness?: number;
+  fingerWidth?: number;
+  fingerGap?: number;
+  assemblyAxis?: Axis;
+  feet?: FeetConfig;
+}
+
+// Operation params type for face mode
+interface FaceParams {
+  faceId?: FaceId;
+  faceSolid?: boolean;
+  faceTabDirection?: LidTabDirection;
+}
+
 export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
   visible,
   position,
@@ -73,10 +89,6 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
   const selectedAssemblyId = useBoxStore((state) => state.selectedAssemblyId);
   const selectedPanelIds = useBoxStore((state) => state.selectedPanelIds);
   const selectAssembly = useBoxStore((state) => state.selectAssembly);
-
-  // Face actions from store
-  const toggleFace = useBoxStore((state) => state.toggleFace);
-  const setLidTabDirection = useBoxStore((state) => state.setLidTabDirection);
 
   // Operation state from store
   const operationState = useBoxStore((state) => state.operationState);
@@ -113,8 +125,8 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
     return 'none';
   }, [selectedAssemblyId, selectedFaceInfo]);
 
-  // Get face data for face mode
-  const faceData = useMemo(() => {
+  // Get initial face data for face mode (from committed state)
+  const initialFaceData = useMemo(() => {
     if (!selectedFaceInfo || !config) return null;
 
     const face = faces.find((f) => f.id === selectedFaceInfo.faceId);
@@ -172,41 +184,54 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
     }
   }, [config]);
 
-  // Operation state for assembly mode
-  const isAssemblyOpActive = operationState.activeOperation === 'configure';
-  const opParams = operationState.params as {
-    thickness?: number;
-    fingerWidth?: number;
-    fingerGap?: number;
-    assemblyAxis?: Axis;
-    feet?: FeetConfig;
-  };
+  // Operation state
+  const isOpActive = operationState.activeOperation === 'configure';
+  const opParams = operationState.params as AssemblyParams & FaceParams;
 
   // Current values for assembly mode (from operation if active, otherwise local)
-  const currentThickness = isAssemblyOpActive ? (opParams.thickness ?? localThickness) : localThickness;
-  const currentFingerWidth = isAssemblyOpActive ? (opParams.fingerWidth ?? localFingerWidth) : localFingerWidth;
-  const currentFingerGap = isAssemblyOpActive ? (opParams.fingerGap ?? localFingerGap) : localFingerGap;
-  const currentAxis = isAssemblyOpActive ? (opParams.assemblyAxis ?? localAxis) : localAxis;
-  const currentFeet = isAssemblyOpActive ? (opParams.feet ?? localFeet) : localFeet;
+  const currentThickness = isOpActive ? (opParams.thickness ?? localThickness) : localThickness;
+  const currentFingerWidth = isOpActive ? (opParams.fingerWidth ?? localFingerWidth) : localFingerWidth;
+  const currentFingerGap = isOpActive ? (opParams.fingerGap ?? localFingerGap) : localFingerGap;
+  const currentAxis = isOpActive ? (opParams.assemblyAxis ?? localAxis) : localAxis;
+  const currentFeet = isOpActive ? (opParams.feet ?? localFeet) : localFeet;
 
-  // Auto-start operation when palette becomes visible and assembly is selected
+  // Current values for face mode (from operation params if active, otherwise from initial data)
+  const currentFaceSolid = isOpActive && opParams.faceSolid !== undefined
+    ? opParams.faceSolid
+    : initialFaceData?.solid ?? true;
+  const currentFaceTabDirection = isOpActive && opParams.faceTabDirection !== undefined
+    ? opParams.faceTabDirection
+    : initialFaceData?.tabDirection ?? 'tabs-out';
+
+  // Auto-start operation when palette becomes visible with valid selection
   useEffect(() => {
     if (hasAutoStarted.current) return;
     if (!visible) return;
-    if (isAssemblyOpActive) return;
+    if (isOpActive) return;
     if (!config) return;
-    if (selectionMode !== 'assembly') return;
+    if (selectionMode === 'none') return;
 
     hasAutoStarted.current = true;
     startOperation('configure');
-    updateOperationParams({
-      thickness: config.materialThickness,
-      fingerWidth: config.fingerWidth,
-      fingerGap: config.fingerGap,
-      assemblyAxis: config.assembly?.assemblyAxis ?? 'y',
-      feet: config.assembly?.feet ?? defaultFeetConfig,
-    });
-  }, [visible, isAssemblyOpActive, config, selectionMode, startOperation, updateOperationParams]);
+
+    if (selectionMode === 'assembly') {
+      // Initialize with assembly params
+      updateOperationParams({
+        thickness: config.materialThickness,
+        fingerWidth: config.fingerWidth,
+        fingerGap: config.fingerGap,
+        assemblyAxis: config.assembly?.assemblyAxis ?? 'y',
+        feet: config.assembly?.feet ?? defaultFeetConfig,
+      });
+    } else if (selectionMode === 'face' && initialFaceData) {
+      // Initialize with face params
+      updateOperationParams({
+        faceId: initialFaceData.faceId,
+        faceSolid: initialFaceData.solid,
+        faceTabDirection: initialFaceData.tabDirection,
+      });
+    }
+  }, [visible, isOpActive, config, selectionMode, initialFaceData, startOperation, updateOperationParams]);
 
   // Reset auto-start flag when visibility changes
   useEffect(() => {
@@ -218,8 +243,8 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
   // Reset auto-start when selection changes
   useEffect(() => {
     const currentState = useBoxStore.getState();
-    const isOpActive = currentState.operationState.activeOperation === 'configure';
-    if (!isOpActive) {
+    const isOperationActive = currentState.operationState.activeOperation === 'configure';
+    if (!isOperationActive) {
       hasAutoStarted.current = false;
     }
   }, [selectedAssemblyId, selectedPanelIds]);
@@ -230,7 +255,7 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
   }, [selectAssembly]);
 
   // Handle assembly parameter changes
-  const handleAssemblyParamChange = useCallback((updates: Partial<typeof opParams>) => {
+  const handleAssemblyParamChange = useCallback((updates: Partial<AssemblyParams>) => {
     // Update local state
     if (updates.thickness !== undefined) setLocalThickness(updates.thickness);
     if (updates.fingerWidth !== undefined) setLocalFingerWidth(updates.fingerWidth);
@@ -239,13 +264,13 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
     if (updates.feet !== undefined) setLocalFeet(updates.feet);
 
     // Update operation params if active
-    if (isAssemblyOpActive) {
+    if (isOpActive) {
       updateOperationParams({
         ...opParams,
         ...updates,
       });
     }
-  }, [isAssemblyOpActive, opParams, updateOperationParams]);
+  }, [isOpActive, opParams, updateOperationParams]);
 
   // Handle feet toggle and updates
   const handleFeetToggle = useCallback((enabled: boolean) => {
@@ -258,31 +283,39 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
     handleAssemblyParamChange({ feet: newFeet });
   }, [currentFeet, handleAssemblyParamChange]);
 
+  // Handle face parameter changes
+  const handleFaceParamChange = useCallback((updates: Partial<FaceParams>) => {
+    if (isOpActive && initialFaceData) {
+      updateOperationParams({
+        faceId: initialFaceData.faceId,
+        faceSolid: currentFaceSolid,
+        faceTabDirection: currentFaceTabDirection,
+        ...updates,
+      });
+    }
+  }, [isOpActive, initialFaceData, currentFaceSolid, currentFaceTabDirection, updateOperationParams]);
+
   // Handle face solid toggle
   const handleSolidToggle = useCallback(() => {
-    if (faceData) {
-      toggleFace(faceData.faceId);
-    }
-  }, [faceData, toggleFace]);
+    handleFaceParamChange({ faceSolid: !currentFaceSolid });
+  }, [handleFaceParamChange, currentFaceSolid]);
 
   // Handle face tab direction change
   const handleTabDirectionChange = useCallback((direction: string) => {
-    if (faceData?.isLid && faceData.lidSide) {
-      setLidTabDirection(faceData.lidSide, direction as LidTabDirection);
-    }
-  }, [faceData, setLidTabDirection]);
+    handleFaceParamChange({ faceTabDirection: direction as LidTabDirection });
+  }, [handleFaceParamChange]);
 
-  // Handle apply (assembly mode only)
+  // Handle apply
   const handleApply = useCallback(() => {
-    if (isAssemblyOpActive) {
+    if (isOpActive) {
       applyOperation();
     }
     onClose();
-  }, [isAssemblyOpActive, applyOperation, onClose]);
+  }, [isOpActive, applyOperation, onClose]);
 
-  // Handle cancel/close
+  // Handle cancel
   const handleCancel = useCallback(() => {
-    if (isAssemblyOpActive) {
+    if (isOpActive) {
       cancelOperation();
     } else {
       // Clean up any preview
@@ -293,15 +326,15 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
       }
     }
     onClose();
-  }, [isAssemblyOpActive, cancelOperation, onClose]);
+  }, [isOpActive, cancelOperation, onClose]);
 
   // Clean up preview when palette unmounts
   useEffect(() => {
     return () => {
       const currentState = useBoxStore.getState();
-      const isOpActive = currentState.operationState.activeOperation === 'configure';
+      const isOperationActive = currentState.operationState.activeOperation === 'configure';
 
-      if (!isOpActive) {
+      if (!isOperationActive) {
         const engine = getEngine();
         if (engine.hasPreview()) {
           engine.discardPreview();
@@ -319,8 +352,8 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
       const assemblyName = selectedAssemblyId === 'main' ? 'Main Assembly' : 'Sub-Assembly';
       return `Configure: ${assemblyName}`;
     }
-    if (selectionMode === 'face' && faceData) {
-      return `Configure: ${faceLabels[faceData.faceId]} Face`;
+    if (selectionMode === 'face' && initialFaceData) {
+      return `Configure: ${faceLabels[initialFaceData.faceId]} Face`;
     }
     return 'Configure';
   };
@@ -331,7 +364,7 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
       position={position}
       onPositionChange={onPositionChange}
       onClose={handleCancel}
-      onApply={selectionMode === 'assembly' ? handleApply : undefined}
+      onApply={handleApply}
       containerRef={containerRef}
       minWidth={260}
       closeOnClickOutside={false}
@@ -487,7 +520,7 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
             <PaletteButton
               variant="primary"
               onClick={handleApply}
-              disabled={!isAssemblyOpActive}
+              disabled={!isOpActive}
             >
               Apply
             </PaletteButton>
@@ -499,35 +532,35 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
       )}
 
       {/* Face selected - show face configuration */}
-      {selectionMode === 'face' && faceData && (
+      {selectionMode === 'face' && initialFaceData && (
         <>
           {/* Solid/Open Toggle */}
           <div className="palette-section">
             <label className="palette-checkbox">
               <input
                 type="checkbox"
-                checked={faceData.solid}
+                checked={currentFaceSolid}
                 onChange={handleSolidToggle}
               />
               <span>Include in cut (solid)</span>
             </label>
-            {!faceData.solid && (
+            {!currentFaceSolid && (
               <p className="palette-hint-small">Face is open - no panel will be cut</p>
             )}
           </div>
 
           {/* Tab Direction - only for solid lid faces */}
-          {faceData.solid && faceData.isLid && (
+          {currentFaceSolid && initialFaceData.isLid && (
             <div className="palette-section">
               <div className="palette-section-title">Tab Direction</div>
               <PaletteToggleGroup
                 label=""
                 options={tabDirectionOptions}
-                value={faceData.tabDirection}
+                value={currentFaceTabDirection}
                 onChange={handleTabDirectionChange}
               />
               <p className="palette-hint-small">
-                {faceData.tabDirection === 'tabs-out'
+                {currentFaceTabDirection === 'tabs-out'
                   ? 'Lid has tabs that go into wall slots'
                   : 'Walls have tabs that go into lid slots'}
               </p>
@@ -536,8 +569,15 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
 
           {/* Actions */}
           <PaletteButtonRow>
+            <PaletteButton
+              variant="primary"
+              onClick={handleApply}
+              disabled={!isOpActive}
+            >
+              Apply
+            </PaletteButton>
             <PaletteButton variant="secondary" onClick={handleCancel}>
-              Done
+              Cancel
             </PaletteButton>
           </PaletteButtonRow>
         </>

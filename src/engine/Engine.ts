@@ -492,6 +492,35 @@ export class Engine {
         }
         break;
 
+      case 'CONFIGURE_FACE':
+        if (assembly) {
+          const { faceId, solid, lidTabDirection } = action.payload;
+          // Set solid state if provided
+          if (solid !== undefined) {
+            assembly.setFaceSolid(faceId, solid);
+          }
+          // Set lid tab direction if provided (only applies to lid faces)
+          if (lidTabDirection !== undefined) {
+            // Determine which lid side this face is on based on assembly axis
+            const axis = assembly.assemblyAxis;
+            const lidMap: Record<string, { positive: string; negative: string }> = {
+              y: { positive: 'top', negative: 'bottom' },
+              x: { positive: 'right', negative: 'left' },
+              z: { positive: 'front', negative: 'back' },
+            };
+            const mapping = lidMap[axis];
+            let lidSide: 'positive' | 'negative' | null = null;
+            if (faceId === mapping.positive) lidSide = 'positive';
+            else if (faceId === mapping.negative) lidSide = 'negative';
+
+            if (lidSide) {
+              assembly.setLidConfig(lidSide, { tabDirection: lidTabDirection });
+            }
+          }
+          return true;
+        }
+        break;
+
       case 'SET_ASSEMBLY_AXIS':
         if (assembly) {
           assembly.setAssemblyAxis(action.payload.axis);

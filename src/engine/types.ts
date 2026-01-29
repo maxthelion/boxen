@@ -456,6 +456,7 @@ export type EngineAction =
   | { type: 'SET_MATERIAL'; targetId: string; payload: Partial<MaterialConfig> }
   | { type: 'SET_FACE_SOLID'; targetId: string; payload: { faceId: FaceId; solid: boolean } }
   | { type: 'TOGGLE_FACE'; targetId: string; payload: { faceId: FaceId } }
+  | { type: 'CONFIGURE_FACE'; targetId: string; payload: { faceId: FaceId; solid?: boolean; lidTabDirection?: 'tabs-in' | 'tabs-out' } }
   | { type: 'ADD_SUBDIVISION'; targetId: string; payload: { voidId: string; axis: Axis; position: number } }
   | { type: 'ADD_SUBDIVISIONS'; targetId: string; payload: { voidId: string; axis: Axis; positions: number[] } }
   | { type: 'ADD_GRID_SUBDIVISION'; targetId: string; payload: { voidId: string; axes: { axis: Axis; positions: number[] }[] } }
