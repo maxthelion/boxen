@@ -344,6 +344,62 @@ export class Engine {
         }
         break;
 
+      case 'CONFIGURE_ASSEMBLY': {
+        if (assembly) {
+          const { width, height, depth, materialConfig, assemblyAxis, lids } = action.payload;
+
+          // Update dimensions
+          if (width !== undefined || height !== undefined || depth !== undefined) {
+            assembly.setDimensions(
+              width ?? assembly.width,
+              height ?? assembly.height,
+              depth ?? assembly.depth
+            );
+          }
+
+          // Update material config
+          if (materialConfig) {
+            if (materialConfig.thickness !== undefined) {
+              assembly.setThickness(materialConfig.thickness);
+            }
+            if (materialConfig.fingerWidth !== undefined) {
+              assembly.setFingerWidth(materialConfig.fingerWidth);
+            }
+            if (materialConfig.fingerGap !== undefined) {
+              assembly.setFingerGap(materialConfig.fingerGap);
+            }
+          }
+
+          // Update assembly axis
+          if (assemblyAxis !== undefined) {
+            assembly.setAssemblyAxis(assemblyAxis);
+          }
+
+          // Update lid configs
+          if (lids) {
+            if (lids.positive) {
+              if (lids.positive.tabDirection !== undefined) {
+                assembly.setLidTabDirection('positive', lids.positive.tabDirection);
+              }
+              if (lids.positive.inset !== undefined) {
+                assembly.setLidInset('positive', lids.positive.inset);
+              }
+            }
+            if (lids.negative) {
+              if (lids.negative.tabDirection !== undefined) {
+                assembly.setLidTabDirection('negative', lids.negative.tabDirection);
+              }
+              if (lids.negative.inset !== undefined) {
+                assembly.setLidInset('negative', lids.negative.inset);
+              }
+            }
+          }
+
+          return true;
+        }
+        break;
+      }
+
       case 'ADD_SUBDIVISION': {
         const voidNodeRaw = findInScene(action.payload.voidId);
         const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;

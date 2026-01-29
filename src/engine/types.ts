@@ -437,4 +437,15 @@ export type EngineAction =
   | { type: 'SET_SUB_ASSEMBLY_LID_TAB_DIRECTION'; targetId: string; payload: { subAssemblyId: string; side: 'positive' | 'negative'; tabDirection: 'tabs-in' | 'tabs-out' } }
   | { type: 'SET_LID_CONFIG'; targetId: string; payload: { side: 'positive' | 'negative'; config: Partial<LidConfig> } }
   | { type: 'SET_ASSEMBLY_AXIS'; targetId: string; payload: { axis: Axis } }
-  | { type: 'SET_FEET_CONFIG'; targetId: string; payload: FeetConfig | null };
+  | { type: 'SET_FEET_CONFIG'; targetId: string; payload: FeetConfig | null }
+  | { type: 'CONFIGURE_ASSEMBLY'; targetId: string; payload: {
+      width?: number;
+      height?: number;
+      depth?: number;
+      materialConfig?: Partial<MaterialConfig>;
+      assemblyAxis?: Axis;
+      lids?: {
+        positive?: Partial<LidConfig>;
+        negative?: Partial<LidConfig>;
+      };
+    }};
