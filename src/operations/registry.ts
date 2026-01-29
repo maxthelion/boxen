@@ -141,19 +141,32 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     availableIn: ['3d'],
     description: 'Subdivide the void between two parallel panels',
     createPreviewAction: (params) => {
-      // Same as subdivide - once we have the voidId from analysis, it's the same action
-      const { voidId, axis, positions } = params as {
+      // Uses same axes format as subdivide-grid
+      const { voidId, axes } = params as {
         voidId?: string;
-        axis?: Axis;
-        positions?: number[];
+        axes?: { axis: Axis; positions: number[] }[];
       };
 
-      if (!voidId || !axis || !positions?.length) return null;
+      if (!voidId || !axes?.length) return null;
 
+      // Filter out axes with empty positions
+      const validAxes = axes.filter(a => a.positions && a.positions.length > 0);
+      if (validAxes.length === 0) return null;
+
+      // If only one axis with positions, use ADD_SUBDIVISIONS
+      if (validAxes.length === 1) {
+        return {
+          type: 'ADD_SUBDIVISIONS',
+          targetId: 'main-assembly',
+          payload: { voidId, axis: validAxes[0].axis, positions: validAxes[0].positions },
+        };
+      }
+
+      // Multi-axis: use ADD_GRID_SUBDIVISION
       return {
-        type: 'ADD_SUBDIVISIONS',
+        type: 'ADD_GRID_SUBDIVISION',
         targetId: 'main-assembly',
-        payload: { voidId, axis, positions },
+        payload: { voidId, axes: validAxes },
       };
     },
   },
