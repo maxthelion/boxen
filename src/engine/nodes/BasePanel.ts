@@ -328,6 +328,17 @@ export abstract class BasePanel extends BaseNode {
     // Get blocking ranges for finger generation (can be overridden by subclasses)
     const fingerBlockingRanges = this.getFingerBlockingRanges();
 
+    // Helper to check if an edge has an extension applied to it
+    // This only checks the extension on the specific edge, not adjacent corners
+    const getEdgeExtension = (edgePosition: EdgePosition): number => {
+      switch (edgePosition) {
+        case 'top': return extTop;
+        case 'bottom': return extBottom;
+        case 'left': return extLeft;
+        case 'right': return extRight;
+      }
+    };
+
     // Helper to generate edge points (with or without finger joints)
     const generateEdgePoints = (
       startCorner: Point,
@@ -336,13 +347,24 @@ export abstract class BasePanel extends BaseNode {
       fingerEnd: Point,
       edgeConfig: EdgeConfig | undefined
     ): Point[] => {
-      // If no finger joints or no finger data, return straight edge
+      // Check if THIS specific edge has an extension (not adjacent edges)
+      const edgeExtension = edgeConfig ? getEdgeExtension(edgeConfig.position) : 0;
+      const hasExtensionOnThisEdge = edgeExtension > 0.001;
+
+      // If no finger joints or no finger data, return straight edge with extension handling
       if (!edgeConfig?.gender || !edgeConfig?.axis || !fingerData) {
+        if (hasExtensionOnThisEdge) {
+          // Edge has extension: go across at extended level, then to finger level, then to end
+          return [endCorner, fingerEnd];
+        }
         return [endCorner];
       }
 
       const axisFingerPoints = fingerData[edgeConfig.axis];
       if (!axisFingerPoints || axisFingerPoints.points.length === 0) {
+        if (hasExtensionOnThisEdge) {
+          return [endCorner, fingerEnd];
+        }
         return [endCorner];
       }
 
@@ -354,7 +376,43 @@ export abstract class BasePanel extends BaseNode {
       // Get edge-specific blocking ranges
       const edgeBlockingRanges = fingerBlockingRanges.get(edgeConfig.position) || [];
 
-      // Generate finger joint path
+      // When there's an extension on THIS edge, we need to:
+      // 1. First go across at the extended level (the extension cap)
+      // 2. Then drop down to finger level at the END
+      // 3. Generate fingers going BACKWARD (from end to start)
+      // This creates a proper closed shape with the extension cap included
+      if (hasExtensionOnThisEdge) {
+        const result: Point[] = [];
+
+        // Step 1: Add the extension cap - go from start corner to end corner at extended level
+        result.push(endCorner);
+
+        // Step 2: Drop down to finger level at the end
+        result.push(fingerEnd);
+
+        // Step 3: Generate fingers going BACKWARD (from fingerEnd to fingerStart)
+        // Swap the start/end positions for the finger generator
+        const reversedFingerPath = generateFingerJointPathV2(fingerEnd, fingerStart, {
+          fingerPoints: axisFingerPoints,
+          gender: edgeConfig.gender,
+          materialThickness: mt,
+          edgeStartPos: edgeEndPos,  // Swap positions for reversed direction
+          edgeEndPos: edgeStartPos,
+          yUp: true,
+          outwardDirection: this.getEdgeOutwardDirection(edgeConfig.position),
+          fingerBlockingRanges: edgeBlockingRanges,
+        });
+
+        // Add reversed finger path (skip first point as it's fingerEnd which we just added)
+        for (let i = 1; i < reversedFingerPath.length; i++) {
+          result.push(reversedFingerPath[i]);
+        }
+
+        // Note: The path ends at fingerStart - next edge connects from there
+        return result;
+      }
+
+      // No extension on this edge: original logic with corner connection handling
       const fingerPath = generateFingerJointPathV2(fingerStart, fingerEnd, {
         fingerPoints: axisFingerPoints,
         gender: edgeConfig.gender,
@@ -366,22 +424,22 @@ export abstract class BasePanel extends BaseNode {
         fingerBlockingRanges: edgeBlockingRanges,
       });
 
-      // The finger path starts at fingerStart - we need to handle extensions
       const result: Point[] = [];
 
-      // If start corner differs from finger start (due to extension), add connecting line
+      // If start corner differs from finger start (due to adjacent edge's extension),
+      // add fingerStart to connect properly
       const startDx = Math.abs(startCorner.x - fingerStart.x);
       const startDy = Math.abs(startCorner.y - fingerStart.y);
       if (startDx > 0.001 || startDy > 0.001) {
         result.push(fingerStart);
       }
 
-      // Add finger path points (skip first point as it's already the start)
+      // Add finger path points (skip first point as it's fingerStart)
       for (let i = 1; i < fingerPath.length; i++) {
         result.push(fingerPath[i]);
       }
 
-      // If end corner differs from finger end (due to extension), add it
+      // If end corner differs from finger end (due to adjacent edge's extension), add it
       const lastFingerPoint = fingerPath[fingerPath.length - 1];
       const endDx = Math.abs(endCorner.x - lastFingerPoint.x);
       const endDy = Math.abs(endCorner.y - lastFingerPoint.y);

@@ -68,7 +68,7 @@ const tools: ToolButton[] = [
     icon: '⧈',
     label: 'Inset',
     tooltip: 'Inset/Outset edges (I)',
-    modes: ['2d'],
+    modes: ['2d', '3d'],
   },
   {
     id: 'chamfer',

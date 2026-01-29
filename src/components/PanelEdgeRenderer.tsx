@@ -99,48 +99,66 @@ const EdgeMesh: React.FC<EdgeMeshProps> = ({
     return new THREE.PlaneGeometry(edgeWidth, edgeHeight);
   }, [edge, width, height, thickness, scale]);
 
-  // Calculate edge position offset from panel center
-  const edgePosition = useMemo((): [number, number, number] => {
+  // Calculate edge position and rotation using proper 3D transforms
+  // The edge offset must be in panel-local space, then transformed to world space
+  const { edgePosition, edgeRotation } = useMemo(() => {
     const [px, py, pz] = position;
     const halfWidth = (width * scale) / 2;
     const halfHeight = (height * scale) / 2;
+    const halfThickness = (thickness * scale) / 2;
 
-    // Edge faces are positioned at the edge of the panel
+    // Create panel's rotation as Euler, then convert to quaternion for transforms
+    const panelEuler = new THREE.Euler(rotation[0], rotation[1], rotation[2], 'XYZ');
+    const panelQuat = new THREE.Quaternion().setFromEuler(panelEuler);
+
+    // Calculate local offset from panel center to edge center
+    // In panel-local space: X = width direction, Y = height direction, Z = thickness (normal)
+    let localOffset: THREE.Vector3;
+    let localEdgeRotation: THREE.Euler;
+
     switch (edge) {
       case 'top':
-        return [px, py + halfHeight, pz];
+        // Top edge: offset in +Y (local), rotate to face outward (+Y in local)
+        localOffset = new THREE.Vector3(0, halfHeight, halfThickness);
+        localEdgeRotation = new THREE.Euler(Math.PI / 2, 0, 0);
+        break;
       case 'bottom':
-        return [px, py - halfHeight, pz];
+        // Bottom edge: offset in -Y (local), rotate to face outward (-Y in local)
+        localOffset = new THREE.Vector3(0, -halfHeight, halfThickness);
+        localEdgeRotation = new THREE.Euler(-Math.PI / 2, 0, 0);
+        break;
       case 'left':
-        return [px - halfWidth, py, pz];
+        // Left edge: offset in -X (local), rotate to face outward (-X in local)
+        localOffset = new THREE.Vector3(-halfWidth, 0, halfThickness);
+        localEdgeRotation = new THREE.Euler(0, -Math.PI / 2, 0);
+        break;
       case 'right':
-        return [px + halfWidth, py, pz];
+        // Right edge: offset in +X (local), rotate to face outward (+X in local)
+        localOffset = new THREE.Vector3(halfWidth, 0, halfThickness);
+        localEdgeRotation = new THREE.Euler(0, Math.PI / 2, 0);
+        break;
     }
-  }, [edge, position, width, height, scale]);
 
-  // Calculate edge rotation
-  // The edge face needs to be rotated to face outward from the panel edge
-  const edgeRotation = useMemo((): [number, number, number] => {
-    const [rx, ry, rz] = rotation;
+    // Transform local offset to world space
+    const worldOffset = localOffset.applyQuaternion(panelQuat);
+    const worldPosition: [number, number, number] = [
+      px + worldOffset.x,
+      py + worldOffset.y,
+      pz + worldOffset.z,
+    ];
 
-    // Apply additional rotation based on which edge this is
-    // The base rotation is the panel's rotation, then we rotate the edge face
-    // to be perpendicular to the panel and face outward
-    switch (edge) {
-      case 'top':
-        // Rotate 90° around X to face up, but aligned with panel thickness
-        return [rx + Math.PI / 2, ry, rz];
-      case 'bottom':
-        // Rotate -90° around X to face down
-        return [rx - Math.PI / 2, ry, rz];
-      case 'left':
-        // Rotate 90° around Y to face left
-        return [rx, ry - Math.PI / 2, rz];
-      case 'right':
-        // Rotate -90° around Y to face right
-        return [rx, ry + Math.PI / 2, rz];
-    }
-  }, [edge, rotation]);
+    // Combine panel rotation with edge-local rotation
+    const edgeQuat = new THREE.Quaternion().setFromEuler(localEdgeRotation);
+    const combinedQuat = panelQuat.clone().multiply(edgeQuat);
+    const combinedEuler = new THREE.Euler().setFromQuaternion(combinedQuat, 'XYZ');
+    const worldRotation: [number, number, number] = [
+      combinedEuler.x,
+      combinedEuler.y,
+      combinedEuler.z,
+    ];
+
+    return { edgePosition: worldPosition, edgeRotation: worldRotation };
+  }, [edge, position, rotation, width, height, thickness, scale]);
 
   const handleClick = useCallback((e: any) => {
     e.stopPropagation?.();
@@ -199,11 +217,7 @@ export const PanelEdgeRenderer: React.FC<PanelEdgeRendererProps> = ({ scale }) =
   const selectEdge = useBoxStore((state) => state.selectEdge);
   const setHoveredEdge = useBoxStore((state) => state.setHoveredEdge);
 
-  // Only render when inset tool is active
-  if (activeTool !== 'inset' || !panelCollection || !config) {
-    return null;
-  }
-
+  // Hooks must be called before any early returns
   const handleEdgeClick = useCallback((panelId: string, edge: EdgePosition, event: React.MouseEvent) => {
     const shiftKey = event.shiftKey;
     selectEdge(panelId, edge, shiftKey);
@@ -216,6 +230,11 @@ export const PanelEdgeRenderer: React.FC<PanelEdgeRendererProps> = ({ scale }) =
       setHoveredEdge(null, null);
     }
   }, [setHoveredEdge]);
+
+  // Only render when inset tool is active
+  if (activeTool !== 'inset' || !panelCollection || !config) {
+    return null;
+  }
 
   return (
     <>
