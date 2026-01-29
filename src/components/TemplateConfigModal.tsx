@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment } from '@react-three/drei';
 import {
@@ -65,7 +65,10 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
     }
   }, [template]);
 
-  // Update preview when values change
+  // Debounce timer ref
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Update preview when values change (debounced)
   const updatePreview = useCallback(() => {
     if (!template) return;
 
@@ -81,11 +84,24 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
     notifyEngineStateChanged();
   }, [template, width, height, depth, subdivisionCounts]);
 
-  // Update preview when modal opens or values change
+  // Update preview when modal opens or values change (with debounce)
   useEffect(() => {
     if (isOpen && template) {
-      updatePreview();
+      // Clear any pending update
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+      // Debounce the preview update by 150ms
+      debounceRef.current = setTimeout(() => {
+        updatePreview();
+      }, 150);
     }
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
   }, [isOpen, template, updatePreview]);
 
   // Handle apply
