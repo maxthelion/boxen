@@ -13,9 +13,9 @@ import { SaveProjectModal } from './components/SaveProjectModal';
 import { useBoxStore } from './store/useBoxStore';
 import { saveProject, loadProject, captureThumbnail } from './utils/projectStorage';
 import { ProjectState } from './utils/urlState';
-import { defaultEdgeExtensions, EdgeExtensions, FaceId, PanelPath } from './types';
+import { EdgeExtensions, FaceId, PanelPath } from './types';
 import { hasDebug, getDebug } from './utils/debug';
-import { useEngine, useEnginePanels } from './engine';
+import { useEngine, useEnginePanels, getEngineSnapshot } from './engine';
 import './App.css';
 
 // Get the normal axis for any panel (face or divider)
@@ -77,9 +77,6 @@ function App() {
   const panelCollection = useEnginePanels();
 
   const {
-    config,
-    faces,
-    rootVoid,
     selectedVoidIds,
     selectedPanelIds,
     selectedAssemblyId,
@@ -153,10 +150,17 @@ function App() {
       }
     }
 
+    // Get model state from engine (source of truth)
+    const engineState = getEngineSnapshot();
+    if (!engineState) {
+      console.error('Cannot save: no engine state');
+      return;
+    }
+
     const projectState: ProjectState = {
-      config,
-      faces,
-      rootVoid,
+      config: engineState.config,
+      faces: engineState.faces,
+      rootVoid: engineState.rootVoid,
       edgeExtensions,
     };
 

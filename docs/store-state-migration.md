@@ -104,11 +104,21 @@ Every store action that needs model state now uses `getModelState()`:
 - `loadFromUrl` syncs loaded data to engine before setting store state
 - All fallback paths updated to read from engine
 
-**Remaining Cleanup (Optional Future Work):**
-- The store still maintains `config`, `faces`, `rootVoid` fields for backward compatibility
-- These can be removed once all external consumers use engine hooks
-- `syncStoreToEngine()` is only used by `loadFromUrl` for initialization
-- `ensureEngineInitialized()` is deprecated (replaced by `ensureEngine()`)
+### Phase 5: External Consumer Cleanup ✅ COMPLETE
+
+**App.tsx Updated (Jan 2026):**
+- `handleSaveProject` now uses `getEngineSnapshot()` instead of reading `config`, `faces`, `rootVoid` from store
+- Removed unused `config`, `faces`, `rootVoid` from store destructuring in App.tsx
+
+**Deprecated Functions Removed:**
+- `ensureEngineInitialized()` removed from `engineInstance.ts` and `index.ts` exports
+
+**Remaining:**
+- Store fields `config`, `faces`, `rootVoid` still exist for:
+  - `handleNewProject` and `handleLoadProject` in App.tsx (initialization)
+  - `loadFromUrl` in store (initialization)
+  - Test files (test setup)
+- `syncStoreToEngine()` kept for initialization use cases only
 
 **Final Store State Shape (Goal):**
 ```typescript

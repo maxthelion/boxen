@@ -211,23 +211,6 @@ export function getEngineVoidTree(): Void | null {
   return voidNodeToVoid(assembly.rootVoid);
 }
 
-/**
- * Ensure the engine has an assembly initialized
- * Call this before dispatching actions to the engine
- *
- * @param config - Box configuration (used to create assembly if needed)
- * @param faces - Face configurations
- * @param rootVoid - Optional void tree to sync
- * @param existingPanels - Optional existing panels to sync edge extensions from
- */
-export function ensureEngineInitialized(
-  config: BoxConfig,
-  faces: Face[],
-  rootVoid?: Void,
-  existingPanels?: PanelPath[]
-): void {
-  syncStoreToEngine(config, faces, rootVoid, existingPanels);
-}
 
 /**
  * Get the current box config from engine

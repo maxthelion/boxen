@@ -18,7 +18,6 @@ export {
   ensureEngine,
   syncStoreToEngine,
   getEngineVoidTree,
-  ensureEngineInitialized,
   getEngineConfig,
   getEngineFaces,
   getEngineSnapshot,
