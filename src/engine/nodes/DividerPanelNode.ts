@@ -299,6 +299,9 @@ export class DividerPanelNode extends BasePanel {
       const { slotX, slotY, isHorizontal, slotAxis } = slotInfo;
 
       // Generate slot holes at finger positions (same pattern as FacePanelNode)
+      // For nested dividers that don't span the full assembly, we need to:
+      // 1. Filter sections to only include those within the divider's actual span
+      // 2. Convert coordinates relative to the divider's center (not the assembly center)
       if (fingerData && fingerData[slotAxis]) {
         const axisFingerData = fingerData[slotAxis];
         const { points: transitionPoints, innerOffset, maxJointLength: maxJoint } = axisFingerData;
@@ -306,15 +309,52 @@ export class DividerPanelNode extends BasePanel {
         // Build section boundaries
         const allBoundaries = [innerOffset, ...transitionPoints, maxJoint - innerOffset];
 
+        // Get the divider's body span on the slot axis
+        // This tells us which finger sections actually fall within our panel
+        let slotAxisBodySpan: { start: number; end: number; center: number };
+        switch (slotAxis) {
+          case 'x':
+            slotAxisBodySpan = this.computeBodySpan(bounds.x, bounds.w, assembly.width, mt);
+            break;
+          case 'y':
+            slotAxisBodySpan = this.computeBodySpan(bounds.y, bounds.h, assembly.height, mt);
+            break;
+          case 'z':
+            slotAxisBodySpan = this.computeBodySpan(bounds.z, bounds.d, assembly.depth, mt);
+            break;
+        }
+
+        // Convert body span to finger coords (finger coords start at mt from edge)
+        const bodyFingerStart = slotAxisBodySpan.start;
+        const bodyFingerEnd = slotAxisBodySpan.end - 2 * mt; // Account for the other side's mt
+
         let slotIndex = 0;
         for (let i = 0; i < allBoundaries.length - 1; i++) {
           if (i % 2 === 0) {  // Finger section (where divider tabs go)
             const sectionStart = allBoundaries[i];
             const sectionEnd = allBoundaries[i + 1];
 
-            // Convert from 0-based axis coords to 2D panel coords (centered)
-            const offsetStart = sectionStart - maxJoint / 2;
-            const offsetEnd = sectionEnd - maxJoint / 2;
+            // Skip sections that fall entirely outside the divider's span (in finger coords)
+            // Convert body span to finger coords: finger = assembly - mt
+            const fingerSpanStart = Math.max(0, slotAxisBodySpan.start - mt);
+            const fingerSpanEnd = slotAxisBodySpan.end - mt;
+            if (sectionEnd <= fingerSpanStart || sectionStart >= fingerSpanEnd) {
+              continue;
+            }
+
+            // Convert from finger coords to 2D panel coords
+            // Panel center in assembly coords = slotAxisBodySpan.center
+            // Section position in assembly coords = sectionStart + mt
+            // Panel coord = assembly position - panel center
+            const offsetStart = sectionStart + mt - slotAxisBodySpan.center;
+            const offsetEnd = sectionEnd + mt - slotAxisBodySpan.center;
+
+            // Check if the slot extends outside the panel boundary (additional safety check)
+            const halfDimOnSlotAxis = isHorizontal ? halfW : halfH;
+            if (offsetStart < -halfDimOnSlotAxis - tolerance || offsetEnd > halfDimOnSlotAxis + tolerance) {
+              debug('divider-holes', `  Skipping slot outside bounds: offset=${offsetStart.toFixed(1)} to ${offsetEnd.toFixed(1)}, halfDim=${halfDimOnSlotAxis.toFixed(1)}`);
+              continue;
+            }
 
             // Check if the slot would touch or exceed the panel boundary
             // This prevents degenerate geometry where slot holes coincide with finger joint tabs
@@ -608,19 +648,20 @@ export class DividerPanelNode extends BasePanel {
    * Returns the start and end positions of the panel body in assembly coordinates.
    *
    * Geometry explanation:
-   * The divider's total span = mt (face A) + void_space + mt (panel B)
+   * The divider's finger region must match the face's finger region for joints to align.
+   * Face finger region = assembly_dim - 2*MT (after corner insets for tabs).
+   * Divider must have the same finger region after its corner insets.
    *
-   * - Face side (at wall): Finger tabs extend mt into the face's slot.
-   *   Panel body edge aligns with face's inner surface (at mt from outer).
-   *   Tabs provide the extension to the face's outer edge.
+   * - Face side (at wall): Body extends to assembly boundary (0 or axisDim).
+   *   After corner insets of MT for perpendicular tabs, finger region = assembly_dim - 2*MT.
+   *   This matches the face's finger region exactly.
+   *   Tabs extend inward from body edge to mate with face slots.
    *
-   * - Divider side (not at wall): No finger joints between dividers yet.
-   *   Panel body must extend mt beyond void boundary to reach the
-   *   adjacent divider's far edge (void boundary = divider's near edge,
-   *   far edge = near edge + mt since divider has material thickness mt).
+   * - Divider side (not at wall): Body extends MT beyond void boundary
+   *   to reach the adjacent divider's far edge.
    *
-   * Result: body extends mt beyond void on divider side, tabs extend mt on face side.
-   * Total span = void_size + 2*mt, achieved via body extension + tabs.
+   * Key insight: When at a face wall, the divider body must equal the face body
+   * so that both have identical finger regions after corner insets.
    */
   protected computeBodySpan(
     boundsLow: number,    // void bounds low edge (e.g., bounds.x)
@@ -635,14 +676,14 @@ export class DividerPanelNode extends BasePanel {
     const atHighWall = boundsLow + boundsSize >= axisDim - mt - tolerance;
 
     // Panel body start position (low end)
-    // At face wall: body starts at void boundary (face inner surface)
+    // At face wall: body extends to assembly boundary (0) so finger region matches face
     // At divider: body extends mt beyond void to reach divider's far edge
-    const bodyStart = atLowWall ? boundsLow : boundsLow - mt;
+    const bodyStart = atLowWall ? 0 : boundsLow - mt;
 
     // Panel body end position (high end)
-    // At face wall: body ends at void boundary (face inner surface)
+    // At face wall: body extends to assembly boundary (axisDim) so finger region matches face
     // At divider: body extends mt beyond void to reach divider's far edge
-    const bodyEnd = atHighWall ? boundsLow + boundsSize : boundsLow + boundsSize + mt;
+    const bodyEnd = atHighWall ? axisDim : boundsLow + boundsSize + mt;
 
     return {
       start: bodyStart,

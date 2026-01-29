@@ -464,49 +464,73 @@ export class ComprehensiveValidator {
     panels: PanelSnapshot[],
     mt: number
   ): void {
-    const fingerData = assembly.derived.fingerData;
+    const { width, height, depth } = assembly.props;
 
     for (const panel of panels) {
       if (panel.kind !== 'divider-panel') continue;
       const dividerPanel = panel as DividerPanelSnapshot;
-      const { axis } = dividerPanel.props;
+      const { axis, voidId } = dividerPanel.props;
 
-      // Determine which axes the divider spans
-      // X-divider spans Y and Z
-      // Y-divider spans X and Z
-      // Z-divider spans X and Y
+      // Find the void this divider belongs to
+      const voidNode = this.findVoid(assembly, voidId);
+      if (!voidNode) continue;
+
+      const bounds = voidNode.derived.bounds;
+
+      // Determine which axes the divider spans and their expected body sizes
+      // For each span axis, the body extends:
+      // - To assembly boundary (0 or axisDim) if void reaches face wall
+      // - MT beyond void if bounded by another divider
       const spanAxes: Axis[] = axis === 'x' ? ['y', 'z'] :
                                axis === 'y' ? ['x', 'z'] : ['x', 'y'];
 
       for (const spanAxis of spanAxes) {
-        const expectedFingerRegion = fingerData[spanAxis].maxJointLength;
-
-        // The divider's 2D edge on this axis should have finger region = maxJoint
-        // This is the key check - if divider body is too small, finger region will be wrong
-
-        // Get the divider's dimension on this span axis
+        let boundsLow: number, boundsSize: number, axisDim: number;
         let dividerDim: number;
-        if (axis === 'x') {
-          dividerDim = spanAxis === 'z' ? panel.derived.width : panel.derived.height;
-        } else if (axis === 'y') {
-          dividerDim = spanAxis === 'x' ? panel.derived.width : panel.derived.height;
-        } else {
-          dividerDim = spanAxis === 'x' ? panel.derived.width : panel.derived.height;
+
+        switch (spanAxis) {
+          case 'x':
+            boundsLow = bounds.x;
+            boundsSize = bounds.w;
+            axisDim = width;
+            // For X-axis span: Y-divider or Z-divider uses width
+            dividerDim = axis === 'y' ? panel.derived.width : panel.derived.width;
+            break;
+          case 'y':
+            boundsLow = bounds.y;
+            boundsSize = bounds.h;
+            axisDim = height;
+            // For Y-axis span: X-divider or Z-divider uses height
+            dividerDim = axis === 'x' ? panel.derived.height : panel.derived.height;
+            break;
+          case 'z':
+            boundsLow = bounds.z;
+            boundsSize = bounds.d;
+            axisDim = depth;
+            // For Z-axis span: X-divider or Y-divider uses width or height
+            dividerDim = axis === 'x' ? panel.derived.width : panel.derived.height;
+            break;
         }
 
-        // Divider body should be void + 2*MT = maxJoint + 2*MT
-        // After corner insets of MT on each side, finger region = maxJoint
-        const expectedBodySize = expectedFingerRegion + 2 * mt;
+        // Check if void reaches walls on this axis
+        const atLowWall = boundsLow <= mt + TOLERANCE;
+        const atHighWall = boundsLow + boundsSize >= axisDim - mt - TOLERANCE;
+
+        // Expected body span based on void bounds and wall proximity
+        const expectedStart = atLowWall ? 0 : boundsLow - mt;
+        const expectedEnd = atHighWall ? axisDim : boundsLow + boundsSize + mt;
+        const expectedBodySize = expectedEnd - expectedStart;
 
         if (Math.abs(dividerDim - expectedBodySize) > TOLERANCE) {
           this.addError('fingers:divider-matches-face',
-            `Divider finger region on ${spanAxis} axis doesn't match face`, {
+            `Divider body on ${spanAxis} axis doesn't match expected span`, {
             panelId: panel.id,
             spanAxis,
+            atLowWall,
+            atHighWall,
+            voidBounds: { low: boundsLow, size: boundsSize },
             expectedBodySize,
             actualBodySize: dividerDim,
-            expectedFingerRegion,
-            actualFingerRegion: dividerDim - 2 * mt, // After corner insets
             deficit: expectedBodySize - dividerDim,
           });
         }
