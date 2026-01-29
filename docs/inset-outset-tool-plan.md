@@ -338,6 +338,172 @@ Add validator in `src/operations/validators.ts`:
 
 ---
 
+## Phase 9: Integration Tests with Geometry Checker
+
+### 9.1 Add Edge Extension Geometry Checks
+
+Extend `ComprehensiveValidator.ts` to validate edge extensions:
+
+```typescript
+// Add to ComprehensiveValidator.ts
+
+// Check that extended edges don't create invalid geometry
+private validateEdgeExtensions(assembly: AssemblySnapshot): void {
+  for (const panel of assembly.derived.panels) {
+    const extensions = panel.props.edgeExtensions;
+    const mt = assembly.props.material.thickness;
+
+    // Check inward extensions don't exceed material thickness
+    for (const [edge, value] of Object.entries(extensions)) {
+      if (value < -mt) {
+        this.addError('extensions:over-inset',
+          `Panel ${panel.id} edge ${edge} inset ${value} exceeds material thickness ${mt}`);
+      }
+    }
+
+    // Check locked edges have zero extension
+    const edgeStatuses = panel.derived.edgeStatuses;
+    for (const status of edgeStatuses) {
+      if (status.status === 'locked' && extensions[status.position] !== 0) {
+        this.addError('extensions:locked-modified',
+          `Panel ${panel.id} has locked edge ${status.position} with non-zero extension`);
+      }
+    }
+  }
+}
+```
+
+### 9.2 Integration Tests
+
+Add test scenarios to `src/engine/integration/comprehensiveGeometry.test.ts`:
+
+```typescript
+// ===========================================================================
+// Scenario: Edge Extensions
+// ===========================================================================
+
+describe('Scenario: Edge Extensions', () => {
+  beforeEach(() => {
+    engine.createAssembly(200, 150, 100, {
+      thickness: 3,
+      fingerWidth: 10,
+      fingerGap: 1.5,
+    });
+  });
+
+  it('allows valid outward extension on female edges', () => {
+    engine.dispatch({
+      type: 'SET_EDGE_EXTENSION',
+      targetId: 'main-assembly',
+      payload: { panelId: findFrontPanel(), edge: 'top', value: 5 },
+    });
+
+    const result = validateGeometry(engine);
+    expect(result.valid).toBe(true);
+  });
+
+  it('allows valid inward extension (up to MT) on unlocked edges', () => {
+    // Open top face to make top edges unlocked
+    engine.dispatch({
+      type: 'TOGGLE_FACE',
+      targetId: 'main-assembly',
+      payload: { faceId: 'top' },
+    });
+
+    engine.dispatch({
+      type: 'SET_EDGE_EXTENSION',
+      targetId: 'main-assembly',
+      payload: { panelId: findFrontPanel(), edge: 'top', value: -3 },
+    });
+
+    const result = validateGeometry(engine);
+    expect(result.valid).toBe(true);
+  });
+
+  it('rejects extension on locked (male) edges', () => {
+    // Front panel's left/right edges are male joints (locked)
+    // Attempting to extend them should fail validation
+    engine.dispatch({
+      type: 'SET_EDGE_EXTENSION',
+      targetId: 'main-assembly',
+      payload: { panelId: findFrontPanel(), edge: 'left', value: 5 },
+    });
+
+    const result = validateGeometry(engine);
+    expect(result.errors.some(e => e.code === 'extensions:locked-modified')).toBe(true);
+  });
+
+  it('rejects over-inset on unlocked edges', () => {
+    engine.dispatch({
+      type: 'TOGGLE_FACE',
+      targetId: 'main-assembly',
+      payload: { faceId: 'top' },
+    });
+
+    // Try to inset more than material thickness
+    engine.dispatch({
+      type: 'SET_EDGE_EXTENSION',
+      targetId: 'main-assembly',
+      payload: { panelId: findFrontPanel(), edge: 'top', value: -10 },
+    });
+
+    const result = validateGeometry(engine);
+    expect(result.errors.some(e => e.code === 'extensions:over-inset')).toBe(true);
+  });
+});
+```
+
+### 9.3 Operation Tests
+
+Add to `src/store/operations.test.ts`:
+
+```typescript
+describe('Inset/Outset Operation', () => {
+  beforeEach(() => {
+    engine.discardPreview();
+    useBoxStore.setState({ operationState: INITIAL_OPERATION_STATE });
+  });
+
+  it('should cleanup preview on cancel', () => {
+    useBoxStore.getState().startOperation('inset-outset');
+    useBoxStore.getState().updateOperationParams({
+      edges: [{ panelId: 'face-xxx', edge: 'top' }],
+      offset: 5
+    });
+    expect(engine.hasPreview()).toBe(true);
+
+    useBoxStore.getState().cancelOperation();
+    expect(engine.hasPreview()).toBe(false);
+  });
+
+  it('should persist changes on apply', () => {
+    const panelId = findFrontPanel();
+    useBoxStore.getState().startOperation('inset-outset');
+    useBoxStore.getState().updateOperationParams({
+      edges: [{ panelId, edge: 'top' }],
+      offset: 5
+    });
+    useBoxStore.getState().applyOperation();
+
+    const panels = engine.generatePanelsFromNodes().panels;
+    const front = panels.find(p => p.id === panelId);
+    expect(front?.edgeExtensions.top).toBe(5);
+  });
+
+  it('should validate edge selectability', () => {
+    // Locked edges should fail validation
+    const result = validateInsetOutset({
+      edges: [{ panelId: findFrontPanel(), edge: 'left' }],  // Male joint = locked
+      offset: 5,
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('locked');
+  });
+});
+```
+
+---
+
 ## Implementation Order
 
 1. **Phase 1**: Engine edge status (foundation)
@@ -348,6 +514,7 @@ Add validator in `src/operations/validators.ts`:
 6. **Phase 6**: Toolbar integration
 7. **Phase 7**: Tree view edges
 8. **Phase 8**: Validation cleanup
+9. **Phase 9**: Integration tests with geometry checker
 
 ---
 
@@ -356,6 +523,11 @@ Add validator in `src/operations/validators.ts`:
 1. Should the inset tool work on sub-assembly panels, or main assembly only initially?
 2. Should there be visual feedback showing the extension amount on the 3D edge (like a dimension annotation)?
 3. Should batch operations apply the same offset to all edges, or allow per-edge values?
+4. **Batch action or individual actions?** The plan proposes `SET_EDGE_EXTENSIONS_BATCH` but no batch actions exist yet in the codebase. Options:
+   - **Option A**: Use individual `SET_EDGE_EXTENSION` actions in sequence (simpler, works now)
+   - **Option B**: Add new `SET_EDGE_EXTENSIONS_BATCH` action (cleaner for multi-select, matches plan)
+
+   Recommendation: Start with Option A for simplicity, refactor to Option B if performance becomes an issue.
 
 ---
 
@@ -365,15 +537,20 @@ Add validator in `src/operations/validators.ts`:
 - `src/engine/utils/edgeStatus.ts` - Edge editability logic
 - `src/components/InsetPalette.tsx` - Operation palette
 - `src/components/EdgeHighlight.tsx` - 3D edge visualization
+- `src/components/EdgeHighlight.test.tsx` - Edge visualization tests
 
 **Modify:**
 - `src/engine/nodes/BasePanel.ts` - Add edgeStatuses to derived
 - `src/engine/types.ts` - Add EdgeStatusInfo to snapshot types
 - `src/operations/registry.ts` - Register inset-outset operation
 - `src/operations/types.ts` - Add operation ID and params
+- `src/operations/validators.ts` - Add inset-outset validator
 - `src/store/useBoxStore.ts` - Add edge selection state
+- `src/store/operations.test.ts` - Add inset-outset operation tests
 - `src/components/EditorToolbar.tsx` - Add inset tool button
 - `src/components/Viewport3D.tsx` - Add InsetPalette, edge interaction
 - `src/components/Box3D.tsx` - Add edge highlighting/picking
 - `src/components/BoxTree.tsx` - Add Edges collapsible node
 - `src/types.ts` - Add 'inset' to EditorTool
+- `src/engine/validators/ComprehensiveValidator.ts` - Add edge extension validation rules
+- `src/engine/integration/comprehensiveGeometry.test.ts` - Add edge extension test scenarios
