@@ -559,6 +559,30 @@ describe('Inset/Outset Operation', () => {
 
 ---
 
+## Note: Unified Batch Operation Pattern
+
+**Important**: Batch operations (actions affecting multiple objects) must be handled consistently across the codebase. All multi-object modifications should be treated as a single transaction for undo/redo purposes.
+
+**TODO: Audit existing operations** - Review the codebase to ensure all operations that affect multiple objects are using atomic batch actions:
+- Panel moving (in progress on another branch)
+- Edge extensions (this plan)
+- Any future multi-select operations
+
+Establish a consistent pattern for batch actions:
+```typescript
+{
+  type: 'ACTION_NAME_BATCH',
+  targetId: string,
+  payload: {
+    items: Array<{ /* per-item payload */ }>
+  }
+}
+```
+
+This ensures one undo/redo step handles all changes from a single user operation.
+
+---
+
 ## Files to Create/Modify
 
 **New Files:**
