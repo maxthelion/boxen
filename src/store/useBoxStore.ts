@@ -725,17 +725,39 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       };
     }),
 
-  toggleFace: (faceId) =>
+  toggleFace: (faceId) => {
+    // Track whether engine state changed so we can notify AFTER store update
+    let engineStateChanged = false;
+
     set((state) => {
       // Ensure engine is initialized before dispatching
       ensureEngine();
+      const engine = getEngine();
 
-      // Dispatch to engine and get updated state
-      const result = dispatchToEngine({
-        type: 'TOGGLE_FACE',
+      const action = {
+        type: 'TOGGLE_FACE' as const,
         targetId: 'main-assembly',
         payload: { faceId },
-      });
+      };
+
+      // Check if there's an active parameter operation - dispatch to preview if so
+      const { activeOperation } = state.operationState;
+      const hasActivePreview = activeOperation && engine.hasPreview();
+
+      if (hasActivePreview) {
+        // Dispatch to preview scene
+        engine.dispatch(action, { preview: true });
+        engineStateChanged = true;
+
+        // Get updated faces from preview
+        const snapshot = engine.getSnapshot();
+        return {
+          faces: snapshot.faces,
+        };
+      }
+
+      // No active operation - dispatch normally
+      const result = dispatchToEngine(action);
 
       if (!result.success || !result.snapshot) {
         // Fallback to local update if dispatch failed
@@ -751,7 +773,13 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       return {
         faces: result.snapshot.faces,
       };
-    }),
+    });
+
+    // Notify React AFTER store update completes
+    if (engineStateChanged) {
+      notifyEngineStateChanged();
+    }
+  },
 
   setSelectionMode: (mode) =>
     set({

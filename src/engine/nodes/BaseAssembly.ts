@@ -120,6 +120,9 @@ export abstract class BaseAssembly extends BaseNode {
     this._material = { ...material };
     this._assemblyConfig = { ...DEFAULT_ASSEMBLY_CONFIG };
 
+    // Validate finger parameters for the given dimensions
+    this.validateFingerParameters();
+
     // Initialize all faces as solid
     this._faces = new Map();
     for (const faceId of ALL_FACE_IDS) {
@@ -165,6 +168,8 @@ export abstract class BaseAssembly extends BaseNode {
 
     if (changed) {
       this.updateRootVoidBounds();
+      // Validate finger parameters for new dimensions
+      this.validateFingerParameters();
       this.markDirty();
     }
   }
@@ -194,8 +199,85 @@ export abstract class BaseAssembly extends BaseNode {
     }
 
     if (changed) {
+      // Validate and constrain finger parameters
+      this.validateFingerParameters();
       this.markDirty();
     }
+  }
+
+  // ==========================================================================
+  // Finger Parameter Validation
+  // ==========================================================================
+
+  /**
+   * Validate and constrain finger width and gap to ensure at least 3 sections
+   * (finger-hole-finger pattern) can fit on the smallest edge.
+   *
+   * The formula for usable length is:
+   *   usableLength = smallestDim - 2*MT - 2*(fingerGap * fingerWidth)
+   *
+   * For 3 sections: usableLength >= 3 * fingerWidth
+   * Solving: smallestDim - 2*MT >= fingerWidth * (3 + 2*fingerGap)
+   */
+  protected validateFingerParameters(): void {
+    const smallestDim = Math.min(this._width, this._height, this._depth);
+    const mt = this._material.thickness;
+    const maxJointLength = smallestDim - 2 * mt;
+
+    // If the box is too small for any fingers, just return (fingers will be disabled)
+    if (maxJointLength <= 0) {
+      return;
+    }
+
+    // Calculate maximum finger width for current gap (ensuring 3 sections minimum)
+    // usableLength = maxJointLength - 2 * (fingerGap * fingerWidth) >= 3 * fingerWidth
+    // maxJointLength >= fingerWidth * (3 + 2 * fingerGap)
+    // fingerWidth <= maxJointLength / (3 + 2 * fingerGap)
+    const maxFingerWidthForGap = maxJointLength / (3 + 2 * this._material.fingerGap);
+
+    // Clamp finger width if needed
+    if (this._material.fingerWidth > maxFingerWidthForGap) {
+      this._material.fingerWidth = Math.max(1, Math.floor(maxFingerWidthForGap * 10) / 10);
+    }
+
+    // Calculate maximum finger gap for current width (ensuring 3 sections minimum)
+    // maxJointLength >= fingerWidth * (3 + 2 * fingerGap)
+    // fingerGap <= (maxJointLength / fingerWidth - 3) / 2
+    if (this._material.fingerWidth > 0) {
+      const maxFingerGap = (maxJointLength / this._material.fingerWidth - 3) / 2;
+
+      // Clamp finger gap if needed (minimum 0)
+      if (this._material.fingerGap > maxFingerGap) {
+        this._material.fingerGap = Math.max(0, Math.floor(maxFingerGap * 10) / 10);
+      }
+    }
+  }
+
+  /**
+   * Get the constrained finger parameter limits based on current dimensions.
+   * Useful for UI to show valid ranges.
+   */
+  getFingerParameterLimits(): { maxFingerWidth: number; maxFingerGap: number } {
+    const smallestDim = Math.min(this._width, this._height, this._depth);
+    const mt = this._material.thickness;
+    const maxJointLength = smallestDim - 2 * mt;
+
+    if (maxJointLength <= 0) {
+      return { maxFingerWidth: 0, maxFingerGap: 0 };
+    }
+
+    // Max finger width for current gap
+    const maxFingerWidth = maxJointLength / (3 + 2 * this._material.fingerGap);
+
+    // Max finger gap for current width
+    const maxFingerGap = this._material.fingerWidth > 0
+      ? (maxJointLength / this._material.fingerWidth - 3) / 2
+      : 0;
+
+    return {
+      maxFingerWidth: Math.max(0, maxFingerWidth),
+      maxFingerGap: Math.max(0, maxFingerGap),
+    };
   }
 
   // ==========================================================================

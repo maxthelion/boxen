@@ -199,18 +199,18 @@ export const CreateSubAssemblyPalette: React.FC<CreateSubAssemblyPaletteProps> =
 
   const voidBounds = selectedVoid?.bounds;
 
-  // Assembly axis options
+  // Assembly axis options with friendly names (shared pattern with AssemblyPalette)
   const axisOptions = [
-    { value: 'y', label: 'Y' },
-    { value: 'x', label: 'X' },
-    { value: 'z', label: 'Z' },
+    { value: 'y', label: 'Top Down' },
+    { value: 'x', label: 'Side to Side' },
+    { value: 'z', label: 'Front to Back' },
   ];
 
   const getAxisDescription = (axis: AssemblyAxis): string => {
     switch (axis) {
-      case 'y': return 'Top/Bottom lids';
-      case 'x': return 'Left/Right lids';
-      case 'z': return 'Front/Back lids';
+      case 'y': return 'Lid opens from top';
+      case 'x': return 'Opens from the side';
+      case 'z': return 'Opens from front';
     }
   };
 
@@ -220,6 +220,7 @@ export const CreateSubAssemblyPalette: React.FC<CreateSubAssemblyPaletteProps> =
       position={position}
       onPositionChange={onPositionChange}
       onClose={handleCancel}
+      onApply={handleApply}
       containerRef={containerRef}
       minWidth={220}
       closeOnClickOutside={false}
@@ -286,7 +287,7 @@ export const CreateSubAssemblyPalette: React.FC<CreateSubAssemblyPaletteProps> =
 
           <div className="palette-section">
             <PaletteToggleGroup
-              label="Assembly Axis"
+              label="Orientation"
               options={axisOptions}
               value={currentAssemblyAxis}
               onChange={handleAxisChange}

@@ -60,6 +60,7 @@ export const PushPullPalette: React.FC<PushPullPaletteProps> = ({
       position={position}
       title={title}
       onClose={onClose}
+      onApply={onApply}
       onPositionChange={onPositionChange}
       minWidth={220}
       containerRef={containerRef}

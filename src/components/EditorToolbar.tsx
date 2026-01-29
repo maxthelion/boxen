@@ -10,7 +10,9 @@ export type EditorTool =
   | 'chamfer'
   | 'push-pull'
   | 'subdivide'
-  | 'create-sub-assembly';
+  | 'create-sub-assembly'
+  | 'configure-assembly'
+  | 'scale';
 
 export type EditorMode = '2d' | '3d';
 
@@ -101,6 +103,20 @@ const tools: ToolButton[] = [
     icon: '⧉',
     label: 'Sub-Box',
     tooltip: 'Create nested box in void',
+    modes: ['3d'],
+  },
+  {
+    id: 'scale',
+    icon: '⇲',
+    label: 'Scale',
+    tooltip: 'Change assembly dimensions (R)',
+    modes: ['3d'],
+  },
+  {
+    id: 'configure-assembly',
+    icon: '⚙',
+    label: 'Configure',
+    tooltip: 'Configure assembly settings (G)',
     modes: ['3d'],
   },
 ];

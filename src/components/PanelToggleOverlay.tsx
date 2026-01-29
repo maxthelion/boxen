@@ -13,6 +13,8 @@ interface PanelToggleOverlayProps {
   onToggle: (faceId: FaceId) => void;
   /** Whether to show the overlay */
   visible?: boolean;
+  /** Set of face IDs to show buttons for (if not provided, shows all) */
+  selectedFaceIds?: Set<FaceId>;
 }
 
 // Face positions relative to box center
@@ -99,6 +101,7 @@ export const PanelToggleOverlay: React.FC<PanelToggleOverlayProps> = ({
   thickness,
   onToggle,
   visible = true,
+  selectedFaceIds,
 }) => {
   if (!visible) return null;
 
@@ -107,6 +110,11 @@ export const PanelToggleOverlay: React.FC<PanelToggleOverlayProps> = ({
   return (
     <group>
       {faceOrder.map((faceId) => {
+        // If selectedFaceIds is provided, only show buttons for selected faces
+        if (selectedFaceIds && !selectedFaceIds.has(faceId)) {
+          return null;
+        }
+
         const face = faces.find((f) => f.id === faceId);
         if (!face) return null;
 
