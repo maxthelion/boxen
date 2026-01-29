@@ -100,6 +100,9 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
   // Track if we've auto-started the operation
   const hasAutoStarted = useRef(false);
 
+  // Track the face being configured (persists even when panel disappears during preview)
+  const [configuringFaceId, setConfiguringFaceId] = useState<FaceId | null>(null);
+
   // Determine what's selected - face panel or assembly
   const selectedFaceInfo = useMemo(() => {
     if (!panelCollection || selectedPanelIds.size !== 1) return null;
@@ -118,32 +121,36 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
     };
   }, [panelCollection, selectedPanelIds]);
 
-  // Determine selection mode
+  // Determine selection mode - use configuringFaceId if set (during active operation)
   const selectionMode: SelectionMode = useMemo(() => {
     if (selectedAssemblyId) return 'assembly';
+    if (configuringFaceId) return 'face';
     if (selectedFaceInfo) return 'face';
     return 'none';
-  }, [selectedAssemblyId, selectedFaceInfo]);
+  }, [selectedAssemblyId, configuringFaceId, selectedFaceInfo]);
 
-  // Get initial face data for face mode (from committed state)
-  const initialFaceData = useMemo(() => {
-    if (!selectedFaceInfo || !config) return null;
+  // The active face ID - either from ongoing configuration or current selection
+  const activeFaceId = configuringFaceId ?? selectedFaceInfo?.faceId ?? null;
 
-    const face = faces.find((f) => f.id === selectedFaceInfo.faceId);
+  // Get face data for face mode (uses activeFaceId which persists during preview)
+  const faceConfigData = useMemo(() => {
+    if (!activeFaceId || !config) return null;
+
+    const face = faces.find((f) => f.id === activeFaceId);
     if (!face) return null;
 
-    const lidSide = getLidSide(selectedFaceInfo.faceId, config.assembly.assemblyAxis);
+    const lidSide = getLidSide(activeFaceId, config.assembly.assemblyAxis);
     const isLid = lidSide !== null;
     const lidConfig = isLid ? config.assembly.lids[lidSide!] : null;
 
     return {
-      faceId: selectedFaceInfo.faceId,
+      faceId: activeFaceId,
       solid: face.solid,
       isLid,
       lidSide,
       tabDirection: lidConfig?.tabDirection ?? 'tabs-out',
     };
-  }, [selectedFaceInfo, faces, config]);
+  }, [activeFaceId, faces, config]);
 
   // Get available assemblies for selection prompt
   const availableAssemblies = useMemo(() => {
@@ -198,10 +205,10 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
   // Current values for face mode (from operation params if active, otherwise from initial data)
   const currentFaceSolid = isOpActive && opParams.faceSolid !== undefined
     ? opParams.faceSolid
-    : initialFaceData?.solid ?? true;
+    : faceConfigData?.solid ?? true;
   const currentFaceTabDirection = isOpActive && opParams.faceTabDirection !== undefined
     ? opParams.faceTabDirection
-    : initialFaceData?.tabDirection ?? 'tabs-out';
+    : faceConfigData?.tabDirection ?? 'tabs-out';
 
   // Auto-start operation when palette becomes visible with valid selection
   useEffect(() => {
@@ -216,6 +223,7 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
 
     if (selectionMode === 'assembly') {
       // Initialize with assembly params
+      setConfiguringFaceId(null);
       updateOperationParams({
         thickness: config.materialThickness,
         fingerWidth: config.fingerWidth,
@@ -223,20 +231,23 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
         assemblyAxis: config.assembly?.assemblyAxis ?? 'y',
         feet: config.assembly?.feet ?? defaultFeetConfig,
       });
-    } else if (selectionMode === 'face' && initialFaceData) {
+    } else if (selectionMode === 'face' && faceConfigData) {
+      // Store the face being configured (persists even when panel disappears)
+      setConfiguringFaceId(faceConfigData.faceId);
       // Initialize with face params
       updateOperationParams({
-        faceId: initialFaceData.faceId,
-        faceSolid: initialFaceData.solid,
-        faceTabDirection: initialFaceData.tabDirection,
+        faceId: faceConfigData.faceId,
+        faceSolid: faceConfigData.solid,
+        faceTabDirection: faceConfigData.tabDirection,
       });
     }
-  }, [visible, isOpActive, config, selectionMode, initialFaceData, startOperation, updateOperationParams]);
+  }, [visible, isOpActive, config, selectionMode, faceConfigData, startOperation, updateOperationParams]);
 
-  // Reset auto-start flag when visibility changes
+  // Reset state when visibility changes (palette closes)
   useEffect(() => {
     if (!visible) {
       hasAutoStarted.current = false;
+      setConfiguringFaceId(null);
     }
   }, [visible]);
 
@@ -285,15 +296,15 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
 
   // Handle face parameter changes
   const handleFaceParamChange = useCallback((updates: Partial<FaceParams>) => {
-    if (isOpActive && initialFaceData) {
+    if (isOpActive && faceConfigData) {
       updateOperationParams({
-        faceId: initialFaceData.faceId,
+        faceId: faceConfigData.faceId,
         faceSolid: currentFaceSolid,
         faceTabDirection: currentFaceTabDirection,
         ...updates,
       });
     }
-  }, [isOpActive, initialFaceData, currentFaceSolid, currentFaceTabDirection, updateOperationParams]);
+  }, [isOpActive, faceConfigData, currentFaceSolid, currentFaceTabDirection, updateOperationParams]);
 
   // Handle face solid toggle
   const handleSolidToggle = useCallback(() => {
@@ -352,8 +363,8 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
       const assemblyName = selectedAssemblyId === 'main' ? 'Main Assembly' : 'Sub-Assembly';
       return `Configure: ${assemblyName}`;
     }
-    if (selectionMode === 'face' && initialFaceData) {
-      return `Configure: ${faceLabels[initialFaceData.faceId]} Face`;
+    if (selectionMode === 'face' && faceConfigData) {
+      return `Configure: ${faceLabels[faceConfigData.faceId]} Face`;
     }
     return 'Configure';
   };
@@ -533,7 +544,7 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
       )}
 
       {/* Face selected - show face configuration */}
-      {selectionMode === 'face' && initialFaceData && (
+      {selectionMode === 'face' && faceConfigData && (
         <>
           {/* Solid/Open Toggle */}
           <div className="palette-section">
@@ -553,7 +564,7 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
           {/* Tab Direction */}
           <div className="palette-section">
             <div className="palette-section-title">Tab Direction</div>
-            {initialFaceData.isLid ? (
+            {faceConfigData.isLid ? (
               <>
                 <PaletteToggleGroup
                   label=""
