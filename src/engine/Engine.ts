@@ -118,6 +118,17 @@ export class Engine {
   // ==========================================================================
 
   /**
+   * Clear all assemblies from the active scene (preview if active, otherwise main)
+   * Used when instantiating templates to ensure a clean slate
+   */
+  clearScene(): void {
+    for (const assembly of this._scene.assemblies) {
+      this._scene.removeAssembly(assembly);
+    }
+    this.invalidateNodeMap();
+  }
+
+  /**
    * Create a new main assembly and add it to the scene
    */
   createAssembly(

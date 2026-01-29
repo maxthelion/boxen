@@ -202,6 +202,9 @@ export function instantiateTemplate(
 ): void {
   const mt = template.initialAssembly.materialThickness;
 
+  // Clear any existing assemblies to ensure a clean slate
+  engine.clearScene();
+
   // Create assembly with user-specified dimensions
   // Note: This creates in the main scene; for preview, engine should already have startPreview() called
   engine.createAssembly(values.width, values.height, values.depth, {
