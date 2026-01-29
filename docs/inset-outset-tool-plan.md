@@ -65,10 +65,9 @@ interface BasePanelSnapshot {
 
 This allows UI components to access edge editability without recalculating.
 
-### 1.3 Engine Action for Edge Extension
+### 1.3 Engine Actions for Edge Extension
 
-Add/verify engine action exists:
-
+**Single edge** (existing):
 ```typescript
 {
   type: 'SET_EDGE_EXTENSION',
@@ -80,6 +79,23 @@ Add/verify engine action exists:
   }
 }
 ```
+
+**Batch operation** (new - required for atomic undo/redo):
+```typescript
+{
+  type: 'SET_EDGE_EXTENSIONS_BATCH',
+  targetId: string,  // assembly ID
+  payload: {
+    extensions: Array<{
+      panelId: string,
+      edge: EdgePosition,
+      value: number
+    }>
+  }
+}
+```
+
+The batch action is treated as a single transaction in the event log - one undo reverts all changes.
 
 ---
 
@@ -539,11 +555,7 @@ describe('Inset/Outset Operation', () => {
 1. ~~Should the inset tool work on sub-assembly panels, or main assembly only initially?~~ **RESOLVED: Both** - tool works on main assembly and sub-assembly panels from the start.
 2. ~~Should there be visual feedback showing the extension amount on the 3D edge (like a dimension annotation)?~~ **RESOLVED: No** - the existing preview mechanism shows the panel's new shape in real-time, which is sufficient.
 3. ~~Should batch operations apply the same offset to all edges, or allow per-edge values?~~ **RESOLVED: Same offset per operation** - when multiple edges are selected, the slider applies the same value to all. However, edges are not linked - selecting an edge individually later and changing it is independent.
-4. **Batch action or individual actions?** The plan proposes `SET_EDGE_EXTENSIONS_BATCH` but no batch actions exist yet in the codebase. Options:
-   - **Option A**: Use individual `SET_EDGE_EXTENSION` actions in sequence (simpler, works now)
-   - **Option B**: Add new `SET_EDGE_EXTENSIONS_BATCH` action (cleaner for multi-select, matches plan)
-
-   Recommendation: Start with Option A for simplicity, refactor to Option B if performance becomes an issue.
+4. ~~**Batch action or individual actions?**~~ **RESOLVED: Batch action required** - multi-edge changes must be a single atomic action for proper undo/redo. One undo should revert all edge changes from a multi-select operation. Add `SET_EDGE_EXTENSIONS_BATCH` action to the engine.
 
 ---
 
