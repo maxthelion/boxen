@@ -242,6 +242,7 @@ Allow dragging panels directly in the 3D view:
 | `src/components/MovePalette.tsx` | New file - palette UI |
 | `src/components/EditorToolbar.tsx` | Add move tool button |
 | `src/components/Viewport3D.tsx` | Integrate MovePalette |
+| `src/engine/integration/moveOperation.test.ts` | **New file - geometry checker integration tests (required)** |
 
 ---
 
@@ -312,6 +313,7 @@ The move operation shares UI patterns with push-pull:
 
 ## Test Cases
 
+### Unit Tests
 1. **Single divider move**: Move one X-divider along X axis
 2. **Multi-divider move**: Select and move multiple Z-dividers together
 3. **Bounds constraint**: Cannot move past parent void edges
@@ -319,6 +321,51 @@ The move operation shares UI patterns with push-pull:
 5. **Collision preview**: Red highlight when collision would occur
 6. **Grid subdivision move**: Move divider that's part of a grid
 7. **Nested void divider**: Move divider in a subdivided child void
+
+### Geometry Checker Integration Tests (Required)
+
+**Per CLAUDE.md rules, all new operations modifying geometry must pass geometry checker validation.**
+
+Add to `src/engine/integration/moveOperation.test.ts`:
+
+```typescript
+import { checkEngineGeometry } from '../geometryChecker';
+
+describe('Move Operation Integration', () => {
+  it('should produce valid geometry after moving single divider', () => {
+    const engine = createEngineWithAssembly(100, 80, 60, defaultMaterial);
+
+    // Create subdivision
+    engine.dispatch({
+      type: 'ADD_SUBDIVISIONS',
+      targetId: 'main-assembly',
+      payload: { voidId: 'root', axis: 'x', positions: [50] },
+    });
+
+    // Move the divider
+    engine.dispatch({
+      type: 'MOVE_SUBDIVISIONS',
+      targetId: 'main-assembly',
+      payload: { moves: [{ subdivisionId: '...', newPosition: 60 }] },
+    });
+
+    // Verify geometry is valid
+    const result = checkEngineGeometry(engine);
+    expect(result.valid).toBe(true);
+    expect(result.summary.errors).toBe(0);
+  });
+
+  it('should produce valid geometry after moving grid dividers', () => {
+    // Similar test with grid subdivision
+  });
+
+  it('should produce valid geometry with cross-lap joints after move', () => {
+    // Test that cross-lap joints remain valid after moving intersecting dividers
+  });
+});
+```
+
+**Note**: Do not modify geometry checker rules (`src/engine/geometryChecker.ts`) without user consultation.
 
 ---
 
