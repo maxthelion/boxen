@@ -251,6 +251,13 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
     };
   });
 
+  // Convert engine EdgeStatusInfo to store EdgeStatusInfo
+  const edgeStatuses = derived.edgeStatuses?.map(status => ({
+    position: status.position as 'top' | 'bottom' | 'left' | 'right',
+    status: status.status as 'locked' | 'outward-only' | 'unlocked',
+    adjacentFaceId: status.adjacentFaceId,
+  }));
+
   return {
     id,
     source,
@@ -266,6 +273,7 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
     rotation: derived.worldTransform.rotation,
     visible: props.visible,
     edgeExtensions: props.edgeExtensions,
+    edgeStatuses,
   };
 }
 
