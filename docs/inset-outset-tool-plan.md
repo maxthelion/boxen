@@ -118,18 +118,30 @@ export type SelectionType = 'panel' | 'void' | 'assembly' | 'corner' | 'edge' | 
 
 ## Phase 3: 3D Visualization - Edge Highlighting
 
-### 3.1 Edge Highlight Component
+### 3.1 Edge Face Model
+
+An "edge" for selection purposes is the **thickness face** (end cap) of the panel - a rectangular surface perpendicular to the panel's main face. This surface:
+- Has dimensions: `thickness × edge_length`
+- May have finger joint geometry cut into it (tabs or slots)
+- Is the actual geometry users click to select
+
+### 3.2 Edge Highlight Component
 
 Create `src/components/EdgeHighlight.tsx`:
 
-- Renders a highlighted line/tube along an edge
-- Shows on hover (subtle) and selection (prominent)
+- Renders a colored overlay on the panel's thickness face
+- Must follow the actual edge geometry including finger joints
 - Color coding:
-  - Hovered: light orange outline
-  - Selected: bright orange fill
-  - Locked (non-selectable): blue/gray (no interaction)
+  - Hovered: semi-transparent orange overlay
+  - Selected: solid orange overlay
+  - Locked (non-selectable): blue/gray tint (visual only, no interaction)
 
-### 3.2 Edge Hit Detection
+**Implementation approach:**
+- Extract the edge face vertices from the panel's extruded geometry
+- Create a mesh that covers the entire thickness face
+- The mesh follows finger joint contours (not a simple rectangle)
+
+### 3.3 Edge Hit Detection
 
 Add edge picking to the 3D viewport:
 
@@ -141,15 +153,19 @@ const findEdgeAtPoint = (
 ): { panelId: string; edge: EdgePosition } | null;
 ```
 
-Use invisible edge geometry (thick lines or thin boxes) for raycasting.
+**Hit detection options:**
+- **Option A**: Raycast against the actual extruded panel geometry, then determine which face was hit based on normal/position
+- **Option B**: Create invisible simplified box geometry for each edge face (ignoring fingers) for faster raycasting
 
-### 3.3 Panel Edge Renderer
+Recommendation: Option A for accuracy - use the existing panel mesh and classify hits by face normal.
 
-Modify `PanelCollectionRenderer` or create `PanelEdgeRenderer`:
+### 3.4 Panel Edge Renderer
 
-- Render edge geometries for each panel
-- Handle hover/selection state
-- Filter out locked edges from interaction (visual indication only)
+Modify `PanelPathRenderer` to support edge highlighting:
+
+- Track which edges are hovered/selected via store state
+- Render highlight overlays on thickness faces
+- Filter out locked edges from click interaction (can still show visual state)
 
 ---
 
@@ -520,7 +536,7 @@ describe('Inset/Outset Operation', () => {
 
 ## Open Questions
 
-1. Should the inset tool work on sub-assembly panels, or main assembly only initially?
+1. ~~Should the inset tool work on sub-assembly panels, or main assembly only initially?~~ **RESOLVED: Both** - tool works on main assembly and sub-assembly panels from the start.
 2. Should there be visual feedback showing the extension amount on the 3D edge (like a dimension annotation)?
 3. Should batch operations apply the same offset to all edges, or allow per-edge values?
 4. **Batch action or individual actions?** The plan proposes `SET_EDGE_EXTENSIONS_BATCH` but no batch actions exist yet in the codebase. Options:
