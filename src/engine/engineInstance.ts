@@ -33,6 +33,44 @@ export function getEngine(): Engine {
   return engineInstance;
 }
 
+// Default configuration for new assemblies
+const DEFAULT_CONFIG = {
+  width: 100,
+  height: 100,
+  depth: 100,
+  materialThickness: 3,
+  fingerWidth: 10,
+  fingerGap: 1.5,
+};
+
+/**
+ * Ensure the engine has an assembly, creating one with defaults if needed.
+ * This is the new initialization approach that doesn't require store state.
+ *
+ * Returns the engine for chaining.
+ */
+export function ensureEngine(): Engine {
+  const engine = getEngine();
+
+  // If no assembly exists, create one with default config
+  if (!engine.assembly) {
+    const material: MaterialConfig = {
+      thickness: DEFAULT_CONFIG.materialThickness,
+      fingerWidth: DEFAULT_CONFIG.fingerWidth,
+      fingerGap: DEFAULT_CONFIG.fingerGap,
+    };
+
+    engine.createAssembly(
+      DEFAULT_CONFIG.width,
+      DEFAULT_CONFIG.height,
+      DEFAULT_CONFIG.depth,
+      material
+    );
+  }
+
+  return engine;
+}
+
 /**
  * Reset the engine instance (useful for testing)
  */

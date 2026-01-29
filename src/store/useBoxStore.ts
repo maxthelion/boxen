@@ -3,7 +3,7 @@ import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SelectionMode,
 import { getOperation, operationHasPreview, operationIsImmediate } from '../operations';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
-import { syncStoreToEngine, getEngine, ensureEngineInitialized, getEngineSnapshot, dispatchToEngine, notifyEngineStateChanged } from '../engine';
+import { syncStoreToEngine, getEngine, ensureEngine, ensureEngineInitialized, getEngineSnapshot, dispatchToEngine, notifyEngineStateChanged } from '../engine';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { BoundsOps, getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions, InsetRegions } from '../utils/bounds';
@@ -13,6 +13,53 @@ import { VoidTree } from '../utils/voidTree';
 export { getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions };
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
+
+// =============================================================================
+// Model State Access - Engine is Source of Truth
+// =============================================================================
+//
+// During the store-state-migration (Phase 4), we're transitioning from store-owned
+// model state to engine-owned state. This helper provides a unified way to access
+// model state, preferring engine over store cache.
+//
+// Usage in actions:
+//   const modelState = getModelState(state);
+//   const { config, faces, rootVoid } = modelState;
+//
+// Once migration is complete, store.config/faces/rootVoid will be removed and
+// this helper will only read from engine.
+// =============================================================================
+
+interface ModelState {
+  config: BoxConfig;
+  faces: Face[];
+  rootVoid: Void;
+}
+
+/**
+ * Get model state from engine (preferred) with fallback to store state.
+ * This is used during the transition period where both exist.
+ *
+ * @param storeState - The current store state (for fallback)
+ * @returns Model state from engine if available, otherwise from store
+ */
+function getModelState(storeState: BoxState): ModelState {
+  // Ensure engine is initialized
+  ensureEngine();
+
+  // Try to get state from engine (source of truth)
+  const engineSnapshot = getEngineSnapshot();
+  if (engineSnapshot) {
+    return engineSnapshot;
+  }
+
+  // Fallback to store state (during transition/initialization)
+  return {
+    config: storeState.config,
+    faces: storeState.faces,
+    rootVoid: storeState.rootVoid,
+  };
+}
 
 // =============================================================================
 
@@ -514,11 +561,13 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   setConfig: (newConfig) =>
     set((state) => {
-      const config = { ...state.config, ...newConfig };
-      const oldConfig = state.config;
+      // Get current model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const oldConfig = modelState.config;
+      const oldRootVoid = modelState.rootVoid;
 
-      // Ensure engine is initialized before dispatching
-      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+      // Merge new config with old
+      const config = { ...oldConfig, ...newConfig };
 
       // Route changes through engine (engine is source of truth)
       const engine = getEngine();
@@ -620,8 +669,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         const newRootBounds: Bounds = { x: 0, y: 0, z: 0, w: config.width, h: config.height, d: config.depth };
 
         // Get the main interior void (where user subdivisions live)
-        const mainInterior = getMainInteriorVoid(state.rootVoid);
-        const hasInsets = mainInterior.id !== state.rootVoid.id;
+        const mainInterior = getMainInteriorVoid(oldRootVoid);
+        const hasInsets = mainInterior.id !== oldRootVoid.id;
 
         let newRootVoid: Void;
 
@@ -656,7 +705,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         } else {
           // No lid insets - recalculate directly from root
           newRootVoid = recalculateVoidBounds(
-            { ...state.rootVoid, bounds: newRootBounds },
+            { ...oldRootVoid, bounds: newRootBounds },
             newRootBounds,
             config.materialThickness
           );
@@ -679,7 +728,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   toggleFace: (faceId) =>
     set((state) => {
       // Ensure engine is initialized before dispatching
-      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+      ensureEngine();
 
       // Dispatch to engine and get updated state
       const result = dispatchToEngine({
@@ -825,11 +874,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   removeVoid: (voidId) =>
     set((state) => {
-      const parent = findParent(state.rootVoid, voidId);
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const parent = findParent(modelState.rootVoid, voidId);
       if (!parent) return state;
-
-      // Sync current state to engine
-      syncStoreToEngine(state.config, state.faces, state.rootVoid);
 
       // Get assembly ID from engine
       const engine = getEngine();
@@ -856,29 +904,35 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     }),
 
   resetVoids: () =>
-    set((state) => ({
-      rootVoid: createRootVoidWithInsets(state.config.width, state.config.height, state.config.depth, state.config.assembly),
-      selectedVoidIds: new Set<string>(),
-      selectedSubAssemblyIds: new Set<string>(),
-      selectedPanelIds: new Set<string>(),
-      selectedAssemblyId: null,
-      hiddenVoidIds: new Set<string>(),
-      isolatedVoidId: null,
-      isolateHiddenVoidIds: new Set<string>(),
-      hiddenSubAssemblyIds: new Set<string>(),
-      isolatedSubAssemblyId: null,
-      isolateHiddenSubAssemblyIds: new Set<string>(),
-      hiddenFaceIds: new Set<string>(),
-      isolatedPanelId: null,
-      isolateHiddenFaceIds: new Set<string>(),
-      panelsDirty: true,  // Mark panels as needing regeneration
-    })),
+    set((state) => {
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const { config } = modelState;
+
+      return {
+        rootVoid: createRootVoidWithInsets(config.width, config.height, config.depth, config.assembly),
+        selectedVoidIds: new Set<string>(),
+        selectedSubAssemblyIds: new Set<string>(),
+        selectedPanelIds: new Set<string>(),
+        selectedAssemblyId: null,
+        hiddenVoidIds: new Set<string>(),
+        isolatedVoidId: null,
+        isolateHiddenVoidIds: new Set<string>(),
+        hiddenSubAssemblyIds: new Set<string>(),
+        isolatedSubAssemblyId: null,
+        isolateHiddenSubAssemblyIds: new Set<string>(),
+        hiddenFaceIds: new Set<string>(),
+        isolatedPanelId: null,
+        isolateHiddenFaceIds: new Set<string>(),
+        panelsDirty: true,  // Mark panels as needing regeneration
+      };
+    }),
 
   // Sub-assembly actions
   createSubAssembly: (voidId, options) =>
     set((state) => {
       // Ensure engine is initialized
-      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+      ensureEngine();
 
       const clearance = options?.clearance ?? 2; // Default 2mm clearance
       const assemblyAxis = options?.assemblyAxis ?? 'y'; // Default Y axis
@@ -961,7 +1015,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   purgeVoid: (voidId) =>
     set((state) => {
       // Ensure engine is initialized
-      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+      ensureEngine();
 
       // Dispatch to engine
       const result = dispatchToEngine({
@@ -996,7 +1050,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   toggleSubAssemblyFace: (subAssemblyId, faceId) =>
     set((state) => {
       // Ensure engine is initialized
-      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+      ensureEngine();
 
       // Dispatch to engine
       const result = dispatchToEngine({
@@ -1047,7 +1101,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   setSubAssemblyClearance: (subAssemblyId, clearance) =>
     set((state) => {
       // Ensure engine is initialized
-      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+      ensureEngine();
 
       // Dispatch to engine
       const result = dispatchToEngine({
@@ -1118,7 +1172,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       }
 
       // Ensure engine is initialized
-      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+      ensureEngine();
 
       // Dispatch to engine
       const result = dispatchToEngine({
@@ -1580,7 +1634,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   setFeetConfig: (feetConfig) =>
     set((state) => {
       // Ensure engine is initialized
-      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+      ensureEngine();
 
       // Convert store feet config to engine format
       const engineFeetConfig = feetConfig ? {
@@ -1876,7 +1930,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   setSubAssemblyAxis: (subAssemblyId, axis) =>
     set((state) => {
       // Ensure engine is initialized
-      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+      ensureEngine();
 
       // Dispatch to engine
       const result = dispatchToEngine({
@@ -1925,7 +1979,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   setSubAssemblyLidTabDirection: (subAssemblyId, side, direction) =>
     set((state) => {
       // Ensure engine is initialized
-      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+      ensureEngine();
 
       // Dispatch to engine
       const result = dispatchToEngine({
@@ -2022,11 +2076,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   // Panel path actions
   // Note: Panels are now generated by the engine and accessed via useEnginePanels() hook.
-  // This action syncs store state to engine and also updates store.panelCollection for backward compatibility.
+  // This action ensures the engine is initialized and updates store.panelCollection for backward compatibility.
   generatePanels: () => {
-    const state = get();
-    // Sync config, faces, void tree to engine - engine will regenerate panels
-    syncStoreToEngine(state.config, state.faces, state.rootVoid);
+    // Ensure engine has an assembly
+    ensureEngine();
 
     // Force engine to regenerate panels from its nodes
     const engine = getEngine();
@@ -2073,13 +2126,8 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     set((state) => {
       if (!state.panelCollection) return state;
 
-      // Ensure engine is initialized with current state
-      syncStoreToEngine(
-        state.config,
-        state.faces,
-        state.rootVoid,
-        state.panelCollection.panels
-      );
+      // Ensure engine is initialized
+      ensureEngine();
 
       // Dispatch the edge extension update to the engine
       const engine = getEngine();
@@ -2099,19 +2147,22 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   setDividerPosition: (subdivisionId, newPosition) =>
     set((state) => {
-      const mt = state.config.materialThickness;
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const mt = modelState.config.materialThickness;
+      const rootVoid = modelState.rootVoid;
 
       // The subdivision ID is like "abc123-split", the void ID is "abc123"
       const voidId = subdivisionId.replace('-split', '');
 
       // Find the void that has this split position
-      const targetVoid = findVoid(state.rootVoid, voidId);
+      const targetVoid = findVoid(rootVoid, voidId);
       if (!targetVoid || !targetVoid.splitPosition || !targetVoid.splitAxis) {
         return state;
       }
 
       // Find the parent to get sibling voids
-      const parent = findParent(state.rootVoid, voidId);
+      const parent = findParent(rootVoid, voidId);
       if (!parent) return state;
 
       const axis = targetVoid.splitAxis;
@@ -2222,13 +2273,13 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         });
       };
 
-      const newRootVoid = updateVoidPosition(state.rootVoid);
+      const newRootVoid = updateVoidPosition(rootVoid);
 
       // Regenerate panels
       const collection = generatePanelCollection(
-        state.faces,
+        modelState.faces,
         newRootVoid,
-        state.config,
+        modelState.config,
         1,
         state.panelCollection?.panels
       );
@@ -2241,17 +2292,21 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   setDividerPositionMode: (subdivisionId, mode) =>
     set((state) => {
+      // Get model state from engine (source of truth)
+      const modelState = getModelState(state);
+      const rootVoid = modelState.rootVoid;
+
       // The subdivision ID is like "abc123-split", the void ID is "abc123"
       const voidId = subdivisionId.replace('-split', '');
 
       // Find the void that has this split position
-      const targetVoid = findVoid(state.rootVoid, voidId);
+      const targetVoid = findVoid(rootVoid, voidId);
       if (!targetVoid || !targetVoid.splitPosition || !targetVoid.splitAxis) {
         return state;
       }
 
       // Find the parent to calculate percentage if switching to percentage mode
-      const parent = findParent(state.rootVoid, voidId);
+      const parent = findParent(rootVoid, voidId);
       if (!parent) return state;
 
       const axis = targetVoid.splitAxis;
@@ -2262,7 +2317,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       const percentage = (targetVoid.splitPosition - parentStart) / parentSize;
 
       // Update the void in the tree
-      const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
+      const newRootVoid = VoidTree.update(rootVoid, voidId, (v) => ({
         ...v,
         splitPositionMode: mode,
         splitPercentage: percentage,
@@ -2281,6 +2336,10 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
     // Apply loaded state
     const state = get();
+
+    // Initialize engine with loaded config (not defaults)
+    // This ensures the engine matches the loaded state
+    syncStoreToEngine(loaded.config, loaded.faces, loaded.rootVoid);
 
     // Collect edge extensions from loaded data
     const edgeExtensionsMap = loaded.edgeExtensions;

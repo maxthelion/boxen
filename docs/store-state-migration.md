@@ -140,13 +140,35 @@ All store actions now either:
 See `docs/lid-analysis.md` for deprecation rationale.
 All migrated actions include fallback logic for backward compatibility.
 
-### Phase 4: Remove Duplicate State (PENDING)
+### Phase 4: Remove Duplicate State (IN PROGRESS)
 
-Once all actions use engine dispatch:
-1. Remove `config`, `faces`, `rootVoid` from store state
-2. Remove `syncStoreToEngine()` function
-3. Remove `ensureEngineInitialized()` function
-4. Store becomes purely UI state
+This phase migrates store actions to read model state from the engine instead of store fields.
+
+**Infrastructure Added (Jan 2026):**
+- `ensureEngine()` - Creates default assembly if none exists (no store state required)
+- `getModelState(state)` - Helper that reads from engine with fallback to store state
+
+**Actions Migrated to Read from Engine:**
+- `setConfig` - Uses `getModelState()` to get old config
+- `removeVoid` - Uses `getModelState()` to get rootVoid for parent lookup
+- `resetVoids` - Uses `getModelState()` to get config for dimensions
+- `generatePanels` - Uses `ensureEngine()` instead of `syncStoreToEngine`
+- `setEdgeExtension` - Uses `ensureEngine()` instead of `syncStoreToEngine`
+- `setDividerPosition` - Uses `getModelState()` to get config and rootVoid
+- `setDividerPositionMode` - Uses `getModelState()` to get rootVoid
+
+**Initialization Updated:**
+- All `ensureEngineInitialized(state.config, state.faces, state.rootVoid)` calls replaced with `ensureEngine()`
+- `loadFromUrl` now explicitly syncs loaded data to engine
+
+**Remaining Work:**
+- Continue migrating remaining ~45 references to `state.config`, ~2 to `state.faces`, ~24 to `state.rootVoid`
+- Once all reads go through `getModelState()`, remove duplicate state fields from store
+- Remove `syncStoreToEngine()` (only used for URL loading now)
+- Remove `ensureEngineInitialized()` (deprecated, replaced by `ensureEngine()`)
+
+**Goal:**
+Store becomes purely UI state once migration is complete:
 
 **Final Store State Shape:**
 ```typescript

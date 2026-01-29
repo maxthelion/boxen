@@ -15,6 +15,7 @@ export { Engine, createEngine, createEngineWithAssembly } from './Engine';
 export {
   getEngine,
   resetEngine,
+  ensureEngine,
   syncStoreToEngine,
   getEngineVoidTree,
   ensureEngineInitialized,
