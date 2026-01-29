@@ -420,6 +420,11 @@ export class Engine {
             clearance
           );
 
+          // Set assembly axis if provided
+          if (action.payload.assemblyAxis) {
+            subAssembly.setAssemblyAxis(action.payload.assemblyAxis);
+          }
+
           // Add to void
           voidNode.addChild(subAssembly);
           this.invalidateNodeMap();
@@ -433,6 +438,45 @@ export class Engine {
         if (subAssembly && subAssembly.kind === 'sub-assembly' && subAssembly.parent) {
           subAssembly.parent.removeChild(subAssembly);
           this.invalidateNodeMap();
+          return true;
+        }
+        break;
+      }
+
+      case 'PURGE_VOID': {
+        const voidNodeRaw = findInScene(action.payload.voidId);
+        const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;
+        if (voidNode) {
+          // Clear all children and sub-assembly
+          voidNode.clearSubdivision();
+          this.invalidateNodeMap();
+          return true;
+        }
+        break;
+      }
+
+      case 'SET_SUB_ASSEMBLY_CLEARANCE': {
+        const subAssemblyNode = findInScene(action.payload.subAssemblyId);
+        if (subAssemblyNode instanceof SubAssemblyNode) {
+          subAssemblyNode.setClearance(action.payload.clearance);
+          return true;
+        }
+        break;
+      }
+
+      case 'TOGGLE_SUB_ASSEMBLY_FACE': {
+        const subAssemblyNode = findInScene(action.payload.subAssemblyId);
+        if (subAssemblyNode instanceof SubAssemblyNode) {
+          subAssemblyNode.toggleFace(action.payload.faceId);
+          return true;
+        }
+        break;
+      }
+
+      case 'SET_SUB_ASSEMBLY_AXIS': {
+        const subAssemblyNode = findInScene(action.payload.subAssemblyId);
+        if (subAssemblyNode instanceof SubAssemblyNode) {
+          subAssemblyNode.setAssemblyAxis(action.payload.axis);
           return true;
         }
         break;

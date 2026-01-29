@@ -941,14 +941,33 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   purgeVoid: (voidId) =>
     set((state) => {
-      const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
-        ...v,
-        children: [],
-        subAssembly: undefined,
-      }));
+      // Ensure engine is initialized
+      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+
+      // Dispatch to engine
+      const result = dispatchToEngine({
+        type: 'PURGE_VOID',
+        targetId: 'main-assembly',
+        payload: { voidId },
+      });
+
+      if (!result.success || !result.snapshot) {
+        // Fallback to local update if dispatch failed
+        const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
+          ...v,
+          children: [],
+          subAssembly: undefined,
+        }));
+        return {
+          rootVoid: newRootVoid,
+          selectedVoidIds: new Set<string>(),
+          selectedSubAssemblyIds: new Set<string>(),
+          panelsDirty: true,
+        };
+      }
 
       return {
-        rootVoid: newRootVoid,
+        rootVoid: result.snapshot.rootVoid,
         selectedVoidIds: new Set<string>(),
         selectedSubAssemblyIds: new Set<string>(),
         panelsDirty: true,
@@ -957,82 +976,115 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   toggleSubAssemblyFace: (subAssemblyId, faceId) =>
     set((state) => {
-      const found = findSubAssembly(state.rootVoid, subAssemblyId);
-      if (!found) return state;
+      // Ensure engine is initialized
+      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
 
-      // We need to find the parent void and update it
-      const updateSubAssemblyInVoid = (v: Void): Void => {
-        if (v.subAssembly?.id === subAssemblyId) {
+      // Dispatch to engine
+      const result = dispatchToEngine({
+        type: 'TOGGLE_SUB_ASSEMBLY_FACE',
+        targetId: 'main-assembly',
+        payload: { subAssemblyId, faceId },
+      });
+
+      if (!result.success || !result.snapshot) {
+        // Fallback to local update if dispatch failed
+        const found = findSubAssembly(state.rootVoid, subAssemblyId);
+        if (!found) return state;
+
+        const updateSubAssemblyInVoid = (v: Void): Void => {
+          if (v.subAssembly?.id === subAssemblyId) {
+            return {
+              ...v,
+              subAssembly: {
+                ...v.subAssembly,
+                faces: v.subAssembly.faces.map((f) =>
+                  f.id === faceId ? { ...f, solid: !f.solid } : f
+                ),
+              },
+            };
+          }
           return {
             ...v,
-            subAssembly: {
+            children: v.children.map(updateSubAssemblyInVoid),
+            subAssembly: v.subAssembly ? {
               ...v.subAssembly,
-              faces: v.subAssembly.faces.map((f) =>
-                f.id === faceId ? { ...f, solid: !f.solid } : f
-              ),
-            },
+              rootVoid: updateSubAssemblyInVoid(v.subAssembly.rootVoid),
+            } : undefined,
           };
-        }
-        return {
-          ...v,
-          children: v.children.map(updateSubAssemblyInVoid),
-          subAssembly: v.subAssembly ? {
-            ...v.subAssembly,
-            rootVoid: updateSubAssemblyInVoid(v.subAssembly.rootVoid),
-          } : undefined,
         };
-      };
+
+        return {
+          rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+          panelsDirty: true,
+        };
+      }
 
       return {
-        rootVoid: updateSubAssemblyInVoid(state.rootVoid),
-        panelsDirty: true,  // Mark panels as needing regeneration
+        rootVoid: result.snapshot.rootVoid,
+        panelsDirty: true,
       };
     }),
 
   setSubAssemblyClearance: (subAssemblyId, clearance) =>
     set((state) => {
-      const updateSubAssemblyInVoid = (v: Void): Void => {
-        if (v.subAssembly?.id === subAssemblyId) {
-          const newClearance = Math.max(0, clearance);
-          const mt = v.subAssembly.materialThickness;
-          const faceOffsets = v.subAssembly.faceOffsets || { left: 0, right: 0, top: 0, bottom: 0, front: 0, back: 0 };
+      // Ensure engine is initialized
+      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
 
-          // Calculate outer dimensions (space available after clearance + face offsets)
-          const outerWidth = v.bounds.w - (newClearance * 2) + faceOffsets.left + faceOffsets.right;
-          const outerHeight = v.bounds.h - (newClearance * 2) + faceOffsets.top + faceOffsets.bottom;
-          const outerDepth = v.bounds.d - (newClearance * 2) + faceOffsets.front + faceOffsets.back;
+      // Dispatch to engine
+      const result = dispatchToEngine({
+        type: 'SET_SUB_ASSEMBLY_CLEARANCE',
+        targetId: 'main-assembly',
+        payload: { subAssemblyId, clearance: Math.max(0, clearance) },
+      });
 
-          // Calculate interior dimensions (outer minus walls on each side)
-          const interiorWidth = outerWidth - (2 * mt);
-          const interiorHeight = outerHeight - (2 * mt);
-          const interiorDepth = outerDepth - (2 * mt);
+      if (!result.success || !result.snapshot) {
+        // Fallback to local update if dispatch failed
+        const updateSubAssemblyInVoid = (v: Void): Void => {
+          if (v.subAssembly?.id === subAssemblyId) {
+            const newClearance = Math.max(0, clearance);
+            const mt = v.subAssembly.materialThickness;
+            const faceOffsets = v.subAssembly.faceOffsets || { left: 0, right: 0, top: 0, bottom: 0, front: 0, back: 0 };
 
-          if (interiorWidth <= 0 || interiorHeight <= 0 || interiorDepth <= 0) {
-            return v; // Invalid clearance
+            const outerWidth = v.bounds.w - (newClearance * 2) + faceOffsets.left + faceOffsets.right;
+            const outerHeight = v.bounds.h - (newClearance * 2) + faceOffsets.top + faceOffsets.bottom;
+            const outerDepth = v.bounds.d - (newClearance * 2) + faceOffsets.front + faceOffsets.back;
+
+            const interiorWidth = outerWidth - (2 * mt);
+            const interiorHeight = outerHeight - (2 * mt);
+            const interiorDepth = outerDepth - (2 * mt);
+
+            if (interiorWidth <= 0 || interiorHeight <= 0 || interiorDepth <= 0) {
+              return v;
+            }
+
+            return {
+              ...v,
+              subAssembly: {
+                ...v.subAssembly,
+                clearance: newClearance,
+                rootVoid: {
+                  ...v.subAssembly.rootVoid,
+                  bounds: { x: 0, y: 0, z: 0, w: interiorWidth, h: interiorHeight, d: interiorDepth },
+                  children: [],
+                },
+              },
+            };
           }
-
           return {
             ...v,
-            subAssembly: {
-              ...v.subAssembly,
-              clearance: newClearance,
-              rootVoid: {
-                ...v.subAssembly.rootVoid,
-                bounds: { x: 0, y: 0, z: 0, w: interiorWidth, h: interiorHeight, d: interiorDepth },
-                children: [], // Reset children when clearance changes
-              },
-            },
+            children: v.children.map(updateSubAssemblyInVoid),
           };
-        }
-        return {
-          ...v,
-          children: v.children.map(updateSubAssemblyInVoid),
         };
-      };
+
+        return {
+          rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+          panelsDirty: true,
+        };
+      }
 
       return {
-        rootVoid: updateSubAssemblyInVoid(state.rootVoid),
-        panelsDirty: true,  // Mark panels as needing regeneration
+        rootVoid: result.snapshot.rootVoid,
+        panelsDirty: true,
       };
     }),
 

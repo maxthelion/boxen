@@ -428,8 +428,12 @@ export type EngineAction =
   | { type: 'ADD_SUBDIVISIONS'; targetId: string; payload: { voidId: string; axis: Axis; positions: number[] } }
   | { type: 'REMOVE_SUBDIVISION'; targetId: string; payload: { voidId: string } }
   | { type: 'SET_EDGE_EXTENSION'; targetId: string; payload: { panelId: string; edge: EdgePosition; value: number } }
-  | { type: 'CREATE_SUB_ASSEMBLY'; targetId: string; payload: { voidId: string; clearance?: number } }
+  | { type: 'CREATE_SUB_ASSEMBLY'; targetId: string; payload: { voidId: string; clearance?: number; assemblyAxis?: Axis } }
   | { type: 'REMOVE_SUB_ASSEMBLY'; targetId: string; payload: { subAssemblyId: string } }
+  | { type: 'PURGE_VOID'; targetId: string; payload: { voidId: string } }
+  | { type: 'SET_SUB_ASSEMBLY_CLEARANCE'; targetId: string; payload: { subAssemblyId: string; clearance: number } }
+  | { type: 'TOGGLE_SUB_ASSEMBLY_FACE'; targetId: string; payload: { subAssemblyId: string; faceId: FaceId } }
+  | { type: 'SET_SUB_ASSEMBLY_AXIS'; targetId: string; payload: { subAssemblyId: string; axis: Axis } }
   | { type: 'SET_LID_CONFIG'; targetId: string; payload: { side: 'positive' | 'negative'; config: Partial<LidConfig> } }
   | { type: 'SET_ASSEMBLY_AXIS'; targetId: string; payload: { axis: Axis } }
   | { type: 'SET_FEET_CONFIG'; targetId: string; payload: FeetConfig | null };
