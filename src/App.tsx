@@ -4,9 +4,7 @@ import { Viewport3D, Viewport3DHandle } from './components/Viewport3D';
 import { SketchView2D } from './components/SketchView2D';
 import { SketchSidebar } from './components/SketchSidebar';
 import { SubdivisionControls } from './components/SubdivisionControls';
-import { PanelProperties } from './components/PanelProperties';
 import { AssemblyProperties } from './components/AssemblyProperties';
-import { DimensionForm } from './components/DimensionForm';
 import { ExportModal } from './components/ExportModal';
 import { ProjectBrowserModal } from './components/ProjectBrowserModal';
 import { SaveProjectModal } from './components/SaveProjectModal';
@@ -322,18 +320,13 @@ function App() {
       return <SubdivisionControls />;
     }
 
-    // Panel selected - show panel properties
-    if (selectedPanelIds.size > 0) {
-      return <PanelProperties />;
-    }
-
     // Assembly or sub-assembly selected - show assembly properties
     if (selectedAssemblyId || selectedSubAssemblyIds.size > 0) {
       return <AssemblyProperties />;
     }
 
-    // Nothing selected - show default dimension form
-    return <DimensionForm />;
+    // Nothing selected or panel selected - no sidebar
+    return null;
   };
 
   return (
@@ -420,9 +413,11 @@ function App() {
           )}
         </section>
 
-        <aside className="sidebar right-sidebar">
-          {renderRightSidebar()}
-        </aside>
+        {renderRightSidebar() && (
+          <aside className="sidebar right-sidebar">
+            {renderRightSidebar()}
+          </aside>
+        )}
       </main>
 
       <ExportModal

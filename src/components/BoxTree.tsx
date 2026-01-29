@@ -189,6 +189,8 @@ interface TreeOpsProps {
   onDeleteSubAssembly: (voidId: string) => void;
   // Panel ID lookup from engine
   panelLookup: PanelLookup;
+  // Edit panel in 2D view
+  onEditPanel: (panelId: string) => void;
 }
 
 // Outer face panel node (for main box or sub-assembly)
@@ -203,7 +205,8 @@ const OuterPanelNode: React.FC<{
   isolatedPanelId: string | null;
   onToggleFaceVisibility: (faceId: string) => void;
   onSetIsolatedPanel: (panelId: string | null) => void;
-}> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, hiddenFaceIds, isolatedPanelId, onToggleFaceVisibility, onSetIsolatedPanel }) => {
+  onEditPanel: (panelId: string) => void;
+}> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, hiddenFaceIds, isolatedPanelId, onToggleFaceVisibility, onSetIsolatedPanel, onEditPanel }) => {
   // Tree shows actual selection only (no cascade from assembly selection)
   const isSelected = selectedPanelIds.has(panel.id);
   const isHovered = hoveredPanelId === panel.id;
@@ -228,6 +231,16 @@ const OuterPanelNode: React.FC<{
         </span>
         {panel.solid && (
           <span className="tree-controls">
+            <button
+              className="tree-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEditPanel(panel.id);
+              }}
+              title="Edit in 2D"
+            >
+              ✎
+            </button>
             <button
               className={`tree-btn ${isHidden ? 'active' : ''}`}
               onClick={(e) => {
@@ -268,7 +281,8 @@ const DividerPanelNode: React.FC<{
   onToggleFaceVisibility: (faceId: string) => void;
   onSetIsolatedPanel: (panelId: string | null) => void;
   onDelete: (voidId: string) => void;
-}> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, hiddenFaceIds, isolatedPanelId, onToggleFaceVisibility, onSetIsolatedPanel, onDelete }) => {
+  onEditPanel: (panelId: string) => void;
+}> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, hiddenFaceIds, isolatedPanelId, onToggleFaceVisibility, onSetIsolatedPanel, onDelete, onEditPanel }) => {
   // Tree shows actual selection only (no cascade from assembly selection)
   const isSelected = selectedPanelIds.has(panel.id);
   const isHovered = hoveredPanelId === panel.id;
@@ -293,6 +307,16 @@ const DividerPanelNode: React.FC<{
           <span className="tree-dimensions">{panel.width.toFixed(0)}×{panel.height.toFixed(0)}</span>
         </span>
         <span className="tree-controls">
+          <button
+            className="tree-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditPanel(panel.id);
+            }}
+            title="Edit in 2D"
+          >
+            ✎
+          </button>
           <button
             className={`tree-btn ${isHidden ? 'active' : ''}`}
             onClick={(e) => {
@@ -369,6 +393,7 @@ const VoidNode: React.FC<VoidNodeProps> = ({
   onDeleteVoid,
   onDeleteSubAssembly,
   panelLookup,
+  onEditPanel,
 }) => {
   const isSelected = selectedVoidIds.has(node.id);
   const isHovered = hoveredVoidId === node.id;
@@ -431,6 +456,7 @@ const VoidNode: React.FC<VoidNodeProps> = ({
     onDeleteVoid,
     onDeleteSubAssembly,
     panelLookup,
+    onEditPanel,
   };
 
   return (
@@ -506,6 +532,7 @@ const VoidNode: React.FC<VoidNodeProps> = ({
                   onToggleFaceVisibility={onToggleFaceVisibility}
                   onSetIsolatedPanel={onSetIsolatedPanel}
                   onDelete={onDeleteVoid}
+                  onEditPanel={onEditPanel}
                 />
               ))}
               {/* Grid cells */}
@@ -539,6 +566,7 @@ const VoidNode: React.FC<VoidNodeProps> = ({
                       onToggleFaceVisibility={onToggleFaceVisibility}
                       onSetIsolatedPanel={onSetIsolatedPanel}
                       onDelete={onDeleteVoid}
+                      onEditPanel={onEditPanel}
                     />
                   )}
                   <VoidNode
@@ -596,6 +624,7 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
   onDeleteVoid,
   onDeleteSubAssembly,
   panelLookup,
+  onEditPanel,
 }) => {
   const isSelected = selectedSubAssemblyIds.has(subAssembly.id);
   const isAssemblySelected = selectedAssemblyId === subAssembly.id;
@@ -657,6 +686,7 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
     onDeleteVoid,
     onDeleteSubAssembly,
     panelLookup,
+    onEditPanel,
   };
 
   return (
@@ -724,6 +754,7 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
             isolatedPanelId={isolatedPanelId}
             onToggleFaceVisibility={onToggleFaceVisibility}
             onSetIsolatedPanel={onSetIsolatedPanel}
+            onEditPanel={onEditPanel}
           />
         ))}
       </div>
@@ -781,6 +812,7 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
   onDeleteVoid,
   onDeleteSubAssembly,
   panelLookup,
+  onEditPanel,
 }) => {
   const isSelected = selectedAssemblyId === 'main';
   const isHovered = hoveredAssemblyId === 'main';
@@ -834,6 +866,7 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
     onDeleteVoid,
     onDeleteSubAssembly,
     panelLookup,
+    onEditPanel,
   };
 
   return (
@@ -867,6 +900,7 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
             isolatedPanelId={isolatedPanelId}
             onToggleFaceVisibility={onToggleFaceVisibility}
             onSetIsolatedPanel={onSetIsolatedPanel}
+            onEditPanel={onEditPanel}
           />
         ))}
       </div>
@@ -926,6 +960,7 @@ export const BoxTree: React.FC = () => {
     setIsolatedPanel,
     removeVoid,
     removeSubAssembly,
+    enterSketchView,
   } = useBoxStore();
 
   // Early return if engine not initialized
@@ -975,6 +1010,7 @@ export const BoxTree: React.FC = () => {
           onDeleteVoid={removeVoid}
           onDeleteSubAssembly={removeSubAssembly}
           panelLookup={panelLookup}
+          onEditPanel={enterSketchView}
         />
       </div>
       {hasIsolation && (
