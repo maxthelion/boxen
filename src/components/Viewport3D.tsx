@@ -10,8 +10,9 @@ import { MovePalette } from './MovePalette';
 import { CreateSubAssemblyPalette } from './CreateSubAssemblyPalette';
 import { ConfigurePalette } from './ConfigurePalette';
 import { ScalePalette } from './ScalePalette';
+import { InsetPalette } from './InsetPalette';
 import { useBoxStore } from '../store/useBoxStore';
-import { useEnginePanels } from '../engine';
+import { useEnginePanels, useEngineConfig } from '../engine';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
 
@@ -22,10 +23,12 @@ export interface Viewport3DHandle {
 export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Model state from engine
   const panelCollection = useEnginePanels();
+  const config = useEngineConfig();
 
   // UI state and actions from store
   const clearSelection = useBoxStore((state) => state.clearSelection);
   const selectedPanelIds = useBoxStore((state) => state.selectedPanelIds);
+  const selectedEdges = useBoxStore((state) => state.selectedEdges);
   const toggleFace = useBoxStore((state) => state.toggleFace);
   const purgeVoid = useBoxStore((state) => state.purgeVoid);
   const activeTool = useBoxStore((state) => state.activeTool);
@@ -61,6 +64,10 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // Scale palette state (local UI state only)
   const [scalePalettePosition, setScalePalettePosition] = useState({ x: 20, y: 150 });
+
+  // Inset palette state (local UI state only)
+  const [insetPalettePosition, setInsetPalettePosition] = useState({ x: 20, y: 150 });
+  const [insetOffset, setInsetOffset] = useState(0);
 
   // Get selected face ID for push-pull tool
   // Panel IDs are UUIDs, so we need to look up the panel source metadata
@@ -179,6 +186,53 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const handleScalePaletteClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
+
+  // Inset/Outset operation handlers
+  const selectedEdgesArray = useMemo(() => Array.from(selectedEdges), [selectedEdges]);
+
+  // Start operation when entering inset mode with edges selected
+  useEffect(() => {
+    const isOperationActive = operationState.activeOperation === 'inset-outset';
+    if (activeTool === 'inset' && selectedEdgesArray.length > 0 && !isOperationActive) {
+      startOperation('inset-outset');
+      updateOperationParams({ edges: selectedEdgesArray, offset: 0 });
+      setInsetOffset(0);
+    }
+  }, [activeTool, selectedEdgesArray, operationState.activeOperation, startOperation, updateOperationParams]);
+
+  // Cancel operation when leaving inset mode or deselecting all edges
+  useEffect(() => {
+    if (operationState.activeOperation === 'inset-outset') {
+      if (activeTool !== 'inset' || selectedEdgesArray.length === 0) {
+        cancelOperation();
+        setInsetOffset(0);
+      }
+    }
+  }, [activeTool, selectedEdgesArray.length, operationState.activeOperation, cancelOperation]);
+
+  // Handle inset offset change
+  const handleInsetOffsetChange = useCallback((offset: number) => {
+    if (operationState.activeOperation === 'inset-outset') {
+      setInsetOffset(offset);
+      updateOperationParams({ edges: selectedEdgesArray, offset });
+    }
+  }, [operationState.activeOperation, selectedEdgesArray, updateOperationParams]);
+
+  // Handle inset apply
+  const handleInsetApply = useCallback(() => {
+    if (operationState.activeOperation === 'inset-outset' && insetOffset !== 0) {
+      applyOperation();
+      setInsetOffset(0);
+      setActiveTool('select');
+    }
+  }, [operationState.activeOperation, insetOffset, applyOperation, setActiveTool]);
+
+  // Close inset palette
+  const handleInsetPaletteClose = useCallback(() => {
+    cancelOperation();
+    setInsetOffset(0);
+    setActiveTool('select');
+  }, [cancelOperation, setActiveTool]);
 
   // Expose method to get the canvas element
   useImperativeHandle(ref, () => ({
@@ -325,6 +379,20 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         position={scalePalettePosition}
         onPositionChange={setScalePalettePosition}
         onClose={handleScalePaletteClose}
+        containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+      />
+
+      {/* Inset/Outset Palette */}
+      <InsetPalette
+        visible={activeTool === 'inset' && selectedEdgesArray.length > 0}
+        position={insetPalettePosition}
+        selectedEdgeCount={selectedEdgesArray.length}
+        offset={insetOffset}
+        materialThickness={config?.materialThickness ?? 3}
+        onOffsetChange={handleInsetOffsetChange}
+        onApply={handleInsetApply}
+        onClose={handleInsetPaletteClose}
+        onPositionChange={setInsetPalettePosition}
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
       />
 
