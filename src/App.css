@@ -2825,6 +2825,20 @@ body {
   color: #fff;
 }
 
+.palette-toggle-group.disabled .palette-toggle-btn {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.palette-toggle-group.disabled .palette-toggle-btn:hover {
+  color: #888;
+  background: transparent;
+}
+
+.palette-toggle-group.disabled .palette-toggle-btn.active {
+  background: #3a3a6a;
+}
+
 /* Action buttons */
 
 .palette-button-row {

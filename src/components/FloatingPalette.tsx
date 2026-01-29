@@ -301,6 +301,7 @@ interface ToggleGroupProps {
   options: ToggleOption[];
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }
 
 export const PaletteToggleGroup: React.FC<ToggleGroupProps> = ({
@@ -308,16 +309,18 @@ export const PaletteToggleGroup: React.FC<ToggleGroupProps> = ({
   options,
   value,
   onChange,
+  disabled = false,
 }) => {
   return (
-    <div className="palette-toggle-group">
+    <div className={`palette-toggle-group ${disabled ? 'disabled' : ''}`}>
       {label && <label className="palette-label">{label}</label>}
       <div className="palette-toggle-buttons">
         {options.map((option) => (
           <button
             key={option.value}
             className={`palette-toggle-btn ${value === option.value ? 'active' : ''}`}
-            onClick={() => onChange(option.value)}
+            onClick={() => !disabled && onChange(option.value)}
+            disabled={disabled}
           >
             {option.label}
           </button>

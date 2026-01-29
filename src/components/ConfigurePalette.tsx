@@ -549,23 +549,41 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
             )}
           </div>
 
-          {/* Tab Direction - only for solid lid faces */}
-          {currentFaceSolid && initialFaceData.isLid && (
-            <div className="palette-section">
-              <div className="palette-section-title">Tab Direction</div>
-              <PaletteToggleGroup
-                label=""
-                options={tabDirectionOptions}
-                value={currentFaceTabDirection}
-                onChange={handleTabDirectionChange}
-              />
-              <p className="palette-hint-small">
-                {currentFaceTabDirection === 'tabs-out'
-                  ? 'Lid has tabs that go into wall slots'
-                  : 'Walls have tabs that go into lid slots'}
-              </p>
-            </div>
-          )}
+          {/* Tab Direction */}
+          <div className="palette-section">
+            <div className="palette-section-title">Tab Direction</div>
+            {initialFaceData.isLid ? (
+              <>
+                <PaletteToggleGroup
+                  label=""
+                  options={tabDirectionOptions}
+                  value={currentFaceTabDirection}
+                  onChange={handleTabDirectionChange}
+                  disabled={!currentFaceSolid}
+                />
+                <p className="palette-hint-small">
+                  {!currentFaceSolid
+                    ? 'Open faces have no tabs'
+                    : currentFaceTabDirection === 'tabs-out'
+                      ? 'Lid has tabs that go into wall slots'
+                      : 'Walls have tabs that go into lid slots'}
+                </p>
+              </>
+            ) : (
+              <>
+                <PaletteToggleGroup
+                  label=""
+                  options={tabDirectionOptions}
+                  value={currentFaceTabDirection}
+                  onChange={handleTabDirectionChange}
+                  disabled={true}
+                />
+                <p className="palette-hint-small">
+                  Tab direction can only be changed on lid faces (faces on the assembly axis)
+                </p>
+              </>
+            )}
+          </div>
 
           {/* Actions */}
           <PaletteButtonRow>
