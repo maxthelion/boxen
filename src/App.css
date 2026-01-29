@@ -92,6 +92,123 @@ body {
   padding: 1rem;
 }
 
+/* Collapsible Section Styles */
+.collapsible-section {
+  background: #1a1a2e;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.collapsible-section:last-child {
+  margin-bottom: 0;
+}
+
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: #252545;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #4a90d9;
+  transition: background-color 0.15s ease;
+}
+
+.collapsible-header:hover {
+  background: #2a2a55;
+}
+
+.collapsible-indicator {
+  font-size: 0.65rem;
+  margin-right: 0.5rem;
+  color: #666;
+  width: 0.75rem;
+}
+
+.collapsible-title {
+  flex: 1;
+}
+
+.collapsible-content {
+  padding: 1rem;
+  border-top: 1px solid #333;
+}
+
+.collapsible-section.collapsed .collapsible-header {
+  border-radius: 8px;
+}
+
+/* Left Sidebar Content */
+.left-sidebar-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.left-sidebar-content .collapsible-content {
+  padding: 0.75rem;
+}
+
+/* Input with Unit */
+.input-with-unit {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.input-with-unit input {
+  flex: 1;
+  min-width: 0;
+}
+
+.input-with-unit .unit {
+  font-size: 0.7rem;
+  color: #666;
+  width: 1.5rem;
+}
+
+/* Compact Form Grid */
+.form-grid.compact {
+  gap: 0.5rem;
+}
+
+.form-grid.compact label span {
+  font-size: 0.7rem;
+}
+
+/* Section Info */
+.section-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #333;
+  font-size: 0.75rem;
+}
+
+.section-info .info-label {
+  color: #666;
+}
+
+.section-info .info-value {
+  color: #4a90d9;
+  font-weight: 500;
+}
+
+/* Hint text */
+.hint {
+  font-size: 0.7rem;
+  color: #666;
+  margin-top: 0.5rem;
+  line-height: 1.4;
+}
+
 /* Form Styles */
 .form-grid {
   display: flex;
