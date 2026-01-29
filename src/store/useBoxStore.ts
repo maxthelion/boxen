@@ -1532,8 +1532,13 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       };
     }),
 
+  /**
+   * @deprecated Lid inset is deprecated. Use push-pull adjust mode instead.
+   * See docs/lid-analysis.md for details on the deprecation.
+   */
   setLidInset: (side, inset) =>
     set((state) => {
+      console.warn('setLidInset is deprecated. Use push-pull adjust mode instead.');
       const newInset = Math.max(0, inset);
       const newAssembly: AssemblyConfig = {
         ...state.config.assembly,
@@ -1568,7 +1573,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         // Clear selection when void structure changes
         selectedVoidIds: new Set<string>(),
         selectedPanelIds: new Set<string>(),
-        panelsDirty: true,  // Mark panels as needing regeneration
+        panelsDirty: true,
       };
     }),
 
@@ -1919,44 +1924,66 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   setSubAssemblyLidTabDirection: (subAssemblyId, side, direction) =>
     set((state) => {
-      const updateSubAssemblyInVoid = (v: Void): Void => {
-        if (v.subAssembly?.id === subAssemblyId) {
-          return {
-            ...v,
-            subAssembly: {
-              ...v.subAssembly,
-              assembly: {
-                ...v.subAssembly.assembly,
-                lids: {
-                  ...v.subAssembly.assembly.lids,
-                  [side]: {
-                    ...v.subAssembly.assembly.lids[side],
-                    tabDirection: direction,
-                    inset: direction === 'tabs-in' ? 0 : v.subAssembly.assembly.lids[side].inset,
+      // Ensure engine is initialized
+      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+
+      // Dispatch to engine
+      const result = dispatchToEngine({
+        type: 'SET_SUB_ASSEMBLY_LID_TAB_DIRECTION',
+        targetId: 'main-assembly',
+        payload: { subAssemblyId, side, tabDirection: direction },
+      });
+
+      if (!result.success || !result.snapshot) {
+        // Fallback to local update if dispatch failed
+        const updateSubAssemblyInVoid = (v: Void): Void => {
+          if (v.subAssembly?.id === subAssemblyId) {
+            return {
+              ...v,
+              subAssembly: {
+                ...v.subAssembly,
+                assembly: {
+                  ...v.subAssembly.assembly,
+                  lids: {
+                    ...v.subAssembly.assembly.lids,
+                    [side]: {
+                      ...v.subAssembly.assembly.lids[side],
+                      tabDirection: direction,
+                    },
                   },
                 },
               },
-            },
+            };
+          }
+          return {
+            ...v,
+            children: v.children.map(updateSubAssemblyInVoid),
+            subAssembly: v.subAssembly ? {
+              ...v.subAssembly,
+              rootVoid: updateSubAssemblyInVoid(v.subAssembly.rootVoid),
+            } : undefined,
           };
-        }
-        return {
-          ...v,
-          children: v.children.map(updateSubAssemblyInVoid),
-          subAssembly: v.subAssembly ? {
-            ...v.subAssembly,
-            rootVoid: updateSubAssemblyInVoid(v.subAssembly.rootVoid),
-          } : undefined,
         };
-      };
+
+        return {
+          rootVoid: updateSubAssemblyInVoid(state.rootVoid),
+          panelsDirty: true,
+        };
+      }
 
       return {
-        rootVoid: updateSubAssemblyInVoid(state.rootVoid),
-        panelsDirty: true,  // Mark panels as needing regeneration
+        rootVoid: result.snapshot.rootVoid,
+        panelsDirty: true,
       };
     }),
 
+  /**
+   * @deprecated Lid inset is deprecated. Use push-pull adjust mode instead.
+   * See docs/lid-analysis.md for details on the deprecation.
+   */
   setSubAssemblyLidInset: (subAssemblyId, side, inset) =>
     set((state) => {
+      console.warn('setSubAssemblyLidInset is deprecated. Use push-pull adjust mode instead.');
       const updateSubAssemblyInVoid = (v: Void): Void => {
         if (v.subAssembly?.id === subAssemblyId) {
           return {
@@ -1989,7 +2016,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
       return {
         rootVoid: updateSubAssemblyInVoid(state.rootVoid),
-        panelsDirty: true,  // Mark panels as needing regeneration
+        panelsDirty: true,
       };
     }),
 

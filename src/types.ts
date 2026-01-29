@@ -13,7 +13,11 @@ export type LidTabDirection = 'tabs-out' | 'tabs-in';
 export interface LidConfig {
   enabled: boolean;              // Whether face is solid (redundant with Face.solid but explicit)
   tabDirection: LidTabDirection;
-  inset: number;                 // Inset from outer dimension (mm), 0 = flush with outer
+  /**
+   * @deprecated Use push-pull adjust mode instead. See docs/lid-analysis.md.
+   * Inset from outer dimension (mm), 0 = flush with outer.
+   */
+  inset: number;
 }
 
 // Feet configuration for assembly

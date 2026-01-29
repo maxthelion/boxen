@@ -481,6 +481,17 @@ export class Engine {
         }
         break;
       }
+
+      case 'SET_SUB_ASSEMBLY_LID_TAB_DIRECTION': {
+        const subAssemblyNode = findInScene(action.payload.subAssemblyId);
+        if (subAssemblyNode instanceof SubAssemblyNode) {
+          subAssemblyNode.setLidConfig(action.payload.side, {
+            tabDirection: action.payload.tabDirection,
+          });
+          return true;
+        }
+        break;
+      }
     }
 
     return false;

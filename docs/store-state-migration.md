@@ -119,20 +119,25 @@ Sub-assembly operations:
 - [x] `toggleSubAssemblyFace` - dispatches TOGGLE_SUB_ASSEMBLY_FACE ✓ (Jan 2026)
 - [x] `setSubAssemblyAxis` - dispatches SET_SUB_ASSEMBLY_AXIS ✓ (Jan 2026)
 
-Lid configuration (for sub-assemblies):
-- [ ] `setSubAssemblyLidTabDirection` - needs engine action (see lid-analysis.md)
-- [ ] `setSubAssemblyLidInset` - needs engine action (see lid-analysis.md)
+Lid configuration:
+- [x] `setSubAssemblyLidTabDirection` - dispatches SET_SUB_ASSEMBLY_LID_TAB_DIRECTION ✓ (Jan 2026)
+- [x] `setSubAssemblyLidInset` - **DEPRECATED** (use push-pull adjust mode)
+- [x] `setLidInset` - **DEPRECATED** (use push-pull adjust mode)
 
 **Engine Actions Added (Jan 2026):**
 - `PURGE_VOID` - Clear void children and sub-assembly
 - `SET_SUB_ASSEMBLY_CLEARANCE` - Update clearance
 - `TOGGLE_SUB_ASSEMBLY_FACE` - Toggle face solid/open
 - `SET_SUB_ASSEMBLY_AXIS` - Change assembly orientation
+- `SET_SUB_ASSEMBLY_LID_TAB_DIRECTION` - Change lid tab direction
 - `CREATE_SUB_ASSEMBLY` - Enhanced with optional assemblyAxis param
 
-**Summary (10 of 12 actions migrated):**
-All major store actions now dispatch to engine. Only lid configuration actions remain,
-which may be deprecated (see `docs/lid-analysis.md` for redundancy analysis).
+**Summary: Phase 3 COMPLETE**
+All store actions now either:
+- Dispatch to engine (11 actions migrated)
+- Are deprecated with console warnings (2 lid inset actions)
+
+See `docs/lid-analysis.md` for deprecation rationale.
 All migrated actions include fallback logic for backward compatibility.
 
 ### Phase 4: Remove Duplicate State (PENDING)

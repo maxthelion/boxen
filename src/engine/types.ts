@@ -434,6 +434,7 @@ export type EngineAction =
   | { type: 'SET_SUB_ASSEMBLY_CLEARANCE'; targetId: string; payload: { subAssemblyId: string; clearance: number } }
   | { type: 'TOGGLE_SUB_ASSEMBLY_FACE'; targetId: string; payload: { subAssemblyId: string; faceId: FaceId } }
   | { type: 'SET_SUB_ASSEMBLY_AXIS'; targetId: string; payload: { subAssemblyId: string; axis: Axis } }
+  | { type: 'SET_SUB_ASSEMBLY_LID_TAB_DIRECTION'; targetId: string; payload: { subAssemblyId: string; side: 'positive' | 'negative'; tabDirection: 'tabs-in' | 'tabs-out' } }
   | { type: 'SET_LID_CONFIG'; targetId: string; payload: { side: 'positive' | 'negative'; config: Partial<LidConfig> } }
   | { type: 'SET_ASSEMBLY_AXIS'; targetId: string; payload: { axis: Axis } }
   | { type: 'SET_FEET_CONFIG'; targetId: string; payload: FeetConfig | null };
