@@ -877,65 +877,84 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // Sub-assembly actions
   createSubAssembly: (voidId, options) =>
     set((state) => {
-      const targetVoid = findVoid(state.rootVoid, voidId);
-      if (!targetVoid || targetVoid.children.length > 0 || targetVoid.subAssembly) {
-        return state; // Can't create sub-assembly in non-leaf void or if one already exists
-      }
+      // Ensure engine is initialized
+      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
 
       const clearance = options?.clearance ?? 2; // Default 2mm clearance
       const assemblyAxis = options?.assemblyAxis ?? 'y'; // Default Y axis
-      const faceOffsets = options?.faceOffsets ?? { front: 0, back: 0, left: 0, right: 0, top: 0, bottom: 0 };
-      const { bounds } = targetVoid;
-      const mt = state.config.materialThickness;
 
-      // Calculate outer dimensions (space available after clearance + face offsets)
-      // Face offsets adjust individual sides: positive = outset, negative = inset
-      const outerWidth = bounds.w - (clearance * 2) + faceOffsets.left + faceOffsets.right;
-      const outerHeight = bounds.h - (clearance * 2) + faceOffsets.top + faceOffsets.bottom;
-      const outerDepth = bounds.d - (clearance * 2) + faceOffsets.front + faceOffsets.back;
+      // Dispatch to engine
+      const result = dispatchToEngine({
+        type: 'CREATE_SUB_ASSEMBLY',
+        targetId: 'main-assembly',
+        payload: { voidId, clearance, assemblyAxis },
+      });
 
-      // Calculate interior dimensions (outer minus walls on each side)
-      const interiorWidth = outerWidth - (2 * mt);
-      const interiorHeight = outerHeight - (2 * mt);
-      const interiorDepth = outerDepth - (2 * mt);
+      if (!result.success || !result.snapshot) {
+        // Fallback to local creation if dispatch failed
+        const targetVoid = findVoid(state.rootVoid, voidId);
+        if (!targetVoid || targetVoid.children.length > 0 || targetVoid.subAssembly) {
+          return state;
+        }
 
-      if (interiorWidth <= 0 || interiorHeight <= 0 || interiorDepth <= 0) {
-        return state; // Void too small for sub-assembly
+        const faceOffsets = options?.faceOffsets ?? { front: 0, back: 0, left: 0, right: 0, top: 0, bottom: 0 };
+        const { bounds } = targetVoid;
+        const mt = state.config.materialThickness;
+
+        const outerWidth = bounds.w - (clearance * 2) + faceOffsets.left + faceOffsets.right;
+        const outerHeight = bounds.h - (clearance * 2) + faceOffsets.top + faceOffsets.bottom;
+        const outerDepth = bounds.d - (clearance * 2) + faceOffsets.front + faceOffsets.back;
+
+        const interiorWidth = outerWidth - (2 * mt);
+        const interiorHeight = outerHeight - (2 * mt);
+        const interiorDepth = outerDepth - (2 * mt);
+
+        if (interiorWidth <= 0 || interiorHeight <= 0 || interiorDepth <= 0) {
+          return state;
+        }
+
+        const subAssembly: SubAssembly = {
+          id: generateId(),
+          clearance,
+          faceOffsets,
+          faces: createAllSolidFaces(),
+          materialThickness: mt,
+          rootVoid: {
+            id: 'sub-root-' + generateId(),
+            bounds: { x: 0, y: 0, z: 0, w: interiorWidth, h: interiorHeight, d: interiorDepth },
+            children: [],
+          },
+          assembly: {
+            assemblyAxis,
+            lids: {
+              positive: { enabled: true, tabDirection: 'tabs-out', inset: 0 },
+              negative: { enabled: true, tabDirection: 'tabs-out', inset: 0 },
+            },
+          },
+        };
+
+        const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
+          ...v,
+          subAssembly,
+        }));
+
+        return {
+          rootVoid: newRootVoid,
+          selectedVoidIds: new Set<string>(),
+          selectedSubAssemblyIds: new Set([subAssembly.id]),
+          panelsDirty: true,
+        };
       }
 
-      // Create sub-assembly with all faces solid by default (like main box)
-      const subAssembly: SubAssembly = {
-        id: generateId(),
-        clearance,
-        faceOffsets,
-        faces: createAllSolidFaces(),
-        materialThickness: mt,
-        rootVoid: {
-          id: 'sub-root-' + generateId(),
-          // rootVoid stores INTERIOR dimensions (outer - 2*materialThickness)
-          bounds: { x: 0, y: 0, z: 0, w: interiorWidth, h: interiorHeight, d: interiorDepth },
-          children: [],
-        },
-        // Assembly config with provided axis
-        assembly: {
-          assemblyAxis,
-          lids: {
-            positive: { enabled: true, tabDirection: 'tabs-out', inset: 0 },
-            negative: { enabled: true, tabDirection: 'tabs-out', inset: 0 },
-          },
-        },
-      };
-
-      const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
-        ...v,
-        subAssembly,
-      }));
+      // Find the created sub-assembly ID from the snapshot
+      const createdVoid = findVoid(result.snapshot.rootVoid, voidId);
+      const subAssemblyId = createdVoid?.subAssembly?.id;
 
       return {
-        rootVoid: newRootVoid,
+        rootVoid: result.snapshot.rootVoid,
         selectedVoidIds: new Set<string>(),
-        selectedSubAssemblyIds: new Set([subAssembly.id]),
-        panelsDirty: true,  // Mark panels as needing regeneration
+        selectedSubAssemblyIds: subAssemblyId ? new Set([subAssemblyId]) : new Set<string>(),
+        panelsDirty: true,
       };
     }),
 
@@ -1090,16 +1109,44 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   removeSubAssembly: (voidId) =>
     set((state) => {
-      const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
-        ...v,
-        subAssembly: undefined,
-      }));
+      // Find the sub-assembly ID from the void
+      const targetVoid = findVoid(state.rootVoid, voidId);
+      const subAssemblyId = targetVoid?.subAssembly?.id;
+
+      if (!subAssemblyId) {
+        return state; // No sub-assembly to remove
+      }
+
+      // Ensure engine is initialized
+      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+
+      // Dispatch to engine
+      const result = dispatchToEngine({
+        type: 'REMOVE_SUB_ASSEMBLY',
+        targetId: 'main-assembly',
+        payload: { subAssemblyId },
+      });
+
+      if (!result.success || !result.snapshot) {
+        // Fallback to local removal if dispatch failed
+        const newRootVoid = VoidTree.update(state.rootVoid, voidId, (v) => ({
+          ...v,
+          subAssembly: undefined,
+        }));
+
+        return {
+          rootVoid: newRootVoid,
+          selectedVoidIds: new Set<string>(),
+          selectedSubAssemblyIds: new Set<string>(),
+          panelsDirty: true,
+        };
+      }
 
       return {
-        rootVoid: newRootVoid,
+        rootVoid: result.snapshot.rootVoid,
         selectedVoidIds: new Set<string>(),
         selectedSubAssemblyIds: new Set<string>(),
-        panelsDirty: true,  // Mark panels as needing regeneration
+        panelsDirty: true,
       };
     }),
 

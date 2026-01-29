@@ -113,15 +113,15 @@ Medium-priority:
 - [x] `setFeetConfig` - dispatches SET_FEET_CONFIG ✓ (Jan 2026)
 
 Sub-assembly operations:
-- [ ] `createSubAssembly` - requires faceOffsets support in engine (complex)
-- [ ] `removeSubAssembly` - needs to extract subAssemblyId from void first
+- [x] `createSubAssembly` - dispatches CREATE_SUB_ASSEMBLY ✓ (Jan 2026)
+- [x] `removeSubAssembly` - dispatches REMOVE_SUB_ASSEMBLY ✓ (Jan 2026)
 - [x] `setSubAssemblyClearance` - dispatches SET_SUB_ASSEMBLY_CLEARANCE ✓ (Jan 2026)
 - [x] `toggleSubAssemblyFace` - dispatches TOGGLE_SUB_ASSEMBLY_FACE ✓ (Jan 2026)
 - [x] `setSubAssemblyAxis` - dispatches SET_SUB_ASSEMBLY_AXIS ✓ (Jan 2026)
 
 Lid configuration (for sub-assemblies):
-- [ ] `setSubAssemblyLidTabDirection` - needs engine action
-- [ ] `setSubAssemblyLidInset` - needs engine action
+- [ ] `setSubAssemblyLidTabDirection` - needs engine action (see lid-analysis.md)
+- [ ] `setSubAssemblyLidInset` - needs engine action (see lid-analysis.md)
 
 **Engine Actions Added (Jan 2026):**
 - `PURGE_VOID` - Clear void children and sub-assembly
@@ -130,9 +130,9 @@ Lid configuration (for sub-assemblies):
 - `SET_SUB_ASSEMBLY_AXIS` - Change assembly orientation
 - `CREATE_SUB_ASSEMBLY` - Enhanced with optional assemblyAxis param
 
-**Summary (8 of 12 actions migrated):**
-The most frequently used actions now dispatch to engine. Remaining actions are either
-complex (createSubAssembly with faceOffsets) or infrequently used (lid configuration).
+**Summary (10 of 12 actions migrated):**
+All major store actions now dispatch to engine. Only lid configuration actions remain,
+which may be deprecated (see `docs/lid-analysis.md` for redundancy analysis).
 All migrated actions include fallback logic for backward compatibility.
 
 ### Phase 4: Remove Duplicate State (PENDING)
