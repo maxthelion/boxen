@@ -999,7 +999,7 @@ export const BoxTree: React.FC = () => {
   // Handle configure face - select the panel and open the configure palette
   const handleConfigureFace = (panelId: string) => {
     selectPanel(panelId, false);
-    setActiveTool('configure-face');
+    setActiveTool('configure');
   };
 
   return (

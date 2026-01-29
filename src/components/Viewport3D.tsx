@@ -8,9 +8,8 @@ import { PushPullPalette, PushPullMode } from './PushPullPalette';
 import { SubdividePalette } from './SubdividePalette';
 import { MovePalette } from './MovePalette';
 import { CreateSubAssemblyPalette } from './CreateSubAssemblyPalette';
-import { AssemblyPalette } from './AssemblyPalette';
+import { ConfigurePalette } from './ConfigurePalette';
 import { ScalePalette } from './ScalePalette';
-import { FacePalette } from './FacePalette';
 import { useBoxStore } from '../store/useBoxStore';
 import { useEnginePanels } from '../engine';
 import { FaceId } from '../types';
@@ -57,14 +56,11 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Create sub-assembly palette state (local UI state only)
   const [createSubAssemblyPalettePosition, setCreateSubAssemblyPalettePosition] = useState({ x: 20, y: 150 });
 
-  // Configure assembly palette state (local UI state only)
-  const [assemblyPalettePosition, setAssemblyPalettePosition] = useState({ x: 20, y: 150 });
+  // Configure palette state (local UI state only)
+  const [configurePalettePosition, setConfigurePalettePosition] = useState({ x: 20, y: 150 });
 
   // Scale palette state (local UI state only)
   const [scalePalettePosition, setScalePalettePosition] = useState({ x: 20, y: 150 });
-
-  // Face palette state (local UI state only)
-  const [facePalettePosition, setFacePalettePosition] = useState({ x: 20, y: 150 });
 
   // Get selected face ID for push-pull tool
   // Panel IDs are UUIDs, so we need to look up the panel source metadata
@@ -174,18 +170,13 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     setActiveTool('select');
   }, [setActiveTool]);
 
-  // Close assembly palette
-  const handleAssemblyPaletteClose = useCallback(() => {
+  // Close configure palette
+  const handleConfigurePaletteClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
 
   // Close scale palette
   const handleScalePaletteClose = useCallback(() => {
-    setActiveTool('select');
-  }, [setActiveTool]);
-
-  // Close face palette
-  const handleFacePaletteClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
 
@@ -256,7 +247,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
       } else if (e.key === 'v' || e.key === 'V') {
         setActiveTool('select');
       } else if (e.key === 'g' || e.key === 'G') {
-        setActiveTool(activeTool === 'configure-assembly' ? 'select' : 'configure-assembly');
+        setActiveTool(activeTool === 'configure' ? 'select' : 'configure');
       } else if (e.key === 'r' || e.key === 'R') {
         setActiveTool(activeTool === 'scale' ? 'select' : 'scale');
       }
@@ -319,12 +310,12 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         />
       )}
 
-      {/* Configure Assembly Palette - only mount when tool is active */}
-      <AssemblyPalette
-        visible={activeTool === 'configure-assembly'}
-        position={assemblyPalettePosition}
-        onPositionChange={setAssemblyPalettePosition}
-        onClose={handleAssemblyPaletteClose}
+      {/* Configure Palette - for assembly or face settings */}
+      <ConfigurePalette
+        visible={activeTool === 'configure'}
+        position={configurePalettePosition}
+        onPositionChange={setConfigurePalettePosition}
+        onClose={handleConfigurePaletteClose}
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
       />
 
@@ -334,15 +325,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         position={scalePalettePosition}
         onPositionChange={setScalePalettePosition}
         onClose={handleScalePaletteClose}
-        containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
-      />
-
-      {/* Face Palette - for configuring face settings */}
-      <FacePalette
-        visible={activeTool === 'configure-face'}
-        position={facePalettePosition}
-        onPositionChange={setFacePalettePosition}
-        onClose={handleFacePaletteClose}
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
       />
 

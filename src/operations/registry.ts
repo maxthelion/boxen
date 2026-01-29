@@ -239,15 +239,15 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     },
   },
 
-  'configure-assembly': {
-    id: 'configure-assembly',
-    name: 'Configure Assembly',
+  'configure': {
+    id: 'configure',
+    name: 'Configure',
     type: 'parameter',
-    selectionType: 'assembly',
-    minSelection: 1,
+    selectionType: 'none',  // Accepts either assembly or panel selection
+    minSelection: 0,  // No minimum - will prompt for selection
     maxSelection: 1,
     availableIn: ['3d'],
-    description: 'Configure assembly orientation, material, and joints',
+    description: 'Configure assembly or face settings',
     shortcut: 'g',
     createPreviewAction: (params) => {
       const {
@@ -346,19 +346,6 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     availableIn: ['2d'],
     description: 'Add chamfers or fillets to corners',
     shortcut: 'c',
-  },
-
-  // Face configuration
-  'configure-face': {
-    id: 'configure-face',
-    name: 'Configure Face',
-    type: 'view',  // View type since changes are immediate via store actions
-    selectionType: 'panel',
-    minSelection: 1,
-    maxSelection: 1,
-    availableIn: ['3d'],
-    description: 'Configure face settings (open/closed, tab direction)',
-    shortcut: 'f',
   },
 
   // Immediate operations (no preview)

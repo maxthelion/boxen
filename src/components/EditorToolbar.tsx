@@ -11,8 +11,7 @@ export type EditorTool =
   | 'subdivide'
   | 'move'
   | 'create-sub-assembly'
-  | 'configure-assembly'
-  | 'configure-face'
+  | 'configure'
   | 'scale';
 
 export type EditorMode = '2d' | '3d';
@@ -114,10 +113,10 @@ const tools: ToolButton[] = [
     modes: ['3d'],
   },
   {
-    id: 'configure-assembly',
+    id: 'configure',
     icon: '⚙',
     label: 'Configure',
-    tooltip: 'Configure assembly settings (G)',
+    tooltip: 'Configure assembly or face settings (G)',
     modes: ['3d'],
   },
 ];
