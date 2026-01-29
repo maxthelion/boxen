@@ -6,13 +6,11 @@ import { ViewportToolbar } from './ViewportToolbar';
 import { EditorToolbar } from './EditorToolbar';
 import { PushPullPalette, PushPullMode } from './PushPullPalette';
 import { SubdividePalette } from './SubdividePalette';
-import { MovePalette } from './MovePalette';
 import { CreateSubAssemblyPalette } from './CreateSubAssemblyPalette';
-import { ConfigurePalette } from './ConfigurePalette';
+import { AssemblyPalette } from './AssemblyPalette';
 import { ScalePalette } from './ScalePalette';
-import { InsetPalette, PanelEdgeGroup } from './InsetPalette';
+import { InsetPalette } from './InsetPalette';
 import { useBoxStore } from '../store/useBoxStore';
-import { EdgePosition, EdgeStatus } from '../types';
 import { useEnginePanels, useEngineConfig } from '../engine';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
@@ -35,8 +33,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const activeTool = useBoxStore((state) => state.activeTool);
   const setActiveTool = useBoxStore((state) => state.setActiveTool);
   const insetFace = useBoxStore((state) => state.insetFace);
-  const selectEdge = useBoxStore((state) => state.selectEdge);
-  const selectPanelEdges = useBoxStore((state) => state.selectPanelEdges);
 
   // Operation system from store
   const operationState = useBoxStore((state) => state.operationState);
@@ -56,14 +52,11 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Subdivide palette state (local UI state only)
   const [subdividePalettePosition, setSubdividePalettePosition] = useState({ x: 20, y: 150 });
 
-  // Move palette state (local UI state only)
-  const [movePalettePosition, setMovePalettePosition] = useState({ x: 20, y: 150 });
-
   // Create sub-assembly palette state (local UI state only)
   const [createSubAssemblyPalettePosition, setCreateSubAssemblyPalettePosition] = useState({ x: 20, y: 150 });
 
-  // Configure palette state (local UI state only)
-  const [configurePalettePosition, setConfigurePalettePosition] = useState({ x: 20, y: 150 });
+  // Configure assembly palette state (local UI state only)
+  const [assemblyPalettePosition, setAssemblyPalettePosition] = useState({ x: 20, y: 150 });
 
   // Scale palette state (local UI state only)
   const [scalePalettePosition, setScalePalettePosition] = useState({ x: 20, y: 150 });
@@ -170,18 +163,13 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     setActiveTool('select');
   }, [setActiveTool]);
 
-  // Close move palette
-  const handleMovePaletteClose = useCallback(() => {
-    setActiveTool('select');
-  }, [setActiveTool]);
-
   // Close create sub-assembly palette
   const handleCreateSubAssemblyPaletteClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
 
-  // Close configure palette
-  const handleConfigurePaletteClose = useCallback(() => {
+  // Close assembly palette
+  const handleAssemblyPaletteClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
 
@@ -192,70 +180,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // Inset/Outset operation handlers
   const selectedEdgesArray = useMemo(() => Array.from(selectedEdges), [selectedEdges]);
-
-  // Build panel edge groups for the InsetPalette
-  // Groups panels that have selected edges, showing all their edges
-  const panelEdgeGroups = useMemo((): PanelEdgeGroup[] => {
-    if (activeTool !== 'inset' || !panelCollection) {
-      return [];
-    }
-
-    // Get unique panel IDs from selected edges
-    const panelIdsWithEdges = new Set<string>();
-    for (const edgeKey of selectedEdges) {
-      const colonIndex = edgeKey.lastIndexOf(':');
-      if (colonIndex > 0) {
-        panelIdsWithEdges.add(edgeKey.slice(0, colonIndex));
-      }
-    }
-
-    if (panelIdsWithEdges.size === 0) {
-      return [];
-    }
-
-    // Build groups for each panel
-    const groups: PanelEdgeGroup[] = [];
-    const allEdges: EdgePosition[] = ['top', 'bottom', 'left', 'right'];
-
-    for (const panelId of panelIdsWithEdges) {
-      const panel = panelCollection.panels.find(p => p.id === panelId);
-      if (!panel) continue;
-
-      // Get panel name from source
-      let panelName: string;
-      if (panel.source.type === 'face' && panel.source.faceId) {
-        // Capitalize face name
-        const faceId = panel.source.faceId;
-        panelName = faceId.charAt(0).toUpperCase() + faceId.slice(1);
-      } else if (panel.source.type === 'divider') {
-        panelName = `Divider`;
-        if (panel.source.axis) {
-          panelName += ` (${panel.source.axis.toUpperCase()})`;
-        }
-      } else {
-        panelName = 'Panel';
-      }
-
-      // Build edge info from panel's edge statuses
-      const edges = allEdges.map(position => {
-        const statusInfo = panel.edgeStatuses?.find(s => s.position === position);
-        const status: EdgeStatus = statusInfo?.status ?? 'unlocked';
-        const isSelected = selectedEdges.has(`${panelId}:${position}`);
-
-        return { position, status, isSelected };
-      });
-
-      groups.push({ panelId, panelName, edges });
-    }
-
-    return groups;
-  }, [activeTool, panelCollection, selectedEdges]);
-
-  // Handle edge toggle from palette
-  const handleEdgeToggle = useCallback((panelId: string, edge: EdgePosition) => {
-    // Toggle the edge selection
-    selectEdge(panelId, edge, true);  // additive = true to toggle
-  }, [selectEdge]);
 
   // Start operation when entering inset mode with edges selected
   useEffect(() => {
@@ -276,19 +200,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
       }
     }
   }, [activeTool, selectedEdgesArray.length, operationState.activeOperation, cancelOperation]);
-
-  // Auto-expand selected panels to edges when inset tool is activated
-  useEffect(() => {
-    if (activeTool === 'inset' && selectedPanelIds.size > 0 && selectedEdges.size === 0 && panelCollection) {
-      // Expand each selected panel to its eligible edges
-      for (const panelId of selectedPanelIds) {
-        const panel = panelCollection.panels.find(p => p.id === panelId);
-        if (panel?.edgeStatuses) {
-          selectPanelEdges(panelId, panel.edgeStatuses);
-        }
-      }
-    }
-  }, [activeTool, selectedPanelIds, selectedEdges.size, panelCollection, selectPanelEdges]);
 
   // Handle inset offset change
   const handleInsetOffsetChange = useCallback((offset: number) => {
@@ -376,12 +287,10 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         setActiveTool(activeTool === 'push-pull' ? 'select' : 'push-pull');
       } else if (e.key === 's' || e.key === 'S') {
         setActiveTool(activeTool === 'subdivide' ? 'select' : 'subdivide');
-      } else if (e.key === 'm' || e.key === 'M') {
-        setActiveTool(activeTool === 'move' ? 'select' : 'move');
       } else if (e.key === 'v' || e.key === 'V') {
         setActiveTool('select');
       } else if (e.key === 'g' || e.key === 'G') {
-        setActiveTool(activeTool === 'configure' ? 'select' : 'configure');
+        setActiveTool(activeTool === 'configure-assembly' ? 'select' : 'configure-assembly');
       } else if (e.key === 'r' || e.key === 'R') {
         setActiveTool(activeTool === 'scale' ? 'select' : 'scale');
       }
@@ -422,17 +331,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         />
       )}
 
-      {/* Move Tool Palette - only mount when tool is active */}
-      {activeTool === 'move' && (
-        <MovePalette
-          visible={true}
-          position={movePalettePosition}
-          onPositionChange={setMovePalettePosition}
-          onClose={handleMovePaletteClose}
-          containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
-        />
-      )}
-
       {/* Create Sub-Assembly Tool Palette - only mount when tool is active */}
       {activeTool === 'create-sub-assembly' && (
         <CreateSubAssemblyPalette
@@ -444,12 +342,12 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         />
       )}
 
-      {/* Configure Palette - for assembly or face settings */}
-      <ConfigurePalette
-        visible={activeTool === 'configure'}
-        position={configurePalettePosition}
-        onPositionChange={setConfigurePalettePosition}
-        onClose={handleConfigurePaletteClose}
+      {/* Configure Assembly Palette - only mount when tool is active */}
+      <AssemblyPalette
+        visible={activeTool === 'configure-assembly'}
+        position={assemblyPalettePosition}
+        onPositionChange={setAssemblyPalettePosition}
+        onClose={handleAssemblyPaletteClose}
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
       />
 
@@ -464,18 +362,16 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
       {/* Inset/Outset Palette */}
       <InsetPalette
-        visible={activeTool === 'inset' && panelEdgeGroups.length > 0}
+        visible={activeTool === 'inset' && selectedEdgesArray.length > 0}
         position={insetPalettePosition}
-        panelEdgeGroups={panelEdgeGroups}
+        selectedEdgeCount={selectedEdgesArray.length}
         offset={insetOffset}
         materialThickness={config?.materialThickness ?? 3}
-        onEdgeToggle={handleEdgeToggle}
         onOffsetChange={handleInsetOffsetChange}
         onApply={handleInsetApply}
         onClose={handleInsetPaletteClose}
         onPositionChange={setInsetPalettePosition}
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
-        closeOnClickOutside={false}
       />
 
       <Canvas
