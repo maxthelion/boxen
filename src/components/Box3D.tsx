@@ -5,6 +5,7 @@ import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { PanelCollectionRenderer } from './PanelPathRenderer';
 import { PushPullArrow } from './PushPullArrow';
+import { AssemblyAxisIndicator, LidFaceHighlight } from './AssemblyAxisIndicator';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
 import * as THREE from 'three';
@@ -30,7 +31,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
-  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectPanel, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
+  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectPanel, selectAssembly, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
 
   // Check if a preview is currently active
   const isPreviewActive = operationState.activeOperation !== null;
@@ -91,6 +92,22 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
         <edgesGeometry args={[new THREE.BoxGeometry(boundingBoxW, boundingBoxH, boundingBoxD)]} />
         <lineBasicMaterial color={isPreviewActive ? '#ffcc00' : '#ff0000'} linewidth={2} />
       </lineSegments>
+
+      {/* Assembly axis indicator - shows when main assembly is selected */}
+      {selectedAssemblyId === 'main' && config.assembly?.assemblyAxis && (
+        <>
+          <AssemblyAxisIndicator
+            axis={config.assembly.assemblyAxis}
+            dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
+            visible={true}
+          />
+          <LidFaceHighlight
+            axis={config.assembly.assemblyAxis}
+            dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
+            visible={true}
+          />
+        </>
+      )}
 
       {/* Debug anchor spheres at box corners (inset by half material thickness) */}
       {showDebugAnchors && anchorCorners.map((corner, idx) => (
