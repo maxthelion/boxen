@@ -99,6 +99,9 @@ export abstract class BaseAssembly extends BaseNode {
   // Cached finger point data (computed from dimensions + material)
   protected _cachedFingerData: AssemblyFingerData | null = null;
 
+  // Cached face panel IDs (UUIDs preserved across clones)
+  protected _facePanelIds: Map<FaceId, string> = new Map();
+
   // Cached joint registry and validation results
   protected _cachedJoints: JointConstraint[] | null = null;
   protected _cachedJointErrors: JointAlignmentError[] | null = null;
@@ -713,19 +716,21 @@ export abstract class BaseAssembly extends BaseNode {
   protected computePanels(): PanelSnapshot[] {
     const panels: PanelSnapshot[] = [];
 
-    // Generate face panels
-    // For sub-assemblies, include assembly ID in panel ID to ensure uniqueness
-    const idPrefix = this.kind === 'sub-assembly' ? `${this.id}-` : '';
-
+    // Generate face panels with cached UUIDs
     for (const faceId of ALL_FACE_IDS) {
       const face = this._faces.get(faceId)!;
       if (face.solid) {
-        // Create panel node with unique ID
-        const panelId = `${idPrefix}face-${faceId}`;
+        // Get or create cached UUID for this face panel
+        let panelId = this._facePanelIds.get(faceId);
+        if (!panelId) {
+          panelId = crypto.randomUUID();
+          this._facePanelIds.set(faceId, panelId);
+        }
         const panelNode = new FacePanelNode(faceId, this, panelId);
 
-        // Apply stored edge extensions
-        const storedExtensions = this._panelEdgeExtensions.get(panelNode.id);
+        // Apply stored edge extensions (check both UUID and legacy face-{faceId} key)
+        const storedExtensions = this._panelEdgeExtensions.get(panelNode.id)
+          || this._panelEdgeExtensions.get(`face-${faceId}`);
         if (storedExtensions) {
           panelNode.setEdgeExtensions(storedExtensions);
         }
@@ -929,6 +934,12 @@ export abstract class BaseAssembly extends BaseNode {
     target._panelEdgeExtensions = new Map();
     for (const [panelId, extensions] of this._panelEdgeExtensions) {
       target._panelEdgeExtensions.set(panelId, { ...extensions });
+    }
+
+    // Copy face panel IDs (preserve UUIDs across clones)
+    target._facePanelIds = new Map();
+    for (const [faceId, panelId] of this._facePanelIds) {
+      target._facePanelIds.set(faceId, panelId);
     }
   }
 

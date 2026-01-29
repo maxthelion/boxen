@@ -880,12 +880,15 @@ export class FacePanelNode extends BasePanel {
 
   serialize(): FacePanelSnapshot {
     const base = this.serializeBase();
+    // Include assemblyId for sub-assembly panels (undefined for main assembly)
+    const assemblyId = this._assembly.kind === 'sub-assembly' ? this._assembly.id : undefined;
     return {
       ...base,
       kind: 'face-panel',
       props: {
         ...base.props,
         faceId: this.faceId,
+        assemblyId,
       },
     };
   }
