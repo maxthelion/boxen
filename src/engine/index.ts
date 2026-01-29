@@ -80,5 +80,17 @@ export {
   calculateDeviation,
 } from './alignmentDebug';
 
+// Geometry checking utilities
+export {
+  GeometryChecker,
+  checkGeometry,
+  formatGeometryCheckResult,
+} from './geometryChecker';
+export type {
+  GeometryRuleId,
+  GeometryViolation,
+  GeometryCheckResult,
+} from './geometryChecker';
+
 // Types
 export * from './types';
