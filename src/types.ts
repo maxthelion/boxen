@@ -278,7 +278,7 @@ export interface BoxState {
 }
 
 // Editor tools available in 2D/3D views
-export type EditorTool = 'select' | 'pan' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer' | 'push-pull' | 'subdivide' | 'create-sub-assembly' | 'configure-assembly' | 'scale';
+export type EditorTool = 'select' | 'pan' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer' | 'push-pull' | 'subdivide' | 'move' | 'create-sub-assembly' | 'configure-assembly' | 'scale';
 
 export interface BoxActions {
   setConfig: (config: Partial<BoxConfig>) => void;

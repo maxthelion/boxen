@@ -481,4 +481,7 @@ export type EngineAction =
         positive?: Partial<LidConfig>;
         negative?: Partial<LidConfig>;
       };
+    }}
+  | { type: 'MOVE_SUBDIVISIONS'; targetId: string; payload: {
+      moves: { subdivisionId: string; newPosition: number }[];
     }};

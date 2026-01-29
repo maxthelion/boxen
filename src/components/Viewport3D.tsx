@@ -6,6 +6,7 @@ import { ViewportToolbar } from './ViewportToolbar';
 import { EditorToolbar } from './EditorToolbar';
 import { PushPullPalette, PushPullMode } from './PushPullPalette';
 import { SubdividePalette } from './SubdividePalette';
+import { MovePalette } from './MovePalette';
 import { CreateSubAssemblyPalette } from './CreateSubAssemblyPalette';
 import { AssemblyPalette } from './AssemblyPalette';
 import { ScalePalette } from './ScalePalette';
@@ -48,6 +49,9 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // Subdivide palette state (local UI state only)
   const [subdividePalettePosition, setSubdividePalettePosition] = useState({ x: 20, y: 150 });
+
+  // Move palette state (local UI state only)
+  const [movePalettePosition, setMovePalettePosition] = useState({ x: 20, y: 150 });
 
   // Create sub-assembly palette state (local UI state only)
   const [createSubAssemblyPalettePosition, setCreateSubAssemblyPalettePosition] = useState({ x: 20, y: 150 });
@@ -156,6 +160,11 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     setActiveTool('select');
   }, [setActiveTool]);
 
+  // Close move palette
+  const handleMovePaletteClose = useCallback(() => {
+    setActiveTool('select');
+  }, [setActiveTool]);
+
   // Close create sub-assembly palette
   const handleCreateSubAssemblyPaletteClose = useCallback(() => {
     setActiveTool('select');
@@ -233,6 +242,8 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         setActiveTool(activeTool === 'push-pull' ? 'select' : 'push-pull');
       } else if (e.key === 's' || e.key === 'S') {
         setActiveTool(activeTool === 'subdivide' ? 'select' : 'subdivide');
+      } else if (e.key === 'm' || e.key === 'M') {
+        setActiveTool(activeTool === 'move' ? 'select' : 'move');
       } else if (e.key === 'v' || e.key === 'V') {
         setActiveTool('select');
       } else if (e.key === 'g' || e.key === 'G') {
@@ -273,6 +284,17 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
           position={subdividePalettePosition}
           onPositionChange={setSubdividePalettePosition}
           onClose={handleSubdividePaletteClose}
+          containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+        />
+      )}
+
+      {/* Move Tool Palette - only mount when tool is active */}
+      {activeTool === 'move' && (
+        <MovePalette
+          visible={true}
+          position={movePalettePosition}
+          onPositionChange={setMovePalettePosition}
+          onClose={handleMovePaletteClose}
           containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
         />
       )}

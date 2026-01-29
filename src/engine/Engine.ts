@@ -555,6 +555,36 @@ export class Engine {
         }
         break;
       }
+
+      case 'MOVE_SUBDIVISIONS': {
+        const { moves } = action.payload;
+        let anyMoved = false;
+
+        for (const { subdivisionId, newPosition } of moves) {
+          // subdivisionId is the void that has the split info (the one after the divider)
+          const voidNode = findInScene(subdivisionId);
+          if (voidNode instanceof VoidNode && voidNode.splitPosition !== undefined) {
+            // Find the parent void that contains this subdivision
+            const parentVoid = voidNode.parent instanceof VoidNode ? voidNode.parent : null;
+            if (parentVoid && assembly) {
+              const success = parentVoid.moveSubdivision(
+                subdivisionId,
+                newPosition,
+                assembly.material.thickness
+              );
+              if (success) {
+                anyMoved = true;
+              }
+            }
+          }
+        }
+
+        if (anyMoved) {
+          this.invalidateNodeMap();
+          return true;
+        }
+        break;
+      }
     }
 
     return false;

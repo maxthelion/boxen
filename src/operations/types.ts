@@ -24,6 +24,7 @@ export type OperationId =
   | 'configure-assembly'
   | 'scale'
   | 'chamfer-fillet'
+  | 'move'
   // Immediate operations (execute instantly)
   | 'toggle-face'
   | 'remove-subdivision'
@@ -162,6 +163,14 @@ export interface EditIn2DParams {
 }
 
 /**
+ * Parameters for move operation
+ */
+export interface MoveParams {
+  /** Map of subdivision ID to new position (absolute coordinate) */
+  moves: { subdivisionId: string; newPosition: number }[];
+}
+
+/**
  * Union of all operation parameters
  */
 export type OperationParams =
@@ -176,7 +185,8 @@ export type OperationParams =
   | ToggleFaceParams
   | RemoveSubdivisionParams
   | RemoveSubAssemblyParams
-  | EditIn2DParams;
+  | EditIn2DParams
+  | MoveParams;
 
 // ==========================================================================
 // Operation State

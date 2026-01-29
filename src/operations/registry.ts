@@ -368,6 +368,28 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     description: 'Remove a sub-assembly from a void',
   },
 
+  'move': {
+    id: 'move',
+    name: 'Move',
+    type: 'parameter',
+    selectionType: 'panel',
+    minSelection: 1,
+    maxSelection: Infinity, // Allow multiple panels
+    availableIn: ['3d'],
+    description: 'Move divider panels along their axis',
+    shortcut: 'm',
+    createPreviewAction: (params) => {
+      const { moves } = params as { moves?: { subdivisionId: string; newPosition: number }[] };
+      if (!moves?.length) return null;
+
+      return {
+        type: 'MOVE_SUBDIVISIONS',
+        targetId: 'main-assembly',
+        payload: { moves },
+      };
+    },
+  },
+
   // View operations (no model change)
   'edit-in-2d': {
     id: 'edit-in-2d',

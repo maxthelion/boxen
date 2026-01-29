@@ -10,6 +10,7 @@ export type EditorTool =
   | 'chamfer'
   | 'push-pull'
   | 'subdivide'
+  | 'move'
   | 'create-sub-assembly'
   | 'configure-assembly'
   | 'scale';
@@ -96,6 +97,13 @@ const tools: ToolButton[] = [
     icon: '⊞',
     label: 'Subdivide',
     tooltip: 'Subdivide void (S)',
+    modes: ['3d'],
+  },
+  {
+    id: 'move',
+    icon: '↔',
+    label: 'Move',
+    tooltip: 'Move dividers (M)',
     modes: ['3d'],
   },
   {
