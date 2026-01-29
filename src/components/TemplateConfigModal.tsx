@@ -256,7 +256,7 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
 
           {/* Right side: 3D Preview */}
           <div className="template-preview-container">
-            <Canvas camera={{ position: [150, 100, 150], fov: 50 }}>
+            <Canvas camera={{ position: [80, 60, 80], fov: 50 }}>
               <ambientLight intensity={0.5} />
               <directionalLight position={[10, 10, 5]} intensity={1} />
               <OrbitControls
@@ -273,8 +273,8 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
                 sectionSize={50}
                 sectionThickness={1}
                 sectionColor="#666"
-                fadeDistance={300}
-                position={[0, -50, 0]}
+                fadeDistance={200}
+                position={[0, -30, 0]}
               />
               <Environment preset="studio" />
               <TemplatePreview />
