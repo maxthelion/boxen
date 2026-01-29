@@ -171,15 +171,15 @@ describe('Grid Subdivision', () => {
       expect(xDivider).toBeDefined();
       expect(zDivider).toBeDefined();
 
-      // X-divider should span full Z depth
-      // Width spans Z, Height spans Y
-      expect(xDivider!.derived.width).toBeCloseTo(bounds.d, 1);
-      expect(xDivider!.derived.height).toBeCloseTo(bounds.h, 1);
+      // Divider body extends to assembly boundaries for proper joint mating
+      // (not just void interior bounds)
+      // X-divider: width spans Z (depth), height spans Y (height)
+      expect(xDivider!.derived.width).toBeCloseTo(assembly.depth, 1);
+      expect(xDivider!.derived.height).toBeCloseTo(assembly.height, 1);
 
-      // Z-divider should span full X width
-      // Width spans X, Height spans Y
-      expect(zDivider!.derived.width).toBeCloseTo(bounds.w, 1);
-      expect(zDivider!.derived.height).toBeCloseTo(bounds.h, 1);
+      // Z-divider: width spans X (width), height spans Y (height)
+      expect(zDivider!.derived.width).toBeCloseTo(assembly.width, 1);
+      expect(zDivider!.derived.height).toBeCloseTo(assembly.height, 1);
     });
 
     it('should generate subdivisions for cross-lap slot calculation', () => {
