@@ -113,11 +113,15 @@ Medium-priority:
 - [x] `setFeetConfig` - dispatches SET_FEET_CONFIG ✓ (Jan 2026)
 
 Sub-assembly operations:
-- [ ] `createSubAssembly` - engine supports but store doesn't use it yet
-- [ ] `removeSubAssembly` - needs to get subAssemblyId from voidId
+- [ ] `createSubAssembly` - requires faceOffsets support in engine (complex)
+- [ ] `removeSubAssembly` - needs to extract subAssemblyId from void first
 - [x] `setSubAssemblyClearance` - dispatches SET_SUB_ASSEMBLY_CLEARANCE ✓ (Jan 2026)
 - [x] `toggleSubAssemblyFace` - dispatches TOGGLE_SUB_ASSEMBLY_FACE ✓ (Jan 2026)
 - [x] `setSubAssemblyAxis` - dispatches SET_SUB_ASSEMBLY_AXIS ✓ (Jan 2026)
+
+Lid configuration (for sub-assemblies):
+- [ ] `setSubAssemblyLidTabDirection` - needs engine action
+- [ ] `setSubAssemblyLidInset` - needs engine action
 
 **Engine Actions Added (Jan 2026):**
 - `PURGE_VOID` - Clear void children and sub-assembly
@@ -125,6 +129,11 @@ Sub-assembly operations:
 - `TOGGLE_SUB_ASSEMBLY_FACE` - Toggle face solid/open
 - `SET_SUB_ASSEMBLY_AXIS` - Change assembly orientation
 - `CREATE_SUB_ASSEMBLY` - Enhanced with optional assemblyAxis param
+
+**Summary (8 of 12 actions migrated):**
+The most frequently used actions now dispatch to engine. Remaining actions are either
+complex (createSubAssembly with faceOffsets) or infrequently used (lid configuration).
+All migrated actions include fallback logic for backward compatibility.
 
 ### Phase 4: Remove Duplicate State (PENDING)
 
