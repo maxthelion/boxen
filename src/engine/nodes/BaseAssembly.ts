@@ -450,6 +450,25 @@ export abstract class BaseAssembly extends BaseNode {
     const subdivisions: Subdivision[] = [];
 
     const traverse = (node: VoidNode, parentBounds: Bounds3D) => {
+      // Check for grid subdivisions first
+      if (node.gridSubdivision) {
+        // Grid subdivisions: all dividers span the full parent void bounds
+        for (const axis of node.gridSubdivision.axes) {
+          const positions = node.gridSubdivision.positions[axis];
+          if (positions) {
+            for (const position of positions) {
+              subdivisions.push({
+                id: `${node.id}-grid-${axis}-${position}`,
+                axis,
+                position,
+                bounds: node.bounds, // Use the grid parent's full bounds
+              });
+            }
+          }
+        }
+      }
+
+      // Check for regular subdivisions (nested single-axis)
       if (node.splitAxis && node.splitPosition !== undefined) {
         subdivisions.push({
           id: node.id + '-split',
@@ -751,6 +770,41 @@ export abstract class BaseAssembly extends BaseNode {
    * Recursively collect divider panels from void tree
    */
   protected collectDividerPanels(voidNode: VoidNode, panels: PanelSnapshot[]): void {
+    // Check for grid subdivisions first
+    if (voidNode.gridSubdivision) {
+      // Grid subdivisions: create full-spanning dividers from the grid parent's bounds
+      for (const axis of voidNode.gridSubdivision.axes) {
+        const positions = voidNode.gridSubdivision.positions[axis];
+        if (positions) {
+          for (const position of positions) {
+            // Use cached panel ID if available (preserves identity across scene clones)
+            const cachedId = voidNode.getGridDividerPanelId(axis, position);
+            const dividerNode = new DividerPanelNode(voidNode, axis, position, cachedId);
+
+            // Cache the panel ID for future clones
+            if (!cachedId) {
+              voidNode.setGridDividerPanelId(axis, position, dividerNode.id);
+            }
+
+            // Apply stored edge extensions
+            const storedExtensions = this._panelEdgeExtensions.get(dividerNode.id);
+            if (storedExtensions) {
+              dividerNode.setEdgeExtensions(storedExtensions);
+            }
+
+            panels.push(dividerNode.serialize());
+          }
+        }
+      }
+
+      // Recurse into grid cell children (they may have nested subdivisions)
+      for (const child of voidNode.getVoidChildren()) {
+        this.collectDividerPanels(child, panels);
+      }
+      return;
+    }
+
+    // Regular subdivision handling
     const voidChildren = voidNode.getVoidChildren();
 
     if (voidChildren.length === 0) {

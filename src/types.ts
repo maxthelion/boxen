@@ -194,6 +194,12 @@ export interface SubAssembly {
 // Position mode for subdivisions
 export type SplitPositionMode = 'absolute' | 'percentage';
 
+// Grid subdivision info for multi-axis subdivision
+export interface GridSubdivisionInfo {
+  axes: ('x' | 'y' | 'z')[];
+  positions: Partial<Record<'x' | 'y' | 'z', number[]>>;
+}
+
 // Hierarchical void structure - subdivisions create child voids
 export interface Void {
   id: string;
@@ -205,6 +211,8 @@ export interface Void {
   splitPosition?: number;  // Absolute position in box coordinates where the split occurred
   splitPositionMode?: SplitPositionMode;  // 'absolute' = fixed position, 'percentage' = scales with dimensions
   splitPercentage?: number;  // 0.0 to 1.0 - position as percentage of parent void dimension (along split axis)
+  // If this void has a grid subdivision (multi-axis):
+  gridSubdivision?: GridSubdivisionInfo;
   // If this void is a lid inset cap (space between inset lid and outer edge):
   lidInsetSide?: 'positive' | 'negative';
   // If this is the main interior void (when lid insets exist):

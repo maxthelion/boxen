@@ -62,6 +62,7 @@ export function voidSnapshotToVoid(snapshot: VoidSnapshot): Void {
     splitPosition: snapshot.props.splitPosition,
     splitPositionMode: snapshot.props.splitPositionMode,
     splitPercentage: snapshot.props.splitPercentage,
+    gridSubdivision: snapshot.props.gridSubdivision,
     children: snapshot.children
       .filter((c): c is VoidSnapshot => c.kind === 'void')
       .map(voidSnapshotToVoid),

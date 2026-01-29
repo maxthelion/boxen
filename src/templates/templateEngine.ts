@@ -137,6 +137,53 @@ function generateSubdivisionActionsForLeafVoids(
 }
 
 /**
+ * Generate a grid subdivision action for the root void
+ * This creates full-spanning dividers with proper cross-lap joints
+ */
+function generateGridSubdivisionAction(
+  engine: Engine,
+  axesConfig: { axis: Axis; count: number }[],
+  options?: { preview?: boolean }
+): void {
+  // Get the active snapshot
+  const snapshot = engine.getSnapshot();
+
+  // Find the main assembly
+  const assembly = snapshot.children.find(
+    (c): c is AssemblySnapshot => c.kind === 'assembly'
+  );
+  if (!assembly) return;
+
+  // Get root void
+  const rootVoid = assembly.children.find((c): c is VoidSnapshot => c.kind === 'void');
+  if (!rootVoid) return;
+
+  const bounds = rootVoid.derived.bounds;
+
+  // Build axes array with computed positions
+  const axes = axesConfig
+    .filter(({ count }) => count > 1) // Only include axes with actual subdivisions
+    .map(({ axis, count }) => ({
+      axis,
+      positions: computePositionsForVoid(bounds, axis, count),
+    }))
+    .filter(({ positions }) => positions.length > 0);
+
+  if (axes.length === 0) return;
+
+  const action: EngineAction = {
+    type: 'ADD_GRID_SUBDIVISION',
+    targetId: 'main-assembly',
+    payload: {
+      voidId: rootVoid.id,
+      axes,
+    },
+  };
+
+  engine.dispatch(action, options);
+}
+
+/**
  * Instantiate a template into an engine
  *
  * This creates a new assembly and replays all actions with the provided values.
@@ -165,7 +212,16 @@ export function instantiateTemplate(
 
   // Replay each action in the sequence
   for (const templateAction of template.actionSequence) {
-    if (templateAction.subdivisionConfig) {
+    if (templateAction.gridSubdivisionConfig) {
+      // This is a grid subdivision action - creates full-spanning dividers on multiple axes
+      const axesConfig = templateAction.gridSubdivisionConfig.axes.map(({ axis, defaultCount }) => ({
+        axis,
+        count: values.subdivisionCounts?.[axis] ?? defaultCount,
+      }));
+
+      // Generate and dispatch grid subdivision action for the root void
+      generateGridSubdivisionAction(engine, axesConfig, options);
+    } else if (templateAction.subdivisionConfig) {
       // This is a parameterized subdivision action
       // For multi-axis grids, we need to subdivide ALL current leaf voids
       const { axis } = templateAction.subdivisionConfig;

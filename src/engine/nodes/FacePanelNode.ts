@@ -22,7 +22,6 @@ import {
   Axis,
   Subdivision,
   Bounds3D,
-  Point2D,
 } from '../types';
 import {
   ALL_EDGE_POSITIONS,
@@ -30,6 +29,9 @@ import {
 } from '../../utils/faceGeometry';
 import { getEdgeGender } from '../../utils/genderRules';
 import { getEdgeAxis, Face as StoreFace, AssemblyConfig as StoreAssemblyConfig } from '../../types';
+import { debug, enableDebugTag } from '../../utils/debug';
+
+enableDebugTag('face-cross-lap');
 
 export class FacePanelNode extends BasePanel {
   readonly kind: NodeKind = 'face-panel';
@@ -189,6 +191,11 @@ export class FacePanelNode extends BasePanel {
     const fingerData = this.getFingerData();
     const tolerance = 0.01;
 
+    // Build cross-lap blocking info for each subdivision
+    // This tracks positions where a divider's material is cut away due to cross-lap joints
+    const crossLapBlocking = this.buildCrossLapBlockingInfo(subdivisions, mt);
+
+
     // Get lid insets for boundary calculations
     const assemblyConfig = this._assembly.assemblyConfig;
     const assemblyAxis = assemblyConfig.assemblyAxis;
@@ -238,6 +245,8 @@ export class FacePanelNode extends BasePanel {
 
         // Calculate bounds range for this divider (same logic as panelGenerator)
         // Uses the same wall-detection logic as divider edge position calculation
+        // Note: When a divider doesn't reach a wall, its panel body extends mt beyond the void
+        // to meet the adjacent divider, so slots should also extend there.
         const calcBoundsRange = (): { boundsStart: number; boundsEnd: number } => {
           let boundsStart: number;
           let boundsEnd: number;
@@ -246,17 +255,19 @@ export class FacePanelNode extends BasePanel {
             const atLowWall = bounds.x <= mt + tolerance;
             const atHighWall = bounds.x + bounds.w >= width - mt - tolerance;
             boundsStart = atLowWall ? (startInset > 0 ? 0 : -mt) : (bounds.x - mt);
-            boundsEnd = atHighWall ? (endInset > 0 ? maxJoint : maxJoint + mt) : (bounds.x + bounds.w - mt);
+            // When not at wall, panel body extends to void end + mt (to meet adjacent divider)
+            // In 0-based coords: (bounds.x + bounds.w + mt) - mt = bounds.x + bounds.w
+            boundsEnd = atHighWall ? (endInset > 0 ? maxJoint : maxJoint + mt) : (bounds.x + bounds.w);
           } else if (slotAxis === 'y') {
             const atLowWall = bounds.y <= mt + tolerance;
             const atHighWall = bounds.y + bounds.h >= height - mt - tolerance;
             boundsStart = atLowWall ? (startInset > 0 ? 0 : -mt) : (bounds.y - mt);
-            boundsEnd = atHighWall ? (endInset > 0 ? maxJoint : maxJoint + mt) : (bounds.y + bounds.h - mt);
+            boundsEnd = atHighWall ? (endInset > 0 ? maxJoint : maxJoint + mt) : (bounds.y + bounds.h);
           } else {
             const atLowWall = bounds.z <= mt + tolerance;
             const atHighWall = bounds.z + bounds.d >= depth - mt - tolerance;
             boundsStart = atLowWall ? (startInset > 0 ? 0 : -mt) : (bounds.z - mt);
-            boundsEnd = atHighWall ? (endInset > 0 ? maxJoint : maxJoint + mt) : (bounds.z + bounds.d - mt);
+            boundsEnd = atHighWall ? (endInset > 0 ? maxJoint : maxJoint + mt) : (bounds.z + bounds.d);
           }
 
           return { boundsStart, boundsEnd };
@@ -273,6 +284,9 @@ export class FacePanelNode extends BasePanel {
         // Even-indexed sections (0, 2, 4, ...) are finger sections where divider tabs go
         const allBoundaries = [innerOffset, ...transitionPoints, maxJoint - innerOffset];
 
+        // Get blocking ranges for this subdivision (cross-lap positions where material is removed)
+        const blockingRanges = crossLapBlocking.get(sub.id) || [];
+
         let slotIndex = 0;
         for (let i = 0; i < allBoundaries.length - 1; i++) {
           if (i % 2 === 0) {  // Finger section (where divider tabs go)
@@ -282,6 +296,15 @@ export class FacePanelNode extends BasePanel {
             // Only include COMPLETE finger sections fully within the effective range
             // Partial fingers/slots are not allowed
             if (sectionStart < effectiveLow || sectionEnd > effectiveHigh) continue;
+
+            // Skip slots that overlap with cross-lap blocking ranges
+            // This is where the divider's material has been cut away by a cross-lap joint
+            const isBlocked = blockingRanges.some(range =>
+              sectionStart < range.end && sectionEnd > range.start
+            );
+            if (isBlocked) {
+              continue;
+            }
 
             // Convert from 0-based axis coords to 2D panel coords (centered)
             // 0-based coords: 0 to maxJoint
@@ -472,27 +495,6 @@ export class FacePanelNode extends BasePanel {
     return { slotX, slotY, slotLength, isHorizontal, startInset, endInset, slotAxis };
   }
 
-  /**
-   * Get the start position of the slot along its axis based on divider bounds
-   */
-  private getSlotBoundsStart(axis: Axis, bounds: Bounds3D): number {
-    switch (axis) {
-      case 'x': return bounds.x;
-      case 'y': return bounds.y;
-      case 'z': return bounds.z;
-    }
-  }
-
-  /**
-   * Get the end position of the slot along its axis based on divider bounds
-   */
-  private getSlotBoundsEnd(axis: Axis, bounds: Bounds3D): number {
-    switch (axis) {
-      case 'x': return bounds.x + bounds.w;
-      case 'y': return bounds.y + bounds.h;
-      case 'z': return bounds.z + bounds.d;
-    }
-  }
   getMatingFaceId(edgePosition: EdgePosition): FaceId | null {
     const adjacentFaceId = getAdjacentFace(this.faceId, edgePosition);
     // Only return if the adjacent face is solid (actually exists)
@@ -639,6 +641,237 @@ export class FacePanelNode extends BasePanel {
       case 'z':
         return this.faceId === 'front' || this.faceId === 'back';
     }
+  }
+
+  // ==========================================================================
+  // Cross-Lap Blocking
+  // ==========================================================================
+
+  /**
+   * Build a map of cross-lap blocking ranges for each subdivision.
+   * When dividers form cross-lap joints, one divider has its material cut away
+   * at specific positions. Face panels shouldn't create slots where the divider
+   * has no material.
+   *
+   * Cross-lap rule (from DividerPanelNode):
+   * - Axis priority: X < Y < Z
+   * - Lower priority axis gets slot from 'top' (keeps bottom material)
+   * - Higher priority axis gets slot from 'bottom' (loses bottom material)
+   *
+   * For a face panel:
+   * - Bottom face: skip slots where divider has cross-lap from bottom
+   * - Top face: skip slots where divider has cross-lap from top
+   */
+  private buildCrossLapBlockingInfo(
+    subdivisions: Subdivision[],
+    mt: number
+  ): Map<string, { start: number; end: number }[]> {
+    const blocking = new Map<string, { start: number; end: number }[]>();
+    const tolerance = 0.01;
+
+    // Determine which "edge" this face corresponds to for cross-lap purposes
+    // Cross-lap cuts from 'top' or 'bottom' of divider panel
+    // - Top/bottom faces correspond to 'top'/'bottom' of Y-axis panels
+    // - For X and Z dividers meeting a top/bottom face, the cross-lap direction matters
+    const faceEdge = this.getCrossLapEdgeForFace();
+    if (!faceEdge) {
+      // This face doesn't have cross-lap considerations (e.g., front/back for Y-dividers)
+      return blocking;
+    }
+
+    // Build a lookup of subdivisions by axis for quick intersection finding
+    const subsByAxis: Record<Axis, Subdivision[]> = { x: [], y: [], z: [] };
+    for (const sub of subdivisions) {
+      subsByAxis[sub.axis].push(sub);
+    }
+
+    for (const sub of subdivisions) {
+      const ranges: { start: number; end: number }[] = [];
+
+      // Find subdivisions on other axes that could create cross-lap joints
+      const otherAxes: Axis[] = (['x', 'y', 'z'] as Axis[]).filter(a => a !== sub.axis);
+
+      for (const otherAxis of otherAxes) {
+        // Determine cross-lap direction based on axis priority
+        const myCrossLapEdge = this.getCrossLapSlotEdge(sub.axis, otherAxis);
+
+        // If this divider's cross-lap is from the same edge as the face we're on,
+        // then material is removed at the intersection - we need to block slots there
+        if (myCrossLapEdge === faceEdge) {
+          // Find intersecting subdivisions on the other axis
+          for (const otherSub of subsByAxis[otherAxis]) {
+            // Check if they actually intersect
+            // A subdivision on axis A at position P intersects with axis B at position Q
+            // if P is within the bounds of the other subdivision along axis A
+            const intersects = this.subdivisionsIntersect(sub, otherSub, tolerance);
+            if (intersects) {
+              // Add blocking range at the other subdivision's position
+              // The slot axis for this face determines which coordinate we use
+              const slotInfo = this.getSlotAxisForFace(sub.axis);
+              if (slotInfo) {
+                const blockingPos = this.getBlockingPosition(otherSub, slotInfo.axis);
+                if (blockingPos !== null) {
+                  // The cross-lap slot width is materialThickness
+                  const halfSlot = mt / 2;
+                  const range = {
+                    start: blockingPos - halfSlot,
+                    end: blockingPos + halfSlot,
+                  };
+                  ranges.push(range);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      if (ranges.length > 0) {
+        debug('face-cross-lap', `  blocking ranges for ${sub.id}: ${ranges.map(r => `[${r.start.toFixed(1)}, ${r.end.toFixed(1)}]`).join(', ')}`);
+        blocking.set(sub.id, ranges);
+      }
+    }
+
+    return blocking;
+  }
+
+  /**
+   * Get the cross-lap edge that this face corresponds to.
+   * Returns 'top' or 'bottom' based on which edge of a divider panel this face represents.
+   */
+  private getCrossLapEdgeForFace(): 'top' | 'bottom' | null {
+    // For top/bottom faces:
+    // - Bottom face (Y-) corresponds to 'bottom' edge of dividers
+    // - Top face (Y+) corresponds to 'top' edge of dividers
+    //
+    // For left/right faces (X-axis dividers):
+    // - These don't have cross-lap considerations with Y or Z dividers on top/bottom
+    // - But Y-dividers meeting left/right could have cross-lap
+    //
+    // For simplicity, we only handle top/bottom face cross-lap blocking for now,
+    // as that's where the user reported the issue
+    switch (this.faceId) {
+      case 'bottom':
+        return 'bottom';
+      case 'top':
+        return 'top';
+      default:
+        // For other faces, cross-lap blocking would need different axis logic
+        // TODO: Extend if needed for front/back/left/right faces
+        return null;
+    }
+  }
+
+  /**
+   * Get which edge the cross-lap slot is cut from for a divider on myAxis
+   * when it intersects another divider on otherAxis.
+   *
+   * Uses alphabetical axis priority: X < Y < Z
+   * - Lower priority axis gets slot from 'top' (keeps bottom material)
+   * - Higher priority axis gets slot from 'bottom' (loses bottom material)
+   */
+  private getCrossLapSlotEdge(myAxis: Axis, otherAxis: Axis): 'top' | 'bottom' {
+    // Alphabetical comparison: 'x' < 'y' < 'z'
+    if (myAxis < otherAxis) {
+      return 'top';
+    } else {
+      return 'bottom';
+    }
+  }
+
+  /**
+   * Check if two subdivisions on different axes intersect (cross each other)
+   *
+   * Important: Divider panels extend beyond their void bounds by materialThickness
+   * on the side that meets another divider (not a wall). We need to account for
+   * this extension when checking intersections.
+   */
+  private subdivisionsIntersect(sub1: Subdivision, sub2: Subdivision, tolerance: number): boolean {
+    const mt = this._assembly.material.thickness;
+
+    // For two dividers to intersect:
+    // - sub1's position (on its axis) must be within sub2's PANEL extent on that axis
+    // - sub2's position (on its axis) must be within sub1's PANEL extent on that axis
+    //
+    // Panel extent = void bounds + mt extension on divider sides (not wall sides)
+    // For simplicity, we extend both sides by mt - this is conservative but correct
+
+    // Get the range of sub2 along sub1's axis (expanded by mt for panel extent)
+    const range2OnAxis1 = this.getSubdivisionRange(sub2, sub1.axis);
+    const pos1OnAxis1 = sub1.position;
+
+    // Get the range of sub1 along sub2's axis (expanded by mt for panel extent)
+    const range1OnAxis2 = this.getSubdivisionRange(sub1, sub2.axis);
+    const pos2OnAxis2 = sub2.position;
+
+    // Check if positions fall within the ranges (extended by mt for panel body)
+    const sub1WithinSub2 = pos1OnAxis1 >= range2OnAxis1.start - mt - tolerance &&
+                           pos1OnAxis1 <= range2OnAxis1.end + mt + tolerance;
+    const sub2WithinSub1 = pos2OnAxis2 >= range1OnAxis2.start - mt - tolerance &&
+                           pos2OnAxis2 <= range1OnAxis2.end + mt + tolerance;
+
+    return sub1WithinSub2 && sub2WithinSub1;
+  }
+
+  /**
+   * Get the range (start, end) of a subdivision's bounds along a given axis
+   */
+  private getSubdivisionRange(sub: Subdivision, axis: Axis): { start: number; end: number } {
+    const { bounds } = sub;
+    switch (axis) {
+      case 'x':
+        return { start: bounds.x, end: bounds.x + bounds.w };
+      case 'y':
+        return { start: bounds.y, end: bounds.y + bounds.h };
+      case 'z':
+        return { start: bounds.z, end: bounds.z + bounds.d };
+    }
+  }
+
+  /**
+   * Get the slot axis info for this face based on a divider's axis
+   */
+  private getSlotAxisForFace(dividerAxis: Axis): { axis: Axis } | null {
+    // This returns the axis along which slot segments run for a divider on this face
+    switch (this.faceId) {
+      case 'bottom':
+      case 'top':
+        // For horizontal faces (XZ plane):
+        // - X-axis dividers create slots running along Z
+        // - Z-axis dividers create slots running along X
+        if (dividerAxis === 'x') return { axis: 'z' };
+        if (dividerAxis === 'z') return { axis: 'x' };
+        return null;
+      case 'front':
+      case 'back':
+        // For front/back faces (XY plane):
+        // - X-axis dividers create slots running along Y
+        // - Y-axis dividers create slots running along X
+        if (dividerAxis === 'x') return { axis: 'y' };
+        if (dividerAxis === 'y') return { axis: 'x' };
+        return null;
+      case 'left':
+      case 'right':
+        // For left/right faces (YZ plane):
+        // - Y-axis dividers create slots running along Z
+        // - Z-axis dividers create slots running along Y
+        if (dividerAxis === 'y') return { axis: 'z' };
+        if (dividerAxis === 'z') return { axis: 'y' };
+        return null;
+    }
+  }
+
+  /**
+   * Get the blocking position along the slot axis for an intersecting subdivision.
+   * This is converted to the 0-based axis coordinate system used for finger positions.
+   */
+  private getBlockingPosition(otherSub: Subdivision, _slotAxis: Axis): number | null {
+    const mt = this._assembly.material.thickness;
+
+    // The blocking position is the other subdivision's position converted to 0-based coords.
+    // World coords start at mt (inner wall), so 0-based = worldPos - mt.
+    // The otherSub.position is the position of the crossing divider,
+    // and it's on the axis perpendicular to the slot we're creating.
+    return otherSub.position - mt;
   }
 
   // ==========================================================================

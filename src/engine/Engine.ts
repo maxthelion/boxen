@@ -412,6 +412,20 @@ export class Engine {
         break;
       }
 
+      case 'ADD_GRID_SUBDIVISION': {
+        const voidNodeRaw = findInScene(action.payload.voidId);
+        const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;
+        if (voidNode && assembly) {
+          voidNode.subdivideGrid(
+            action.payload.axes,
+            assembly.material.thickness
+          );
+          this.invalidateNodeMap(); // Tree structure changed
+          return true;
+        }
+        break;
+      }
+
       case 'REMOVE_SUBDIVISION': {
         const voidNodeRaw = findInScene(action.payload.voidId);
         const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;

@@ -70,6 +70,34 @@ export interface Subdivision {
   bounds: Bounds3D;     // Bounds of the void containing this divider
 }
 
+/**
+ * Grid subdivision info for multi-axis subdivision
+ * Stores the configuration for a grid of dividers on 1-2 axes
+ */
+export interface GridSubdivisionInfo {
+  /** Axes that have been subdivided (1 or 2) */
+  axes: Axis[];
+  /** Split positions for each axis */
+  positions: Partial<Record<Axis, number[]>>;
+}
+
+/**
+ * Cross-lap slot for intersecting dividers
+ * A rectangular notch cut from the panel edge that interlocks with another divider
+ */
+export interface CrossLapSlot {
+  /** Position along the panel width (local X coordinate, centered at 0) */
+  xPosition: number;
+  /** Width of the slot (material thickness) */
+  width: number;
+  /** Depth of the slot (half the panel height) */
+  depth: number;
+  /** Which edge the slot is cut from */
+  fromEdge: 'top' | 'bottom';
+  /** ID of the intersecting divider (for debugging) */
+  intersectingDividerId: string;
+}
+
 // =============================================================================
 // Configuration Types (Input Properties)
 // =============================================================================
@@ -329,6 +357,8 @@ export interface VoidSnapshot extends BaseSnapshot {
     splitPosition?: number;
     splitPositionMode?: 'absolute' | 'percentage';
     splitPercentage?: number;
+    // If this void has a grid subdivision (multi-axis)
+    gridSubdivision?: GridSubdivisionInfo;
   };
 
   derived: {
@@ -426,6 +456,7 @@ export type EngineAction =
   | { type: 'TOGGLE_FACE'; targetId: string; payload: { faceId: FaceId } }
   | { type: 'ADD_SUBDIVISION'; targetId: string; payload: { voidId: string; axis: Axis; position: number } }
   | { type: 'ADD_SUBDIVISIONS'; targetId: string; payload: { voidId: string; axis: Axis; positions: number[] } }
+  | { type: 'ADD_GRID_SUBDIVISION'; targetId: string; payload: { voidId: string; axes: { axis: Axis; positions: number[] }[] } }
   | { type: 'REMOVE_SUBDIVISION'; targetId: string; payload: { voidId: string } }
   | { type: 'SET_EDGE_EXTENSION'; targetId: string; payload: { panelId: string; edge: EdgePosition; value: number } }
   | { type: 'CREATE_SUB_ASSEMBLY'; targetId: string; payload: { voidId: string; clearance?: number; assemblyAxis?: Axis } }

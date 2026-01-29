@@ -3,15 +3,14 @@ import { FloatingPalette, PaletteSliderInput, PaletteButton, PaletteButtonRow } 
 import { useBoxStore, findVoid, calculatePreviewPositions } from '../store/useBoxStore';
 import { useEngineVoidTree, useEngineFaces, useEngineMainVoidTree, useEnginePanels, getEngine, notifyEngineStateChanged } from '../engine';
 import { Face, Void, FaceId, PanelPath } from '../types';
+import { Axis } from '../engine/types';
 import { debug, enableDebugTag } from '../utils/debug';
 import {
-  getFaceNormalAxis,
   getPanelNormalAxis,
   getPerpendicularAxes,
   getPanelDescription,
   findVoidBetweenPanels,
   getValidSubdivisionAxes,
-  getMainInteriorVoid,
   isLeafVoid,
 } from '../operations';
 
@@ -35,18 +34,21 @@ interface SubdividePaletteProps {
 // UI Helper functions (not shared with validators)
 // =============================================================================
 
-const getAxisTooltip = (axis: 'x' | 'y' | 'z', isValid: boolean): string => {
-  if (isValid) {
+const getAxisTooltip = (axis: 'x' | 'y' | 'z', isValid: boolean, isSelected: boolean): string => {
+  if (!isValid) {
     switch (axis) {
-      case 'x': return 'Split with vertical divider (left-right)';
-      case 'y': return 'Split with horizontal shelf (top-bottom)';
-      case 'z': return 'Split with vertical divider (front-back)';
+      case 'x': return 'Disabled: left or right face is open';
+      case 'y': return 'Disabled: top or bottom face is open';
+      case 'z': return 'Disabled: front or back face is open';
     }
   }
+  if (isSelected) {
+    return `Click to deselect ${axis.toUpperCase()} axis`;
+  }
   switch (axis) {
-    case 'x': return 'Disabled: left or right face is open';
-    case 'y': return 'Disabled: top or bottom face is open';
-    case 'z': return 'Disabled: front or back face is open';
+    case 'x': return 'Click to add vertical divider (left-right)';
+    case 'y': return 'Click to add horizontal shelf (top-bottom)';
+    case 'z': return 'Click to add vertical divider (front-back)';
   }
 };
 
@@ -187,6 +189,23 @@ const analyzeTwoPanelSelection = (
 };
 
 // =============================================================================
+// Grid calculations
+// =============================================================================
+
+// Calculate total cells from selected axes
+const calculateTotalCells = (
+  selectedAxes: Axis[],
+  counts: Record<Axis, number>
+): number => {
+  if (selectedAxes.length === 0) return 1;
+  let total = 1;
+  for (const axis of selectedAxes) {
+    total *= (counts[axis] + 1);
+  }
+  return total;
+};
+
+// =============================================================================
 // Component
 // =============================================================================
 
@@ -242,19 +261,14 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
   // Valid axes based on open faces (for void mode)
   const validAxes = useMemo(() => getValidSubdivisionAxes(faces), [faces]);
 
-  // Local state for count (used before operation starts)
-  const [localCount, setLocalCount] = useState(1);
+  // Multi-axis state: track selected axes and counts per axis
+  const [selectedAxes, setSelectedAxes] = useState<Axis[]>([]);
+  const [axisCounts, setAxisCounts] = useState<Record<Axis, number>>({ x: 1, y: 1, z: 1 });
 
-  // Get current operation params
-  const opParams = operationState.params as {
-    axis?: 'x' | 'y' | 'z';
-    count?: number;
-    voidId?: string;
-  };
-  const isActive = operationState.activeOperation === 'subdivide' || operationState.activeOperation === 'subdivide-two-panel';
-  const currentAxis = opParams.axis;
-  // Use operation count when active, otherwise local count
-  const currentCount = isActive ? (opParams.count ?? localCount) : localCount;
+  // Check if operation is active
+  const isActive = operationState.activeOperation === 'subdivide' ||
+                   operationState.activeOperation === 'subdivide-two-panel' ||
+                   operationState.activeOperation === 'subdivide-grid';
 
   // Determine which mode we're in
   const mode = twoPanelInfo?.isValid ? 'two-panel' : selectedVoidId ? 'void' : 'none';
@@ -275,6 +289,20 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
     }
     return list;
   }, [mode, twoPanelInfo?.validAxes, validAxes]);
+
+  // Calculate positions for an axis based on count
+  const getAxisPositions = useCallback((axis: Axis, count: number): number[] => {
+    if (!targetVoid) return [];
+    return calculatePreviewPositions(targetVoid.bounds, axis, count);
+  }, [targetVoid]);
+
+  // Build axes config for engine action
+  const buildAxesConfig = useCallback((axes: Axis[], counts: Record<Axis, number>): { axis: Axis; positions: number[] }[] => {
+    return axes.map(axis => ({
+      axis,
+      positions: getAxisPositions(axis, counts[axis]),
+    }));
+  }, [getAxisPositions]);
 
   // Auto-start operation when there are valid axes available
   // Prefers axis whose dividers touch open faces (can be slotted in)
@@ -298,17 +326,21 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
 
     hasAutoStarted.current = true;
 
-    // Start the operation with the preferred axis
-    const positions = calculatePreviewPositions(targetVoid.bounds, axis, localCount);
-    const operationType = mode === 'two-panel' ? 'subdivide-two-panel' : 'subdivide';
+    // Initialize with single axis selected
+    setSelectedAxes([axis]);
+    setAxisCounts({ x: 1, y: 1, z: 1 });
+
+    // Start the operation
+    const operationType = mode === 'two-panel' ? 'subdivide-two-panel' : 'subdivide-grid';
     startOperation(operationType);
+
+    // Update params with initial axis config
+    const positions = calculatePreviewPositions(targetVoid.bounds, axis, 1);
     updateOperationParams({
       voidId: targetVoidId,
-      axis,
-      count: localCount,
-      positions,
+      axes: [{ axis, positions }],
     });
-  }, [mode, canSubdivideVoid, targetVoidId, targetVoid, isActive, validAxisList, faces, localCount, startOperation, updateOperationParams]);
+  }, [mode, canSubdivideVoid, targetVoidId, targetVoid, isActive, validAxisList, faces, startOperation, updateOperationParams]);
 
   // Reset auto-start flag when selection changes
   // But don't reset during an active operation (selection may change due to ID remapping)
@@ -316,46 +348,67 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
     const currentState = useBoxStore.getState();
     const isOperationActive =
       currentState.operationState.activeOperation === 'subdivide' ||
-      currentState.operationState.activeOperation === 'subdivide-two-panel';
+      currentState.operationState.activeOperation === 'subdivide-two-panel' ||
+      currentState.operationState.activeOperation === 'subdivide-grid';
 
     if (!isOperationActive) {
       hasAutoStarted.current = false;
+      setSelectedAxes([]);
     }
   }, [selectedVoidId, selectedPanelIds]);
 
-  // Handle axis selection (starts operation if not already started, or changes axis if active)
-  const handleAxisSelect = useCallback((axis: 'x' | 'y' | 'z') => {
+  // Handle axis toggle (multi-select, max 2)
+  const handleAxisToggle = useCallback((axis: Axis) => {
     if (!targetVoidId || !targetVoid) return;
 
     // Clear hover state
     isHoverPreviewRef.current = false;
 
-    if (isActive) {
-      // Operation already active - just change the axis
-      const count = currentCount || 1;
-      const positions = calculatePreviewPositions(targetVoid.bounds, axis, count);
-      updateOperationParams({
-        voidId: targetVoidId,
-        axis,
-        count,
-        positions,
-      });
-    } else {
-      // Start fresh operation with the current local count
-      const positions = calculatePreviewPositions(targetVoid.bounds, axis, localCount);
-      const operationType = mode === 'two-panel' ? 'subdivide-two-panel' : 'subdivide';
-      startOperation(operationType);
-      updateOperationParams({
-        voidId: targetVoidId,
-        axis,
-        count: localCount,
-        positions,
-      });
-    }
-  }, [targetVoidId, targetVoid, mode, isActive, currentCount, localCount, startOperation, updateOperationParams]);
+    // Check if axis is valid
+    const isAxisValid = mode === 'two-panel'
+      ? (twoPanelInfo?.validAxes ?? []).includes(axis)
+      : validAxes[axis];
 
-  // Handle axis hover (show preview)
-  const handleAxisHover = useCallback((axis: 'x' | 'y' | 'z') => {
+    if (!isAxisValid) return;
+
+    // Toggle axis selection
+    let newSelectedAxes: Axis[];
+    if (selectedAxes.includes(axis)) {
+      // Deselect axis
+      newSelectedAxes = selectedAxes.filter(a => a !== axis);
+    } else {
+      // Add axis (max 2)
+      if (selectedAxes.length >= 2) {
+        // Replace oldest selection
+        newSelectedAxes = [...selectedAxes.slice(1), axis];
+      } else {
+        newSelectedAxes = [...selectedAxes, axis];
+      }
+    }
+
+    setSelectedAxes(newSelectedAxes);
+
+    if (!isActive && newSelectedAxes.length > 0) {
+      // Start operation if not active
+      const operationType = mode === 'two-panel' ? 'subdivide-two-panel' : 'subdivide-grid';
+      startOperation(operationType);
+    }
+
+    if (newSelectedAxes.length > 0) {
+      // Update operation params with new axes config
+      const axesConfig = buildAxesConfig(newSelectedAxes, axisCounts);
+      updateOperationParams({
+        voidId: targetVoidId,
+        axes: axesConfig,
+      });
+    } else if (isActive) {
+      // No axes selected - cancel operation
+      cancelOperation();
+    }
+  }, [targetVoidId, targetVoid, mode, twoPanelInfo?.validAxes, validAxes, selectedAxes, axisCounts, isActive, startOperation, cancelOperation, updateOperationParams, buildAxesConfig]);
+
+  // Handle axis hover (show preview) - only for single axis hover
+  const handleAxisHover = useCallback((axis: Axis) => {
     if (!targetVoidId || !targetVoid) return;
     if (isActive) return; // Don't override if operation is active
 
@@ -380,7 +433,8 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
     // Check current state directly from store (not from closure which might be stale)
     const currentState = useBoxStore.getState();
     const isOperationActive = currentState.operationState.activeOperation === 'subdivide' ||
-                              currentState.operationState.activeOperation === 'subdivide-two-panel';
+                              currentState.operationState.activeOperation === 'subdivide-two-panel' ||
+                              currentState.operationState.activeOperation === 'subdivide-grid';
     if (isOperationActive) return;
 
     // Only discard if we actually have a hover preview
@@ -392,24 +446,23 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
     }
   }, []);
 
-  // Handle count change
-  const handleCountChange = useCallback((count: number) => {
+  // Handle count change for a specific axis
+  const handleCountChange = useCallback((axis: Axis, count: number) => {
     const newCount = Math.max(1, Math.min(20, Math.round(count)));
 
-    // Always update local count
-    setLocalCount(newCount);
+    // Update counts state
+    const newCounts = { ...axisCounts, [axis]: newCount };
+    setAxisCounts(newCounts);
 
-    // If operation is active with an axis, also update operation params
-    if (isActive && currentAxis && targetVoid && targetVoidId) {
-      const positions = calculatePreviewPositions(targetVoid.bounds, currentAxis, newCount);
+    // If operation is active, update preview
+    if (isActive && selectedAxes.includes(axis) && targetVoid && targetVoidId) {
+      const axesConfig = buildAxesConfig(selectedAxes, newCounts);
       updateOperationParams({
         voidId: targetVoidId,
-        axis: currentAxis,
-        count: newCount,
-        positions,
+        axes: axesConfig,
       });
     }
-  }, [isActive, targetVoid, targetVoidId, currentAxis, updateOperationParams]);
+  }, [isActive, targetVoid, targetVoidId, selectedAxes, axisCounts, updateOperationParams, buildAxesConfig]);
 
   // Handle apply
   const handleApply = useCallback(() => {
@@ -443,7 +496,8 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
       const currentState = useBoxStore.getState();
       const isOperationActive =
         currentState.operationState.activeOperation === 'subdivide' ||
-        currentState.operationState.activeOperation === 'subdivide-two-panel';
+        currentState.operationState.activeOperation === 'subdivide-two-panel' ||
+        currentState.operationState.activeOperation === 'subdivide-grid';
 
       // Only clean up if not in an active operation
       if (!isOperationActive) {
@@ -465,6 +519,9 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
   // Get panel pair description for two-panel mode
   const panelPairDescription = twoPanelInfo?.panelDescriptions.join(' & ') ?? '';
 
+  // Calculate total cells
+  const totalCells = calculateTotalCells(selectedAxes, axisCounts);
+
   return (
     <FloatingPalette
       title="Subdivide"
@@ -473,7 +530,7 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
       onClose={handleCancel}
       onApply={handleApply}
       containerRef={containerRef}
-      minWidth={200}
+      minWidth={220}
       closeOnClickOutside={false}
     >
       {/* Selection status */}
@@ -515,66 +572,69 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
         </div>
       )}
 
-      {/* Axis selection - shown when valid target exists */}
+      {/* Axis selection - multi-select (max 2) */}
       {((mode === 'void' && canSubdivideVoid) || mode === 'two-panel') && (
         <div className="palette-section">
-          <span className="palette-label">{isActive ? 'Axis' : 'Select Axis'}</span>
+          <span className="palette-label">Select Axes (max 2)</span>
           <div className="palette-axis-buttons">
             {(['x', 'y', 'z'] as const).map((axis) => {
-              const isValid = mode === 'two-panel'
+              const isAxisValid = mode === 'two-panel'
                 ? availableAxes.includes(axis)
                 : validAxes[axis];
-              const isSelected = isActive && currentAxis === axis;
+              const isAxisSelected = selectedAxes.includes(axis);
               return (
                 <button
                   key={axis}
-                  className={`palette-axis-btn ${isSelected ? 'selected' : ''}`}
+                  className={`palette-axis-btn ${isAxisSelected ? 'selected' : ''}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleAxisSelect(axis);
+                    handleAxisToggle(axis);
                   }}
-                  onMouseEnter={() => !isActive && isValid && handleAxisHover(axis)}
+                  onMouseEnter={() => !isActive && isAxisValid && !isAxisSelected && handleAxisHover(axis)}
                   onMouseLeave={() => !isActive && handleAxisLeave()}
-                  disabled={!isValid}
+                  disabled={!isAxisValid}
                   title={mode === 'two-panel'
-                    ? (isValid ? `Split along ${axis.toUpperCase()} axis` : 'Only perpendicular axes available')
-                    : getAxisTooltip(axis, isValid)}
+                    ? (isAxisValid ? `${isAxisSelected ? 'Deselect' : 'Select'} ${axis.toUpperCase()} axis` : 'Only perpendicular axes available')
+                    : getAxisTooltip(axis, isAxisValid, isAxisSelected)}
                 >
                   {axis.toUpperCase()}
                 </button>
               );
             })}
           </div>
-          {!isActive && mode === 'void' && (!validAxes.x || !validAxes.y || !validAxes.z) && (
+          {mode === 'void' && (!validAxes.x || !validAxes.y || !validAxes.z) && (
             <p className="palette-hint-small">Some axes disabled due to open faces</p>
           )}
-          {!isActive && mode === 'two-panel' && (
+          {mode === 'two-panel' && (
             <p className="palette-hint-small">Only perpendicular axes available</p>
           )}
         </div>
       )}
 
-      {/* Count control and action buttons - always shown when valid target exists */}
-      {((mode === 'void' && canSubdivideVoid) || mode === 'two-panel') && (
+      {/* Count controls for each selected axis */}
+      {((mode === 'void' && canSubdivideVoid) || mode === 'two-panel') && selectedAxes.length > 0 && (
         <>
-          <PaletteSliderInput
-            label="Divisions"
-            value={currentCount}
-            min={1}
-            max={20}
-            step={1}
-            onChange={handleCountChange}
-          />
+          {selectedAxes.map(axis => (
+            <PaletteSliderInput
+              key={axis}
+              label={`${axis.toUpperCase()} Divisions`}
+              value={axisCounts[axis]}
+              min={1}
+              max={20}
+              step={1}
+              onChange={(value) => handleCountChange(axis, value)}
+            />
+          ))}
 
           <div className="palette-info">
-            <span className="palette-hint">Creates {currentCount + 1} cells</span>
+            <span className="palette-hint">Creates {totalCells} cells</span>
           </div>
 
           <PaletteButtonRow>
             <PaletteButton
               variant="primary"
               onClick={handleApply}
-              disabled={!isActive || !currentAxis}
+              disabled={!isActive || selectedAxes.length === 0}
             >
               Apply
             </PaletteButton>
@@ -583,6 +643,22 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
             </PaletteButton>
           </PaletteButtonRow>
         </>
+      )}
+
+      {/* Show apply/cancel when target exists but no axes selected */}
+      {((mode === 'void' && canSubdivideVoid) || mode === 'two-panel') && selectedAxes.length === 0 && (
+        <PaletteButtonRow>
+          <PaletteButton
+            variant="primary"
+            onClick={handleApply}
+            disabled={true}
+          >
+            Apply
+          </PaletteButton>
+          <PaletteButton variant="secondary" onClick={handleCancel}>
+            Cancel
+          </PaletteButton>
+        </PaletteButtonRow>
       )}
     </FloatingPalette>
   );

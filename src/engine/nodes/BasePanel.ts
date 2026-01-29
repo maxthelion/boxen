@@ -224,6 +224,17 @@ export abstract class BasePanel extends BaseNode {
   }
 
   /**
+   * Get blocking ranges for finger generation on each edge.
+   * Subclasses can override this to provide positions where fingers should be skipped
+   * (e.g., cross-lap positions for dividers).
+   *
+   * Returns a map from edge position to array of blocking ranges (in axis coordinates).
+   */
+  protected getFingerBlockingRanges(): Map<EdgePosition, { start: number; end: number }[]> {
+    return new Map();
+  }
+
+  /**
    * Compute the full outline with finger joints
    * Uses edge configs to determine which edges have tabs/slots
    */
@@ -304,6 +315,9 @@ export abstract class BasePanel extends BaseNode {
       },
     };
 
+    // Get blocking ranges for finger generation (can be overridden by subclasses)
+    const fingerBlockingRanges = this.getFingerBlockingRanges();
+
     // Helper to generate edge points (with or without finger joints)
     const generateEdgePoints = (
       startCorner: Point,
@@ -327,6 +341,9 @@ export abstract class BasePanel extends BaseNode {
       const edgeStartPos = this.computeEdgeAxisPosition(edgeConfig.position, 'start', edgeConfig.axis);
       const edgeEndPos = this.computeEdgeAxisPosition(edgeConfig.position, 'end', edgeConfig.axis);
 
+      // Get edge-specific blocking ranges
+      const edgeBlockingRanges = fingerBlockingRanges.get(edgeConfig.position) || [];
+
       // Generate finger joint path
       const fingerPath = generateFingerJointPathV2(fingerStart, fingerEnd, {
         fingerPoints: axisFingerPoints,
@@ -336,6 +353,7 @@ export abstract class BasePanel extends BaseNode {
         edgeEndPos,
         yUp: true,
         outwardDirection: this.getEdgeOutwardDirection(edgeConfig.position),
+        fingerBlockingRanges: edgeBlockingRanges,
       });
 
       // The finger path starts at fingerStart - we need to handle extensions

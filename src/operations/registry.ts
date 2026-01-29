@@ -158,6 +158,46 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     },
   },
 
+  'subdivide-grid': {
+    id: 'subdivide-grid',
+    name: 'Subdivide Grid',
+    type: 'parameter',
+    selectionType: 'void',
+    minSelection: 1,
+    maxSelection: 1,
+    availableIn: ['3d'],
+    description: 'Add a grid of dividers on multiple axes',
+    shortcut: 'g',
+    createPreviewAction: (params) => {
+      const { voidId, axes } = params as {
+        voidId?: string;
+        axes?: { axis: Axis; positions: number[] }[];
+      };
+
+      if (!voidId || !axes?.length) return null;
+
+      // Filter out axes with empty positions
+      const validAxes = axes.filter(a => a.positions && a.positions.length > 0);
+      if (validAxes.length === 0) return null;
+
+      // If only one axis with positions, use ADD_SUBDIVISIONS for backwards compatibility
+      if (validAxes.length === 1) {
+        return {
+          type: 'ADD_SUBDIVISIONS',
+          targetId: 'main-assembly',
+          payload: { voidId, axis: validAxes[0].axis, positions: validAxes[0].positions },
+        };
+      }
+
+      // Multi-axis: use ADD_GRID_SUBDIVISION
+      return {
+        type: 'ADD_GRID_SUBDIVISION',
+        targetId: 'main-assembly',
+        payload: { voidId, axes: validAxes },
+      };
+    },
+  },
+
   'create-sub-assembly': {
     id: 'create-sub-assembly',
     name: 'Create Sub-Assembly',

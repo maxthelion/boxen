@@ -49,7 +49,24 @@ export function deriveVariables(template: ProjectTemplate): DerivedVariables {
 
   // Scan action sequence for subdivision configs
   for (const action of template.actionSequence) {
-    if (action.subdivisionConfig) {
+    if (action.gridSubdivisionConfig) {
+      // Grid subdivision - extract variables for each axis
+      for (const axisConfig of action.gridSubdivisionConfig.axes) {
+        const { axis, defaultCount, variableName } = axisConfig;
+
+        if (!variables.subdivisions) {
+          variables.subdivisions = {} as Record<Axis, SubdivisionVariable>;
+        }
+
+        variables.subdivisions[axis] = {
+          variableName: variableName || `${axisName(axis)} Divisions`,
+          axis,
+          default: defaultCount,
+          min: 1,
+          max: 10,
+        };
+      }
+    } else if (action.subdivisionConfig) {
       const { axis, defaultCount, variableName } = action.subdivisionConfig;
 
       if (!variables.subdivisions) {

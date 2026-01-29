@@ -25,6 +25,19 @@ export interface TemplateAction {
     variableName?: string; // Override default name (e.g., "Drawer Count" instead of "Y Divisions")
     positionFormula: 'equal-spacing';
   };
+
+  /**
+   * For grid subdivision actions: creates full-spanning dividers on multiple axes.
+   * This creates proper cross-lap joints where dividers intersect.
+   */
+  gridSubdivisionConfig?: {
+    axes: {
+      axis: Axis;
+      defaultCount: number;
+      variableName?: string;
+    }[];
+    positionFormula: 'equal-spacing';
+  };
 }
 
 /**

@@ -130,33 +130,18 @@ const gridOrganizer: ProjectTemplate = {
       targetId: '$assembly',
       payload: { faceId: 'top', solid: false },
     },
-    // X-axis subdivisions (columns)
+    // Grid subdivision - creates full-spanning dividers with cross-lap joints
     {
-      type: 'ADD_SUBDIVISIONS',
+      type: 'ADD_GRID_SUBDIVISION',
       targetId: '$assembly',
       payload: {
         voidId: '$rootVoid',
-        axis: 'x',
       },
-      subdivisionConfig: {
-        axis: 'x',
-        defaultCount: 3,
-        variableName: 'Columns',
-        positionFormula: 'equal-spacing',
-      },
-    },
-    // Z-axis subdivisions (rows)
-    {
-      type: 'ADD_SUBDIVISIONS',
-      targetId: '$assembly',
-      payload: {
-        voidId: '$rootVoid',
-        axis: 'z',
-      },
-      subdivisionConfig: {
-        axis: 'z',
-        defaultCount: 3,
-        variableName: 'Rows',
+      gridSubdivisionConfig: {
+        axes: [
+          { axis: 'x', defaultCount: 3, variableName: 'Columns' },
+          { axis: 'z', defaultCount: 3, variableName: 'Rows' },
+        ],
         positionFormula: 'equal-spacing',
       },
     },
@@ -186,33 +171,18 @@ const pigeonhole: ProjectTemplate = {
       targetId: '$assembly',
       payload: { faceId: 'front', solid: false },
     },
-    // X-axis subdivisions (columns)
+    // Grid subdivision - creates full-spanning dividers with cross-lap joints
     {
-      type: 'ADD_SUBDIVISIONS',
+      type: 'ADD_GRID_SUBDIVISION',
       targetId: '$assembly',
       payload: {
         voidId: '$rootVoid',
-        axis: 'x',
       },
-      subdivisionConfig: {
-        axis: 'x',
-        defaultCount: 3,
-        variableName: 'Columns',
-        positionFormula: 'equal-spacing',
-      },
-    },
-    // Y-axis subdivisions (rows)
-    {
-      type: 'ADD_SUBDIVISIONS',
-      targetId: '$assembly',
-      payload: {
-        voidId: '$rootVoid',
-        axis: 'y',
-      },
-      subdivisionConfig: {
-        axis: 'y',
-        defaultCount: 3,
-        variableName: 'Rows',
+      gridSubdivisionConfig: {
+        axes: [
+          { axis: 'x', defaultCount: 3, variableName: 'Columns' },
+          { axis: 'y', defaultCount: 3, variableName: 'Rows' },
+        ],
         positionFormula: 'equal-spacing',
       },
     },

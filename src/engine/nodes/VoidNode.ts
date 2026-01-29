@@ -16,6 +16,7 @@ import {
   Point3D,
   VoidSnapshot,
   VoidAnchor,
+  GridSubdivisionInfo,
 } from '../types';
 
 export class VoidNode extends BaseNode {
@@ -33,6 +34,13 @@ export class VoidNode extends BaseNode {
   // Cached divider panel ID - preserves panel identity across scene clones
   // The actual panel is created in BaseAssembly.collectDividerPanels()
   protected _dividerPanelId?: string;
+
+  // Grid subdivision info (for multi-axis grids)
+  // When set, this void has been subdivided on multiple axes simultaneously
+  protected _gridSubdivision?: GridSubdivisionInfo;
+
+  // Cached divider panel IDs for grid subdivisions (keyed by "axis-position")
+  protected _gridDividerPanelIds?: Map<string, string>;
 
   constructor(bounds: Bounds3D, id?: string) {
     super(id);
@@ -270,6 +278,155 @@ export class VoidNode extends BaseNode {
   }
 
   /**
+   * Subdivide this void into a grid on multiple axes simultaneously
+   * Creates full-spanning dividers that form proper grids with cross-lap joints
+   *
+   * @param axesConfig - Array of axis configurations (1-2 axes), each with axis and positions
+   * @param materialThickness - Thickness of divider panels
+   * @returns Array of created child VoidNodes (grid cells)
+   */
+  subdivideGrid(
+    axesConfig: { axis: Axis; positions: number[] }[],
+    materialThickness: number
+  ): VoidNode[] {
+    if (!this.isLeaf) {
+      throw new Error('Cannot subdivide a non-leaf void');
+    }
+
+    if (axesConfig.length === 0) {
+      throw new Error('Must provide at least one axis configuration');
+    }
+
+    if (axesConfig.length > 2) {
+      throw new Error('Grid subdivision supports maximum 2 axes');
+    }
+
+    // If only one axis, delegate to subdivideMultiple
+    if (axesConfig.length === 1) {
+      return this.subdivideMultiple(
+        axesConfig[0].axis,
+        axesConfig[0].positions,
+        materialThickness
+      );
+    }
+
+    const halfMt = materialThickness / 2;
+
+    // Store grid subdivision info
+    this._gridSubdivision = {
+      axes: axesConfig.map(c => c.axis),
+      positions: {},
+    };
+    for (const config of axesConfig) {
+      this._gridSubdivision.positions[config.axis] = [...config.positions].sort((a, b) => a - b);
+    }
+
+    // Initialize grid divider panel IDs map
+    this._gridDividerPanelIds = new Map();
+
+    // Get sorted positions for each axis
+    const axis1 = axesConfig[0].axis;
+    const axis2 = axesConfig[1].axis;
+    const positions1 = [...axesConfig[0].positions].sort((a, b) => a - b);
+    const positions2 = [...axesConfig[1].positions].sort((a, b) => a - b);
+
+    // Helper to get axis-specific bounds values
+    const getAxisBounds = (axis: Axis) => {
+      switch (axis) {
+        case 'x': return { start: this._bounds.x, size: this._bounds.w };
+        case 'y': return { start: this._bounds.y, size: this._bounds.h };
+        case 'z': return { start: this._bounds.z, size: this._bounds.d };
+      }
+    };
+
+    // Helper to set axis-specific bounds values
+    const setAxisBounds = (bounds: Bounds3D, axis: Axis, start: number, size: number) => {
+      switch (axis) {
+        case 'x':
+          bounds.x = start;
+          bounds.w = size;
+          break;
+        case 'y':
+          bounds.y = start;
+          bounds.h = size;
+          break;
+        case 'z':
+          bounds.z = start;
+          bounds.d = size;
+          break;
+      }
+    };
+
+    // Calculate regions for each axis
+    const calcRegions = (positions: number[], axis: Axis) => {
+      const { start: dimStart, size: dimSize } = getAxisBounds(axis);
+      const dimEnd = dimStart + dimSize;
+      const regions: { start: number; end: number }[] = [];
+
+      for (let i = 0; i <= positions.length; i++) {
+        const regionStart = i === 0 ? dimStart : positions[i - 1] + halfMt;
+        const regionEnd = i === positions.length ? dimEnd : positions[i] - halfMt;
+        regions.push({ start: regionStart, end: regionEnd });
+      }
+      return regions;
+    };
+
+    const regions1 = calcRegions(positions1, axis1);
+    const regions2 = calcRegions(positions2, axis2);
+
+    // Create grid cells as Cartesian product of all region combinations
+    const children: VoidNode[] = [];
+
+    for (let i = 0; i < regions1.length; i++) {
+      for (let j = 0; j < regions2.length; j++) {
+        const r1 = regions1[i];
+        const r2 = regions2[j];
+
+        // Create bounds for this cell
+        const childBounds: Bounds3D = { ...this._bounds };
+        setAxisBounds(childBounds, axis1, r1.start, r1.end - r1.start);
+        setAxisBounds(childBounds, axis2, r2.start, r2.end - r2.start);
+
+        const child = new VoidNode(childBounds);
+        this.addChild(child);
+        children.push(child);
+      }
+    }
+
+    return children;
+  }
+
+  // ==========================================================================
+  // Grid Subdivision Accessors
+  // ==========================================================================
+
+  /**
+   * Get the grid subdivision info (if this void was subdivided as a grid)
+   */
+  get gridSubdivision(): GridSubdivisionInfo | undefined {
+    return this._gridSubdivision;
+  }
+
+  /**
+   * Get or create a cached divider panel ID for a grid divider
+   */
+  getGridDividerPanelId(axis: Axis, position: number): string | undefined {
+    const key = `${axis}-${position}`;
+    return this._gridDividerPanelIds?.get(key);
+  }
+
+  /**
+   * Set a cached divider panel ID for a grid divider
+   */
+  setGridDividerPanelId(axis: Axis, position: number, id: string): void {
+    if (!this._gridDividerPanelIds) {
+      this._gridDividerPanelIds = new Map();
+    }
+    const key = `${axis}-${position}`;
+    this._gridDividerPanelIds.set(key, id);
+  }
+
+  /**
    * Remove subdivision and return to leaf state
    */
   clearSubdivision(): void {
@@ -278,6 +435,9 @@ export class VoidNode extends BaseNode {
     for (const child of voidChildren) {
       this.removeChild(child);
     }
+    // Clear grid subdivision info
+    this._gridSubdivision = undefined;
+    this._gridDividerPanelIds = undefined;
   }
 
   /**
@@ -499,6 +659,7 @@ export class VoidNode extends BaseNode {
         splitPosition: this._splitPosition,
         splitPositionMode: this._splitPositionMode,
         splitPercentage: this._splitPercentage,
+        gridSubdivision: this._gridSubdivision,
       },
       derived: {
         bounds: this.bounds,
@@ -531,6 +692,25 @@ export class VoidNode extends BaseNode {
     // Copy cached divider panel ID - this preserves panel identity across clones
     if (this._dividerPanelId !== undefined) {
       cloned._dividerPanelId = this._dividerPanelId;
+    }
+
+    // Copy grid subdivision info
+    if (this._gridSubdivision) {
+      cloned._gridSubdivision = {
+        axes: [...this._gridSubdivision.axes],
+        positions: {},
+      };
+      for (const axis of this._gridSubdivision.axes) {
+        const positions = this._gridSubdivision.positions[axis];
+        if (positions) {
+          cloned._gridSubdivision.positions[axis] = [...positions];
+        }
+      }
+    }
+
+    // Copy grid divider panel IDs
+    if (this._gridDividerPanelIds) {
+      cloned._gridDividerPanelIds = new Map(this._gridDividerPanelIds);
     }
 
     // Clone children (void nodes and sub-assemblies)

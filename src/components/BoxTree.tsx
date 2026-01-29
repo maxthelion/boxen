@@ -68,10 +68,55 @@ const faceLabels: Record<FaceId, string> = {
   bottom: 'Bottom',
 };
 
-// Extract divider panels from a void's children
+// Extract divider panels from a void's children or grid subdivision
 // Looks up panel IDs from the engine via the lookup map
 const getDividerPanels = (parent: Void, lookup: PanelLookup): DividerPanel[] => {
   const panels: DividerPanel[] = [];
+
+  // Check for grid subdivision (multi-axis) first
+  if (parent.gridSubdivision) {
+    for (const axis of parent.gridSubdivision.axes) {
+      const positions = parent.gridSubdivision.positions[axis];
+      if (positions) {
+        for (const position of positions) {
+          // Look up the panel ID from the engine
+          // Key format: "parentVoidId-axis-position" (grid dividers use parent void ID)
+          const lookupKey = `${parent.id}-${axis}-${position}`;
+          const panelId = lookup.dividerPanels.get(lookupKey);
+
+          // Skip if we can't find this panel in the engine
+          if (!panelId) continue;
+
+          let width: number, height: number;
+          switch (axis) {
+            case 'x':
+              width = parent.bounds.d;
+              height = parent.bounds.h;
+              break;
+            case 'y':
+              width = parent.bounds.w;
+              height = parent.bounds.d;
+              break;
+            case 'z':
+              width = parent.bounds.w;
+              height = parent.bounds.h;
+              break;
+          }
+          panels.push({
+            id: panelId,
+            voidId: parent.id,  // Grid dividers belong to the parent (purge to remove)
+            axis,
+            position,
+            width,
+            height,
+          });
+        }
+      }
+    }
+    return panels;
+  }
+
+  // Regular subdivision handling (single-axis, sequential)
   for (const child of parent.children) {
     if (child.splitAxis && child.splitPosition !== undefined) {
       // Look up the panel ID from the engine
@@ -440,38 +485,71 @@ const VoidNode: React.FC<VoidNodeProps> = ({
         </div>
       )}
 
-      {/* Show divider panels and child voids interleaved in spatial order */}
+      {/* Show divider panels and child voids */}
       {hasChildren && (
         <div className="tree-children">
-          {node.children.map((child) => {
-            // Find the panel for this child void by matching voidId
-            const panel = dividerPanels.find(p => p.voidId === child.id);
-
-            return (
-              <React.Fragment key={child.id}>
-                {panel && (
-                  <DividerPanelNode
-                    panel={panel}
-                    depth={depth + 1}
-                    selectedPanelIds={selectedPanelIds}
-                    onSelectPanel={onSelectPanel}
-                    hoveredPanelId={hoveredPanelId}
-                    onHoverPanel={onHoverPanel}
-                    hiddenFaceIds={hiddenFaceIds}
-                    isolatedPanelId={isolatedPanelId}
-                    onToggleFaceVisibility={onToggleFaceVisibility}
-                    onSetIsolatedPanel={onSetIsolatedPanel}
-                    onDelete={onDeleteVoid}
-                  />
-                )}
+          {/* For grid subdivisions, show all dividers first, then all cells */}
+          {node.gridSubdivision ? (
+            <>
+              {/* Grid dividers */}
+              {dividerPanels.map((panel) => (
+                <DividerPanelNode
+                  key={panel.id}
+                  panel={panel}
+                  depth={depth + 1}
+                  selectedPanelIds={selectedPanelIds}
+                  onSelectPanel={onSelectPanel}
+                  hoveredPanelId={hoveredPanelId}
+                  onHoverPanel={onHoverPanel}
+                  hiddenFaceIds={hiddenFaceIds}
+                  isolatedPanelId={isolatedPanelId}
+                  onToggleFaceVisibility={onToggleFaceVisibility}
+                  onSetIsolatedPanel={onSetIsolatedPanel}
+                  onDelete={onDeleteVoid}
+                />
+              ))}
+              {/* Grid cells */}
+              {node.children.map((child) => (
                 <VoidNode
+                  key={child.id}
                   node={child}
                   depth={depth + 1}
                   {...treeOps}
                 />
-              </React.Fragment>
-            );
-          })}
+              ))}
+            </>
+          ) : (
+            /* Regular subdivisions: interleave dividers with child voids */
+            node.children.map((child) => {
+              // Find the panel for this child void by matching voidId
+              const panel = dividerPanels.find(p => p.voidId === child.id);
+
+              return (
+                <React.Fragment key={child.id}>
+                  {panel && (
+                    <DividerPanelNode
+                      panel={panel}
+                      depth={depth + 1}
+                      selectedPanelIds={selectedPanelIds}
+                      onSelectPanel={onSelectPanel}
+                      hoveredPanelId={hoveredPanelId}
+                      onHoverPanel={onHoverPanel}
+                      hiddenFaceIds={hiddenFaceIds}
+                      isolatedPanelId={isolatedPanelId}
+                      onToggleFaceVisibility={onToggleFaceVisibility}
+                      onSetIsolatedPanel={onSetIsolatedPanel}
+                      onDelete={onDeleteVoid}
+                    />
+                  )}
+                  <VoidNode
+                    node={child}
+                    depth={depth + 1}
+                    {...treeOps}
+                  />
+                </React.Fragment>
+              );
+            })
+          )}
         </div>
       )}
     </div>

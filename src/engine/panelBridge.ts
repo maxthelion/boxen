@@ -63,6 +63,11 @@ export function voidNodeToVoid(voidNode: VoidNode): Void {
     storeVoid.splitPercentage = voidNode.splitPercentage;
   }
 
+  // Add grid subdivision info if present
+  if (voidNode.gridSubdivision) {
+    storeVoid.gridSubdivision = voidNode.gridSubdivision;
+  }
+
   // Convert children
   for (const child of voidNode.children) {
     if (child instanceof VoidNode) {

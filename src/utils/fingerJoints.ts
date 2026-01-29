@@ -245,6 +245,9 @@ export const getEdgePath = (
 // =============================================================================
 
 import { AxisFingerPoints, JointGender } from '../types';
+import { debug, enableDebugTag } from './debug';
+
+enableDebugTag('finger-blocking');
 
 export interface FingerJointConfigV2 {
   fingerPoints: AxisFingerPoints;   // Pre-calculated finger points for this axis
@@ -254,6 +257,7 @@ export interface FingerJointConfigV2 {
   edgeEndPos: number;               // End position of this edge along the axis
   yUp?: boolean;                    // Coordinate system (default: true for Three.js)
   outwardDirection?: Point;         // Explicit outward direction for tabs (normalized vector)
+  fingerBlockingRanges?: { start: number; end: number }[];  // Axis positions where fingers should be skipped (e.g., cross-lap positions)
 }
 
 /**
@@ -364,9 +368,32 @@ export const generateFingerJointPathV2 = (
 
   // Filter to sections that are COMPLETELY within the edge's axis range
   // Partial fingers are not allowed - skip sections that extend beyond the edge
-  const validSections = allSections.filter(section =>
-    section.startAxis >= minAxisPos && section.endAxis <= maxAxisPos
-  );
+  const blockingRanges = config.fingerBlockingRanges || [];
+
+  if (blockingRanges.length > 0) {
+    debug('finger-blocking', `V2 finger generation with blockingRanges: ${blockingRanges.map(r => `[${r.start.toFixed(1)}, ${r.end.toFixed(1)}]`).join(', ')}`);
+    debug('finger-blocking', `  edgeStartPos=${edgeStartPos.toFixed(1)}, edgeEndPos=${edgeEndPos.toFixed(1)}, minAxis=${minAxisPos.toFixed(1)}, maxAxis=${maxAxisPos.toFixed(1)}`);
+  }
+
+  const validSections = allSections.filter(section => {
+    // Check basic edge range
+    if (section.startAxis < minAxisPos || section.endAxis > maxAxisPos) {
+      return false;
+    }
+
+    // For finger sections, also check blocking ranges (e.g., cross-lap positions)
+    if (section.isFinger && blockingRanges.length > 0) {
+      const isBlocked = blockingRanges.some(range =>
+        section.startAxis < range.end && section.endAxis > range.start
+      );
+      if (isBlocked) {
+        debug('finger-blocking', `  BLOCKED finger section [${section.startAxis.toFixed(1)}, ${section.endAxis.toFixed(1)}]`);
+        return false;
+      }
+    }
+
+    return true;
+  });
 
   // If no valid sections, return straight edge
   const hasFingerSections = validSections.some(s => s.isFinger);

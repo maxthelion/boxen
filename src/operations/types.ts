@@ -19,6 +19,7 @@ export type OperationId =
   | 'push-pull'
   | 'subdivide'
   | 'subdivide-two-panel'
+  | 'subdivide-grid'
   | 'create-sub-assembly'
   | 'configure-assembly'
   | 'scale'
@@ -81,6 +82,14 @@ export interface SubdivideTwoPanelParams {
   axis: Axis;
   count: number;
   positions: number[];
+}
+
+/**
+ * Parameters for subdivide-grid operation (multi-axis)
+ */
+export interface SubdivideGridParams {
+  voidId: string;
+  axes: { axis: Axis; count: number; positions: number[] }[];
 }
 
 /**
@@ -159,6 +168,7 @@ export type OperationParams =
   | PushPullParams
   | SubdivideParams
   | SubdivideTwoPanelParams
+  | SubdivideGridParams
   | CreateSubAssemblyParams
   | ConfigureAssemblyParams
   | ScaleParams
