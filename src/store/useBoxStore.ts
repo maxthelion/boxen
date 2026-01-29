@@ -1526,16 +1526,45 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
     }),
 
   setFeetConfig: (feetConfig) =>
-    set((state) => ({
-      config: {
-        ...state.config,
-        assembly: {
-          ...state.config.assembly,
-          feet: feetConfig,
-        },
-      },
-      panelsDirty: true,
-    })),
+    set((state) => {
+      // Ensure engine is initialized
+      ensureEngineInitialized(state.config, state.faces, state.rootVoid);
+
+      // Convert store feet config to engine format
+      const engineFeetConfig = feetConfig ? {
+        enabled: feetConfig.enabled,
+        height: feetConfig.height,
+        width: feetConfig.width,
+        inset: feetConfig.inset,
+        gap: 0, // Engine expects gap field
+      } : null;
+
+      // Dispatch to engine
+      const result = dispatchToEngine({
+        type: 'SET_FEET_CONFIG',
+        targetId: 'main-assembly',
+        payload: engineFeetConfig,
+      });
+
+      if (!result.success || !result.snapshot) {
+        // Fallback to local update if dispatch failed
+        return {
+          config: {
+            ...state.config,
+            assembly: {
+              ...state.config.assembly,
+              feet: feetConfig,
+            },
+          },
+          panelsDirty: true,
+        };
+      }
+
+      return {
+        config: result.snapshot.config,
+        panelsDirty: true,
+      };
+    }),
 
   setFaceOffset: (faceId, offset, mode) =>
     set((state) => {

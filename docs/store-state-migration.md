@@ -110,7 +110,7 @@ High-priority (frequently used):
 
 Medium-priority:
 - [x] `purgeVoid` - dispatches PURGE_VOID ✓ (Jan 2026)
-- [ ] `setFeetConfig` - feet configuration
+- [x] `setFeetConfig` - dispatches SET_FEET_CONFIG ✓ (Jan 2026)
 
 Sub-assembly operations:
 - [ ] `createSubAssembly` - engine supports but store doesn't use it yet
