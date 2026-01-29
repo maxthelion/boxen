@@ -164,45 +164,36 @@ export const TemplateConfigModal: React.FC<TemplateConfigModalProps> = ({
           <div className="template-config-form">
             <div className="template-config-section">
               <h3>Dimensions</h3>
-              <div className="template-form-grid">
+              <div className="template-dimensions-row">
                 <label>
-                  <span>Width</span>
-                  <div className="input-with-unit">
-                    <input
-                      type="number"
-                      value={width}
-                      onChange={(e) => handleWidthChange(Number(e.target.value))}
-                      min={variables.dimensions.width.min}
-                      max={variables.dimensions.width.max}
-                    />
-                    <span className="unit">mm</span>
-                  </div>
+                  <span>W</span>
+                  <input
+                    type="number"
+                    value={width}
+                    onChange={(e) => handleWidthChange(Number(e.target.value))}
+                    min={variables.dimensions.width.min}
+                    max={variables.dimensions.width.max}
+                  />
                 </label>
                 <label>
-                  <span>Height</span>
-                  <div className="input-with-unit">
-                    <input
-                      type="number"
-                      value={height}
-                      onChange={(e) => handleHeightChange(Number(e.target.value))}
-                      min={variables.dimensions.height.min}
-                      max={variables.dimensions.height.max}
-                    />
-                    <span className="unit">mm</span>
-                  </div>
+                  <span>H</span>
+                  <input
+                    type="number"
+                    value={height}
+                    onChange={(e) => handleHeightChange(Number(e.target.value))}
+                    min={variables.dimensions.height.min}
+                    max={variables.dimensions.height.max}
+                  />
                 </label>
                 <label>
-                  <span>Depth</span>
-                  <div className="input-with-unit">
-                    <input
-                      type="number"
-                      value={depth}
-                      onChange={(e) => handleDepthChange(Number(e.target.value))}
-                      min={variables.dimensions.depth.min}
-                      max={variables.dimensions.depth.max}
-                    />
-                    <span className="unit">mm</span>
-                  </div>
+                  <span>D</span>
+                  <input
+                    type="number"
+                    value={depth}
+                    onChange={(e) => handleDepthChange(Number(e.target.value))}
+                    min={variables.dimensions.depth.min}
+                    max={variables.dimensions.depth.max}
+                  />
                 </label>
               </div>
             </div>
