@@ -10,18 +10,24 @@ Create a library of starting points (templates) that users can customize when cr
 
 Templates are stored as **sequences of engine actions** that can be replayed with different variable values. This aligns with the event-sourcing architecture and enables powerful parameterization.
 
-### Key Variable Types
+### Variables are Derived from the Event Log
 
-Templates expose two primary variable categories:
+A template's configurable variables are **discovered from its action sequence**, not predefined:
 
-1. **Dimensions** - Width, height, depth of the assembly
-2. **Subdivision Count** - Number of divisions along an axis (e.g., drawer count)
+1. **Dimensions** (always present) - Width, height, depth of the assembly
+2. **Subdivision Counts** (only if subdivisions exist) - For each axis that has `ADD_SUBDIVISION` actions in the log, a count variable is exposed
+
+This means:
+- A **Basic Box** template has only dimension variables (no subdivision actions in log)
+- A **Drawer Unit** template has dimensions + Y-axis subdivision count (has Y subdivisions in log)
+- A **Grid Organizer** has dimensions + X count + Z count (has both X and Z subdivisions)
 
 ### Why Event Logs?
 
 Storing templates as action sequences (rather than state snapshots) provides:
 
-- **Natural parameterization**: Subdivision count becomes "how many times to replay ADD_SUBDIVISION"
+- **Natural parameterization**: Subdivision count = number of `ADD_SUBDIVISION` actions to generate
+- **Automatic variable discovery**: Analyze the log to find what's parameterizable
 - **Alignment with undo/redo**: Same action format used by history system
 - **Composability**: Templates can be combined or extended
 - **Transparency**: Users can see exactly what the template does
@@ -37,71 +43,85 @@ interface ProjectTemplate {
   description?: string;
   thumbnail?: string;
 
-  // The parameterized action sequence
+  // The action sequence - THIS is the source of truth
+  // Variables are derived by analyzing this sequence
   actionSequence: TemplateAction[];
 
-  // Variables that can be customized
-  variables: TemplateVariable[];
-
-  // Initial assembly config (before actions are applied)
+  // Initial assembly dimensions (always parameterizable)
   initialAssembly: {
-    width: VariableRef | number;
-    height: VariableRef | number;
-    depth: VariableRef | number;
+    width: number;   // Default value, becomes 'width' variable
+    height: number;  // Default value, becomes 'height' variable
+    depth: number;   // Default value, becomes 'depth' variable
     materialThickness: number;
     fingerWidth: number;
     fingerGap: number;
   };
 }
 
-// Reference to a variable value
-interface VariableRef {
-  $var: string;  // Variable ID
-}
-
-// A template action that may contain variable references
+// A template action - may be parameterized based on context
 type TemplateAction = {
   type: EngineAction['type'];
   targetId: string;
-  payload: Record<string, unknown | VariableRef>;
+  payload: Record<string, unknown>;
 
-  // For repeated actions (e.g., multiple subdivisions)
-  repeat?: {
-    count: VariableRef | number;
-    // How to compute position for each iteration
-    positionFormula?: SubdivisionFormula;
+  // For subdivision actions: marks this as generating a count variable
+  // The axis determines the variable name (e.g., 'yCount' for Y-axis subdivisions)
+  subdivisionConfig?: {
+    axis: 'x' | 'y' | 'z';
+    defaultCount: number;        // How many compartments (dividers + 1)
+    variableName?: string;       // Override default name (e.g., "Drawer Count" instead of "Y Divisions")
+    positionFormula: 'equal-spacing';  // How to compute positions
   };
 };
-```
 
----
+// Variables are computed at runtime from the template
+interface DerivedVariables {
+  // Always present
+  dimensions: {
+    width: { default: number; min: number; max: number };
+    height: { default: number; min: number; max: number };
+    depth: { default: number; min: number; max: number };
+  };
 
-## Variable Definitions
-
-```typescript
-interface TemplateVariable {
-  id: string;
-  name: string;              // Display name (e.g., "Number of Drawers")
-  type: 'dimension' | 'count';
-  defaultValue: number;
-
-  // Constraints
-  min?: number;
-  max?: number;
-  step?: number;
-
-  // For dimensions
-  unit?: 'mm' | 'in';
-
-  // For counts
-  description?: string;      // e.g., "Horizontal divisions"
+  // Only present if actionSequence contains subdivision actions
+  subdivisions?: {
+    [axis: string]: {
+      variableName: string;
+      default: number;
+      min: number;
+      max: number;
+    };
+  };
 }
 
-// Formula for computing subdivision positions from count
-interface SubdivisionFormula {
-  type: 'equal-spacing';     // Divide available space equally
-  axis: 'x' | 'y' | 'z';
-  // Spacing is computed as: availableSpace / (count + 1) for each position
+function deriveVariables(template: ProjectTemplate): DerivedVariables {
+  const variables: DerivedVariables = {
+    dimensions: {
+      width: { default: template.initialAssembly.width, min: 50, max: 500 },
+      height: { default: template.initialAssembly.height, min: 50, max: 500 },
+      depth: { default: template.initialAssembly.depth, min: 50, max: 500 },
+    },
+  };
+
+  // Scan action sequence for subdivision configs
+  for (const action of template.actionSequence) {
+    if (action.subdivisionConfig) {
+      const { axis, defaultCount, variableName } = action.subdivisionConfig;
+
+      if (!variables.subdivisions) {
+        variables.subdivisions = {};
+      }
+
+      variables.subdivisions[axis] = {
+        variableName: variableName || `${axisName(axis)} Divisions`,
+        default: defaultCount,
+        min: 1,
+        max: 10,
+      };
+    }
+  }
+
+  return variables;
 }
 ```
 
@@ -109,7 +129,7 @@ interface SubdivisionFormula {
 
 ## Example: Drawer Unit Template
 
-A box with N horizontal drawers:
+A box with N horizontal drawers. The `subdivisionConfig` on the Y-axis action creates a "Drawer Count" variable:
 
 ```typescript
 const drawerUnitTemplate: ProjectTemplate = {
@@ -117,50 +137,11 @@ const drawerUnitTemplate: ProjectTemplate = {
   name: 'Drawer Unit',
   description: 'A box with configurable horizontal drawers',
 
-  variables: [
-    {
-      id: 'width',
-      name: 'Width',
-      type: 'dimension',
-      defaultValue: 200,
-      min: 50,
-      max: 500,
-      unit: 'mm',
-    },
-    {
-      id: 'height',
-      name: 'Height',
-      type: 'dimension',
-      defaultValue: 300,
-      min: 50,
-      max: 600,
-      unit: 'mm',
-    },
-    {
-      id: 'depth',
-      name: 'Depth',
-      type: 'dimension',
-      defaultValue: 150,
-      min: 50,
-      max: 400,
-      unit: 'mm',
-    },
-    {
-      id: 'drawerCount',
-      name: 'Number of Drawers',
-      type: 'count',
-      defaultValue: 3,
-      min: 1,
-      max: 10,
-      step: 1,
-      description: 'Horizontal divisions for drawer compartments',
-    },
-  ],
-
+  // Dimensions become variables automatically
   initialAssembly: {
-    width: { $var: 'width' },
-    height: { $var: 'height' },
-    depth: { $var: 'depth' },
+    width: 200,
+    height: 300,
+    depth: 150,
     materialThickness: 3,
     fingerWidth: 10,
     fingerGap: 1.5,
@@ -168,137 +149,245 @@ const drawerUnitTemplate: ProjectTemplate = {
 
   actionSequence: [
     // Remove front face (drawer openings)
+    // This action has no subdivisionConfig, so no variable is created
     {
       type: 'SET_FACE_SOLID',
       targetId: '$assembly',
       payload: { faceId: 'front', solid: false },
     },
+
     // Create horizontal subdivisions for drawers
+    // The subdivisionConfig creates a 'Drawer Count' variable
     {
       type: 'ADD_SUBDIVISIONS',
       targetId: '$assembly',
       payload: {
         voidId: '$rootVoid',
         axis: 'y',
-        positions: { $var: 'drawerCount' },  // Computed from count
+        // positions will be computed at instantiation time
       },
-      repeat: {
-        count: { $var: 'drawerCount' },
-        positionFormula: {
-          type: 'equal-spacing',
-          axis: 'y',
-        },
+      subdivisionConfig: {
+        axis: 'y',
+        defaultCount: 3,
+        variableName: 'Drawer Count',  // Custom name instead of "Y Divisions"
+        positionFormula: 'equal-spacing',
       },
     },
   ],
 };
+
+// When this template is loaded, deriveVariables() returns:
+// {
+//   dimensions: { width: 200, height: 300, depth: 150 },
+//   subdivisions: {
+//     y: { variableName: 'Drawer Count', default: 3, min: 1, max: 10 }
+//   }
+// }
+```
+
+## Example: Basic Box Template (No Subdivisions)
+
+A simple box with no internal divisions - only dimension variables:
+
+```typescript
+const basicBoxTemplate: ProjectTemplate = {
+  id: 'basic-box',
+  name: 'Basic Box',
+  description: 'A simple six-sided box',
+
+  initialAssembly: {
+    width: 100,
+    height: 100,
+    depth: 100,
+    materialThickness: 3,
+    fingerWidth: 10,
+    fingerGap: 1.5,
+  },
+
+  // No subdivision actions = no subdivision variables
+  actionSequence: [],
+};
+
+// deriveVariables() returns only dimensions:
+// {
+//   dimensions: { width: 100, height: 100, depth: 100 },
+//   // No subdivisions key at all
+// }
+```
+
+## Example: Grid Organizer (Two Subdivision Axes)
+
+A box with both X and Z subdivisions, creating two count variables:
+
+```typescript
+const gridOrganizerTemplate: ProjectTemplate = {
+  id: 'grid-organizer',
+  name: 'Grid Organizer',
+  description: 'Open-top box with grid compartments',
+
+  initialAssembly: {
+    width: 200,
+    height: 60,
+    depth: 200,
+    materialThickness: 3,
+    fingerWidth: 10,
+    fingerGap: 1.5,
+  },
+
+  actionSequence: [
+    // Remove top face
+    {
+      type: 'SET_FACE_SOLID',
+      targetId: '$assembly',
+      payload: { faceId: 'top', solid: false },
+    },
+
+    // X-axis subdivisions (columns)
+    {
+      type: 'ADD_SUBDIVISIONS',
+      targetId: '$assembly',
+      payload: { voidId: '$rootVoid', axis: 'x' },
+      subdivisionConfig: {
+        axis: 'x',
+        defaultCount: 3,
+        variableName: 'Columns',
+        positionFormula: 'equal-spacing',
+      },
+    },
+
+    // Z-axis subdivisions (rows)
+    {
+      type: 'ADD_SUBDIVISIONS',
+      targetId: '$assembly',
+      payload: { voidId: '$rootVoid', axis: 'z' },
+      subdivisionConfig: {
+        axis: 'z',
+        defaultCount: 3,
+        variableName: 'Rows',
+        positionFormula: 'equal-spacing',
+      },
+    },
+  ],
+};
+
+// deriveVariables() returns:
+// {
+//   dimensions: { width: 200, height: 60, depth: 200 },
+//   subdivisions: {
+//     x: { variableName: 'Columns', default: 3, min: 1, max: 10 },
+//     z: { variableName: 'Rows', default: 3, min: 1, max: 10 }
+//   }
+// }
 ```
 
 ---
 
 ## Replay Algorithm
 
-When a template is instantiated:
+When a template is instantiated with user-provided variable values:
 
 ```typescript
+interface InstantiationValues {
+  // Dimensions (always present)
+  width: number;
+  height: number;
+  depth: number;
+
+  // Subdivision counts (only for axes that have subdivisionConfig)
+  subdivisionCounts?: Record<'x' | 'y' | 'z', number>;
+}
+
 function instantiateTemplate(
   template: ProjectTemplate,
-  variableValues: Record<string, number>
+  values: InstantiationValues
 ): void {
   const engine = getEngine();
+  const mt = template.initialAssembly.materialThickness;
 
-  // 1. Resolve initial dimensions
-  const dimensions = {
-    width: resolveValue(template.initialAssembly.width, variableValues),
-    height: resolveValue(template.initialAssembly.height, variableValues),
-    depth: resolveValue(template.initialAssembly.depth, variableValues),
-  };
-
-  // 2. Create assembly with resolved dimensions
+  // 1. Create assembly with user-specified dimensions
   engine.createAssembly(
-    dimensions.width,
-    dimensions.height,
-    dimensions.depth,
+    values.width,
+    values.height,
+    values.depth,
     {
-      thickness: template.initialAssembly.materialThickness,
+      thickness: mt,
       fingerWidth: template.initialAssembly.fingerWidth,
       fingerGap: template.initialAssembly.fingerGap,
     }
   );
 
-  // 3. Replay action sequence with variable substitution
+  // 2. Replay each action in the sequence
   for (const templateAction of template.actionSequence) {
-    const actions = expandTemplateAction(templateAction, variableValues, dimensions);
+    if (templateAction.subdivisionConfig) {
+      // This is a parameterized subdivision action
+      const { axis, positionFormula } = templateAction.subdivisionConfig;
+      const count = values.subdivisionCounts?.[axis] ?? templateAction.subdivisionConfig.defaultCount;
 
-    for (const action of actions) {
-      engine.dispatch(action);
+      const action = generateSubdivisionAction(
+        templateAction,
+        count,
+        { width: values.width, height: values.height, depth: values.depth },
+        mt
+      );
+
+      if (action) {
+        engine.dispatch(action);
+      }
+    } else {
+      // Regular action - dispatch as-is (with target ID resolution)
+      engine.dispatch(resolveTargetIds(templateAction));
     }
   }
 }
 
-function resolveValue(
-  value: VariableRef | number,
-  variables: Record<string, number>
-): number {
-  if (typeof value === 'number') return value;
-  return variables[value.$var];
-}
-
-function expandTemplateAction(
+function generateSubdivisionAction(
   templateAction: TemplateAction,
-  variables: Record<string, number>,
-  dimensions: { width: number; height: number; depth: number }
-): EngineAction[] {
-  // Handle repeated actions (subdivisions)
-  if (templateAction.repeat) {
-    const count = resolveValue(templateAction.repeat.count, variables);
-    return generateSubdivisionActions(templateAction, count, dimensions);
-  }
-
-  // Single action - resolve any variable references in payload
-  return [resolveActionPayload(templateAction, variables)];
-}
-
-function generateSubdivisionActions(
-  templateAction: TemplateAction,
-  count: number,
-  dimensions: { width: number; height: number; depth: number }
-): EngineAction[] {
-  const formula = templateAction.repeat!.positionFormula!;
-  const axis = formula.axis;
+  compartmentCount: number,
+  dimensions: { width: number; height: number; depth: number },
+  materialThickness: number
+): EngineAction | null {
+  const { axis } = templateAction.subdivisionConfig!;
 
   // Get dimension along subdivision axis
   const axisDimension = axis === 'x' ? dimensions.width
                       : axis === 'y' ? dimensions.height
                       : dimensions.depth;
 
-  // Material thickness reduces interior space
-  const mt = 3; // TODO: get from template
-  const interiorSize = axisDimension - (2 * mt);
+  // Interior size after material thickness
+  const interiorSize = axisDimension - (2 * materialThickness);
+
+  // For N compartments, we need N-1 dividers
+  const dividerCount = compartmentCount - 1;
+  if (dividerCount <= 0) return null;
 
   // Calculate evenly-spaced positions
-  // For N drawers, we need N-1 dividers
-  const dividerCount = count - 1;
-  if (dividerCount <= 0) return [];
-
-  const spacing = interiorSize / count;
+  const spacing = interiorSize / compartmentCount;
   const positions: number[] = [];
 
   for (let i = 1; i <= dividerCount; i++) {
-    // Position relative to interior start
-    positions.push(mt + (spacing * i));
+    positions.push(materialThickness + (spacing * i));
   }
 
-  // Return single ADD_SUBDIVISIONS action with all positions
-  return [{
+  return {
     type: 'ADD_SUBDIVISIONS',
-    targetId: templateAction.targetId.replace('$assembly', 'main-assembly'),
+    targetId: 'main-assembly',
     payload: {
       voidId: 'root',
       axis: axis,
       positions: positions,
     },
-  }];
+  };
+}
+
+function resolveTargetIds(action: TemplateAction): EngineAction {
+  return {
+    ...action,
+    targetId: action.targetId.replace('$assembly', 'main-assembly'),
+    payload: {
+      ...action.payload,
+      voidId: action.payload.voidId === '$rootVoid' ? 'root' : action.payload.voidId,
+    },
+  } as EngineAction;
 }
 ```
 
@@ -312,14 +401,17 @@ function generateSubdivisionActions(
 2. **Template Browser** shows available templates with thumbnails
 3. User selects a template
 4. **Variable Configuration Dialog** appears:
-   - Dimension inputs (width, height, depth)
-   - Count inputs (e.g., "Number of Drawers")
+   - Dimension inputs (always shown)
+   - Subdivision count inputs (only shown if template has subdivision actions)
    - Live preview updates as values change (optional)
 5. User clicks **"Create"**
 6. Template is instantiated with specified values
 
 ### Variable Configuration UI
 
+The dialog dynamically shows inputs based on `deriveVariables()`:
+
+**Drawer Unit** (has Y-axis subdivision):
 ```
 ┌─────────────────────────────────────────────┐
 │  Drawer Unit                                │
@@ -335,7 +427,49 @@ function generateSubdivisionActions(
 │                                             │
 │  Structure                                  │
 │  ┌─────────────────────────────────────┐    │
-│  │ Number of Drawers    [  3  ] [+-]   │    │
+│  │ Drawer Count         [  3  ] [+-]   │    │
+│  └─────────────────────────────────────┘    │
+│                                             │
+│  [Preview]                    [Create]      │
+└─────────────────────────────────────────────┘
+```
+
+**Basic Box** (no subdivisions - no Structure section):
+```
+┌─────────────────────────────────────────────┐
+│  Basic Box                                  │
+│  ─────────────────────────────────────────  │
+│                                             │
+│  Dimensions                                 │
+│  ┌─────────────────┐  ┌─────────────────┐   │
+│  │ Width      100  │  │ Height     100  │   │
+│  └─────────────────┘  └─────────────────┘   │
+│  ┌─────────────────┐                        │
+│  │ Depth      100  │                        │
+│  └─────────────────┘                        │
+│                                             │
+│  [Preview]                    [Create]      │
+└─────────────────────────────────────────────┘
+```
+
+**Grid Organizer** (two subdivision axes):
+```
+┌─────────────────────────────────────────────┐
+│  Grid Organizer                             │
+│  ─────────────────────────────────────────  │
+│                                             │
+│  Dimensions                                 │
+│  ┌─────────────────┐  ┌─────────────────┐   │
+│  │ Width      200  │  │ Height      60  │   │
+│  └─────────────────┘  └─────────────────┘   │
+│  ┌─────────────────┐                        │
+│  │ Depth      200  │                        │
+│  └─────────────────┘                        │
+│                                             │
+│  Structure                                  │
+│  ┌─────────────────────────────────────┐    │
+│  │ Columns              [  3  ] [+-]   │    │
+│  │ Rows                 [  3  ] [+-]   │    │
 │  └─────────────────────────────────────┘    │
 │                                             │
 │  [Preview]                    [Create]      │
@@ -344,15 +478,69 @@ function generateSubdivisionActions(
 
 ---
 
+## Template Instantiation as an Operation
+
+Template configuration follows the **operation pattern** with preview, apply, and cancel:
+
+### State Machine
+
+```
+IDLE
+  │
+  │ User selects template
+  ▼
+TEMPLATE_CONFIG (operation active)
+  │
+  ├── Variable changes → Update preview (engine.startPreview / dispatch / render)
+  │
+  ├── Apply → Commit preview, close dialog
+  │
+  └── Cancel → Discard preview, close dialog
+```
+
+### Preview on Variable Change
+
+When any variable changes (dimension or subdivision count):
+
+```typescript
+function onVariableChange(template: ProjectTemplate, newValues: InstantiationValues) {
+  const engine = getEngine();
+
+  // Start fresh preview each time
+  engine.discardPreview();
+  engine.startPreview();
+
+  // Replay template with new values into preview scene
+  instantiateTemplateIntoPreview(template, newValues);
+
+  // Trigger React re-render via useEnginePanels() hook
+  notifyEngineStateChanged();
+}
+
+function onApply() {
+  engine.commitPreview();
+  closeDialog();
+}
+
+function onCancel() {
+  engine.discardPreview();
+  closeDialog();
+}
+```
+
+This gives users real-time feedback as they adjust drawer counts, dimensions, etc.
+
+---
+
 ## Built-in Templates
 
-| Template | Variables | Actions |
-|----------|-----------|---------|
-| **Basic Box** | W, H, D | None (just dimensions) |
-| **Drawer Unit** | W, H, D, Drawer Count | Remove front, Y subdivisions |
-| **Vertical Organizer** | W, H, D, Slot Count | Remove top, X subdivisions |
-| **Grid Organizer** | W, H, D, Columns, Rows | X and Z subdivisions |
-| **Pigeonhole** | W, H, D, Cols, Rows | Remove front, X and Y subdivisions |
+| Template | Subdivision Actions | Derived Variables |
+|----------|---------------------|-------------------|
+| **Basic Box** | None | W, H, D only |
+| **Drawer Unit** | 1× Y-axis | W, H, D, Drawer Count |
+| **Vertical Organizer** | 1× X-axis | W, H, D, Slot Count |
+| **Grid Organizer** | 1× X-axis, 1× Z-axis | W, H, D, Columns, Rows |
+| **Pigeonhole** | 1× X-axis, 1× Y-axis | W, H, D, Columns, Rows |
 
 ---
 
@@ -363,50 +551,104 @@ Users can save their current project as a template:
 1. Design a box with desired structure
 2. Click **"Save as Template"**
 3. **Template Editor** analyzes the action history:
-   - Identifies dimension-related actions
-   - Identifies subdivision patterns
-   - Suggests which values to parameterize
-4. User confirms/adjusts variable bindings
+   - Dimensions become variables (using current values as defaults)
+   - Each subdivision action becomes a count variable (using current count as default)
+4. User can rename variables (e.g., "Y Divisions" → "Drawer Count")
 5. Template is saved with parameterized action sequence
 
-### Inferring Variables from History
+### Inferring Template from History
+
+Each `ADD_SUBDIVISION` or `ADD_SUBDIVISIONS` action in the history becomes a parameterizable count:
 
 ```typescript
-function inferTemplateFromHistory(
-  history: Command[]
-): { suggestedVariables: TemplateVariable[], actionSequence: TemplateAction[] } {
-  const variables: TemplateVariable[] = [];
-  const actions: TemplateAction[] = [];
+function createTemplateFromHistory(
+  history: Command[],
+  currentAssembly: AssemblySnapshot
+): ProjectTemplate {
+  const actionSequence: TemplateAction[] = [];
 
-  // Always suggest dimension variables
-  variables.push(
-    { id: 'width', name: 'Width', type: 'dimension', defaultValue: currentWidth },
-    { id: 'height', name: 'Height', type: 'dimension', defaultValue: currentHeight },
-    { id: 'depth', name: 'Depth', type: 'dimension', defaultValue: currentDepth },
-  );
-
-  // Find subdivision patterns
-  const subdivisions = history.filter(c =>
-    c.actions.some(a => a.type === 'ADD_SUBDIVISION' || a.type === 'ADD_SUBDIVISIONS')
-  );
-
-  // Group by axis to detect counts
-  const byAxis = groupBy(subdivisions, getSubdivisionAxis);
-
-  for (const [axis, subs] of Object.entries(byAxis)) {
-    if (subs.length > 0) {
-      const count = subs.length + 1; // N dividers = N+1 compartments
-      variables.push({
-        id: `${axis}Divisions`,
-        name: `${axisName(axis)} Divisions`,
-        type: 'count',
-        defaultValue: count,
-      });
+  for (const command of history) {
+    for (const action of command.actions) {
+      if (action.type === 'ADD_SUBDIVISION') {
+        // Single subdivision → count variable with default 2 (1 divider = 2 compartments)
+        actionSequence.push({
+          type: 'ADD_SUBDIVISIONS',
+          targetId: action.targetId,
+          payload: { voidId: action.payload.voidId, axis: action.payload.axis },
+          subdivisionConfig: {
+            axis: action.payload.axis,
+            defaultCount: 2,
+            positionFormula: 'equal-spacing',
+          },
+        });
+      } else if (action.type === 'ADD_SUBDIVISIONS') {
+        // Multiple subdivisions → count = positions.length + 1
+        const count = action.payload.positions.length + 1;
+        actionSequence.push({
+          type: 'ADD_SUBDIVISIONS',
+          targetId: action.targetId,
+          payload: { voidId: action.payload.voidId, axis: action.payload.axis },
+          subdivisionConfig: {
+            axis: action.payload.axis,
+            defaultCount: count,
+            positionFormula: 'equal-spacing',
+          },
+        });
+      } else {
+        // Non-subdivision actions are stored as-is
+        actionSequence.push({
+          type: action.type,
+          targetId: action.targetId,
+          payload: action.payload,
+        });
+      }
     }
   }
 
-  return { suggestedVariables: variables, actionSequence: actions };
+  return {
+    id: generateId(),
+    name: 'Custom Template',
+    initialAssembly: {
+      width: currentAssembly.props.width,
+      height: currentAssembly.props.height,
+      depth: currentAssembly.props.depth,
+      materialThickness: currentAssembly.props.material.thickness,
+      fingerWidth: currentAssembly.props.material.fingerWidth,
+      fingerGap: currentAssembly.props.material.fingerGap,
+    },
+    actionSequence,
+  };
 }
+```
+
+### Example: Saving a 3-Drawer Design
+
+User creates a box with 3 horizontal drawers (2 Y-axis dividers), then saves as template:
+
+```typescript
+// History contains:
+// - SET_FACE_SOLID { faceId: 'front', solid: false }
+// - ADD_SUBDIVISIONS { axis: 'y', positions: [100, 200] }  // 2 dividers
+
+// Generated template:
+{
+  initialAssembly: { width: 200, height: 300, depth: 150, ... },
+  actionSequence: [
+    { type: 'SET_FACE_SOLID', payload: { faceId: 'front', solid: false } },
+    {
+      type: 'ADD_SUBDIVISIONS',
+      payload: { voidId: '$rootVoid', axis: 'y' },
+      subdivisionConfig: {
+        axis: 'y',
+        defaultCount: 3,  // 2 dividers = 3 compartments
+        positionFormula: 'equal-spacing',
+      },
+    },
+  ],
+}
+
+// Derived variables: width, height, depth, + "Y Divisions" (default: 3)
+// User renames "Y Divisions" to "Drawer Count" before saving
 ```
 
 ---
@@ -442,18 +684,33 @@ Future possibilities:
 
 ## Verification
 
-1. **Drawer Unit Template:**
-   - Select template, set drawer count to 4
-   - Create → box with 4 horizontal compartments (3 dividers)
-   - Verify divider positions are evenly spaced
+1. **Preview Updates on Variable Change:**
+   - Select Drawer Unit template
+   - Change drawer count from 3 to 5
+   - Preview immediately shows 5 compartments (4 dividers)
+   - Change height from 300 to 400
+   - Preview updates with new height, dividers reposition proportionally
 
-2. **Dimension Variables:**
-   - Create from template with W=200, H=300, D=100
-   - Resulting box has correct dimensions
-   - Subdivisions scale proportionally
+2. **Apply/Cancel Flow:**
+   - Select template, adjust variables
+   - Click Cancel → no changes, returns to empty/previous state
+   - Select template again, adjust, click Apply → template instantiated
 
-3. **Save as Template:**
-   - Create box with 3 vertical divisions
-   - Save as template → "Slot Count" variable suggested
-   - Create new from template with count=5
-   - Resulting box has 5 slots
+3. **Basic Box (No Subdivision Variables):**
+   - Select Basic Box template
+   - Only dimension inputs shown (no "Structure" section)
+   - Adjust dimensions, preview updates
+   - Apply → simple box with specified dimensions
+
+4. **Grid Organizer (Multiple Subdivision Variables):**
+   - Select Grid Organizer
+   - "Columns" and "Rows" inputs both shown
+   - Set Columns=4, Rows=3
+   - Preview shows 4×3 grid (12 compartments)
+
+5. **Save as Template:**
+   - Create box with 3 horizontal drawers
+   - Save as Template
+   - "Y Divisions" variable suggested with default=3
+   - Rename to "Drawer Count", save
+   - New from template → shows "Drawer Count" input
