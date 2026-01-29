@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { BoxTree } from './components/BoxTree';
+import { LeftSidebar } from './components/LeftSidebar';
 import { Viewport3D, Viewport3DHandle } from './components/Viewport3D';
 import { SketchView2D } from './components/SketchView2D';
 import { SketchSidebar } from './components/SketchSidebar';
@@ -357,7 +357,7 @@ function App() {
 
       <main className="app-main">
         <aside className="sidebar left-sidebar">
-          <BoxTree />
+          <LeftSidebar />
         </aside>
 
         <section className="viewport">
