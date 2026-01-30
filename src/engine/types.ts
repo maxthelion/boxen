@@ -41,6 +41,56 @@ export interface EdgeStatusInfo {
 }
 
 // =============================================================================
+// Corner Types - For fillet/chamfer operations
+// =============================================================================
+
+/**
+ * Corner key identifies a corner by its two adjacent edges.
+ * Format: "edge1:edge2" where edges are sorted alphabetically.
+ * This is stable regardless of panel orientation in 3D space.
+ */
+export type CornerKey = 'bottom:left' | 'bottom:right' | 'left:top' | 'right:top';
+
+/** All corner keys in standard order */
+export const ALL_CORNERS: CornerKey[] = ['bottom:left', 'bottom:right', 'left:top', 'right:top'];
+
+/**
+ * Get the two edges that meet at a corner
+ */
+export function getCornerEdges(corner: CornerKey): [EdgePosition, EdgePosition] {
+  const [e1, e2] = corner.split(':') as [EdgePosition, EdgePosition];
+  return [e1, e2];
+}
+
+/**
+ * Create a corner key from two edges (order doesn't matter)
+ */
+export function makeCornerKey(edge1: EdgePosition, edge2: EdgePosition): CornerKey {
+  const sorted = [edge1, edge2].sort();
+  return `${sorted[0]}:${sorted[1]}` as CornerKey;
+}
+
+/**
+ * Corner eligibility info for fillet operations
+ */
+export interface CornerEligibility {
+  corner: CornerKey;
+  eligible: boolean;
+  reason?: 'no-free-length' | 'below-minimum';
+  maxRadius: number;  // 0 if not eligible
+  freeLength1: number;  // Free length on first edge
+  freeLength2: number;  // Free length on second edge
+}
+
+/**
+ * Corner fillet configuration
+ */
+export interface CornerFillet {
+  corner: CornerKey;
+  radius: number;  // mm, must be >= 1 and <= maxRadius
+}
+
+// =============================================================================
 // Geometry Types
 // =============================================================================
 
@@ -397,6 +447,7 @@ export interface BasePanelSnapshot extends BaseSnapshot {
   // Input properties
   props: {
     edgeExtensions: EdgeExtensions;
+    cornerFillets: CornerFillet[];  // Corner fillet configurations
     visible: boolean;
   };
   // Panels never have children
@@ -421,6 +472,10 @@ export interface BasePanelSnapshot extends BaseSnapshot {
     // Edge statuses for inset/outset tool
     // Determines which edges can be modified
     edgeStatuses: EdgeStatusInfo[];
+
+    // Corner eligibility for fillet tool
+    // Determines which corners can be filleted and max radius
+    cornerEligibility: CornerEligibility[];
   };
 }
 
@@ -520,4 +575,6 @@ export type EngineAction =
   | { type: 'SET_GRID_SUBDIVISION'; targetId: string; payload: {
       voidId: string;
       axes: { axis: Axis; positions: number[] }[];
-    }};
+    }}
+  | { type: 'SET_CORNER_FILLET'; targetId: string; payload: { panelId: string; corner: CornerKey; radius: number } }
+  | { type: 'SET_CORNER_FILLETS_BATCH'; targetId: string; payload: { fillets: Array<{ panelId: string; corner: CornerKey; radius: number }> } };

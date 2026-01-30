@@ -1,0 +1,1 @@
+When the inset tool is given a negative value, the panel's edge should move towards the center. Any joints running along the opposite axis of the moved edge on the panel's plane should become smaller. Any fingers or slots should be adjusted accordingly.
