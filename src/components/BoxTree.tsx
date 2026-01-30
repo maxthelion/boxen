@@ -233,50 +233,54 @@ const OuterPanelNode: React.FC<{
           <span className="tree-label">{panel.label}</span>
           <span className="tree-status">{panel.solid ? '' : '(open)'}</span>
         </span>
-        {panel.solid && (
-          <span className="tree-controls">
-            <button
-              className="tree-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onConfigureFace(panel.id);
-              }}
-              title="Configure face"
-            >
-              ⚙
-            </button>
-            <button
-              className="tree-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEditPanel(panel.id);
-              }}
-              title="Edit in 2D"
-            >
-              ✎
-            </button>
-            <button
-              className={`tree-btn ${isHidden ? 'active' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleFaceVisibility(panel.id);
-              }}
-              title={isHidden ? 'Show' : 'Hide'}
-            >
-              {isHidden ? '○' : '●'}
-            </button>
-            <button
-              className={`tree-btn ${isIsolated ? 'active' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSetIsolatedPanel(isIsolated ? null : panel.id);
-              }}
-              title={isIsolated ? 'Unisolate' : 'Isolate'}
-            >
-              ◎
-            </button>
-          </span>
-        )}
+        <span className="tree-controls">
+          {/* Configure button always available (to toggle face open/closed) */}
+          <button
+            className="tree-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onConfigureFace(panel.id);
+            }}
+            title="Configure face"
+          >
+            ⚙
+          </button>
+          {/* Edit/Hide/Isolate only available for solid faces */}
+          {panel.solid && (
+            <>
+              <button
+                className="tree-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditPanel(panel.id);
+                }}
+                title="Edit in 2D"
+              >
+                ✎
+              </button>
+              <button
+                className={`tree-btn ${isHidden ? 'active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleFaceVisibility(panel.id);
+                }}
+                title={isHidden ? 'Show' : 'Hide'}
+              >
+                {isHidden ? '○' : '●'}
+              </button>
+              <button
+                className={`tree-btn ${isIsolated ? 'active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSetIsolatedPanel(isIsolated ? null : panel.id);
+                }}
+                title={isIsolated ? 'Unisolate' : 'Isolate'}
+              >
+                ◎
+              </button>
+            </>
+          )}
+        </span>
       </div>
     </div>
   );
@@ -658,20 +662,13 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
     return `${w.toFixed(0)}×${h.toFixed(0)}×${d.toFixed(0)}`;
   };
 
-  // Look up face panel IDs from engine - skip faces that don't have a panel in the engine
-  const outerFacePanels: OuterFacePanel[] = subAssembly.faces
-    .map((face) => {
-      const lookupKey = `${subAssembly.id}-${face.id}`;
-      const panelId = panelLookup.subAssemblyFacePanels.get(lookupKey);
-      if (!panelId) return null;
-      return {
-        id: panelId,
-        faceId: face.id,
-        label: faceLabels[face.id],
-        solid: face.solid,
-      };
-    })
-    .filter((p): p is OuterFacePanel => p !== null);
+  // Show all faces in tree - use subasm-*-face-* format for visibility compatibility
+  const outerFacePanels: OuterFacePanel[] = subAssembly.faces.map((face) => ({
+    id: `subasm-${subAssembly.id}-face-${face.id}`,  // Match format used in store visibility system
+    faceId: face.id,
+    label: faceLabels[face.id],
+    solid: face.solid,
+  }));
 
   const treeOps: TreeOpsProps = {
     selectedVoidIds,
@@ -842,19 +839,14 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
   // When lid insets exist, this is the 'main-interior' child, otherwise it's rootVoid itself
   const interiorVoid = getMainInteriorVoid(rootVoid);
 
-  // Look up face panel IDs from engine - skip faces that don't have a panel in the engine
-  const outerFacePanels: OuterFacePanel[] = faces
-    .map((face) => {
-      const panelId = panelLookup.facePanels.get(face.id);
-      if (!panelId) return null;
-      return {
-        id: panelId,
-        faceId: face.id,
-        label: faceLabels[face.id],
-        solid: face.solid,
-      };
-    })
-    .filter((p): p is OuterFacePanel => p !== null);
+  // Show all faces in tree - use face-* format for compatibility with visibility system
+  // (even though engine uses UUIDs, the store visibility system expects face-front, face-back, etc.)
+  const outerFacePanels: OuterFacePanel[] = faces.map((face) => ({
+    id: `face-${face.id}`,  // Use face-front, face-back format for visibility compatibility
+    faceId: face.id,
+    label: faceLabels[face.id],
+    solid: face.solid,
+  }));
 
   const treeOps: TreeOpsProps = {
     selectedVoidIds,
