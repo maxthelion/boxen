@@ -5,6 +5,40 @@
 - **After completing a feature**: When the user approves a feature, ask if they want to commit it to git.
 - **Planning documents**: Keep plans in the project repo at `docs/` (e.g., `docs/2d-sketch-plan.md`), not in Claude's default plan location (`~/.claude/plans/`). This ensures plans are version-controlled and accessible to everyone.
 
+## Local Environment Configuration
+
+A `.env.local` file in the project root provides per-directory customization. This file is git-ignored so each developer/directory can have unique settings.
+
+**IMPORTANT for Claude:** At the start of each session, check if `.env.local` exists. If it doesn't, create it with the default template:
+```bash
+# Local environment configuration (git-ignored)
+# This file allows per-directory customization of the dev environment
+
+# Background color for the app - helps visually identify which directory this instance is running from
+# Use any valid CSS color value (hex, rgb, hsl, named colors)
+VITE_BACKGROUND_COLOR=#0f0f1a
+```
+
+**Available Variables:**
+
+| Variable | Description | Default (in CSS) |
+|----------|-------------|------------------|
+| `VITE_BACKGROUND_COLOR` | App background color (any CSS color value) | `#0f0f1a` |
+
+**Behavior:**
+- If `.env.local` is missing, the app uses the CSS default (`#0f0f1a`)
+- The background color helps visually identify which directory/instance the dev server was launched from
+- Edit `.env.local` to set a distinctive color (e.g., `#1a0f1a` for purple tint, `#0f1a0f` for green tint)
+- **Restart the dev server** after changing `.env.local` for changes to take effect
+
+**Example custom colors:**
+```bash
+VITE_BACKGROUND_COLOR=#1a0f1a   # Purple tint
+VITE_BACKGROUND_COLOR=#0f1a0f   # Green tint
+VITE_BACKGROUND_COLOR=#1a1a0f   # Gold tint
+VITE_BACKGROUND_COLOR=#0f1a1a   # Cyan tint
+```
+
 ## Project Overview
 
 Boxen is a web-based 3D parametric box designer for laser cutting. Users can design boxes with configurable dimensions, finger joints, dividers, and sub-assemblies (drawers, trays, inserts). The app generates SVG files for laser cutting.
@@ -36,6 +70,11 @@ src/
 │   ├── Engine.ts           # Main engine class - dispatch, snapshots, preview
 │   ├── types.ts            # Engine type definitions
 │   ├── panelBridge.ts      # Converts engine snapshots to store types
+│   ├── geometryChecker.ts  # Core geometry validation
+│   ├── validators/         # Validator modules for integration tests
+│   │   ├── ComprehensiveValidator.ts  # All-in-one geometry validation
+│   │   ├── PathChecker.ts             # Path validity (axis-aligned, no diagonals)
+│   │   └── EdgeExtensionChecker.ts    # Edge extension rules
 │   └── nodes/              # Node class hierarchy
 │       ├── BaseNode.ts         # Abstract base with parent/child, dirty tracking
 │       ├── SceneNode.ts        # Root scene container
@@ -491,6 +530,25 @@ describe('My Operation Integration', () => {
 ```
 
 **Important**: The geometry checker rules in `src/engine/geometryChecker.ts` should NOT be modified without consulting the user first. These rules encode critical geometric constraints for laser-cut assembly.
+
+## Protected Validators
+
+The following validator modules contain critical geometric rules that should NOT be modified without consulting the user first:
+
+1. **`src/engine/geometryChecker.ts`** - Core geometry validation (void bounds, panel sizes, finger joints, slots)
+2. **`src/engine/validators/ComprehensiveValidator.ts`** - Comprehensive geometry validation for integration tests
+3. **`src/engine/validators/PathChecker.ts`** - Path validity rules:
+   - `path:axis-aligned` - No diagonal segments in paths (all segments must be horizontal or vertical)
+   - `path:minimum-points` - Paths must have at least 3 points
+   - `path:no-duplicates` - No consecutive duplicate points
+4. **`src/engine/validators/EdgeExtensionChecker.ts`** - Edge extension rules:
+   - `edge-extensions:eligibility` - Only open/female edges can be extended
+   - `edge-extensions:full-width` - Extension sides span full panel dimension
+   - `edge-extensions:far-edge-open` - Extension cap has no finger joints (straight line)
+   - `edge-extensions:corner-ownership` - Adjacent extended panels: female occupies corner
+   - `edge-extensions:long-fingers` - Long extensions should have finger joints
+
+These rules encode critical geometric constraints documented in `docs/IMG_8222.jpeg` and the geometry rules documentation.
 
 ### Operation Types
 

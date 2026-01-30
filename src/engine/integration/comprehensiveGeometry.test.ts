@@ -7,7 +7,9 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createEngine } from '../Engine';
-import { ComprehensiveValidator, validateGeometry, formatValidationResult } from '../validators/ComprehensiveValidator';
+import { validateGeometry, formatValidationResult } from '../validators/ComprehensiveValidator';
+import { checkPathValidity, formatPathCheckResult } from '../validators/PathChecker';
+import { checkEdgeExtensions, formatEdgeExtensionCheckResult } from '../validators/EdgeExtensionChecker';
 import type { Engine } from '../Engine';
 
 describe('Comprehensive Geometry Validation', () => {
@@ -771,6 +773,287 @@ describe('Comprehensive Geometry Validation', () => {
                   `${result.summary.errorCount} errors, ${result.summary.warningCount} warnings`);
 
       expect(result.errors).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
+  // Scenario 14: Edge Extensions - Path Validity
+  // Tests that edge extensions produce valid axis-aligned paths
+  // ===========================================================================
+
+  describe('Scenario 14: Edge Extensions - Path Validity', () => {
+    beforeEach(() => {
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Get front panel ID and apply bottom extension
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      if (frontPanel) {
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: frontPanel.id, edge: 'bottom', value: 20 },
+        });
+      }
+    });
+
+    it('front panel has edge extension applied', () => {
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      expect(frontPanel).toBeDefined();
+      expect(frontPanel!.props.edgeExtensions.bottom).toBe(20);
+    });
+
+    it('passes path validity checks (no diagonal lines)', () => {
+      // Import dynamically to avoid circular dependency issues
+      // Using imported checkPathValidity and formatPathCheckResult
+
+      const result = checkPathValidity(engine);
+
+      if (!result.valid) {
+        console.log(formatPathCheckResult(result));
+      }
+
+      // This test will FAIL if edge extensions produce diagonal lines
+      // The failure exposes the bug documented in the plan
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('passes edge extension checks', () => {
+      // Using imported checkEdgeExtensions and formatEdgeExtensionCheckResult
+
+      const result = checkEdgeExtensions(engine);
+
+      if (!result.valid) {
+        console.log(formatEdgeExtensionCheckResult(result));
+      }
+
+      // Edge extension rules (eligibility, etc.) should pass
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('passes all geometry validations', () => {
+      const result = validateGeometry(engine);
+
+      if (!result.valid) {
+        console.log(formatValidationResult(result));
+      }
+
+      expect(result.errors).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
+  // Scenario 15: Edge Extensions - Left Edge (Wrap-Around Case)
+  // Tests the wrap-around case in applyExtensionToEdge
+  // ===========================================================================
+
+  describe('Scenario 15: Edge Extensions - Left Edge (Wrap-Around)', () => {
+    beforeEach(() => {
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Get front panel ID and apply left extension
+      // Left edge is the wrap-around case (bottomLeft to topLeft)
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      if (frontPanel) {
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: frontPanel.id, edge: 'left', value: 15 },
+        });
+      }
+    });
+
+    it('front panel has left edge extension applied', () => {
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      expect(frontPanel).toBeDefined();
+      expect(frontPanel!.props.edgeExtensions.left).toBe(15);
+    });
+
+    it('passes path validity checks (no diagonal lines)', () => {
+      // Using imported checkPathValidity and formatPathCheckResult
+
+      const result = checkPathValidity(engine);
+
+      if (!result.valid) {
+        console.log(formatPathCheckResult(result));
+      }
+
+      // This specifically tests the wrap-around case that may have bugs
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('extension spans full panel height', () => {
+      // Using imported checkEdgeExtensions and formatEdgeExtensionCheckResult
+
+      const result = checkEdgeExtensions(engine);
+
+      // Check specifically for full-width errors
+      const fullWidthErrors = result.errors.filter((e: any) => e.rule === 'edge-extensions:full-width');
+
+      if (fullWidthErrors.length > 0) {
+        console.log('Full-width errors:', fullWidthErrors);
+      }
+
+      expect(fullWidthErrors).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
+  // Scenario 16: Multiple Edge Extensions
+  // Tests applying extensions to multiple edges on the same panel
+  // ===========================================================================
+
+  describe('Scenario 16: Multiple Edge Extensions', () => {
+    beforeEach(() => {
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Get front panel and apply multiple extensions
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      if (frontPanel) {
+        // Bottom and left extensions (forms an L-shape extension)
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: frontPanel.id, edge: 'bottom', value: 20 },
+        });
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: frontPanel.id, edge: 'left', value: 15 },
+        });
+      }
+    });
+
+    it('panel has both extensions applied', () => {
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      expect(frontPanel).toBeDefined();
+      expect(frontPanel!.props.edgeExtensions.bottom).toBe(20);
+      expect(frontPanel!.props.edgeExtensions.left).toBe(15);
+    });
+
+    it('passes path validity checks (no diagonal lines)', () => {
+      // Using imported checkPathValidity and formatPathCheckResult
+
+      const result = checkPathValidity(engine);
+
+      if (!result.valid) {
+        console.log(formatPathCheckResult(result));
+      }
+
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('passes all geometry validations', () => {
+      const result = validateGeometry(engine);
+
+      if (!result.valid) {
+        console.log(formatValidationResult(result));
+      }
+
+      expect(result.errors).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
+  // Scenario 17: Edge Extensions with Open Face
+  // Tests extension on an edge adjacent to an open face
+  // ===========================================================================
+
+  describe('Scenario 17: Edge Extensions with Open Face', () => {
+    beforeEach(() => {
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Open the bottom face
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'bottom' },
+      });
+
+      // Get front panel and apply bottom extension (now adjacent to open face)
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      if (frontPanel) {
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: frontPanel.id, edge: 'bottom', value: 25 },
+        });
+      }
+    });
+
+    it('bottom face is open', () => {
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const bottomPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'bottom');
+
+      expect(bottomPanel).toBeUndefined();
+    });
+
+    it('front panel has bottom extension', () => {
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      expect(frontPanel).toBeDefined();
+      expect(frontPanel!.props.edgeExtensions.bottom).toBe(25);
+    });
+
+    it('passes path validity checks', () => {
+      // Using imported checkPathValidity and formatPathCheckResult
+
+      const result = checkPathValidity(engine);
+
+      if (!result.valid) {
+        console.log(formatPathCheckResult(result));
+      }
+
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('edge is eligible for extension (open face edge)', () => {
+      // Using imported checkEdgeExtensions
+
+      const result = checkEdgeExtensions(engine);
+
+      const eligibilityErrors = result.errors.filter((e: any) => e.rule === 'edge-extensions:eligibility');
+
+      expect(eligibilityErrors).toHaveLength(0);
     });
   });
 
