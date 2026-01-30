@@ -81,6 +81,7 @@ export class ComprehensiveValidator {
     this.validateParentChildIntersections(assembly);
     this.validatePathValidity(assembly);
     this.validateExtendedEdgeSlots(assembly);
+    this.validateCornerMerging(assembly);
 
     return this.buildResult();
   }
@@ -921,6 +922,143 @@ export class ComprehensiveValidator {
     }
 
     return false;
+  }
+
+  // ===========================================================================
+  // Module 8: Corner Merging Validator
+  // ===========================================================================
+
+  /**
+   * Validates the corner merging rule for edge extensions.
+   *
+   * Rule: edge-extensions:corner-merging
+   * When two adjacent edges have equal extensions, they should meet at a single
+   * diagonal corner point. When extensions differ, they should NOT be merged.
+   *
+   * See docs/movecorneronadjacentextensions.md for the design spec.
+   */
+  private validateCornerMerging(assembly: AssemblySnapshot): void {
+    const panels = assembly.derived.panels;
+
+    this.markRuleChecked('edge-extensions:corner-merging');
+
+    const EQUAL_TOLERANCE = 0.01;
+    const POINT_TOLERANCE = 0.1;
+
+    for (const panel of panels) {
+      const extensions = panel.props.edgeExtensions;
+      const outline = panel.derived.outline.points;
+
+      // Skip panels with no extensions
+      if (!extensions.top && !extensions.bottom && !extensions.left && !extensions.right) {
+        continue;
+      }
+
+      // Get base panel dimensions (before extensions)
+      const halfW = panel.derived.width / 2;
+      const halfH = panel.derived.height / 2;
+
+      // Define corners and their adjacent edges
+      const corners = [
+        {
+          name: 'topLeft',
+          base: { x: -halfW, y: halfH },
+          edges: ['top', 'left'] as const,
+          extendedDiagonal: {
+            x: -halfW - extensions.left,
+            y: halfH + extensions.top
+          },
+        },
+        {
+          name: 'topRight',
+          base: { x: halfW, y: halfH },
+          edges: ['top', 'right'] as const,
+          extendedDiagonal: {
+            x: halfW + extensions.right,
+            y: halfH + extensions.top
+          },
+        },
+        {
+          name: 'bottomRight',
+          base: { x: halfW, y: -halfH },
+          edges: ['bottom', 'right'] as const,
+          extendedDiagonal: {
+            x: halfW + extensions.right,
+            y: -halfH - extensions.bottom
+          },
+        },
+        {
+          name: 'bottomLeft',
+          base: { x: -halfW, y: -halfH },
+          edges: ['bottom', 'left'] as const,
+          extendedDiagonal: {
+            x: -halfW - extensions.left,
+            y: -halfH - extensions.bottom
+          },
+        },
+      ];
+
+      for (const corner of corners) {
+        const ext1 = extensions[corner.edges[0]];
+        const ext2 = extensions[corner.edges[1]];
+
+        // Skip if neither edge is extended
+        if (ext1 < 0.001 && ext2 < 0.001) continue;
+
+        const bothExtended = ext1 > 0.001 && ext2 > 0.001;
+        const extensionsEqual = bothExtended && Math.abs(ext1 - ext2) < EQUAL_TOLERANCE;
+
+        // Check if diagonal point exists in outline
+        const diagonalPointExists = outline.some(p =>
+          Math.abs(p.x - corner.extendedDiagonal.x) < POINT_TOLERANCE &&
+          Math.abs(p.y - corner.extendedDiagonal.y) < POINT_TOLERANCE
+        );
+
+        if (extensionsEqual && !diagonalPointExists) {
+          // Equal extensions should produce merged corner
+          this.addError('edge-extensions:corner-merging',
+            `Panel ${this.getPanelName(panel)} corner ${corner.name} should be merged but diagonal point not found`,
+            {
+              panelId: panel.id,
+              panelKind: panel.kind,
+              corner: corner.name,
+              edge1: corner.edges[0],
+              edge1Extension: ext1,
+              edge2: corner.edges[1],
+              edge2Extension: ext2,
+              expectedDiagonalPoint: corner.extendedDiagonal,
+            }
+          );
+        } else if (bothExtended && !extensionsEqual && diagonalPointExists) {
+          // Unequal extensions should NOT produce merged corner
+          this.addError('edge-extensions:corner-merging',
+            `Panel ${this.getPanelName(panel)} corner ${corner.name} should NOT be merged but diagonal point was found`,
+            {
+              panelId: panel.id,
+              panelKind: panel.kind,
+              corner: corner.name,
+              edge1: corner.edges[0],
+              edge1Extension: ext1,
+              edge2: corner.edges[1],
+              edge2Extension: ext2,
+              unexpectedDiagonalPoint: corner.extendedDiagonal,
+            }
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Get a human-readable name for a panel
+   */
+  private getPanelName(panel: PanelSnapshot): string {
+    if (panel.kind === 'face-panel') {
+      return (panel as FacePanelSnapshot).props.faceId;
+    } else {
+      const divider = panel as DividerPanelSnapshot;
+      return `divider-${divider.props.axis}-${divider.props.position}`;
+    }
   }
 
   // ===========================================================================
