@@ -1,3 +1,10 @@
+/**
+ * Editor Toolbar - Tool buttons for 2D and 3D views
+ *
+ * IMPORTANT: Before modifying this file, read .claude/rules/operations.md
+ * which describes the pattern for adding new operations and toolbar buttons.
+ */
+
 import React from 'react';
 
 export type EditorTool =

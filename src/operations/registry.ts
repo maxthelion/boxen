@@ -1,6 +1,9 @@
 /**
  * Operation Registry - Defines all available operations
  *
+ * IMPORTANT: Before modifying this file, read .claude/rules/operations.md
+ * which describes the pattern for adding new operations.
+ *
  * Each operation definition specifies:
  * - Selection requirements (what type, how many)
  * - Operation type (parameter, immediate, view)

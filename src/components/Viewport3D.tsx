@@ -1,3 +1,15 @@
+/**
+ * Viewport3D - Main 3D view with toolbar and operation palettes
+ *
+ * IMPORTANT: Before modifying this file, read .claude/rules/operations.md
+ * which describes the pattern for adding new operations and mounting palettes.
+ *
+ * When adding a new operation palette:
+ * 1. Import the palette component
+ * 2. Add position state: const [myOpPosition, setMyOpPosition] = useState(...)
+ * 3. Mount conditionally: {activeTool === 'my-op' && <MyOpPalette ... />}
+ */
+
 import { useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useState, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment } from '@react-three/drei';

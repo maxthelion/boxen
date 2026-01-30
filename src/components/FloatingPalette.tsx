@@ -1,3 +1,16 @@
+/**
+ * Floating Palette - Reusable UI components for operation palettes
+ *
+ * IMPORTANT: Before modifying this file, read .claude/rules/operations.md
+ * which describes the pattern for creating operation palettes.
+ *
+ * All operation palettes should use these shared components:
+ * - FloatingPalette: Draggable container
+ * - PaletteSliderInput, PaletteNumberInput: Input controls
+ * - PaletteButton, PaletteButtonRow: Action buttons
+ * - PaletteSection, PaletteCheckbox, PaletteSelect: Other controls
+ */
+
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { NumberInput } from './UI/NumberInput';
 

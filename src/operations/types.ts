@@ -1,6 +1,9 @@
 /**
  * Operation Types - Core type definitions for the operations system
  *
+ * IMPORTANT: Before modifying this file, read .claude/rules/operations.md
+ * which describes the pattern for adding new operations.
+ *
  * Operations are user actions that modify the model. They follow a consistent
  * lifecycle with preview support.
  */
