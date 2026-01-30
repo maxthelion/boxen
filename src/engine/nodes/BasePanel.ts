@@ -594,9 +594,10 @@ export abstract class BasePanel extends BaseNode {
     );
 
     // Replace the segment from startIdx to endIdx with the extension path
-    // The extension path starts at extendedStart and ends at startCorner (the original start)
+    // The extension path is: [startCorner, extendedStart, extendedEnd, endCorner]
     if (startIdx < endIdx) {
       // Normal case: start comes before end in the array
+      // beforeSegment ends before startCorner, afterSegment starts after endCorner
       const beforeSegment = points.slice(0, startIdx);
       const afterSegment = points.slice(endIdx + 1);
 
@@ -606,13 +607,23 @@ export abstract class BasePanel extends BaseNode {
       points.push(...afterSegment);
     } else {
       // Edge wraps around (e.g., left edge: bottomLeft to topLeft where topLeft is at index 0)
-      // The segment is at the end of the array (startIdx to end) + beginning (0 to endIdx)
+      // In clockwise order: endCorner (topLeft, index 0) comes before startCorner (bottomLeft)
+      //
+      // Original path: endCorner → [top, right, bottom edges] → startCorner → [left edge] → endCorner
+      // With extension: endCorner → [top, right, bottom edges] → startCorner → extStart → extEnd → endCorner
+      //
+      // extensionPath structure: [startCorner, extendedStart, extendedEnd, endCorner]
+
       const middleSegment = points.slice(endIdx + 1, startIdx);
 
+      // Rebuild path in correct clockwise order
       points.length = 0;
-      points.push(...extensionPath.slice(1)); // Skip extendedStart as it becomes the new "start"
-      points.push(...middleSegment);
-      // Path closes back to extensionPath[0]
+      points.push(endCorner);                  // Start at endCorner (e.g., topLeft)
+      points.push(...middleSegment);           // Middle points (top, right, bottom edges)
+      points.push(extensionPath[0]);           // startCorner (e.g., bottomLeft)
+      points.push(extensionPath[1]);           // extendedStart (e.g., extended bottomLeft)
+      points.push(extensionPath[2]);           // extendedEnd (e.g., extended topLeft)
+      // Path closes from extendedEnd back to endCorner (both at same Y, different X for left edge)
     }
   }
 
@@ -640,69 +651,29 @@ export abstract class BasePanel extends BaseNode {
 
   /**
    * Generate the extension path for an edge
-   * Path goes: extendedStart → extendedEnd (cap) → endCorner → reversed fingers → startCorner
+   * Path goes: startCorner → extendedStart → extendedEnd (cap) → endCorner
+   *
+   * This creates a rectangular protrusion extending outward from the edge.
+   * For short extensions (< corner gap + finger width + MT), the cap is a straight line.
+   * Finger joints (if any) are rendered as holes in the panel, not part of the outline.
    */
   protected generateExtensionPath(
     startCorner: Point2D,
     endCorner: Point2D,
     extendedStart: Point2D,
     extendedEnd: Point2D,
-    edgePosition: EdgePosition,
-    edgeConfig: EdgeConfig | undefined,
-    fingerData: AssemblyFingerData | null,
-    materialThickness: number,
-    fingerBlockingRanges: Map<EdgePosition, { start: number; end: number }[]>
+    _edgePosition: EdgePosition,
+    _edgeConfig: EdgeConfig | undefined,
+    _fingerData: AssemblyFingerData | null,
+    _materialThickness: number,
+    _fingerBlockingRanges: Map<EdgePosition, { start: number; end: number }[]>
   ): Point2D[] {
-    const path: Point2D[] = [];
-
-    // 1. Start at extended start corner
-    path.push(extendedStart);
-
-    // 2. Go across to extended end corner (the cap)
-    path.push(extendedEnd);
-
-    // 3. Drop down to end corner at finger level
-    path.push(endCorner);
-
-    // 4. Generate reversed finger path (from endCorner back to startCorner)
-    if (edgeConfig?.gender && edgeConfig?.axis && fingerData) {
-      const axisFingerPoints = fingerData[edgeConfig.axis];
-      if (axisFingerPoints && axisFingerPoints.points.length > 0) {
-        // Calculate edge axis positions (swapped for reversed direction)
-        const edgeStartPos = this.computeEdgeAxisPosition(edgeConfig.position, 'start', edgeConfig.axis);
-        const edgeEndPos = this.computeEdgeAxisPosition(edgeConfig.position, 'end', edgeConfig.axis);
-        const edgeBlockingRanges = fingerBlockingRanges.get(edgeConfig.position) || [];
-
-        // Generate fingers going backward (from endCorner to startCorner)
-        const reversedFingerPath = generateFingerJointPathV2(
-          { x: endCorner.x, y: endCorner.y },
-          { x: startCorner.x, y: startCorner.y },
-          {
-            fingerPoints: axisFingerPoints,
-            gender: edgeConfig.gender,
-            materialThickness,
-            edgeStartPos: edgeEndPos,  // Swapped for reversed direction
-            edgeEndPos: edgeStartPos,
-            yUp: true,
-            outwardDirection: this.getEdgeOutwardDirection(edgeConfig.position),
-            fingerBlockingRanges: edgeBlockingRanges,
-          }
-        );
-
-        // Add reversed finger path (skip first point as it's endCorner which we just added)
-        for (let i = 1; i < reversedFingerPath.length; i++) {
-          path.push(reversedFingerPath[i]);
-        }
-      }
-    }
-
-    // Make sure we end at startCorner (the path should already end there from reversed fingers)
-    const lastPoint = path[path.length - 1];
-    if (Math.abs(lastPoint.x - startCorner.x) > 0.001 || Math.abs(lastPoint.y - startCorner.y) > 0.001) {
-      path.push(startCorner);
-    }
-
-    return path;
+    // Simple rectangular extension path:
+    // 1. Start at the original corner (startCorner)
+    // 2. Go outward to the extended position (extendedStart)
+    // 3. Go across the cap to the other extended position (extendedEnd)
+    // 4. Return inward to the other original corner (endCorner)
+    return [startCorner, extendedStart, extendedEnd, endCorner];
   }
 
   /**

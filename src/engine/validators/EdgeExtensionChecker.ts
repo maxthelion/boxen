@@ -236,6 +236,8 @@ export class EdgeExtensionChecker {
   // ===========================================================================
   // Rule: edge-extensions:full-width
   // The sides of an extended edge should extend the full width of the panel
+  // Note: "full width" means the finger joint body (between finger corners),
+  // not including tabs that extend past the corners on male edges.
   // ===========================================================================
 
   private checkFullWidth(
@@ -247,11 +249,28 @@ export class EdgeExtensionChecker {
     this.markRuleChecked('edge-extensions:full-width');
 
     const { outline } = panel.derived;
-    const { width: panelWidth, height: panelHeight } = panel.derived;
+    const { width: panelWidth, height: panelHeight, thickness, edgeStatuses } = panel.derived;
 
-    // For left/right extensions, sides should span full panel height
-    // For top/bottom extensions, sides should span full panel width
-    const expectedSpan = (edge === 'left' || edge === 'right') ? panelHeight : panelWidth;
+    // For left/right extensions, sides should span full panel height (minus insets for male top/bottom)
+    // For top/bottom extensions, sides should span full panel width (minus insets for male left/right)
+    // Male edges have tabs that extend past the finger corner, so the body is smaller.
+    const isEdgeMale = (edgePos: EdgePosition): boolean => {
+      const status = edgeStatuses.find(s => s.position === edgePos);
+      return status?.status === 'locked';
+    };
+
+    let expectedSpan: number;
+    if (edge === 'left' || edge === 'right') {
+      // Vertical extension - sides span height, minus insets for male top/bottom
+      expectedSpan = panelHeight;
+      if (isEdgeMale('top')) expectedSpan -= thickness;
+      if (isEdgeMale('bottom')) expectedSpan -= thickness;
+    } else {
+      // Horizontal extension - sides span width, minus insets for male left/right
+      expectedSpan = panelWidth;
+      if (isEdgeMale('left')) expectedSpan -= thickness;
+      if (isEdgeMale('right')) expectedSpan -= thickness;
+    }
 
     // Find the extension geometry in the outline
     const extensionGeometry = this.findExtensionGeometry(outline.points, edge, extensionAmount);
