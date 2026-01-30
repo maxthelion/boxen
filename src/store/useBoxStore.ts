@@ -3,7 +3,7 @@ import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SelectionMode,
 import { getOperation, operationHasPreview, operationIsImmediate, getOperationForTool } from '../operations';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
-import { syncStoreToEngine, getEngine, ensureEngine, ensureEngineInitialized, getEngineSnapshot, dispatchToEngine, notifyEngineStateChanged } from '../engine';
+import { syncStoreToEngine, getEngine, ensureEngine, ensureEngineInitialized, getEngineSnapshot, dispatchToEngine, notifyEngineStateChanged, resetEngine } from '../engine';
 import { logPushPull, startPushPullDebug } from '../utils/pushPullDebug';
 import { startExtendModeDebug, finishExtendModeDebug } from '../utils/extendModeDebug';
 import { BoundsOps, getBoundsStart, getBoundsSize, setBoundsRegion, calculateChildRegionBounds, calculatePreviewPositions, InsetRegions } from '../utils/bounds';
@@ -2489,6 +2489,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   loadFromUrl: () => {
     const loaded = loadFromUrl();
     if (!loaded) return false;
+
+    // Reset engine to start fresh (prevents merging with current scene)
+    resetEngine();
 
     // Apply loaded state
     const state = get();

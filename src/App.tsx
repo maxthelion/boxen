@@ -18,6 +18,7 @@ import {
   useEnginePanels,
   getEngineSnapshot,
   getEngine,
+  resetEngine,
   voidSnapshotToVoid,
   assemblySnapshotToConfig,
   faceConfigsToFaces,
@@ -168,6 +169,9 @@ function App() {
   const handleLoadProject = (projectId: string) => {
     const loaded = loadProject(projectId);
     if (loaded) {
+      // Reset engine to start fresh (prevents merging with current scene)
+      resetEngine();
+
       // Update store with loaded state
       const state = useBoxStore.getState();
 
@@ -205,6 +209,9 @@ function App() {
 
   // Handle new project
   const handleNewProject = () => {
+    // Reset engine to start fresh
+    resetEngine();
+
     // Reset to default state
     useBoxStore.setState({
       config: {
