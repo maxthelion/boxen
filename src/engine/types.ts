@@ -288,7 +288,7 @@ export interface PanelHole {
   id: string;
   path: Point2D[];
   source: {
-    type: 'divider-slot' | 'sub-assembly-slot' | 'custom';
+    type: 'divider-slot' | 'sub-assembly-slot' | 'extension-slot' | 'custom';
     sourceId?: string;
   };
 }
