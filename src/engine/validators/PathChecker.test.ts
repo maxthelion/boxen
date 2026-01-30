@@ -325,5 +325,49 @@ describe('PathChecker', () => {
       // This test documents the current behavior
       expect(result.summary.rulesChecked).toContain('path:axis-aligned');
     });
+
+    it('validates path with equal adjacent extensions (corner merging)', () => {
+      // Test the corner merging rule: when two adjacent edges have equal extensions,
+      // they should meet at a single diagonal corner point, but the path must remain axis-aligned.
+      // See docs/movecorneronadjacentextensions.md
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Get bottom panel ID (all edges are female, so we can extend any)
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const bottomPanel = panels.find(
+        (p: any) => p.kind === 'face-panel' && p.props.faceId === 'bottom'
+      );
+
+      if (bottomPanel) {
+        // Apply equal extensions to adjacent edges (bottom-left corner)
+        // This should trigger corner merging logic
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: bottomPanel.id, edge: 'bottom', value: 20 },
+        });
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: bottomPanel.id, edge: 'left', value: 20 },
+        });
+      }
+
+      const result = checkPathValidity(engine);
+
+      // Log any errors for debugging
+      if (!result.valid) {
+        console.log(formatPathCheckResult(result));
+      }
+
+      // Corner merging must produce axis-aligned paths
+      expect(result.valid).toBe(true);
+      expect(result.summary.rulesChecked).toContain('path:axis-aligned');
+    });
   });
 });

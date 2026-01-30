@@ -646,8 +646,58 @@ export abstract class BasePanel extends BaseNode {
     }
 
     // Calculate extended corners (using outer corners, adjusted for adjacent extensions)
-    const extendedStart = this.getExtendedCorner(startCorner, edgePosition, extensionAmount, 'start');
-    const extendedEnd = this.getExtendedCorner(endCorner, edgePosition, extensionAmount, 'end');
+    let extendedStart = this.getExtendedCorner(startCorner, edgePosition, extensionAmount, 'start');
+    let extendedEnd = this.getExtendedCorner(endCorner, edgePosition, extensionAmount, 'end');
+
+    // Apply corner merging rule: when adjacent edges have equal extensions,
+    // extend diagonally to a single point instead of creating an L-shape.
+    // See docs/movecorneronadjacentextensions.md for details.
+    const EQUAL_TOLERANCE = 0.01;
+
+    // Determine which edges are adjacent to start/end corners
+    // Start corner is the first corner in clockwise traversal, end corner is second
+    let adjacentStartEdge: EdgePosition;
+    let adjacentEndEdge: EdgePosition;
+
+    switch (edgePosition) {
+      case 'top':
+        adjacentStartEdge = 'left';   // topLeft corner
+        adjacentEndEdge = 'right';    // topRight corner
+        break;
+      case 'right':
+        adjacentStartEdge = 'top';    // topRight corner
+        adjacentEndEdge = 'bottom';   // bottomRight corner
+        break;
+      case 'bottom':
+        adjacentStartEdge = 'right';  // bottomRight corner
+        adjacentEndEdge = 'left';     // bottomLeft corner
+        break;
+      case 'left':
+        adjacentStartEdge = 'bottom'; // bottomLeft corner
+        adjacentEndEdge = 'top';      // topLeft corner
+        break;
+    }
+
+    const adjacentStartExtension = allExtensions[adjacentStartEdge];
+    const adjacentEndExtension = allExtensions[adjacentEndEdge];
+
+    // Check if start corner should be merged (both extensions > 0 and equal)
+    if (extensionAmount > 0.001 && adjacentStartExtension > 0.001 &&
+        Math.abs(extensionAmount - adjacentStartExtension) < EQUAL_TOLERANCE) {
+      // Extend diagonally to single point
+      extendedStart = this.getExtendedCornerDiagonal(
+        startCorner, edgePosition, extensionAmount, adjacentStartEdge, adjacentStartExtension
+      );
+    }
+
+    // Check if end corner should be merged (both extensions > 0 and equal)
+    if (extensionAmount > 0.001 && adjacentEndExtension > 0.001 &&
+        Math.abs(extensionAmount - adjacentEndExtension) < EQUAL_TOLERANCE) {
+      // Extend diagonally to single point
+      extendedEnd = this.getExtendedCornerDiagonal(
+        endCorner, edgePosition, extensionAmount, adjacentEndEdge, adjacentEndExtension
+      );
+    }
 
     // Build extension path with axis-aligned transitions from finger corners to outer corners
     // The path must maintain axis-alignment throughout
@@ -669,9 +719,38 @@ export abstract class BasePanel extends BaseNode {
     }
 
     // Extension geometry: startCorner → extendedStart → extendedEnd → endCorner
+    // When corners are diagonal (from corner merging), add intermediate axis-aligned points
     extensionPath.push(startCorner);
+
+    // Check if extendedStart is diagonal from startCorner (corner merging case)
+    const startIsDiagonal = Math.abs(extendedStart.x - startCorner.x) > 0.001 &&
+                            Math.abs(extendedStart.y - startCorner.y) > 0.001;
+    if (startIsDiagonal) {
+      // Add intermediate point for axis-aligned transition to diagonal corner
+      if (edgePosition === 'top' || edgePosition === 'bottom') {
+        // Horizontal edge: move Y first (outward), then X (perpendicular)
+        extensionPath.push({ x: startCorner.x, y: extendedStart.y });
+      } else {
+        // Vertical edge: move X first (outward), then Y (perpendicular)
+        extensionPath.push({ x: extendedStart.x, y: startCorner.y });
+      }
+    }
     extensionPath.push(extendedStart);
     extensionPath.push(extendedEnd);
+
+    // Check if extendedEnd is diagonal from endCorner (corner merging case)
+    const endIsDiagonal = Math.abs(extendedEnd.x - endCorner.x) > 0.001 &&
+                          Math.abs(extendedEnd.y - endCorner.y) > 0.001;
+    if (endIsDiagonal) {
+      // Add intermediate point for axis-aligned transition from diagonal corner
+      if (edgePosition === 'top' || edgePosition === 'bottom') {
+        // Horizontal edge: move X first (perpendicular), then Y (inward)
+        extensionPath.push({ x: endCorner.x, y: extendedEnd.y });
+      } else {
+        // Vertical edge: move Y first (perpendicular), then X (inward)
+        extensionPath.push({ x: extendedEnd.x, y: endCorner.y });
+      }
+    }
     extensionPath.push(endCorner);
 
     // Transition from outer end corner to finger end corner (if different)
@@ -749,6 +828,59 @@ export abstract class BasePanel extends BaseNode {
       case 'right':
         return { x: corner.x + extensionAmount, y: corner.y };
     }
+  }
+
+  /**
+   * Get the extended position of a corner when both adjacent edges have equal extensions.
+   * Instead of extending in one direction (creating an L-shape when both edges extend),
+   * this extends diagonally to a single point where both extensions meet.
+   *
+   * See docs/movecorneronadjacentextensions.md for the corner merging rule.
+   */
+  protected getExtendedCornerDiagonal(
+    corner: Point2D,
+    edgePosition: EdgePosition,
+    edgeExtension: number,
+    adjacentEdge: EdgePosition,
+    adjacentExtension: number
+  ): Point2D {
+    // Calculate the diagonal corner by applying both extensions
+    let x = corner.x;
+    let y = corner.y;
+
+    // Apply the main edge's extension direction
+    switch (edgePosition) {
+      case 'top':
+        y += edgeExtension;
+        break;
+      case 'bottom':
+        y -= edgeExtension;
+        break;
+      case 'left':
+        x -= edgeExtension;
+        break;
+      case 'right':
+        x += edgeExtension;
+        break;
+    }
+
+    // Apply the adjacent edge's extension direction
+    switch (adjacentEdge) {
+      case 'top':
+        y += adjacentExtension;
+        break;
+      case 'bottom':
+        y -= adjacentExtension;
+        break;
+      case 'left':
+        x -= adjacentExtension;
+        break;
+      case 'right':
+        x += adjacentExtension;
+        break;
+    }
+
+    return { x, y };
   }
 
   /**
