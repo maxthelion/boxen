@@ -642,6 +642,29 @@ export class Engine {
         break;
       }
 
+      case 'SET_GRID_SUBDIVISION': {
+        // Atomic operation: clear existing subdivisions and create new ones
+        // Used when editing existing subdivisions
+        const voidNodeRaw = findInScene(action.payload.voidId);
+        const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;
+        if (voidNode && assembly) {
+          // Clear existing subdivisions (if any)
+          voidNode.clearSubdivision();
+
+          // Create new subdivisions with the given configuration
+          if (action.payload.axes.length > 0) {
+            voidNode.subdivideGrid(
+              action.payload.axes,
+              assembly.material.thickness
+            );
+          }
+
+          this.invalidateNodeMap(); // Tree structure changed
+          return true;
+        }
+        break;
+      }
+
       case 'SET_EDGE_EXTENSION': {
         // Edge extensions are stored at the assembly level
         if (assembly) {

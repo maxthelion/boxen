@@ -736,3 +736,205 @@ describe('validateSelection (unified)', () => {
     expect(result.reason).toContain('Unknown');
   });
 });
+
+// =============================================================================
+// Existing Subdivision Reader Tests
+// =============================================================================
+
+import {
+  getExistingSubdivisions,
+  checkSubdivisionModificationImpact,
+} from './validators';
+
+describe('getExistingSubdivisions', () => {
+  it('returns empty info for leaf void (no subdivisions)', () => {
+    const leafVoid = createLeafVoid('root');
+    const result = getExistingSubdivisions(leafVoid);
+
+    expect(result.hasSubdivisions).toBe(false);
+    expect(result.axes).toEqual([]);
+    expect(result.compartments).toEqual({});
+    expect(result.positions).toEqual({});
+    expect(result.hasSubAssemblies).toBe(false);
+  });
+
+  it('reads grid subdivision info correctly', () => {
+    // Create a void with grid subdivision (2 axes)
+    const voidWithGrid: Void = {
+      id: 'root',
+      bounds: { x: 0, y: 0, z: 0, w: 100, h: 80, d: 60 },
+      children: [
+        createLeafVoid('cell-0'),
+        createLeafVoid('cell-1'),
+        createLeafVoid('cell-2'),
+        createLeafVoid('cell-3'),
+      ],
+      gridSubdivision: {
+        axes: ['x', 'z'],
+        positions: {
+          x: [50],  // 1 divider = 2 compartments
+          z: [30],  // 1 divider = 2 compartments
+        },
+      },
+    };
+
+    const result = getExistingSubdivisions(voidWithGrid);
+
+    expect(result.hasSubdivisions).toBe(true);
+    expect(result.axes).toEqual(['x', 'z']);
+    expect(result.compartments).toEqual({ x: 2, z: 2 });
+    expect(result.positions).toEqual({ x: [50], z: [30] });
+    expect(result.hasSubAssemblies).toBe(false);
+  });
+
+  it('detects sub-assemblies in child voids', () => {
+    // Create a void with grid subdivision where one cell has a sub-assembly
+    const cellWithSubAssembly: Void = {
+      ...createLeafVoid('cell-0'),
+      subAssembly: {
+        id: 'drawer-1',
+        rootVoid: createLeafVoid('drawer-root'),
+        clearance: 2,
+        faceOffsets: {},
+        faces: [],
+        materialThickness: 3,
+        assembly: { assemblyAxis: 'y', lids: { positive: { tabDirection: 'tabs-in', inset: 0 }, negative: { tabDirection: 'tabs-in', inset: 0 } } },
+      },
+    };
+
+    const voidWithGrid: Void = {
+      id: 'root',
+      bounds: { x: 0, y: 0, z: 0, w: 100, h: 80, d: 60 },
+      children: [cellWithSubAssembly, createLeafVoid('cell-1')],
+      gridSubdivision: {
+        axes: ['x'],
+        positions: { x: [50] },
+      },
+    };
+
+    const result = getExistingSubdivisions(voidWithGrid);
+
+    expect(result.hasSubdivisions).toBe(true);
+    expect(result.hasSubAssemblies).toBe(true);
+    expect(result.subAssemblyVoidIds).toEqual(['cell-0']);
+  });
+
+  it('reads single-axis subdivision from children with splitAxis', () => {
+    // Create a void with single-axis subdivision (legacy format)
+    const child0: Void = {
+      ...createLeafVoid('child-0'),
+    };
+    const child1: Void = {
+      ...createLeafVoid('child-1'),
+      splitAxis: 'x',
+      splitPosition: 50,
+    };
+
+    const voidWithSplitAxis: Void = {
+      id: 'root',
+      bounds: { x: 0, y: 0, z: 0, w: 100, h: 80, d: 60 },
+      children: [child0, child1],
+    };
+
+    const result = getExistingSubdivisions(voidWithSplitAxis);
+
+    expect(result.hasSubdivisions).toBe(true);
+    expect(result.axes).toEqual(['x']);
+    expect(result.compartments).toEqual({ x: 2 });
+    expect(result.positions).toEqual({ x: [50] });
+  });
+});
+
+describe('checkSubdivisionModificationImpact', () => {
+  it('returns no warning for leaf void (no existing subdivisions)', () => {
+    const leafVoid = createLeafVoid('root');
+    const result = checkSubdivisionModificationImpact(leafVoid, ['x'], { x: 2 });
+
+    expect(result.hasWarning).toBe(false);
+    expect(result.affectedSubAssemblies).toBe(0);
+  });
+
+  it('returns no warning when adding compartments', () => {
+    // Existing: 2 compartments on X
+    const voidWithGrid: Void = {
+      id: 'root',
+      bounds: { x: 0, y: 0, z: 0, w: 100, h: 80, d: 60 },
+      children: [createLeafVoid('cell-0'), createLeafVoid('cell-1')],
+      gridSubdivision: {
+        axes: ['x'],
+        positions: { x: [50] },
+      },
+    };
+
+    // New: 3 compartments on X (more than before)
+    const result = checkSubdivisionModificationImpact(voidWithGrid, ['x'], { x: 3 });
+
+    expect(result.hasWarning).toBe(false);
+  });
+
+  it('warns when removing compartments with sub-assemblies', () => {
+    // Create a void with sub-assembly in one cell
+    const cellWithSubAssembly: Void = {
+      ...createLeafVoid('cell-0'),
+      subAssembly: {
+        id: 'drawer-1',
+        rootVoid: createLeafVoid('drawer-root'),
+        clearance: 2,
+        faceOffsets: {},
+        faces: [],
+        materialThickness: 3,
+        assembly: { assemblyAxis: 'y', lids: { positive: { tabDirection: 'tabs-in', inset: 0 }, negative: { tabDirection: 'tabs-in', inset: 0 } } },
+      },
+    };
+
+    const voidWithGrid: Void = {
+      id: 'root',
+      bounds: { x: 0, y: 0, z: 0, w: 100, h: 80, d: 60 },
+      children: [cellWithSubAssembly, createLeafVoid('cell-1')],
+      gridSubdivision: {
+        axes: ['x'],
+        positions: { x: [50] },
+      },
+    };
+
+    // Reducing compartments when sub-assemblies exist should warn
+    const result = checkSubdivisionModificationImpact(voidWithGrid, ['x'], { x: 1 });
+
+    expect(result.hasWarning).toBe(true);
+    expect(result.affectedSubAssemblies).toBe(1);
+    expect(result.message).toContain('remove');
+    expect(result.message).toContain('sub-assembl');
+  });
+
+  it('warns when removing an axis with sub-assemblies', () => {
+    // Create a 2x2 grid with a sub-assembly
+    const cellWithSubAssembly: Void = {
+      ...createLeafVoid('cell-0'),
+      subAssembly: {
+        id: 'drawer-1',
+        rootVoid: createLeafVoid('drawer-root'),
+        clearance: 2,
+        faceOffsets: {},
+        faces: [],
+        materialThickness: 3,
+        assembly: { assemblyAxis: 'y', lids: { positive: { tabDirection: 'tabs-in', inset: 0 }, negative: { tabDirection: 'tabs-in', inset: 0 } } },
+      },
+    };
+
+    const voidWithGrid: Void = {
+      id: 'root',
+      bounds: { x: 0, y: 0, z: 0, w: 100, h: 80, d: 60 },
+      children: [cellWithSubAssembly, createLeafVoid('cell-1'), createLeafVoid('cell-2'), createLeafVoid('cell-3')],
+      gridSubdivision: {
+        axes: ['x', 'z'],
+        positions: { x: [50], z: [30] },
+      },
+    };
+
+    // Removing Z axis should warn because it affects grid structure
+    const result = checkSubdivisionModificationImpact(voidWithGrid, ['x'], { x: 2 });
+
+    expect(result.hasWarning).toBe(true);
+    expect(result.affectedSubAssemblies).toBe(1);
+  });
+});

@@ -45,6 +45,8 @@ export {
   type SelectionValidationResult,
   type DerivedSelectionState,
   type ValidationContext,
+  type ExistingSubdivisionInfo,
+  type SubdivisionModificationWarning,
   // Requirement functions
   getSelectionRequirements,
   // Validation functions
@@ -65,4 +67,7 @@ export {
   getValidSubdivisionAxes,
   getPanelDescription,
   getMainInteriorVoid,
+  // Subdivision edit helpers
+  getExistingSubdivisions,
+  checkSubdivisionModificationImpact,
 } from './validators';

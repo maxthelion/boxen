@@ -12,6 +12,9 @@ import {
   findVoidBetweenPanels,
   getValidSubdivisionAxes,
   isLeafVoid,
+  getExistingSubdivisions,
+  checkSubdivisionModificationImpact,
+  type ExistingSubdivisionInfo,
 } from '../operations';
 
 // Enable debug tag for two-panel subdivision debugging
@@ -255,8 +258,18 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
     return findVoid(rootVoid, selectedVoidId);
   }, [selectedVoidId, rootVoid]);
 
-  // Determine if the void can be subdivided
+  // Determine if the void can be subdivided (leaf void) or edited (has subdivisions but no sub-assemblies in children)
   const canSubdivideVoid = mainSelectedVoid ? isLeafVoid(mainSelectedVoid) : false;
+
+  // Read existing subdivisions from the main void (for edit mode)
+  const existingSubdivisions = useMemo((): ExistingSubdivisionInfo | null => {
+    if (!mainSelectedVoid) return null;
+    const existing = getExistingSubdivisions(mainSelectedVoid);
+    return existing.hasSubdivisions ? existing : null;
+  }, [mainSelectedVoid]);
+
+  // Determine if we're in edit mode (void has existing subdivisions)
+  const isEditMode = existingSubdivisions !== null;
 
   // Valid axes based on open faces (for void mode)
   const validAxes = useMemo(() => getValidSubdivisionAxes(faces), [faces]);
@@ -264,6 +277,9 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
   // Multi-axis state: track selected axes and counts per axis
   const [selectedAxes, setSelectedAxes] = useState<Axis[]>([]);
   const [axisCounts, setAxisCounts] = useState<Record<Axis, number>>({ x: 1, y: 1, z: 1 });
+
+  // Track whether we're modifying existing subdivisions (for warning display)
+  const [isModified, setIsModified] = useState(false);
 
   // Check if operation is active
   const isActive = operationState.activeOperation === 'subdivide' ||
@@ -306,13 +322,14 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
 
   // Auto-start operation when there are valid axes available
   // Prefers axis whose dividers touch open faces (can be slotted in)
+  // Also handles edit mode: pre-populates with existing subdivision config
   const hasAutoStarted = useRef(false);
   useEffect(() => {
     // Only auto-start once per target selection
     if (hasAutoStarted.current) return;
 
-    // Check if we have a valid target that can be subdivided
-    const canStart = (mode === 'void' && canSubdivideVoid) || mode === 'two-panel';
+    // Check if we have a valid target that can be subdivided or edited
+    const canStart = (mode === 'void' && (canSubdivideVoid || isEditMode)) || mode === 'two-panel';
     if (!canStart || !targetVoidId || !targetVoid) return;
 
     // Don't auto-start if operation is already active
@@ -321,26 +338,65 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
     // Need at least one valid axis
     if (validAxisList.length === 0) return;
 
-    // Select preferred axis based on open faces
-    const axis = selectPreferredAxis(validAxisList, faces);
-
     hasAutoStarted.current = true;
 
-    // Initialize with single axis selected
-    setSelectedAxes([axis]);
-    setAxisCounts({ x: 1, y: 1, z: 1 });
+    // For edit mode: pre-populate with existing configuration
+    if (isEditMode && existingSubdivisions) {
+      const existingAxes = existingSubdivisions.axes as Axis[];
+      const existingCounts: Record<Axis, number> = {
+        x: existingSubdivisions.compartments.x ?? 1,
+        y: existingSubdivisions.compartments.y ?? 1,
+        z: existingSubdivisions.compartments.z ?? 1,
+      };
 
-    // Start the operation
-    const operationType = mode === 'two-panel' ? 'subdivide-two-panel' : 'subdivide-grid';
-    startOperation(operationType);
+      // Set UI state from existing subdivisions
+      // Convert compartment counts to division counts (compartments - 1 = dividers)
+      const divisionCounts: Record<Axis, number> = {
+        x: Math.max(1, (existingCounts.x || 2) - 1),
+        y: Math.max(1, (existingCounts.y || 2) - 1),
+        z: Math.max(1, (existingCounts.z || 2) - 1),
+      };
+      setSelectedAxes(existingAxes);
+      setAxisCounts(divisionCounts);
+      setIsModified(false);
 
-    // Update params with initial axis config
-    const positions = calculatePreviewPositions(targetVoid.bounds, axis, 1);
-    updateOperationParams({
-      voidId: targetVoidId,
-      axes: [{ axis, positions }],
-    });
-  }, [mode, canSubdivideVoid, targetVoidId, targetVoid, isActive, validAxisList, faces, startOperation, updateOperationParams]);
+      // Start the operation
+      const operationType = mode === 'two-panel' ? 'subdivide-two-panel' : 'subdivide-grid';
+      startOperation(operationType);
+
+      // Build axes config from existing positions
+      const axesConfig = existingAxes.map(axis => ({
+        axis,
+        positions: existingSubdivisions.positions[axis] || calculatePreviewPositions(targetVoid.bounds, axis, divisionCounts[axis]),
+      }));
+
+      updateOperationParams({
+        voidId: targetVoidId,
+        axes: axesConfig,
+        isEdit: true,  // Flag to use SET_GRID_SUBDIVISION instead of ADD
+      });
+    } else {
+      // New subdivision mode: select preferred axis based on open faces
+      const axis = selectPreferredAxis(validAxisList, faces);
+
+      // Initialize with single axis selected
+      setSelectedAxes([axis]);
+      setAxisCounts({ x: 1, y: 1, z: 1 });
+      setIsModified(false);
+
+      // Start the operation
+      const operationType = mode === 'two-panel' ? 'subdivide-two-panel' : 'subdivide-grid';
+      startOperation(operationType);
+
+      // Update params with initial axis config
+      const positions = calculatePreviewPositions(targetVoid.bounds, axis, 1);
+      updateOperationParams({
+        voidId: targetVoidId,
+        axes: [{ axis, positions }],
+        isEdit: false,
+      });
+    }
+  }, [mode, canSubdivideVoid, isEditMode, existingSubdivisions, targetVoidId, targetVoid, isActive, validAxisList, faces, startOperation, updateOperationParams]);
 
   // Reset auto-start flag when selection changes
   // But don't reset during an active operation (selection may change due to ID remapping)
@@ -388,6 +444,11 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
 
     setSelectedAxes(newSelectedAxes);
 
+    // Mark as modified if in edit mode
+    if (isEditMode) {
+      setIsModified(true);
+    }
+
     if (!isActive && newSelectedAxes.length > 0) {
       // Start operation if not active
       const operationType = mode === 'two-panel' ? 'subdivide-two-panel' : 'subdivide-grid';
@@ -400,12 +461,13 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
       updateOperationParams({
         voidId: targetVoidId,
         axes: axesConfig,
+        isEdit: isEditMode,  // Pass edit flag
       });
     } else if (isActive) {
       // No axes selected - cancel operation
       cancelOperation();
     }
-  }, [targetVoidId, targetVoid, mode, twoPanelInfo?.validAxes, validAxes, selectedAxes, axisCounts, isActive, startOperation, cancelOperation, updateOperationParams, buildAxesConfig]);
+  }, [targetVoidId, targetVoid, mode, twoPanelInfo?.validAxes, validAxes, selectedAxes, axisCounts, isActive, isEditMode, startOperation, cancelOperation, updateOperationParams, buildAxesConfig]);
 
   // Handle axis hover (show preview) - only for single axis hover
   const handleAxisHover = useCallback((axis: Axis) => {
@@ -454,15 +516,21 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
     const newCounts = { ...axisCounts, [axis]: newCount };
     setAxisCounts(newCounts);
 
+    // Mark as modified if in edit mode
+    if (isEditMode) {
+      setIsModified(true);
+    }
+
     // If operation is active, update preview
     if (isActive && selectedAxes.includes(axis) && targetVoid && targetVoidId) {
       const axesConfig = buildAxesConfig(selectedAxes, newCounts);
       updateOperationParams({
         voidId: targetVoidId,
         axes: axesConfig,
+        isEdit: isEditMode,  // Pass edit flag
       });
     }
-  }, [isActive, targetVoid, targetVoidId, selectedAxes, axisCounts, updateOperationParams, buildAxesConfig]);
+  }, [isActive, targetVoid, targetVoidId, selectedAxes, axisCounts, isEditMode, updateOperationParams, buildAxesConfig]);
 
   // Handle apply
   const handleApply = useCallback(() => {
@@ -522,9 +590,19 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
   // Calculate total cells
   const totalCells = calculateTotalCells(selectedAxes, axisCounts);
 
+  // Check for modification warnings (sub-assemblies that would be affected)
+  const modificationWarning = useMemo(() => {
+    if (!isEditMode || !mainSelectedVoid || !isModified) return null;
+    const newCompartments: Partial<Record<Axis, number>> = {};
+    for (const axis of selectedAxes) {
+      newCompartments[axis] = axisCounts[axis] + 1;  // divisions + 1 = compartments
+    }
+    return checkSubdivisionModificationImpact(mainSelectedVoid, selectedAxes, newCompartments);
+  }, [isEditMode, mainSelectedVoid, isModified, selectedAxes, axisCounts]);
+
   return (
     <FloatingPalette
-      title="Subdivide"
+      title={isEditMode ? "Edit Subdivisions" : "Subdivide"}
       position={position}
       onPositionChange={onPositionChange}
       onClose={handleCancel}
@@ -542,17 +620,15 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
             <span className="palette-label">Between Panels</span>
             <span className="palette-value">{panelPairDescription}</span>
           </div>
-        ) : !canSubdivideVoid ? (
+        ) : !canSubdivideVoid && !isEditMode ? (
           <p className="palette-hint">
-            {mainSelectedVoid?.children.length && mainSelectedVoid.children.length > 0
-              ? 'Cannot subdivide: void has children'
-              : mainSelectedVoid?.subAssembly
+            {mainSelectedVoid?.subAssembly
               ? 'Cannot subdivide: void has sub-assembly'
               : 'Cannot subdivide this void'}
           </p>
         ) : (
           <div className="palette-info">
-            <span className="palette-label">Selected Void</span>
+            <span className="palette-label">{isEditMode ? 'Editing Void' : 'Selected Void'}</span>
             {voidBounds && (
               <span className="palette-value">
                 {voidBounds.w.toFixed(1)} x {voidBounds.h.toFixed(1)} x {voidBounds.d.toFixed(1)} mm
@@ -572,8 +648,17 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
         </div>
       )}
 
+      {/* Edit mode indicator */}
+      {isEditMode && (
+        <div className="palette-info" style={{ marginBottom: '8px' }}>
+          <span className="palette-hint-small" style={{ color: '#6c9' }}>
+            ✏️ Editing existing {existingSubdivisions?.axes.length === 1 ? 'subdivision' : 'grid'}
+          </span>
+        </div>
+      )}
+
       {/* Axis selection - multi-select (max 2) */}
-      {((mode === 'void' && canSubdivideVoid) || mode === 'two-panel') && (
+      {((mode === 'void' && (canSubdivideVoid || isEditMode)) || mode === 'two-panel') && (
         <div className="palette-section">
           <span className="palette-label">Select Axes (max 2)</span>
           <div className="palette-axis-buttons">
@@ -590,8 +675,8 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
                     e.stopPropagation();
                     handleAxisToggle(axis);
                   }}
-                  onMouseEnter={() => !isActive && isAxisValid && !isAxisSelected && handleAxisHover(axis)}
-                  onMouseLeave={() => !isActive && handleAxisLeave()}
+                  onMouseEnter={() => !isActive && !isEditMode && isAxisValid && !isAxisSelected && handleAxisHover(axis)}
+                  onMouseLeave={() => !isActive && !isEditMode && handleAxisLeave()}
                   disabled={!isAxisValid}
                   title={mode === 'two-panel'
                     ? (isAxisValid ? `${isAxisSelected ? 'Deselect' : 'Select'} ${axis.toUpperCase()} axis` : 'Only perpendicular axes available')
@@ -612,7 +697,7 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
       )}
 
       {/* Count controls for each selected axis */}
-      {((mode === 'void' && canSubdivideVoid) || mode === 'two-panel') && selectedAxes.length > 0 && (
+      {((mode === 'void' && (canSubdivideVoid || isEditMode)) || mode === 'two-panel') && selectedAxes.length > 0 && (
         <>
           {selectedAxes.map(axis => (
             <PaletteSliderInput
@@ -630,13 +715,26 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
             <span className="palette-hint">Creates {totalCells} cells</span>
           </div>
 
+          {/* Modification warning */}
+          {modificationWarning?.hasWarning && (
+            <div className="palette-warning" style={{
+              backgroundColor: 'rgba(255, 150, 50, 0.15)',
+              border: '1px solid rgba(255, 150, 50, 0.5)',
+              borderRadius: '4px',
+              padding: '8px',
+              marginBottom: '8px'
+            }}>
+              <span style={{ color: '#fa3' }}>⚠️ {modificationWarning.message}</span>
+            </div>
+          )}
+
           <PaletteButtonRow>
             <PaletteButton
               variant="primary"
               onClick={handleApply}
               disabled={!isActive || selectedAxes.length === 0}
             >
-              Apply
+              {isEditMode ? 'Update' : 'Apply'}
             </PaletteButton>
             <PaletteButton variant="secondary" onClick={handleCancel}>
               Cancel
@@ -646,7 +744,7 @@ export const SubdividePalette: React.FC<SubdividePaletteProps> = ({
       )}
 
       {/* Show apply/cancel when target exists but no axes selected */}
-      {((mode === 'void' && canSubdivideVoid) || mode === 'two-panel') && selectedAxes.length === 0 && (
+      {((mode === 'void' && (canSubdivideVoid || isEditMode)) || mode === 'two-panel') && selectedAxes.length === 0 && (
         <PaletteButtonRow>
           <PaletteButton
             variant="primary"

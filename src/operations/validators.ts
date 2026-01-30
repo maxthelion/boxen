@@ -412,6 +412,153 @@ export const getValidSubdivisionAxes = (faces: Face[]): { x: boolean; y: boolean
 };
 
 // =============================================================================
+// Existing Subdivision Reader
+// =============================================================================
+
+/**
+ * Result of reading existing subdivisions from a void
+ */
+export interface ExistingSubdivisionInfo {
+  /** Whether the void has any subdivisions */
+  hasSubdivisions: boolean;
+  /** Axes that have subdivisions */
+  axes: Axis[];
+  /** Number of compartments (dividers + 1) per axis */
+  compartments: Partial<Record<Axis, number>>;
+  /** Actual divider positions per axis */
+  positions: Partial<Record<Axis, number[]>>;
+  /** Whether any child voids contain sub-assemblies */
+  hasSubAssemblies: boolean;
+  /** IDs of child voids with sub-assemblies */
+  subAssemblyVoidIds: string[];
+}
+
+/**
+ * Read existing subdivision configuration from a void
+ * Used to pre-populate the subdivide palette when editing existing subdivisions
+ */
+export const getExistingSubdivisions = (voidNode: Void): ExistingSubdivisionInfo => {
+  const empty: ExistingSubdivisionInfo = {
+    hasSubdivisions: false,
+    axes: [],
+    compartments: {},
+    positions: {},
+    hasSubAssemblies: false,
+    subAssemblyVoidIds: [],
+  };
+
+  // Check if void has no children (is a leaf)
+  if (voidNode.children.length === 0) {
+    return empty;
+  }
+
+  // Check for grid subdivision (multi-axis)
+  if (voidNode.gridSubdivision) {
+    const { axes, positions } = voidNode.gridSubdivision;
+    const compartments: Partial<Record<Axis, number>> = {};
+
+    for (const axis of axes) {
+      const axisPositions = positions[axis] || [];
+      compartments[axis] = axisPositions.length + 1; // dividers + 1 = compartments
+    }
+
+    // Check for sub-assemblies in child voids
+    const subAssemblyVoidIds = voidNode.children
+      .filter(child => child.subAssembly)
+      .map(child => child.id);
+
+    return {
+      hasSubdivisions: true,
+      axes: [...axes],
+      compartments,
+      positions: { ...positions } as Partial<Record<Axis, number[]>>,
+      hasSubAssemblies: subAssemblyVoidIds.length > 0,
+      subAssemblyVoidIds,
+    };
+  }
+
+  // Check for single-axis subdivision (legacy format via children with splitAxis)
+  const firstChild = voidNode.children[0];
+  if (firstChild && voidNode.children.length > 1) {
+    // Children after the first have splitAxis info
+    const secondChild = voidNode.children[1];
+    const axis = secondChild?.splitAxis;
+
+    if (axis) {
+      // Collect split positions from children (children after first have splitPosition)
+      const splitPositions: number[] = [];
+      for (let i = 1; i < voidNode.children.length; i++) {
+        const pos = voidNode.children[i].splitPosition;
+        if (pos !== undefined) {
+          splitPositions.push(pos);
+        }
+      }
+
+      // Check for sub-assemblies in child voids
+      const subAssemblyVoidIds = voidNode.children
+        .filter(child => child.subAssembly)
+        .map(child => child.id);
+
+      return {
+        hasSubdivisions: true,
+        axes: [axis],
+        compartments: { [axis]: voidNode.children.length },
+        positions: { [axis]: splitPositions },
+        hasSubAssemblies: subAssemblyVoidIds.length > 0,
+        subAssemblyVoidIds,
+      };
+    }
+  }
+
+  return empty;
+};
+
+/**
+ * Check if modifying subdivisions would affect any sub-assemblies
+ * Returns details about what would be affected
+ */
+export interface SubdivisionModificationWarning {
+  /** Whether any content would be affected */
+  hasWarning: boolean;
+  /** Number of sub-assemblies that would be removed */
+  affectedSubAssemblies: number;
+  /** Description of what would be affected */
+  message: string;
+}
+
+export const checkSubdivisionModificationImpact = (
+  voidNode: Void,
+  newAxes: Axis[],
+  newCompartments: Partial<Record<Axis, number>>
+): SubdivisionModificationWarning => {
+  const existing = getExistingSubdivisions(voidNode);
+
+  if (!existing.hasSubdivisions) {
+    return { hasWarning: false, affectedSubAssemblies: 0, message: '' };
+  }
+
+  // If there are sub-assemblies, any modification is risky
+  if (existing.hasSubAssemblies) {
+    const removingAxes = existing.axes.filter(a => !newAxes.includes(a));
+    const reducingCompartments = newAxes.some(axis => {
+      const existingCount = existing.compartments[axis] || 0;
+      const newCount = newCompartments[axis] || 0;
+      return newCount < existingCount;
+    });
+
+    if (removingAxes.length > 0 || reducingCompartments) {
+      return {
+        hasWarning: true,
+        affectedSubAssemblies: existing.subAssemblyVoidIds.length,
+        message: `This change will remove ${existing.subAssemblyVoidIds.length} sub-assembl${existing.subAssemblyVoidIds.length === 1 ? 'y' : 'ies'}`,
+      };
+    }
+  }
+
+  return { hasWarning: false, affectedSubAssemblies: 0, message: '' };
+};
+
+// =============================================================================
 // Operation-Specific Validators
 // =============================================================================
 
