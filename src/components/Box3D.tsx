@@ -34,7 +34,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
-  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectPanel, selectAssembly, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
+  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectPanel, selectAssembly, selectPanelEdges, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
 
   // Compute visually selected panels (includes cascade from assembly selection)
   const allPanelIds = panelCollection?.panels.map(p => p.id) ?? [];
@@ -160,7 +160,15 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
           scale={scale}
           selectedPanelIds={selectedPanelIds}
           onPanelClick={(selectionMode === 'panel' || selectionMode === null) ? (panelId, e) => {
-            selectPanel(panelId, e?.shiftKey);
+            // When inset tool is active, clicking a panel selects all its eligible edges
+            if (activeTool === 'inset') {
+              const panel = panelCollection.panels.find(p => p.id === panelId);
+              if (panel?.edgeStatuses) {
+                selectPanelEdges(panelId, panel.edgeStatuses);
+              }
+            } else {
+              selectPanel(panelId, e?.shiftKey);
+            }
           } : undefined}
           onPanelDoubleClick={selectionMode === null ? (panelId) => {
             // Look up panel to get its assembly from source

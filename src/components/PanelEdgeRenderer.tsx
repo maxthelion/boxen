@@ -105,7 +105,8 @@ const EdgeMesh: React.FC<EdgeMeshProps> = ({
     const [px, py, pz] = position;
     const halfWidth = (width * scale) / 2;
     const halfHeight = (height * scale) / 2;
-    const halfThickness = (thickness * scale) / 2;
+    // Small offset to prevent z-fighting with panel edge cap surfaces
+    const edgeOffset = 0.05;
 
     // Create panel's rotation as Euler, then convert to quaternion for transforms
     const panelEuler = new THREE.Euler(rotation[0], rotation[1], rotation[2], 'XYZ');
@@ -113,28 +114,29 @@ const EdgeMesh: React.FC<EdgeMeshProps> = ({
 
     // Calculate local offset from panel center to edge center
     // In panel-local space: X = width direction, Y = height direction, Z = thickness (normal)
+    // Edge indicators are offset slightly outward from the panel edge caps to avoid z-fighting
     let localOffset: THREE.Vector3;
     let localEdgeRotation: THREE.Euler;
 
     switch (edge) {
       case 'top':
-        // Top edge: offset in +Y (local), rotate to face outward (+Y in local)
-        localOffset = new THREE.Vector3(0, halfHeight, halfThickness);
+        // Top edge: slightly above the edge cap surface
+        localOffset = new THREE.Vector3(0, halfHeight + edgeOffset, 0);
         localEdgeRotation = new THREE.Euler(Math.PI / 2, 0, 0);
         break;
       case 'bottom':
-        // Bottom edge: offset in -Y (local), rotate to face outward (-Y in local)
-        localOffset = new THREE.Vector3(0, -halfHeight, halfThickness);
+        // Bottom edge: slightly below the edge cap surface
+        localOffset = new THREE.Vector3(0, -halfHeight - edgeOffset, 0);
         localEdgeRotation = new THREE.Euler(-Math.PI / 2, 0, 0);
         break;
       case 'left':
-        // Left edge: offset in -X (local), rotate to face outward (-X in local)
-        localOffset = new THREE.Vector3(-halfWidth, 0, halfThickness);
+        // Left edge: slightly outside the edge cap surface
+        localOffset = new THREE.Vector3(-halfWidth - edgeOffset, 0, 0);
         localEdgeRotation = new THREE.Euler(0, -Math.PI / 2, 0);
         break;
       case 'right':
-        // Right edge: offset in +X (local), rotate to face outward (+X in local)
-        localOffset = new THREE.Vector3(halfWidth, 0, halfThickness);
+        // Right edge: slightly outside the edge cap surface
+        localOffset = new THREE.Vector3(halfWidth + edgeOffset, 0, 0);
         localEdgeRotation = new THREE.Euler(0, Math.PI / 2, 0);
         break;
     }

@@ -360,6 +360,7 @@ export interface BoxActions {
   selectEdge: (panelId: string, edge: EdgePosition, additive?: boolean) => void;
   deselectEdge: (panelId: string, edge: EdgePosition) => void;
   clearEdgeSelection: () => void;
+  selectPanelEdges: (panelId: string, edgeStatuses: EdgeStatusInfo[]) => void;
   setHoveredEdge: (panelId: string | null, edge: EdgePosition | null) => void;
   // Operation actions - unified operation system
   startOperation: (operationId: OperationId) => void;

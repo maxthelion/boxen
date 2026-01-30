@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS, OperationId, INITIAL_OPERATION_STATE } from '../types';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS, OperationId, INITIAL_OPERATION_STATE, EdgeStatusInfo } from '../types';
 import { getOperation, operationHasPreview, operationIsImmediate } from '../operations';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
@@ -939,6 +939,19 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   clearEdgeSelection: () =>
     set({ selectedEdges: new Set<string>() }),
+
+  // Select all eligible (non-locked) edges for a panel
+  selectPanelEdges: (panelId: string, edgeStatuses: EdgeStatusInfo[]) =>
+    set((state) => {
+      // Filter to non-locked edges and create edge keys
+      const eligibleEdgeKeys = edgeStatuses
+        .filter(s => s.status !== 'locked')
+        .map(s => `${panelId}:${s.position}`);
+
+      // Add to existing selection
+      const newSet = new Set([...state.selectedEdges, ...eligibleEdgeKeys]);
+      return { selectedEdges: newSet };
+    }),
 
   setHoveredEdge: (panelId: string | null, edge: string | null) =>
     set({ hoveredEdge: panelId && edge ? `${panelId}:${edge}` : null }),
