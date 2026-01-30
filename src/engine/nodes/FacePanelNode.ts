@@ -22,6 +22,7 @@ import {
   Axis,
   Subdivision,
   Bounds3D,
+  EdgeStatusInfo,
 } from '../types';
 import {
   ALL_EDGE_POSITIONS,
@@ -327,6 +328,170 @@ export class FacePanelNode extends BasePanel {
       }
     }
 
+    // Generate extension-slot holes for extended female edges
+    // TODO: Read docs/movecorneronadjacentextensions.md for corner handling
+    const extensionSlots = this.generateExtensionSlotHoles(fingerData, mt);
+    holes.push(...extensionSlots);
+
+    return holes;
+  }
+
+  /**
+   * Generate slot holes for edges that have been extended outward.
+   * When an edge is extended (via feet or inset/outset tool), the finger pattern
+   * becomes slot holes at the original edge position.
+   *
+   * Only generates slots for female edges (edges that receive tabs from adjacent panels).
+   */
+  private generateExtensionSlotHoles(
+    fingerData: AssemblyFingerData | null,
+    mt: number
+  ): PanelHole[] {
+    const holes: PanelHole[] = [];
+    if (!fingerData) return holes;
+
+    const dims = this.getDimensions();
+    const halfW = dims.width / 2;
+    const halfH = dims.height / 2;
+    const assemblyAxis = this._assembly.assemblyAxis;
+
+    // Get effective edge extensions including feet
+    const feetConfig = this.getFeetConfig();
+    const feetExtension = feetConfig ? (mt + feetConfig.params.height) : 0;
+    const extensions = {
+      top: this._edgeExtensions.top ?? 0,
+      bottom: (this._edgeExtensions.bottom ?? 0) + feetExtension,
+      left: this._edgeExtensions.left ?? 0,
+      right: this._edgeExtensions.right ?? 0,
+    };
+
+    // Build faces array for getEdgeGender
+    const storeFaces: StoreFace[] = (['front', 'back', 'left', 'right', 'top', 'bottom'] as FaceId[]).map(faceId => ({
+      id: faceId,
+      solid: this._assembly.isFaceSolid(faceId),
+    }));
+
+    const engineLids = this._assembly.assemblyConfig.lids;
+    const storeAssembly: StoreAssemblyConfig = {
+      assemblyAxis,
+      lids: {
+        positive: {
+          tabDirection: engineLids.positive.tabDirection,
+          inset: engineLids.positive.inset,
+        },
+        negative: {
+          tabDirection: engineLids.negative.tabDirection,
+          inset: engineLids.negative.inset,
+        },
+      },
+      feet: this._assembly.feet || undefined,
+    };
+
+    // Process each edge
+    const edgePositions: EdgePosition[] = ['top', 'bottom', 'left', 'right'];
+    for (const position of edgePositions) {
+      const extension = extensions[position];
+      if (extension <= 0) continue;
+
+      // Check if adjacent face is solid
+      const adjacentFaceId = getAdjacentFace(this.faceId, position);
+      if (!adjacentFaceId || !this._assembly.isFaceSolid(adjacentFaceId)) continue;
+
+      // Check if this edge is female (we receive tabs, not send them)
+      const gender = getEdgeGender(this.faceId, position, storeFaces, storeAssembly);
+      if (gender !== 'female') continue;
+
+      // Get the axis and finger data for this edge
+      const axis = getEdgeAxis(this.faceId, position);
+      const axisFingerData = fingerData[axis];
+      if (!axisFingerData || axisFingerData.fingerLength <= 0) continue;
+
+      const { points: transitionPoints, innerOffset, maxJointLength: maxJoint } = axisFingerData;
+
+      // Determine which perpendicular edges have tabs (affects slot range)
+      const isHorizontalEdge = position === 'top' || position === 'bottom';
+      const leftGender = getEdgeGender(this.faceId, 'left', storeFaces, storeAssembly);
+      const rightGender = getEdgeGender(this.faceId, 'right', storeFaces, storeAssembly);
+      const topGender = getEdgeGender(this.faceId, 'top', storeFaces, storeAssembly);
+      const bottomGender = getEdgeGender(this.faceId, 'bottom', storeFaces, storeAssembly);
+
+      let lowHasTabs: boolean;
+      let highHasTabs: boolean;
+      if (isHorizontalEdge) {
+        lowHasTabs = leftGender === 'male' && this._assembly.isFaceSolid(getAdjacentFace(this.faceId, 'left')!);
+        highHasTabs = rightGender === 'male' && this._assembly.isFaceSolid(getAdjacentFace(this.faceId, 'right')!);
+      } else {
+        lowHasTabs = bottomGender === 'male' && this._assembly.isFaceSolid(getAdjacentFace(this.faceId, 'bottom')!);
+        highHasTabs = topGender === 'male' && this._assembly.isFaceSolid(getAdjacentFace(this.faceId, 'top')!);
+      }
+
+      // Calculate the effective range (same as panel generator)
+      const minPos = lowHasTabs ? 0 : -mt;
+      const maxPos = highHasTabs ? maxJoint : maxJoint + mt;
+
+      // Calculate the slot position (perpendicular to the edge, at the original edge position)
+      let slotPosition: number;
+      switch (position) {
+        case 'top':
+          slotPosition = halfH - mt / 2;
+          break;
+        case 'bottom':
+          slotPosition = -halfH + mt / 2;
+          break;
+        case 'right':
+          slotPosition = halfW - mt / 2;
+          break;
+        case 'left':
+          slotPosition = -halfW + mt / 2;
+          break;
+      }
+
+      // Create section boundaries
+      const allBoundaries = [innerOffset, ...transitionPoints, maxJoint - innerOffset];
+
+      // Generate slots at finger positions (even-indexed sections where tabs go)
+      let slotIndex = 0;
+      for (let i = 0; i < allBoundaries.length - 1; i++) {
+        if (i % 2 === 0) {  // Finger/tab section
+          const sectionStart = allBoundaries[i];
+          const sectionEnd = allBoundaries[i + 1];
+
+          // Check if section is within the edge range
+          if (sectionStart < minPos || sectionEnd > maxPos) continue;
+
+          // Convert from axis coords (0 to maxJoint) to 2D panel coords (centered)
+          const offsetStart = sectionStart - maxJoint / 2;
+          const offsetEnd = sectionEnd - maxJoint / 2;
+
+          let holePoints: { x: number; y: number }[];
+          if (isHorizontalEdge) {
+            // Horizontal edge (top/bottom): slot runs horizontally
+            holePoints = [
+              { x: offsetStart, y: slotPosition - mt / 2 },
+              { x: offsetEnd, y: slotPosition - mt / 2 },
+              { x: offsetEnd, y: slotPosition + mt / 2 },
+              { x: offsetStart, y: slotPosition + mt / 2 },
+            ];
+          } else {
+            // Vertical edge (left/right): slot runs vertically
+            holePoints = [
+              { x: slotPosition - mt / 2, y: offsetStart },
+              { x: slotPosition + mt / 2, y: offsetStart },
+              { x: slotPosition + mt / 2, y: offsetEnd },
+              { x: slotPosition - mt / 2, y: offsetEnd },
+            ];
+          }
+
+          holes.push({
+            id: `extension-slot-${this.faceId}-${position}-${slotIndex}`,
+            source: { type: 'extension-slot', sourceId: `${this.faceId}-${position}` },
+            path: holePoints,
+          });
+          slotIndex++;
+        }
+      }
+    }
+
     return holes;
   }
 
@@ -506,6 +671,50 @@ export class FacePanelNode extends BasePanel {
 
   getFingerData(): AssemblyFingerData | null {
     return this._assembly.getFingerData();
+  }
+
+  computeEdgeStatuses(): EdgeStatusInfo[] {
+    const faces = this._assembly.getFaces();
+    const assemblyConfig = this._assembly.assemblyConfig;
+
+    // Convert to store format for getEdgeGender compatibility
+    const storeFaces: StoreFace[] = faces.map(f => ({ id: f.id, solid: f.solid }));
+    const storeAssembly: StoreAssemblyConfig = {
+      assemblyAxis: assemblyConfig.assemblyAxis,
+      lids: {
+        positive: {
+          enabled: true,
+          tabDirection: assemblyConfig.lids.positive.tabDirection,
+          inset: assemblyConfig.lids.positive.inset,
+        },
+        negative: {
+          enabled: true,
+          tabDirection: assemblyConfig.lids.negative.tabDirection,
+          inset: assemblyConfig.lids.negative.inset,
+        },
+      },
+    };
+
+    return ALL_EDGE_POSITIONS.map((position): EdgeStatusInfo => {
+      const adjacentFaceId = getAdjacentFace(this.faceId, position);
+      const gender = getEdgeGender(this.faceId, position, storeFaces, storeAssembly);
+
+      // Convert gender to edge status
+      let status: EdgeStatusInfo['status'];
+      if (gender === 'male') {
+        status = 'locked';
+      } else if (gender === 'female') {
+        status = 'outward-only';
+      } else {
+        status = 'unlocked';
+      }
+
+      return {
+        position,
+        status,
+        adjacentFaceId,
+      };
+    });
   }
 
   // ==========================================================================

@@ -21,6 +21,9 @@ export {
   operationHasPreview,
   operationIsImmediate,
   operationIsViewOnly,
+  getOperationForTool,
+  getSelectionBehaviorForTool,
+  toolAllowsMoreSelections,
   type OperationDefinition,
 } from './registry';
 

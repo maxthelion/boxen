@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { NumberInput } from './UI/NumberInput';
 
 export interface FloatingPaletteProps {
   /** Screen position for the palette */
@@ -15,6 +16,8 @@ export interface FloatingPaletteProps {
   onPositionChange?: (position: { x: number; y: number }) => void;
   /** Minimum width of the palette */
   minWidth?: number;
+  /** Maximum width of the palette */
+  maxWidth?: number;
   /** Whether the palette is visible */
   visible?: boolean;
   /** Optional container ref to constrain palette within (defaults to window) */
@@ -31,6 +34,7 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
   onApply,
   onPositionChange,
   minWidth = 180,
+  maxWidth,
   visible = true,
   containerRef,
   closeOnClickOutside = true,
@@ -220,6 +224,7 @@ export const FloatingPalette: React.FC<FloatingPaletteProps> = ({
         left: localPosition.x,
         top: localPosition.y,
         minWidth,
+        maxWidth,
       }}
       onMouseDown={handleDragStart}
     >
@@ -301,6 +306,7 @@ interface ToggleGroupProps {
   options: ToggleOption[];
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }
 
 export const PaletteToggleGroup: React.FC<ToggleGroupProps> = ({
@@ -308,16 +314,18 @@ export const PaletteToggleGroup: React.FC<ToggleGroupProps> = ({
   options,
   value,
   onChange,
+  disabled = false,
 }) => {
   return (
-    <div className="palette-toggle-group">
+    <div className={`palette-toggle-group ${disabled ? 'disabled' : ''}`}>
       {label && <label className="palette-label">{label}</label>}
       <div className="palette-toggle-buttons">
         {options.map((option) => (
           <button
             key={option.value}
             className={`palette-toggle-btn ${value === option.value ? 'active' : ''}`}
-            onClick={() => onChange(option.value)}
+            onClick={() => !disabled && onChange(option.value)}
+            disabled={disabled}
           >
             {option.label}
           </button>
@@ -367,7 +375,7 @@ export const PaletteCheckboxGroup: React.FC<CheckboxGroupProps> = ({ label, chil
   );
 };
 
-interface NumberInputProps {
+interface PaletteNumberInputProps {
   label: string;
   value: number;
   min?: number;
@@ -377,7 +385,7 @@ interface NumberInputProps {
   onChange: (value: number) => void;
 }
 
-export const PaletteNumberInput: React.FC<NumberInputProps> = ({
+export const PaletteNumberInput: React.FC<PaletteNumberInputProps> = ({
   label,
   value,
   min,
@@ -389,18 +397,14 @@ export const PaletteNumberInput: React.FC<NumberInputProps> = ({
   return (
     <div className="palette-number-row">
       <label className="palette-label">{label}</label>
-      <div className="palette-number-input">
-        <input
-          type="number"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className="palette-input"
-        />
-        {unit && <span className="palette-unit">{unit}</span>}
-      </div>
+      <NumberInput
+        value={value}
+        onChange={onChange}
+        min={min}
+        max={max}
+        step={step}
+        unit={unit}
+      />
     </div>
   );
 };

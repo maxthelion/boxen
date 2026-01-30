@@ -273,12 +273,15 @@ export interface BoxState {
   // Editor tool state
   activeTool: EditorTool;
   selectedCornerIds: Set<string>;  // Selected corners for chamfer/fillet tool
+  // Edge selection state (for inset/outset tool)
+  selectedEdges: Set<string>;  // Format: "panelId:edge" e.g. "uuid:top"
+  hoveredEdge: string | null;  // Format: "panelId:edge"
   // Operation state - tracks active operation and its parameters
   operationState: OperationState;
 }
 
 // Editor tools available in 2D/3D views
-export type EditorTool = 'select' | 'pan' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer' | 'push-pull' | 'subdivide' | 'create-sub-assembly' | 'configure-assembly' | 'scale';
+export type EditorTool = 'select' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer' | 'push-pull' | 'subdivide' | 'move' | 'create-sub-assembly' | 'configure' | 'scale';
 
 export interface BoxActions {
   setConfig: (config: Partial<BoxConfig>) => void;
@@ -353,6 +356,12 @@ export interface BoxActions {
   selectCorner: (cornerId: string, toggle?: boolean) => void;
   selectCorners: (cornerIds: string[]) => void;
   clearCornerSelection: () => void;
+  // Edge selection actions (for inset/outset tool)
+  selectEdge: (panelId: string, edge: EdgePosition, additive?: boolean) => void;
+  deselectEdge: (panelId: string, edge: EdgePosition) => void;
+  clearEdgeSelection: () => void;
+  selectPanelEdges: (panelId: string, edgeStatuses: EdgeStatusInfo[]) => void;
+  setHoveredEdge: (panelId: string | null, edge: EdgePosition | null) => void;
   // Operation actions - unified operation system
   startOperation: (operationId: OperationId) => void;
   updateOperationParams: (params: Record<string, unknown>) => void;
@@ -439,6 +448,22 @@ export interface EdgeExtensions {
   right: number;
 }
 
+// Edge position type for panel edges
+export type EdgePosition = 'top' | 'bottom' | 'left' | 'right';
+
+// Edge status for inset/outset operations
+// - locked: male joint (tabs out), cannot modify
+// - outward-only: female joint (slots), can extend outward only
+// - unlocked: open face (straight edge), can extend or retract
+export type EdgeStatus = 'locked' | 'outward-only' | 'unlocked';
+
+// Edge status info for a panel edge
+export interface EdgeStatusInfo {
+  position: EdgePosition;
+  status: EdgeStatus;
+  adjacentFaceId?: FaceId;
+}
+
 export const defaultEdgeExtensions: EdgeExtensions = {
   top: 0, bottom: 0, left: 0, right: 0
 };
@@ -477,6 +502,9 @@ export interface PanelPath {
 
   // Edge extensions (V1 - only for straight edges)
   edgeExtensions: EdgeExtensions;
+
+  // Edge statuses for inset/outset tool (derived from engine)
+  edgeStatuses?: EdgeStatusInfo[];
 
   // Corner finishes (chamfers, fillets)
   cornerFinishes?: CornerFinish[];

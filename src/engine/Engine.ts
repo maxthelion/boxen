@@ -15,6 +15,7 @@ import { VoidNode } from './nodes/VoidNode';
 import { BaseNode } from './nodes/BaseNode';
 import { BaseAssembly } from './nodes/BaseAssembly';
 import {
+  Axis,
   MaterialConfig,
   SceneSnapshot,
   PanelCollectionSnapshot,
@@ -122,14 +123,16 @@ export class Engine {
    * Used when instantiating templates to ensure a clean slate
    */
   clearScene(): void {
-    for (const assembly of this._scene.assemblies) {
-      this._scene.removeAssembly(assembly);
+    const targetScene = this.getActiveScene();
+    for (const assembly of targetScene.assemblies) {
+      targetScene.removeAssembly(assembly);
     }
     this.invalidateNodeMap();
   }
 
   /**
-   * Create a new main assembly and add it to the scene
+   * Create a new main assembly and add it to the active scene
+   * When in preview mode, adds to the preview scene
    */
   createAssembly(
     width: number,
@@ -138,7 +141,8 @@ export class Engine {
     material: MaterialConfig
   ): AssemblyNode {
     const assembly = new AssemblyNode(width, height, depth, material);
-    this._scene.addAssembly(assembly);
+    const targetScene = this.getActiveScene();
+    targetScene.addAssembly(assembly);
     this.invalidateNodeMap();
     return assembly;
   }
@@ -213,6 +217,160 @@ export class Engine {
   }
 
   // ==========================================================================
+  // Grid Divider Movement
+  // ==========================================================================
+
+  /**
+   * Move a grid divider to a new position
+   * Updates the gridSubdivision.positions array and recalculates child void bounds
+   *
+   * @param voidNode - The void with gridSubdivision
+   * @param axis - The axis of the divider being moved
+   * @param positionIndex - Index in the positions array
+   * @param newPosition - New absolute position
+   * @param materialThickness - Material thickness for bounds calculation
+   * @returns true if successful
+   */
+  private moveGridDivider(
+    voidNode: VoidNode,
+    axis: Axis,
+    positionIndex: number,
+    newPosition: number,
+    materialThickness: number
+  ): boolean {
+    const gridSub = voidNode.gridSubdivision;
+    if (!gridSub) return false;
+
+    const positions = gridSub.positions[axis];
+    if (!positions || positionIndex < 0 || positionIndex >= positions.length) return false;
+
+    const bounds = voidNode.bounds;
+
+    // Get axis-specific bounds values
+    const dimStart = axis === 'x' ? bounds.x : axis === 'y' ? bounds.y : bounds.z;
+    const dimSize = axis === 'x' ? bounds.w : axis === 'y' ? bounds.h : bounds.d;
+    const dimEnd = dimStart + dimSize;
+
+    // Calculate valid range for new position
+    const prevPosition = positionIndex > 0 ? positions[positionIndex - 1] : null;
+    const nextPosition = positionIndex < positions.length - 1 ? positions[positionIndex + 1] : null;
+
+    const minPosition = prevPosition !== null ? prevPosition + materialThickness : dimStart + materialThickness;
+    const maxPosition = nextPosition !== null ? nextPosition - materialThickness : dimEnd - materialThickness;
+
+    // Validate new position
+    if (newPosition < minPosition || newPosition > maxPosition) {
+      return false;
+    }
+
+    // Update the position in the array
+    positions[positionIndex] = newPosition;
+
+    // Recalculate all child void bounds
+    // Grid cells are created as Cartesian product of all axis regions
+    // Need to recalculate bounds for all cells affected by this position change
+    this.recalculateGridCellBounds(voidNode, materialThickness);
+
+    voidNode.markDirty();
+    return true;
+  }
+
+  /**
+   * Recalculate bounds for all grid cell children after a position change
+   */
+  private recalculateGridCellBounds(voidNode: VoidNode, materialThickness: number): void {
+    const gridSub = voidNode.gridSubdivision;
+    if (!gridSub || gridSub.axes.length !== 2) return;
+
+    const bounds = voidNode.bounds;
+    const halfMt = materialThickness / 2;
+
+    const axis1 = gridSub.axes[0];
+    const axis2 = gridSub.axes[1];
+    const positions1 = gridSub.positions[axis1] || [];
+    const positions2 = gridSub.positions[axis2] || [];
+
+    // Helper to get axis-specific values
+    const getAxisBounds = (axis: Axis) => {
+      switch (axis) {
+        case 'x': return { start: bounds.x, size: bounds.w };
+        case 'y': return { start: bounds.y, size: bounds.h };
+        case 'z': return { start: bounds.z, size: bounds.d };
+      }
+    };
+
+    // Calculate regions for each axis
+    const calcRegions = (positions: number[], axis: Axis) => {
+      const { start: dimStart, size: dimSize } = getAxisBounds(axis);
+      const dimEnd = dimStart + dimSize;
+      const regions: { start: number; end: number }[] = [];
+
+      for (let i = 0; i <= positions.length; i++) {
+        const regionStart = i === 0 ? dimStart : positions[i - 1] + halfMt;
+        const regionEnd = i === positions.length ? dimEnd : positions[i] - halfMt;
+        regions.push({ start: regionStart, end: regionEnd });
+      }
+      return regions;
+    };
+
+    const regions1 = calcRegions(positions1, axis1);
+    const regions2 = calcRegions(positions2, axis2);
+
+    // Get void children
+    const children = voidNode.getVoidChildren();
+
+    // Children are arranged in order: for each region1, iterate all region2
+    let childIndex = 0;
+    for (let i = 0; i < regions1.length; i++) {
+      for (let j = 0; j < regions2.length; j++) {
+        if (childIndex >= children.length) break;
+
+        const r1 = regions1[i];
+        const r2 = regions2[j];
+        const child = children[childIndex];
+
+        // Build new bounds
+        const newBounds = { ...bounds };
+
+        // Set axis1 bounds
+        switch (axis1) {
+          case 'x':
+            newBounds.x = r1.start;
+            newBounds.w = r1.end - r1.start;
+            break;
+          case 'y':
+            newBounds.y = r1.start;
+            newBounds.h = r1.end - r1.start;
+            break;
+          case 'z':
+            newBounds.z = r1.start;
+            newBounds.d = r1.end - r1.start;
+            break;
+        }
+
+        // Set axis2 bounds
+        switch (axis2) {
+          case 'x':
+            newBounds.x = r2.start;
+            newBounds.w = r2.end - r2.start;
+            break;
+          case 'y':
+            newBounds.y = r2.start;
+            newBounds.h = r2.end - r2.start;
+            break;
+          case 'z':
+            newBounds.z = r2.start;
+            newBounds.d = r2.end - r2.start;
+            break;
+        }
+
+        child.setBounds(newBounds);
+        childIndex++;
+      }
+    }
+  }
+
+  // ==========================================================================
   // Snapshot Access
   // ==========================================================================
 
@@ -284,10 +442,12 @@ export class Engine {
    */
   dispatch(action: EngineAction, options?: { preview?: boolean }): boolean {
     // Determine which scene to operate on
-    // If preview option is set and we have a preview, use preview scene
-    // Otherwise, use the active scene (which returns preview if active anyway)
-    const usePreview = options?.preview && this._previewScene;
-    const targetScene = usePreview ? this._previewScene! : this._scene;
+    // By default, use the active scene (preview if active, otherwise main)
+    // Use options.preview=false to explicitly target the main scene during preview
+    const targetScene =
+      options?.preview === false
+        ? this._scene
+        : this._previewScene ?? this._scene;
 
     // Find assembly in the target scene
     const findInScene = (id: string): BaseNode | null => {
@@ -334,6 +494,35 @@ export class Engine {
         }
         break;
 
+      case 'CONFIGURE_FACE':
+        if (assembly) {
+          const { faceId, solid, lidTabDirection } = action.payload;
+          // Set solid state if provided
+          if (solid !== undefined) {
+            assembly.setFaceSolid(faceId, solid);
+          }
+          // Set lid tab direction if provided (only applies to lid faces)
+          if (lidTabDirection !== undefined) {
+            // Determine which lid side this face is on based on assembly axis
+            const axis = assembly.assemblyAxis;
+            const lidMap: Record<string, { positive: string; negative: string }> = {
+              y: { positive: 'top', negative: 'bottom' },
+              x: { positive: 'right', negative: 'left' },
+              z: { positive: 'front', negative: 'back' },
+            };
+            const mapping = lidMap[axis];
+            let lidSide: 'positive' | 'negative' | null = null;
+            if (faceId === mapping.positive) lidSide = 'positive';
+            else if (faceId === mapping.negative) lidSide = 'negative';
+
+            if (lidSide) {
+              assembly.setLidConfig(lidSide, { tabDirection: lidTabDirection });
+            }
+          }
+          return true;
+        }
+        break;
+
       case 'SET_ASSEMBLY_AXIS':
         if (assembly) {
           assembly.setAssemblyAxis(action.payload.axis);
@@ -357,7 +546,7 @@ export class Engine {
 
       case 'CONFIGURE_ASSEMBLY': {
         if (assembly) {
-          const { width, height, depth, materialConfig, assemblyAxis, lids } = action.payload;
+          const { width, height, depth, materialConfig, assemblyAxis, lids, feet } = action.payload;
 
           // Update dimensions
           if (width !== undefined || height !== undefined || depth !== undefined) {
@@ -386,6 +575,11 @@ export class Engine {
             if (lids.negative) {
               assembly.setLidConfig('negative', lids.negative);
             }
+          }
+
+          // Update feet config
+          if (feet !== undefined) {
+            assembly.setFeet(feet);
           }
 
           return true;
@@ -456,6 +650,17 @@ export class Engine {
             action.payload.edge,
             action.payload.value
           );
+          return true;
+        }
+        break;
+      }
+
+      case 'SET_EDGE_EXTENSIONS_BATCH': {
+        // Batch edge extensions - atomic operation for undo/redo
+        if (assembly) {
+          for (const ext of action.payload.extensions) {
+            assembly.setPanelEdgeExtension(ext.panelId, ext.edge, ext.value);
+          }
           return true;
         }
         break;
@@ -551,6 +756,57 @@ export class Engine {
           subAssemblyNode.setLidConfig(action.payload.side, {
             tabDirection: action.payload.tabDirection,
           });
+          return true;
+        }
+        break;
+      }
+
+      case 'MOVE_SUBDIVISIONS': {
+        const { moves } = action.payload;
+        let anyMoved = false;
+
+        for (const move of moves) {
+          const { subdivisionId, newPosition, isGridDivider, gridPositionIndex, parentVoidId, axis } = move;
+
+          // Handle grid dividers
+          if (isGridDivider && parentVoidId !== undefined && gridPositionIndex !== undefined && axis) {
+            const voidNode = findInScene(parentVoidId);
+            if (voidNode instanceof VoidNode && voidNode.gridSubdivision && assembly) {
+              const success = this.moveGridDivider(
+                voidNode,
+                axis,
+                gridPositionIndex,
+                newPosition,
+                assembly.material.thickness
+              );
+              if (success) {
+                anyMoved = true;
+              }
+            }
+            continue;
+          }
+
+          // Regular subdivision handling
+          // subdivisionId is the void that has the split info (the one after the divider)
+          const voidNode = findInScene(subdivisionId);
+          if (voidNode instanceof VoidNode && voidNode.splitPosition !== undefined) {
+            // Find the parent void that contains this subdivision
+            const parentVoid = voidNode.parent instanceof VoidNode ? voidNode.parent : null;
+            if (parentVoid && assembly) {
+              const success = parentVoid.moveSubdivision(
+                subdivisionId,
+                newPosition,
+                assembly.material.thickness
+              );
+              if (success) {
+                anyMoved = true;
+              }
+            }
+          }
+        }
+
+        if (anyMoved) {
+          this.invalidateNodeMap();
           return true;
         }
         break;

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS, OperationId, INITIAL_OPERATION_STATE } from '../types';
-import { getOperation, operationHasPreview, operationIsImmediate } from '../operations';
+import { BoxState, BoxActions, FaceId, Void, Bounds, Subdivision, SelectionMode, SubAssembly, Face, AssemblyAxis, LidTabDirection, defaultAssemblyConfig, AssemblyConfig, PanelCollection, PanelPath, PanelHole, PanelAugmentation, defaultEdgeExtensions, EdgeExtensions, CreateSubAssemblyOptions, FaceOffsets, defaultFaceOffsets, SplitPositionMode, ViewMode, EditorTool, BoxConfig, createAllSolidFaces, MAIN_FACE_PANEL_IDS, OperationId, INITIAL_OPERATION_STATE, EdgeStatusInfo } from '../types';
+import { getOperation, operationHasPreview, operationIsImmediate, getOperationForTool } from '../operations';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../utils/urlState';
 import { generatePanelCollection } from '../utils/panelGenerator';
 import { syncStoreToEngine, getEngine, ensureEngine, ensureEngineInitialized, getEngineSnapshot, dispatchToEngine, notifyEngineStateChanged } from '../engine';
@@ -552,6 +552,9 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
   // Tool state
   activeTool: 'select' as EditorTool,
   selectedCornerIds: new Set<string>(),
+  // Edge selection state (for inset/outset tool)
+  selectedEdges: new Set<string>(),  // Format: "panelId:edge" e.g. "uuid:top"
+  hoveredEdge: null as string | null,  // Format: "panelId:edge"
   // Operation state
   operationState: {
     activeOperation: null,
@@ -814,6 +817,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
         selectedVoidIds: newSet,
         selectedSubAssemblyIds: new Set<string>(),
         selectedPanelIds: new Set<string>(),
+        selectedEdges: new Set<string>(),
         selectedAssemblyId: null,
       };
     }),
@@ -825,6 +829,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
           selectedPanelIds: new Set<string>(),
           selectedVoidIds: new Set<string>(),
           selectedSubAssemblyIds: new Set<string>(),
+          selectedEdges: new Set<string>(),
           selectedAssemblyId: null,
         };
       }
@@ -838,10 +843,14 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       if (additive) {
         return { selectedPanelIds: newSet };
       }
+      // Check if active tool requires edge selection - if so, preserve edges
+      const opId = getOperationForTool(state.activeTool);
+      const preserveEdges = opId && getOperation(opId).selectionType === 'edge';
       return {
         selectedPanelIds: newSet,
         selectedVoidIds: new Set<string>(),
         selectedSubAssemblyIds: new Set<string>(),
+        selectedEdges: preserveEdges ? state.selectedEdges : new Set<string>(),
         selectedAssemblyId: null,
       };
     }),
@@ -852,6 +861,7 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
       selectedVoidIds: new Set<string>(),
       selectedSubAssemblyIds: new Set<string>(),
       selectedPanelIds: new Set<string>(),
+      selectedEdges: new Set<string>(),
     }),
 
   selectSubAssembly: (subAssemblyId, additive = false) =>
@@ -898,6 +908,56 @@ export const useBoxStore = create<BoxState & BoxActions>((set, get) => ({
 
   setHoveredAssembly: (assemblyId) =>
     set({ hoveredAssemblyId: assemblyId }),
+
+  // Edge selection (for inset/outset tool)
+  selectEdge: (panelId: string, edge: string, additive = false) =>
+    set((state) => {
+      const edgeKey = `${panelId}:${edge}`;
+      const newSet = new Set(additive ? state.selectedEdges : []);
+      if (newSet.has(edgeKey)) {
+        newSet.delete(edgeKey);
+      } else {
+        newSet.add(edgeKey);
+      }
+      // When selecting edges, clear other selection types (unless additive)
+      if (additive) {
+        return { selectedEdges: newSet };
+      }
+      return {
+        selectedEdges: newSet,
+        selectedVoidIds: new Set<string>(),
+        selectedPanelIds: new Set<string>(),
+        selectedSubAssemblyIds: new Set<string>(),
+        selectedAssemblyId: null,
+      };
+    }),
+
+  deselectEdge: (panelId: string, edge: string) =>
+    set((state) => {
+      const edgeKey = `${panelId}:${edge}`;
+      const newSet = new Set(state.selectedEdges);
+      newSet.delete(edgeKey);
+      return { selectedEdges: newSet };
+    }),
+
+  clearEdgeSelection: () =>
+    set({ selectedEdges: new Set<string>() }),
+
+  // Select all eligible (non-locked) edges for a panel
+  selectPanelEdges: (panelId: string, edgeStatuses: EdgeStatusInfo[]) =>
+    set((state) => {
+      // Filter to non-locked edges and create edge keys
+      const eligibleEdgeKeys = edgeStatuses
+        .filter(s => s.status !== 'locked')
+        .map(s => `${panelId}:${s.position}`);
+
+      // Add to existing selection
+      const newSet = new Set([...state.selectedEdges, ...eligibleEdgeKeys]);
+      return { selectedEdges: newSet };
+    }),
+
+  setHoveredEdge: (panelId: string | null, edge: string | null) =>
+    set({ hoveredEdge: panelId && edge ? `${panelId}:${edge}` : null }),
 
   setSubAssemblyPreview: (preview) =>
     set({ subAssemblyPreview: preview }),

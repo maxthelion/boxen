@@ -2,7 +2,6 @@ import React from 'react';
 
 export type EditorTool =
   | 'select'
-  | 'pan'
   | 'rectangle'
   | 'circle'
   | 'path'
@@ -10,8 +9,9 @@ export type EditorTool =
   | 'chamfer'
   | 'push-pull'
   | 'subdivide'
+  | 'move'
   | 'create-sub-assembly'
-  | 'configure-assembly'
+  | 'configure'
   | 'scale';
 
 export type EditorMode = '2d' | '3d';
@@ -43,13 +43,6 @@ const tools: ToolButton[] = [
     modes: ['2d', '3d'],
   },
   {
-    id: 'pan',
-    icon: '✋',
-    label: 'Pan',
-    tooltip: 'Pan view (Space+drag)',
-    modes: ['2d', '3d'],
-  },
-  {
     id: 'rectangle',
     icon: '▢',
     label: 'Rect',
@@ -75,7 +68,7 @@ const tools: ToolButton[] = [
     icon: '⧈',
     label: 'Inset',
     tooltip: 'Inset/Outset edges (I)',
-    modes: ['2d'],
+    modes: ['2d', '3d'],
   },
   {
     id: 'chamfer',
@@ -99,6 +92,13 @@ const tools: ToolButton[] = [
     modes: ['3d'],
   },
   {
+    id: 'move',
+    icon: '↔',
+    label: 'Move',
+    tooltip: 'Move dividers (M)',
+    modes: ['3d'],
+  },
+  {
     id: 'create-sub-assembly',
     icon: '⧉',
     label: 'Sub-Box',
@@ -113,10 +113,10 @@ const tools: ToolButton[] = [
     modes: ['3d'],
   },
   {
-    id: 'configure-assembly',
+    id: 'configure',
     icon: '⚙',
     label: 'Configure',
-    tooltip: 'Configure assembly settings (G)',
+    tooltip: 'Configure assembly or face settings (G)',
     modes: ['3d'],
   },
 ];

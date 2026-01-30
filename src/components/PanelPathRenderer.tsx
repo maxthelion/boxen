@@ -384,6 +384,27 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
   const selectedSubAssemblyIds = useBoxStore((state) => state.selectedSubAssemblyIds);
   const setHoveredPanel = useBoxStore((state) => state.setHoveredPanel);
 
+  // Edge selection state for inset tool highlighting
+  const selectedEdges = useBoxStore((state) => state.selectedEdges);
+  const activeTool = useBoxStore((state) => state.activeTool);
+
+  // Build a set of panel IDs that have at least one selected edge
+  const panelsWithSelectedEdges = useMemo(() => {
+    if (activeTool !== 'inset' || selectedEdges.size === 0) {
+      return new Set<string>();
+    }
+    const panelIds = new Set<string>();
+    for (const edgeKey of selectedEdges) {
+      // Edge key format: "panelId:edge"
+      const colonIndex = edgeKey.lastIndexOf(':');
+      if (colonIndex > 0) {
+        const panelId = edgeKey.slice(0, colonIndex);
+        panelIds.add(panelId);
+      }
+    }
+    return panelIds;
+  }, [selectedEdges, activeTool]);
+
   // Debug: Log selection state
   useEffect(() => {
     debug('selection', `=== Selection State ===`);
@@ -426,11 +447,14 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
 
         // Check if this panel should appear selected in 3D view
         // In 3D, we show cascade: selected assemblies highlight all their panels
-        const isSelected = isPanelSelectedIn3DView(panel.id, {
+        // Also highlight if the panel has selected edges (for inset tool)
+        const isSelectedByPanelOrAssembly = isPanelSelectedIn3DView(panel.id, {
           selectedPanelIds,
           selectedAssemblyId,
           selectedSubAssemblyIds,
         });
+        const hasSelectedEdge = panelsWithSelectedEdges.has(panel.id);
+        const isSelected = isSelectedByPanelOrAssembly || hasSelectedEdge;
 
         // Check hover state
         const isPanelHovered = hoveredPanelId === panel.id;
@@ -441,7 +465,7 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
         if (isSelected || isHovered) {
           const isPanelDirectlySelected = selectedPanelIds.has(panel.id);
           const isAssemblySelected = selectedAssemblyId === panelAssemblyId;
-          debug('selection', `Panel ${panel.id}: visuallySelected=${isSelected} (direct=${isPanelDirectlySelected}, asmSel=${isAssemblySelected}), hovered=${isHovered}, asmId=${panelAssemblyId}`);
+          debug('selection', `Panel ${panel.id}: visuallySelected=${isSelected} (direct=${isPanelDirectlySelected}, asmSel=${isAssemblySelected}, hasEdge=${hasSelectedEdge}), hovered=${isHovered}, asmId=${panelAssemblyId}`);
         }
 
         // Color based on panel type

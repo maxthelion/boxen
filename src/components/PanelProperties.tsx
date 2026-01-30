@@ -40,7 +40,7 @@ const EdgePreview: React.FC<EdgePreviewProps> = ({
   const viewBoxWidth = displayW + padding * 2;
   const viewBoxHeight = displayH + padding * 2;
 
-  const getEdgeStatus = (pos: EdgePosition): 'locked' | 'unlocked' => {
+  const getEdgeStatus = (pos: EdgePosition): 'locked' | 'outward-only' | 'unlocked' => {
     const edge = edgeStatuses.find((e) => e.position === pos);
     return edge?.status ?? 'locked';
   };
@@ -50,7 +50,7 @@ const EdgePreview: React.FC<EdgePreviewProps> = ({
     const isSelected = selectedEdge === pos;
     const classes = [`edge-${status}`];
     if (isSelected) classes.push('edge-selected');
-    if (status === 'unlocked') classes.push('edge-clickable');
+    if (status !== 'locked') classes.push('edge-clickable');
     return classes.join(' ');
   };
 
@@ -152,7 +152,7 @@ const EdgeLegend: React.FC = () => (
 interface EdgeControlsProps {
   edge: EdgePosition;
   value: number;
-  status: 'locked' | 'unlocked';
+  status: 'locked' | 'outward-only' | 'unlocked';
   onChange: (value: number) => void;
 }
 
@@ -178,11 +178,14 @@ const EdgeControls: React.FC<EdgeControlsProps> = ({ edge, value, status, onChan
     );
   }
 
+  const badgeClass = status === 'outward-only' ? 'outward-only' : 'unlocked';
+  const badgeText = status === 'outward-only' ? 'Outward Only' : 'Unlocked';
+
   return (
     <div className="edge-controls">
       <div className="edge-controls-header">
         <span className="edge-name">{edgeNames[edge]} Edge</span>
-        <span className="edge-status-badge unlocked">Unlocked</span>
+        <span className={`edge-status-badge ${badgeClass}`}>{badgeText}</span>
       </div>
       <div className="edge-controls-row">
         <button

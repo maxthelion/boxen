@@ -21,9 +21,11 @@ export type OperationId =
   | 'subdivide-two-panel'
   | 'subdivide-grid'
   | 'create-sub-assembly'
-  | 'configure-assembly'
+  | 'configure'
   | 'scale'
   | 'chamfer-fillet'
+  | 'move'
+  | 'inset-outset'
   // Immediate operations (execute instantly)
   | 'toggle-face'
   | 'remove-subdivision'
@@ -39,7 +41,7 @@ export type OperationType = 'parameter' | 'immediate' | 'view';
 /**
  * Selection target type
  */
-export type SelectionType = 'void' | 'panel' | 'corner' | 'assembly' | 'none';
+export type SelectionType = 'void' | 'panel' | 'corner' | 'assembly' | 'edge' | 'none';
 
 // ==========================================================================
 // Operation Phase
@@ -134,6 +136,16 @@ export interface ChamferFilletParams {
 }
 
 /**
+ * Parameters for inset-outset operation
+ */
+export interface InsetOutsetParams {
+  /** Selected edges in format "panelId:edge" */
+  edges: string[];
+  /** Extension value (positive = outward, negative = inward) */
+  offset: number;
+}
+
+/**
  * Parameters for toggle-face operation
  */
 export interface ToggleFaceParams {
@@ -162,6 +174,14 @@ export interface EditIn2DParams {
 }
 
 /**
+ * Parameters for move operation
+ */
+export interface MoveParams {
+  /** Map of subdivision ID to new position (absolute coordinate) */
+  moves: { subdivisionId: string; newPosition: number }[];
+}
+
+/**
  * Union of all operation parameters
  */
 export type OperationParams =
@@ -173,10 +193,12 @@ export type OperationParams =
   | ConfigureAssemblyParams
   | ScaleParams
   | ChamferFilletParams
+  | InsetOutsetParams
   | ToggleFaceParams
   | RemoveSubdivisionParams
   | RemoveSubAssemblyParams
-  | EditIn2DParams;
+  | EditIn2DParams
+  | MoveParams;
 
 // ==========================================================================
 // Operation State

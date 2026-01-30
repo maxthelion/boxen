@@ -6,11 +6,14 @@ import { ViewportToolbar } from './ViewportToolbar';
 import { EditorToolbar } from './EditorToolbar';
 import { PushPullPalette, PushPullMode } from './PushPullPalette';
 import { SubdividePalette } from './SubdividePalette';
+import { MovePalette } from './MovePalette';
 import { CreateSubAssemblyPalette } from './CreateSubAssemblyPalette';
-import { AssemblyPalette } from './AssemblyPalette';
+import { ConfigurePalette } from './ConfigurePalette';
 import { ScalePalette } from './ScalePalette';
+import { InsetPalette, PanelEdgeGroup } from './InsetPalette';
 import { useBoxStore } from '../store/useBoxStore';
-import { useEnginePanels } from '../engine';
+import { EdgePosition, EdgeStatus } from '../types';
+import { useEnginePanels, getEngine } from '../engine';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
 
@@ -25,11 +28,14 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // UI state and actions from store
   const clearSelection = useBoxStore((state) => state.clearSelection);
   const selectedPanelIds = useBoxStore((state) => state.selectedPanelIds);
+  const selectedEdges = useBoxStore((state) => state.selectedEdges);
   const toggleFace = useBoxStore((state) => state.toggleFace);
   const purgeVoid = useBoxStore((state) => state.purgeVoid);
   const activeTool = useBoxStore((state) => state.activeTool);
   const setActiveTool = useBoxStore((state) => state.setActiveTool);
   const insetFace = useBoxStore((state) => state.insetFace);
+  const selectEdge = useBoxStore((state) => state.selectEdge);
+  const selectPanelEdges = useBoxStore((state) => state.selectPanelEdges);
 
   // Operation system from store
   const operationState = useBoxStore((state) => state.operationState);
@@ -49,14 +55,22 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Subdivide palette state (local UI state only)
   const [subdividePalettePosition, setSubdividePalettePosition] = useState({ x: 20, y: 150 });
 
+  // Move palette state (local UI state only)
+  const [movePalettePosition, setMovePalettePosition] = useState({ x: 20, y: 150 });
+
   // Create sub-assembly palette state (local UI state only)
   const [createSubAssemblyPalettePosition, setCreateSubAssemblyPalettePosition] = useState({ x: 20, y: 150 });
 
-  // Configure assembly palette state (local UI state only)
-  const [assemblyPalettePosition, setAssemblyPalettePosition] = useState({ x: 20, y: 150 });
+  // Configure palette state (local UI state only)
+  const [configurePalettePosition, setConfigurePalettePosition] = useState({ x: 20, y: 150 });
 
   // Scale palette state (local UI state only)
   const [scalePalettePosition, setScalePalettePosition] = useState({ x: 20, y: 150 });
+
+  // Inset palette state (local UI state only)
+  const [insetPalettePosition, setInsetPalettePosition] = useState({ x: 20, y: 150 });
+  const [insetOffset, setInsetOffset] = useState(0);
+  const baseExtensionsRef = useRef<Record<string, number>>({});
 
   // Get selected face ID for push-pull tool
   // Panel IDs are UUIDs, so we need to look up the panel source metadata
@@ -156,13 +170,18 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     setActiveTool('select');
   }, [setActiveTool]);
 
+  // Close move palette
+  const handleMovePaletteClose = useCallback(() => {
+    setActiveTool('select');
+  }, [setActiveTool]);
+
   // Close create sub-assembly palette
   const handleCreateSubAssemblyPaletteClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
 
-  // Close assembly palette
-  const handleAssemblyPaletteClose = useCallback(() => {
+  // Close configure palette
+  const handleConfigurePaletteClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
 
@@ -170,6 +189,189 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const handleScalePaletteClose = useCallback(() => {
     setActiveTool('select');
   }, [setActiveTool]);
+
+  // Inset/Outset operation handlers
+  const selectedEdgesArray = useMemo(() => Array.from(selectedEdges), [selectedEdges]);
+
+  // Build panel edge groups for the InsetPalette
+  // Groups panels that have selected edges, showing all their edges
+  const panelEdgeGroups = useMemo((): PanelEdgeGroup[] => {
+    if (activeTool !== 'inset' || !panelCollection) {
+      return [];
+    }
+
+    // Get unique panel IDs from selected edges
+    const panelIdsWithEdges = new Set<string>();
+    for (const edgeKey of selectedEdges) {
+      const colonIndex = edgeKey.lastIndexOf(':');
+      if (colonIndex > 0) {
+        panelIdsWithEdges.add(edgeKey.slice(0, colonIndex));
+      }
+    }
+
+    if (panelIdsWithEdges.size === 0) {
+      return [];
+    }
+
+    // Build groups for each panel
+    const groups: PanelEdgeGroup[] = [];
+    const allEdges: EdgePosition[] = ['top', 'bottom', 'left', 'right'];
+
+    for (const panelId of panelIdsWithEdges) {
+      const panel = panelCollection.panels.find(p => p.id === panelId);
+      if (!panel) continue;
+
+      // Get panel name from source
+      let panelName: string;
+      if (panel.source.type === 'face' && panel.source.faceId) {
+        // Capitalize face name
+        const faceId = panel.source.faceId;
+        panelName = faceId.charAt(0).toUpperCase() + faceId.slice(1);
+      } else if (panel.source.type === 'divider') {
+        panelName = `Divider`;
+        if (panel.source.axis) {
+          panelName += ` (${panel.source.axis.toUpperCase()})`;
+        }
+      } else {
+        panelName = 'Panel';
+      }
+
+      // Build edge info from panel's edge statuses
+      const edges = allEdges.map(position => {
+        const statusInfo = panel.edgeStatuses?.find(s => s.position === position);
+        const status: EdgeStatus = statusInfo?.status ?? 'unlocked';
+        const isSelected = selectedEdges.has(`${panelId}:${position}`);
+
+        return { position, status, isSelected };
+      });
+
+      groups.push({ panelId, panelName, edges });
+    }
+
+    return groups;
+  }, [activeTool, panelCollection, selectedEdges]);
+
+  // Handle edge toggle from palette
+  const handleEdgeToggle = useCallback((panelId: string, edge: EdgePosition) => {
+    // Toggle the edge selection
+    selectEdge(panelId, edge, true);  // additive = true to toggle
+  }, [selectEdge]);
+
+  // Compute base extensions for selected edges from the committed scene
+  const computeBaseExtensions = useCallback((edges: string[]): Record<string, number> => {
+    const engine = getEngine();
+    // Get panels from main scene (not preview) to get committed extension values
+    const mainScene = engine.getMainScene();
+    const assembly = mainScene.primaryAssembly;
+    if (!assembly) return {};
+
+    const baseExtensions: Record<string, number> = {};
+    for (const edgeKey of edges) {
+      const colonIndex = edgeKey.lastIndexOf(':');
+      if (colonIndex > 0) {
+        const panelId = edgeKey.slice(0, colonIndex);
+        const edge = edgeKey.slice(colonIndex + 1) as 'top' | 'bottom' | 'left' | 'right';
+        const extensions = assembly.getPanelEdgeExtensions(panelId);
+        baseExtensions[edgeKey] = extensions[edge] ?? 0;
+      }
+    }
+    return baseExtensions;
+  }, []);
+
+  // Start operation when entering inset mode with edges selected
+  useEffect(() => {
+    const isOperationActive = operationState.activeOperation === 'inset-outset';
+    if (activeTool === 'inset' && selectedEdgesArray.length > 0 && !isOperationActive) {
+      // Compute base extensions from committed state BEFORE starting preview
+      const baseExtensions = computeBaseExtensions(selectedEdgesArray);
+      baseExtensionsRef.current = baseExtensions;
+
+      startOperation('inset-outset');
+      updateOperationParams({ edges: selectedEdgesArray, offset: 0, baseExtensions });
+      setInsetOffset(0);
+    }
+  }, [activeTool, selectedEdgesArray, operationState.activeOperation, startOperation, updateOperationParams, computeBaseExtensions]);
+
+  // Cancel operation when leaving inset mode or deselecting all edges
+  useEffect(() => {
+    if (operationState.activeOperation === 'inset-outset') {
+      if (activeTool !== 'inset' || selectedEdgesArray.length === 0) {
+        cancelOperation();
+        setInsetOffset(0);
+      }
+    }
+  }, [activeTool, selectedEdgesArray.length, operationState.activeOperation, cancelOperation]);
+
+  // Auto-expand selected panels to edges when inset tool is activated
+  useEffect(() => {
+    if (activeTool === 'inset' && selectedPanelIds.size > 0 && selectedEdges.size === 0 && panelCollection) {
+      // Expand each selected panel to its eligible edges
+      for (const panelId of selectedPanelIds) {
+        const panel = panelCollection.panels.find(p => p.id === panelId);
+        if (panel?.edgeStatuses) {
+          selectPanelEdges(panelId, panel.edgeStatuses);
+        }
+      }
+    }
+  }, [activeTool, selectedPanelIds, selectedEdges.size, panelCollection, selectPanelEdges]);
+
+  // Track previous edges for change detection
+  const prevEdgesRef = useRef<string[]>([]);
+
+  // Re-apply preview when selection changes during active operation
+  // This ensures added edges get the operation applied and removed edges revert
+  useEffect(() => {
+    const isOperationActive = operationState.activeOperation === 'inset-outset';
+    if (!isOperationActive) {
+      // Reset tracking when operation is not active
+      prevEdgesRef.current = [];
+      return;
+    }
+
+    // Check if selection actually changed (not just a re-render)
+    const prevEdges = prevEdgesRef.current;
+    const currentEdges = selectedEdgesArray;
+
+    const edgesChanged =
+      prevEdges.length !== currentEdges.length ||
+      prevEdges.some((e, i) => e !== currentEdges[i]) ||
+      currentEdges.some((e, i) => e !== prevEdges[i]);
+
+    if (edgesChanged && prevEdges.length > 0) {
+      // Selection changed during active operation - re-apply preview with new selection
+      // Recompute base extensions for the new selection
+      const baseExtensions = computeBaseExtensions(currentEdges);
+      baseExtensionsRef.current = baseExtensions;
+      updateOperationParams({ edges: currentEdges, offset: insetOffset, baseExtensions });
+    }
+
+    // Update tracking
+    prevEdgesRef.current = [...currentEdges];
+  }, [selectedEdgesArray, operationState.activeOperation, insetOffset, updateOperationParams]);
+
+  // Handle inset offset change
+  const handleInsetOffsetChange = useCallback((offset: number) => {
+    if (operationState.activeOperation === 'inset-outset') {
+      setInsetOffset(offset);
+      updateOperationParams({ edges: selectedEdgesArray, offset, baseExtensions: baseExtensionsRef.current });
+    }
+  }, [operationState.activeOperation, selectedEdgesArray, updateOperationParams]);
+
+  // Handle inset apply
+  const handleInsetApply = useCallback(() => {
+    if (operationState.activeOperation === 'inset-outset' && insetOffset !== 0) {
+      applyOperation();
+      setInsetOffset(0);
+      setActiveTool('select');
+    }
+  }, [operationState.activeOperation, insetOffset, applyOperation, setActiveTool]);
+
+  // Close inset palette
+  const handleInsetPaletteClose = useCallback(() => {
+    cancelOperation();
+    setInsetOffset(0);
+    setActiveTool('select');
+  }, [cancelOperation, setActiveTool]);
 
   // Expose method to get the canvas element
   useImperativeHandle(ref, () => ({
@@ -233,10 +435,12 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         setActiveTool(activeTool === 'push-pull' ? 'select' : 'push-pull');
       } else if (e.key === 's' || e.key === 'S') {
         setActiveTool(activeTool === 'subdivide' ? 'select' : 'subdivide');
+      } else if (e.key === 'm' || e.key === 'M') {
+        setActiveTool(activeTool === 'move' ? 'select' : 'move');
       } else if (e.key === 'v' || e.key === 'V') {
         setActiveTool('select');
       } else if (e.key === 'g' || e.key === 'G') {
-        setActiveTool(activeTool === 'configure-assembly' ? 'select' : 'configure-assembly');
+        setActiveTool(activeTool === 'configure' ? 'select' : 'configure');
       } else if (e.key === 'r' || e.key === 'R') {
         setActiveTool(activeTool === 'scale' ? 'select' : 'scale');
       }
@@ -277,6 +481,17 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         />
       )}
 
+      {/* Move Tool Palette - only mount when tool is active */}
+      {activeTool === 'move' && (
+        <MovePalette
+          visible={true}
+          position={movePalettePosition}
+          onPositionChange={setMovePalettePosition}
+          onClose={handleMovePaletteClose}
+          containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+        />
+      )}
+
       {/* Create Sub-Assembly Tool Palette - only mount when tool is active */}
       {activeTool === 'create-sub-assembly' && (
         <CreateSubAssemblyPalette
@@ -288,12 +503,12 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         />
       )}
 
-      {/* Configure Assembly Palette - only mount when tool is active */}
-      <AssemblyPalette
-        visible={activeTool === 'configure-assembly'}
-        position={assemblyPalettePosition}
-        onPositionChange={setAssemblyPalettePosition}
-        onClose={handleAssemblyPaletteClose}
+      {/* Configure Palette - for assembly or face settings */}
+      <ConfigurePalette
+        visible={activeTool === 'configure'}
+        position={configurePalettePosition}
+        onPositionChange={setConfigurePalettePosition}
+        onClose={handleConfigurePaletteClose}
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
       />
 
@@ -304,6 +519,21 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         onPositionChange={setScalePalettePosition}
         onClose={handleScalePaletteClose}
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+      />
+
+      {/* Inset/Outset Palette */}
+      <InsetPalette
+        visible={activeTool === 'inset' && panelEdgeGroups.length > 0}
+        position={insetPalettePosition}
+        panelEdgeGroups={panelEdgeGroups}
+        offset={insetOffset}
+        onEdgeToggle={handleEdgeToggle}
+        onOffsetChange={handleInsetOffsetChange}
+        onApply={handleInsetApply}
+        onClose={handleInsetPaletteClose}
+        onPositionChange={setInsetPalettePosition}
+        containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+        closeOnClickOutside={false}
       />
 
       <Canvas

@@ -2825,6 +2825,20 @@ body {
   color: #fff;
 }
 
+.palette-toggle-group.disabled .palette-toggle-btn {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.palette-toggle-group.disabled .palette-toggle-btn:hover {
+  color: #888;
+  background: transparent;
+}
+
+.palette-toggle-group.disabled .palette-toggle-btn.active {
+  background: #3a3a6a;
+}
+
 /* Action buttons */
 
 .palette-button-row {
@@ -3059,6 +3073,91 @@ body {
 
 .palette-number-row .palette-number-input {
   flex-shrink: 0;
+}
+
+/* ============================================
+   Number Input with +/- Buttons
+   ============================================ */
+
+.number-input-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.number-input-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #3a3a4a;
+  background: #252545;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.number-input-btn:hover:not(:disabled) {
+  background: #4a90d9;
+  border-color: #4a90d9;
+  color: white;
+}
+
+.number-input-btn:active:not(:disabled) {
+  background: #3a80c9;
+}
+
+.number-input-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.number-input-btn.decrement {
+  border-radius: 3px 0 0 3px;
+}
+
+.number-input-btn.increment {
+  border-radius: 0 3px 3px 0;
+}
+
+.number-input-wrapper .number-input-field {
+  width: 50px;
+  padding: 4px 6px;
+  background: #1e1e2e;
+  border: 1px solid #3a3a4a;
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+  color: #4a9eff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.number-input-wrapper .number-input-field::-webkit-outer-spin-button,
+.number-input-wrapper .number-input-field::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.number-input-wrapper .number-input-field:focus {
+  outline: none;
+  border-color: #4a9eff;
+  background: #252538;
+}
+
+.number-input-unit {
+  margin-left: 6px;
+  color: #666;
+  font-size: 0.75rem;
+  min-width: 20px;
 }
 
 /* ============================================
@@ -3566,4 +3665,63 @@ body {
   flex: 1;
   background: #0a0a15;
   position: relative;
+}
+
+/* About Modal Styles */
+.about-modal-content {
+  max-width: 500px;
+  line-height: 1.6;
+  color: #e0e0e0;
+}
+
+.about-section {
+  margin-bottom: 1.5rem;
+}
+
+.about-section:last-child {
+  margin-bottom: 0;
+}
+
+.about-section h3 {
+  color: #4a90d9;
+  font-size: 1rem;
+  margin: 0 0 0.75rem 0;
+  font-weight: 600;
+}
+
+.about-section p {
+  margin: 0;
+  color: #ccc;
+  font-size: 0.9rem;
+}
+
+.about-section ul,
+.about-section ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #ccc;
+  font-size: 0.9rem;
+}
+
+.about-section li {
+  margin-bottom: 0.5rem;
+}
+
+.about-section li:last-child {
+  margin-bottom: 0;
+}
+
+.about-section li strong {
+  color: #e0e0e0;
+}
+
+.about-footer {
+  padding-top: 1rem;
+  border-top: 1px solid #333;
+}
+
+.about-footer p {
+  font-size: 0.8rem;
+  color: #888;
+  text-align: center;
 }

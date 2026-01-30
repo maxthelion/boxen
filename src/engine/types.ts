@@ -23,6 +23,23 @@ export type FaceId = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 
 export type EdgePosition = 'top' | 'bottom' | 'left' | 'right';
 
+/**
+ * Edge status for inset/outset operations
+ * - locked: male joint (tabs out), cannot modify
+ * - outward-only: female joint (slots), can extend outward only
+ * - unlocked: open face (straight edge), can extend or retract
+ */
+export type EdgeStatus = 'locked' | 'outward-only' | 'unlocked';
+
+/**
+ * Edge status info for a panel edge
+ */
+export interface EdgeStatusInfo {
+  position: EdgePosition;
+  status: EdgeStatus;
+  adjacentFaceId?: FaceId;
+}
+
 // =============================================================================
 // Geometry Types
 // =============================================================================
@@ -271,7 +288,7 @@ export interface PanelHole {
   id: string;
   path: Point2D[];
   source: {
-    type: 'divider-slot' | 'sub-assembly-slot' | 'custom';
+    type: 'divider-slot' | 'sub-assembly-slot' | 'extension-slot' | 'custom';
     sourceId?: string;
   };
 }
@@ -400,6 +417,10 @@ export interface BasePanelSnapshot extends BaseSnapshot {
     // Edge anchors for alignment validation
     // Each anchor is at the center of the mating edge
     edgeAnchors: EdgeAnchor[];
+
+    // Edge statuses for inset/outset tool
+    // Determines which edges can be modified
+    edgeStatuses: EdgeStatusInfo[];
   };
 }
 
@@ -456,11 +477,13 @@ export type EngineAction =
   | { type: 'SET_MATERIAL'; targetId: string; payload: Partial<MaterialConfig> }
   | { type: 'SET_FACE_SOLID'; targetId: string; payload: { faceId: FaceId; solid: boolean } }
   | { type: 'TOGGLE_FACE'; targetId: string; payload: { faceId: FaceId } }
+  | { type: 'CONFIGURE_FACE'; targetId: string; payload: { faceId: FaceId; solid?: boolean; lidTabDirection?: 'tabs-in' | 'tabs-out' } }
   | { type: 'ADD_SUBDIVISION'; targetId: string; payload: { voidId: string; axis: Axis; position: number } }
   | { type: 'ADD_SUBDIVISIONS'; targetId: string; payload: { voidId: string; axis: Axis; positions: number[] } }
   | { type: 'ADD_GRID_SUBDIVISION'; targetId: string; payload: { voidId: string; axes: { axis: Axis; positions: number[] }[] } }
   | { type: 'REMOVE_SUBDIVISION'; targetId: string; payload: { voidId: string } }
   | { type: 'SET_EDGE_EXTENSION'; targetId: string; payload: { panelId: string; edge: EdgePosition; value: number } }
+  | { type: 'SET_EDGE_EXTENSIONS_BATCH'; targetId: string; payload: { extensions: Array<{ panelId: string; edge: EdgePosition; value: number }> } }
   | { type: 'CREATE_SUB_ASSEMBLY'; targetId: string; payload: { voidId: string; clearance?: number; assemblyAxis?: Axis } }
   | { type: 'REMOVE_SUB_ASSEMBLY'; targetId: string; payload: { subAssemblyId: string } }
   | { type: 'PURGE_VOID'; targetId: string; payload: { voidId: string } }
@@ -481,4 +504,16 @@ export type EngineAction =
         positive?: Partial<LidConfig>;
         negative?: Partial<LidConfig>;
       };
+      feet?: FeetConfig;
+    }}
+  | { type: 'MOVE_SUBDIVISIONS'; targetId: string; payload: {
+      moves: {
+        subdivisionId: string;
+        newPosition: number;
+        // For grid dividers:
+        isGridDivider?: boolean;
+        gridPositionIndex?: number;
+        parentVoidId?: string;
+        axis?: Axis;
+      }[];
     }};

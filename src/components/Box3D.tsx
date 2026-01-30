@@ -4,11 +4,13 @@ import { useEngineConfig, useEngineVoidTree, useEnginePanels, useEngineMainPanel
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { PanelCollectionRenderer } from './PanelPathRenderer';
+import { PanelEdgeRenderer } from './PanelEdgeRenderer';
 import { PushPullArrow } from './PushPullArrow';
 import { AssemblyAxisIndicator, LidFaceHighlight } from './AssemblyAxisIndicator';
 import { PanelToggleOverlay } from './PanelToggleOverlay';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
+import { getSelectionBehaviorForTool } from '../operations/registry';
 import * as THREE from 'three';
 
 export interface PushPullCallbacks {
@@ -33,7 +35,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
-  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectPanel, selectAssembly, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
+  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectedEdges, selectPanel, selectAssembly, selectPanelEdges, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
 
   // Compute visually selected panels (includes cascade from assembly selection)
   const allPanelIds = panelCollection?.panels.map(p => p.id) ?? [];
@@ -159,6 +161,17 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
           scale={scale}
           selectedPanelIds={selectedPanelIds}
           onPanelClick={(selectionMode === 'panel' || selectionMode === null) ? (panelId, e) => {
+            // Check if active tool needs selection expansion (panel → edges)
+            const behavior = getSelectionBehaviorForTool(activeTool, 'panel', selectedEdges.size);
+            if (behavior === 'expand') {
+              // Panel clicked, but tool's operation needs edges - expand to panel's edges
+              const panel = panelCollection.panels.find(p => p.id === panelId);
+              if (panel?.edgeStatuses) {
+                selectPanelEdges(panelId, panel.edgeStatuses);
+                return;
+              }
+            }
+            // Default panel selection behavior (or tool doesn't need expansion)
             selectPanel(panelId, e?.shiftKey);
           } : undefined}
           onPanelDoubleClick={selectionMode === null ? (panelId) => {
@@ -170,6 +183,9 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
           hiddenFaceIds={hiddenFaceIds}
         />
       )}
+
+      {/* Panel edge faces for inset/outset tool */}
+      <PanelEdgeRenderer scale={scale} />
 
       {/* Push/Pull arrow indicator when tool is active and face panel is selected */}
       {activeTool === 'push-pull' && mainPanelCollection && pushPullCallbacks && (() => {

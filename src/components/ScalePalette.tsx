@@ -231,39 +231,33 @@ export const ScalePalette: React.FC<ScalePaletteProps> = ({
             <div className="palette-form-row">
               <label>
                 <span>W</span>
-                <div className="input-with-unit">
-                  <NumberInput
-                    value={currentWidth}
-                    onChange={(v) => handleParamChange({ width: v })}
-                    min={10}
-                    step={1}
-                  />
-                  <span className="unit">mm</span>
-                </div>
+                <NumberInput
+                  value={currentWidth}
+                  onChange={(v) => handleParamChange({ width: v })}
+                  min={10}
+                  step={10}
+                  unit="mm"
+                />
               </label>
               <label>
                 <span>H</span>
-                <div className="input-with-unit">
-                  <NumberInput
-                    value={currentHeight}
-                    onChange={(v) => handleParamChange({ height: v })}
-                    min={10}
-                    step={1}
-                  />
-                  <span className="unit">mm</span>
-                </div>
+                <NumberInput
+                  value={currentHeight}
+                  onChange={(v) => handleParamChange({ height: v })}
+                  min={10}
+                  step={10}
+                  unit="mm"
+                />
               </label>
               <label>
                 <span>D</span>
-                <div className="input-with-unit">
-                  <NumberInput
-                    value={currentDepth}
-                    onChange={(v) => handleParamChange({ depth: v })}
-                    min={10}
-                    step={1}
-                  />
-                  <span className="unit">mm</span>
-                </div>
+                <NumberInput
+                  value={currentDepth}
+                  onChange={(v) => handleParamChange({ depth: v })}
+                  min={10}
+                  step={10}
+                  unit="mm"
+                />
               </label>
             </div>
           </div>

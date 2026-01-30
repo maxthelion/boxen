@@ -441,6 +441,126 @@ export class VoidNode extends BaseNode {
   }
 
   /**
+   * Move a subdivision (divider) to a new position
+   * The subdivisionId is the ID of the child void that has the splitPosition
+   *
+   * @param subdivisionId - ID of the child void whose divider should move
+   * @param newPosition - New absolute position for the divider
+   * @param materialThickness - Material thickness for bounds calculation
+   * @returns true if the move was successful
+   */
+  moveSubdivision(
+    subdivisionId: string,
+    newPosition: number,
+    materialThickness: number
+  ): boolean {
+    // Find the child void with this subdivision ID
+    const voidChildren = this.getVoidChildren();
+    const childIndex = voidChildren.findIndex(c => c.id === subdivisionId);
+
+    if (childIndex < 0) return false;
+
+    // Only children after the first have split info (they have a divider before them)
+    if (childIndex === 0) return false;
+
+    const childVoid = voidChildren[childIndex];
+    const axis = childVoid._splitAxis;
+    if (!axis) return false;
+
+    // Get the bounds of this parent void
+    const dimStart = axis === 'x' ? this._bounds.x : axis === 'y' ? this._bounds.y : this._bounds.z;
+    const dimSize = axis === 'x' ? this._bounds.w : axis === 'y' ? this._bounds.h : this._bounds.d;
+    const dimEnd = dimStart + dimSize;
+
+    // Calculate valid range for the new position
+    // Must be between the previous divider (or start) and the next divider (or end)
+    // with minimum spacing of materialThickness
+    const prevPosition = childIndex === 1
+      ? dimStart + materialThickness
+      : (voidChildren[childIndex - 1]._splitPosition ?? dimStart) + materialThickness;
+    const nextPosition = childIndex === voidChildren.length - 1
+      ? dimEnd - materialThickness
+      : (voidChildren[childIndex + 1]?._splitPosition ?? dimEnd) - materialThickness;
+
+    // Validate the new position
+    if (newPosition < prevPosition || newPosition > nextPosition) {
+      return false;
+    }
+
+    // Update the split position
+    const halfMt = materialThickness / 2;
+
+    // Update the child void's split info
+    const percentage = (newPosition - dimStart) / dimSize;
+    childVoid._splitPosition = newPosition;
+    childVoid._splitPercentage = percentage;
+
+    // Recalculate bounds for affected children
+    // The child before this one needs its end adjusted
+    if (childIndex > 0) {
+      const prevChild = voidChildren[childIndex - 1];
+      const prevStart = childIndex === 1
+        ? dimStart
+        : (voidChildren[childIndex - 1]._splitPosition ?? dimStart) + halfMt;
+      const prevEnd = newPosition - halfMt;
+      const prevSize = prevEnd - prevStart;
+
+      // Actually the previous child doesn't need position adjustment, just size
+      // But wait - if we're moving the divider, we need to update both adjacent voids
+      this.updateChildVoidBounds(prevChild, axis, prevChild._bounds, prevSize);
+    }
+
+    // Update the moved child void's bounds
+    const newStart = newPosition + halfMt;
+    const nextEnd = childIndex === voidChildren.length - 1
+      ? dimEnd
+      : (voidChildren[childIndex + 1]?._splitPosition ?? dimEnd) - halfMt;
+    const newSize = nextEnd - newStart;
+
+    this.updateChildVoidBoundsStart(childVoid, axis, newStart, newSize);
+
+    this.markDirty();
+    return true;
+  }
+
+  /**
+   * Helper to update a child void's bounds size along an axis
+   */
+  private updateChildVoidBounds(child: VoidNode, axis: Axis, currentBounds: Bounds3D, newSize: number): void {
+    const newBounds = { ...currentBounds };
+    switch (axis) {
+      case 'x': newBounds.w = newSize; break;
+      case 'y': newBounds.h = newSize; break;
+      case 'z': newBounds.d = newSize; break;
+    }
+    child._bounds = newBounds;
+    child.markDirty();
+  }
+
+  /**
+   * Helper to update a child void's bounds start position and size along an axis
+   */
+  private updateChildVoidBoundsStart(child: VoidNode, axis: Axis, newStart: number, newSize: number): void {
+    const newBounds = { ...child._bounds };
+    switch (axis) {
+      case 'x':
+        newBounds.x = newStart;
+        newBounds.w = newSize;
+        break;
+      case 'y':
+        newBounds.y = newStart;
+        newBounds.h = newSize;
+        break;
+      case 'z':
+        newBounds.z = newStart;
+        newBounds.d = newSize;
+        break;
+    }
+    child._bounds = newBounds;
+    child.markDirty();
+  }
+
+  /**
    * Get the sub-assembly in this void (if any)
    */
   getSubAssembly(): BaseNode | null {
