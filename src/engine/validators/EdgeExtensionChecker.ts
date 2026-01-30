@@ -236,8 +236,8 @@ export class EdgeExtensionChecker {
   // ===========================================================================
   // Rule: edge-extensions:full-width
   // The sides of an extended edge should extend the full width of the panel
-  // Note: "full width" means the finger joint body (between finger corners),
-  // not including tabs that extend past the corners on male edges.
+  // Extensions use outer corners (full panel dimensions) by default.
+  // Exception: If an adjacent edge is also extended AND is female, subtract MT.
   // ===========================================================================
 
   private checkFullWidth(
@@ -250,26 +250,34 @@ export class EdgeExtensionChecker {
 
     const { outline } = panel.derived;
     const { width: panelWidth, height: panelHeight, thickness, edgeStatuses } = panel.derived;
+    const extensions = panel.props.edgeExtensions;
 
-    // For left/right extensions, sides should span full panel height (minus insets for male top/bottom)
-    // For top/bottom extensions, sides should span full panel width (minus insets for male left/right)
-    // Male edges have tabs that extend past the finger corner, so the body is smaller.
-    const isEdgeMale = (edgePos: EdgePosition): boolean => {
+    // Helper to check if an edge is female (has slots, 'outward-only' status)
+    const isEdgeFemale = (edgePos: EdgePosition): boolean => {
       const status = edgeStatuses.find(s => s.position === edgePos);
-      return status?.status === 'locked';
+      return status?.status === 'outward-only';
     };
 
+    // Helper to check if an edge has an active extension
+    const hasExtension = (edgePos: EdgePosition): boolean => {
+      return extensions[edgePos] > EXTENSION_THRESHOLD;
+    };
+
+    // Extensions use full panel dimensions by default
+    // Only subtract MT if adjacent edge is BOTH extended AND female
     let expectedSpan: number;
     if (edge === 'left' || edge === 'right') {
-      // Vertical extension - sides span height, minus insets for male top/bottom
+      // Vertical extension - sides span full height
       expectedSpan = panelHeight;
-      if (isEdgeMale('top')) expectedSpan -= thickness;
-      if (isEdgeMale('bottom')) expectedSpan -= thickness;
+      // Subtract MT for adjacent extended female edges
+      if (hasExtension('top') && isEdgeFemale('top')) expectedSpan -= thickness;
+      if (hasExtension('bottom') && isEdgeFemale('bottom')) expectedSpan -= thickness;
     } else {
-      // Horizontal extension - sides span width, minus insets for male left/right
+      // Horizontal extension - sides span full width
       expectedSpan = panelWidth;
-      if (isEdgeMale('left')) expectedSpan -= thickness;
-      if (isEdgeMale('right')) expectedSpan -= thickness;
+      // Subtract MT for adjacent extended female edges
+      if (hasExtension('left') && isEdgeFemale('left')) expectedSpan -= thickness;
+      if (hasExtension('right') && isEdgeFemale('right')) expectedSpan -= thickness;
     }
 
     // Find the extension geometry in the outline
