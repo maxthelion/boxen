@@ -2,7 +2,18 @@
 
 Create a library of starting points (templates) that users can customize when creating new projects.
 
-## Status: Planning
+## Status: Implemented
+
+Core template functionality is complete:
+- Template types and schema defined
+- Built-in templates (Basic Box, Drawer Unit, Vertical Organizer, Grid Organizer, Pigeonhole)
+- Template engine with variable derivation and instantiation
+- Template browser UI with configuration dialog
+- Live preview during configuration
+
+**Not yet implemented:**
+- Save as Template (user-created templates)
+- Edge extensions in templates (see `template-edge-extensions-plan.md`)
 
 ---
 
