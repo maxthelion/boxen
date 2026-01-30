@@ -437,7 +437,15 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
       {panelCollection.panels.map((panel: PanelPath) => {
         // Check visibility
         if (!panel.visible) return null;
+        // Check hidden by UUID (for dividers) or by face-* format (for faces)
         if (hiddenFaceIds.has(panel.id)) return null;
+        if (panel.source.type === 'face' && panel.source.faceId) {
+          // Check legacy face-* format used by visibility system
+          const legacyFaceId = panel.source.subAssemblyId
+            ? `subasm-${panel.source.subAssemblyId}-face-${panel.source.faceId}`
+            : `face-${panel.source.faceId}`;
+          if (hiddenFaceIds.has(legacyFaceId)) return null;
+        }
 
         const isDivider = panel.source.type === 'divider';
         const isSubAssemblyPanel = !!panel.source.subAssemblyId;
