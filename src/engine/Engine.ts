@@ -442,10 +442,12 @@ export class Engine {
    */
   dispatch(action: EngineAction, options?: { preview?: boolean }): boolean {
     // Determine which scene to operate on
-    // If preview option is set and we have a preview, use preview scene
-    // Otherwise, use the active scene (which returns preview if active anyway)
-    const usePreview = options?.preview && this._previewScene;
-    const targetScene = usePreview ? this._previewScene! : this._scene;
+    // By default, use the active scene (preview if active, otherwise main)
+    // Use options.preview=false to explicitly target the main scene during preview
+    const targetScene =
+      options?.preview === false
+        ? this._scene
+        : this._previewScene ?? this._scene;
 
     // Find assembly in the target scene
     const findInScene = (id: string): BaseNode | null => {

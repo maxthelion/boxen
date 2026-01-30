@@ -13,7 +13,7 @@ import { ScalePalette } from './ScalePalette';
 import { InsetPalette, PanelEdgeGroup } from './InsetPalette';
 import { useBoxStore } from '../store/useBoxStore';
 import { EdgePosition, EdgeStatus } from '../types';
-import { useEnginePanels, useEngineConfig } from '../engine';
+import { useEnginePanels, getEngine } from '../engine';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
 
@@ -24,7 +24,6 @@ export interface Viewport3DHandle {
 export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Model state from engine
   const panelCollection = useEnginePanels();
-  const config = useEngineConfig();
 
   // UI state and actions from store
   const clearSelection = useBoxStore((state) => state.clearSelection);
@@ -71,6 +70,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Inset palette state (local UI state only)
   const [insetPalettePosition, setInsetPalettePosition] = useState({ x: 20, y: 150 });
   const [insetOffset, setInsetOffset] = useState(0);
+  const baseExtensionsRef = useRef<Record<string, number>>({});
 
   // Get selected face ID for push-pull tool
   // Panel IDs are UUIDs, so we need to look up the panel source metadata
@@ -257,15 +257,40 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     selectEdge(panelId, edge, true);  // additive = true to toggle
   }, [selectEdge]);
 
+  // Compute base extensions for selected edges from the committed scene
+  const computeBaseExtensions = useCallback((edges: string[]): Record<string, number> => {
+    const engine = getEngine();
+    // Get panels from main scene (not preview) to get committed extension values
+    const mainScene = engine.getMainScene();
+    const assembly = mainScene.primaryAssembly;
+    if (!assembly) return {};
+
+    const baseExtensions: Record<string, number> = {};
+    for (const edgeKey of edges) {
+      const colonIndex = edgeKey.lastIndexOf(':');
+      if (colonIndex > 0) {
+        const panelId = edgeKey.slice(0, colonIndex);
+        const edge = edgeKey.slice(colonIndex + 1) as 'top' | 'bottom' | 'left' | 'right';
+        const extensions = assembly.getPanelEdgeExtensions(panelId);
+        baseExtensions[edgeKey] = extensions[edge] ?? 0;
+      }
+    }
+    return baseExtensions;
+  }, []);
+
   // Start operation when entering inset mode with edges selected
   useEffect(() => {
     const isOperationActive = operationState.activeOperation === 'inset-outset';
     if (activeTool === 'inset' && selectedEdgesArray.length > 0 && !isOperationActive) {
+      // Compute base extensions from committed state BEFORE starting preview
+      const baseExtensions = computeBaseExtensions(selectedEdgesArray);
+      baseExtensionsRef.current = baseExtensions;
+
       startOperation('inset-outset');
-      updateOperationParams({ edges: selectedEdgesArray, offset: 0 });
+      updateOperationParams({ edges: selectedEdgesArray, offset: 0, baseExtensions });
       setInsetOffset(0);
     }
-  }, [activeTool, selectedEdgesArray, operationState.activeOperation, startOperation, updateOperationParams]);
+  }, [activeTool, selectedEdgesArray, operationState.activeOperation, startOperation, updateOperationParams, computeBaseExtensions]);
 
   // Cancel operation when leaving inset mode or deselecting all edges
   useEffect(() => {
@@ -314,8 +339,10 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
     if (edgesChanged && prevEdges.length > 0) {
       // Selection changed during active operation - re-apply preview with new selection
-      // This recreates the preview from committed state with the updated edge list
-      updateOperationParams({ edges: currentEdges, offset: insetOffset });
+      // Recompute base extensions for the new selection
+      const baseExtensions = computeBaseExtensions(currentEdges);
+      baseExtensionsRef.current = baseExtensions;
+      updateOperationParams({ edges: currentEdges, offset: insetOffset, baseExtensions });
     }
 
     // Update tracking
@@ -326,7 +353,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const handleInsetOffsetChange = useCallback((offset: number) => {
     if (operationState.activeOperation === 'inset-outset') {
       setInsetOffset(offset);
-      updateOperationParams({ edges: selectedEdgesArray, offset });
+      updateOperationParams({ edges: selectedEdgesArray, offset, baseExtensions: baseExtensionsRef.current });
     }
   }, [operationState.activeOperation, selectedEdgesArray, updateOperationParams]);
 
@@ -500,7 +527,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         position={insetPalettePosition}
         panelEdgeGroups={panelEdgeGroups}
         offset={insetOffset}
-        materialThickness={config?.materialThickness ?? 3}
         onEdgeToggle={handleEdgeToggle}
         onOffsetChange={handleInsetOffsetChange}
         onApply={handleInsetApply}

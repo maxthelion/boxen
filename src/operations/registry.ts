@@ -384,20 +384,23 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     description: 'Extend or retract panel edges',
     shortcut: 'i',
     createPreviewAction: (params) => {
-      const { edges, offset } = params as {
+      const { edges, offset, baseExtensions } = params as {
         edges?: string[];  // Format: "panelId:edge"
         offset?: number;
+        baseExtensions?: Record<string, number>;  // Map of "panelId:edge" to base value
       };
 
       if (!edges?.length || offset === undefined) return null;
 
       // Convert edge keys to extension objects
+      // Use base value + offset (delta model), falling back to just offset if no base
       const extensions = edges.map(edgeKey => {
         const [panelId, edge] = edgeKey.split(':');
+        const baseValue = baseExtensions?.[edgeKey] ?? 0;
         return {
           panelId,
           edge: edge as 'top' | 'bottom' | 'left' | 'right',
-          value: offset,
+          value: baseValue + offset,
         };
       });
 

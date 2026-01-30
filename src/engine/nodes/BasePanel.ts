@@ -772,10 +772,20 @@ export abstract class BasePanel extends BaseNode {
       // Add middle segment (other edges)
       points.push(...middle);
 
-      // Add extension path (except last point which is the closing point)
+      // Add extension path for start corner
+      // When skipEnd=true, we need to include ALL extension path points including extendedStart
+      // because the path needs to close back to extendedEnd (not extendedStart)
       if (!skipStart && extensionPath.length > 0) {
-        for (let i = 0; i < extensionPath.length - 1; i++) {
-          points.push(extensionPath[i]);
+        if (skipEnd) {
+          // Include all points - the path closes to extendedEnd, not via extensionPath
+          for (let i = 0; i < extensionPath.length; i++) {
+            points.push(extensionPath[i]);
+          }
+        } else {
+          // Normal case: exclude last point as it's the closing point
+          for (let i = 0; i < extensionPath.length - 1; i++) {
+            points.push(extensionPath[i]);
+          }
         }
       } else if (skipStart && extensionPath.length > 0) {
         // When start is skipped, extension path only has end section

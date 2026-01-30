@@ -1254,6 +1254,525 @@ describe('Comprehensive Geometry Validation', () => {
   });
 
   // ===========================================================================
+  // Scenario 18: Successive Outset Operations
+  // Tests that applying outset twice accumulates (10mm + 10mm = 20mm)
+  // ===========================================================================
+
+  describe('Scenario 18: Successive Outset Operations', () => {
+    it('should accumulate extensions when applied successively', () => {
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Get front panel
+      const snapshot1 = engine.getSnapshot();
+      const panels1 = snapshot1.children[0].derived.panels;
+      const frontPanel = panels1.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // First outset: 10mm on bottom edge
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: 10 },
+      });
+
+      // Check first extension applied
+      const snapshot2 = engine.getSnapshot();
+      const panels2 = snapshot2.children[0].derived.panels;
+      const frontPanel2 = panels2.find((p: any) => p.id === frontPanel!.id);
+      expect(frontPanel2!.props.edgeExtensions.bottom).toBe(10);
+
+      // Second outset: another 10mm on the same edge
+      // This simulates what should happen when user applies outset tool again
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: 20 },
+      });
+
+      // Check accumulated extension
+      const snapshot3 = engine.getSnapshot();
+      const panels3 = snapshot3.children[0].derived.panels;
+      const frontPanel3 = panels3.find((p: any) => p.id === frontPanel!.id);
+
+      console.log('After two successive 10mm outsets:');
+      console.log('  Expected bottom extension: 20mm');
+      console.log('  Actual bottom extension:', frontPanel3!.props.edgeExtensions.bottom);
+
+      expect(frontPanel3!.props.edgeExtensions.bottom).toBe(20);
+    });
+
+    it('UI must read current value and add offset for accumulation', () => {
+      // This test documents the REQUIREMENT for successive outset operations:
+      // The UI/operation layer must:
+      // 1. Read the current extension value from the panel
+      // 2. Add the user's offset to it
+      // 3. Dispatch with the accumulated value
+      //
+      // The engine just stores whatever value is dispatched - it doesn't accumulate.
+
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Get front panel
+      const snapshot1 = engine.getSnapshot();
+      const panels1 = snapshot1.children[0].derived.panels;
+      const frontPanel = panels1.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // Simulate first outset operation: user offsets by 10mm
+      const initialExtension = frontPanel!.props.edgeExtensions.bottom; // 0
+      const firstOffset = 10;
+      const firstTotal = initialExtension + firstOffset; // 0 + 10 = 10
+
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: firstTotal },
+      });
+
+      // Verify first operation
+      const snapshot2 = engine.getSnapshot();
+      const panels2 = snapshot2.children[0].derived.panels;
+      const frontPanel2 = panels2.find((p: any) => p.id === frontPanel!.id);
+      expect(frontPanel2!.props.edgeExtensions.bottom).toBe(10);
+
+      // Simulate second outset operation: user offsets by another 10mm
+      // UI MUST read current value and add to it
+      const currentExtension = frontPanel2!.props.edgeExtensions.bottom; // 10
+      const secondOffset = 10;
+      const secondTotal = currentExtension + secondOffset; // 10 + 10 = 20
+
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: secondTotal },
+      });
+
+      // Verify accumulated result
+      const snapshot3 = engine.getSnapshot();
+      const panels3 = snapshot3.children[0].derived.panels;
+      const frontPanel3 = panels3.find((p: any) => p.id === frontPanel!.id);
+
+      console.log('Successive outset simulation:');
+      console.log('  Initial extension: 0mm');
+      console.log('  First offset: +10mm → total: 10mm');
+      console.log('  Second offset: +10mm → total: 20mm');
+      console.log('  Final extension:', frontPanel3!.props.edgeExtensions.bottom);
+
+      expect(frontPanel3!.props.edgeExtensions.bottom).toBe(20);
+    });
+
+    it('documents current behavior: SET_EDGE_EXTENSION replaces value (does not add)', () => {
+      // This test documents what currently happens - the value is REPLACED, not added
+      // If this test fails, it means the behavior changed (which might be intentional)
+
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Get front panel
+      const snapshot1 = engine.getSnapshot();
+      const panels1 = snapshot1.children[0].derived.panels;
+      const frontPanel = panels1.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      // Apply 10mm extension
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: 10 },
+      });
+
+      // "Apply another 10mm" - but SET_EDGE_EXTENSION just sets to 10, not adds
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: 10 },
+      });
+
+      const snapshot2 = engine.getSnapshot();
+      const panels2 = snapshot2.children[0].derived.panels;
+      const frontPanel2 = panels2.find((p: any) => p.id === frontPanel!.id);
+
+      console.log('Current behavior test:');
+      console.log('  First SET_EDGE_EXTENSION: value=10');
+      console.log('  Second SET_EDGE_EXTENSION: value=10');
+      console.log('  Result:', frontPanel2!.props.edgeExtensions.bottom);
+      console.log('  (SET replaces, does not add)');
+
+      // Current behavior: SET replaces the value, result is 10 not 20
+      expect(frontPanel2!.props.edgeExtensions.bottom).toBe(10);
+    });
+
+    it('expected UX: slider is offset (delta), preview adds to base value', () => {
+      // This test documents the EXPECTED user experience:
+      //
+      // 1. Edge already has 10mm extension (from previous operation)
+      // 2. User activates inset tool on that edge
+      // 3. Slider shows 0 (no additional offset yet)
+      // 4. Preview shows current geometry (10mm extension)
+      // 5. User moves slider to +5
+      // 6. Preview shows 15mm (base 10 + offset 5)
+      // 7. User applies
+      // 8. Final extension is 15mm
+      //
+      // The slider represents a DELTA, not an absolute value.
+
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Setup: edge already has 10mm extension from previous operation
+      const snapshot1 = engine.getSnapshot();
+      const panels1 = snapshot1.children[0].derived.panels;
+      const frontPanel = panels1.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: 10 },
+      });
+
+      // Step 1: Read base value (what the UI should do when tool activates)
+      const snapshot2 = engine.getSnapshot();
+      const panels2 = snapshot2.children[0].derived.panels;
+      const frontPanel2 = panels2.find((p: any) => p.id === frontPanel!.id);
+      const baseExtension = frontPanel2!.props.edgeExtensions.bottom;
+
+      console.log('Expected UX for successive outset:');
+      console.log('  Base extension (from previous op): ' + baseExtension + 'mm');
+      console.log('  Slider initial value: 0 (offset, not absolute)');
+
+      expect(baseExtension).toBe(10);
+
+      // Step 2: Start preview - should show current state
+      engine.startPreview();
+
+      // At offset=0, preview should show base value (10mm)
+      let sliderOffset = 0;
+      let previewValue = baseExtension + sliderOffset; // 10 + 0 = 10
+
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: previewValue },
+      });
+
+      let previewSnapshot = engine.getSnapshot();
+      let previewPanels = previewSnapshot.children[0].derived.panels;
+      let previewPanel = previewPanels.find((p: any) => p.id === frontPanel!.id);
+
+      console.log('  Slider at 0 → preview shows: ' + previewPanel!.props.edgeExtensions.bottom + 'mm');
+      expect(previewPanel!.props.edgeExtensions.bottom).toBe(10);
+
+      // Step 3: User moves slider to +5
+      sliderOffset = 5;
+      previewValue = baseExtension + sliderOffset; // 10 + 5 = 15
+
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: previewValue },
+      });
+
+      previewSnapshot = engine.getSnapshot();
+      previewPanels = previewSnapshot.children[0].derived.panels;
+      previewPanel = previewPanels.find((p: any) => p.id === frontPanel!.id);
+
+      console.log('  Slider at +5 → preview shows: ' + previewPanel!.props.edgeExtensions.bottom + 'mm');
+      expect(previewPanel!.props.edgeExtensions.bottom).toBe(15);
+
+      // Step 4: User applies
+      engine.commitPreview();
+
+      const finalSnapshot = engine.getSnapshot();
+      const finalPanels = finalSnapshot.children[0].derived.panels;
+      const finalPanel = finalPanels.find((p: any) => p.id === frontPanel!.id);
+
+      console.log('  After apply → final extension: ' + finalPanel!.props.edgeExtensions.bottom + 'mm');
+      expect(finalPanel!.props.edgeExtensions.bottom).toBe(15);
+    });
+
+    it('should handle one edge at 10mm then both it and neighbor at +10mm (20mm and 10mm final)', () => {
+      // Scenario:
+      // 1. Extend bottom edge by 10mm
+      // 2. Extend both bottom and left edges by additional 10mm
+      // 3. Final: bottom=20mm, left=10mm
+      // 4. Corner at bottom-left should merge correctly (both edges extended)
+
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      const snapshot1 = engine.getSnapshot();
+      const panels1 = snapshot1.children[0].derived.panels;
+      const frontPanel = panels1.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // Step 1: Extend bottom edge by 10mm
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: 10 },
+      });
+
+      // Verify bottom is now 10mm
+      const snapshot2 = engine.getSnapshot();
+      const panels2 = snapshot2.children[0].derived.panels;
+      const frontPanel2 = panels2.find((p: any) => p.id === frontPanel!.id);
+      expect(frontPanel2!.props.edgeExtensions.bottom).toBe(10);
+      expect(frontPanel2!.props.edgeExtensions.left).toBe(0);
+
+      console.log('Step 1: After extending bottom by 10mm:');
+      console.log('  bottom:', frontPanel2!.props.edgeExtensions.bottom);
+      console.log('  left:', frontPanel2!.props.edgeExtensions.left);
+
+      // Step 2: Extend BOTH bottom and left by additional 10mm
+      // This simulates selecting both edges and applying +10mm offset
+      // UI would compute: bottom = 10 + 10 = 20, left = 0 + 10 = 10
+
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: 20 },
+      });
+
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'left', value: 10 },
+      });
+
+      // Verify final extensions
+      const snapshot3 = engine.getSnapshot();
+      const panels3 = snapshot3.children[0].derived.panels;
+      const frontPanel3 = panels3.find((p: any) => p.id === frontPanel!.id);
+
+      console.log('Step 2: After extending both bottom(+10) and left(+10):');
+      console.log('  bottom:', frontPanel3!.props.edgeExtensions.bottom, '(expected 20)');
+      console.log('  left:', frontPanel3!.props.edgeExtensions.left, '(expected 10)');
+
+      expect(frontPanel3!.props.edgeExtensions.bottom).toBe(20);
+      expect(frontPanel3!.props.edgeExtensions.left).toBe(10);
+
+      // Verify corner geometry - bottom-left corner should be at correct position
+      // When both adjacent edges are extended, they meet at a merged corner point
+      const outline = frontPanel3!.derived.outline.points;
+
+      // For a 200x150 box with 3mm material, front panel is:
+      // width = box_width = 200, height = box_height = 150
+      // In 2D, panel is centered, so original corners at ±100, ±75
+      //
+      // With left=10mm extension: minX goes from -100 to -110
+      // With bottom=20mm extension: minY goes from -75 to -95
+      //
+      // The bottom-left corner should be the merged corner at (-110, -95)
+
+      const minX = Math.min(...outline.map((p: any) => p.x));
+      const maxX = Math.max(...outline.map((p: any) => p.x));
+      const minY = Math.min(...outline.map((p: any) => p.y));
+      const maxY = Math.max(...outline.map((p: any) => p.y));
+
+      console.log('Outline points:');
+      console.log(`  Bounding box: X=[${minX}, ${maxX}], Y=[${minY}, ${maxY}]`);
+
+      // Verify the extended corner positions
+      // Original: X=[-100, 100], Y=[-75, 75]
+      // Left extension (10mm): minX = -100 - 10 = -110
+      // Bottom extension (20mm): minY = -75 - 20 = -95
+      // Top and right are not extended, so they stay at original positions
+      expect(minX).toBeCloseTo(-110, 0);  // Left extended by 10mm
+      expect(maxX).toBeCloseTo(100, 0);   // Right not extended
+      expect(minY).toBeCloseTo(-95, 0);   // Bottom extended by 20mm
+      expect(maxY).toBeCloseTo(75, 0);    // Top not extended
+
+      // Find the bottom-left corner in the outline (the merged corner)
+      const bottomLeftCorner = outline.find(
+        (p: any) => Math.abs(p.x - (-110)) < 0.01 && Math.abs(p.y - (-95)) < 0.01
+      );
+
+      console.log('Corner geometry check:');
+      console.log('  Expected bottom-left corner: (-110, -95)');
+      console.log('  Found corner:', bottomLeftCorner);
+
+      expect(bottomLeftCorner).toBeDefined();
+
+      // Also verify the path has no diagonal segments (all axis-aligned)
+      for (let i = 0; i < outline.length; i++) {
+        const p1 = outline[i];
+        const p2 = outline[(i + 1) % outline.length];
+
+        const dx = Math.abs(p2.x - p1.x);
+        const dy = Math.abs(p2.y - p1.y);
+
+        // Each segment should be either horizontal (dy ≈ 0) or vertical (dx ≈ 0)
+        const isHorizontal = dy < 0.01;
+        const isVertical = dx < 0.01;
+
+        if (!isHorizontal && !isVertical) {
+          console.log('DIAGONAL SEGMENT DETECTED:');
+          console.log('  From:', p1);
+          console.log('  To:', p2);
+        }
+
+        expect(isHorizontal || isVertical).toBe(true);
+      }
+
+      console.log('✓ All segments are axis-aligned (no diagonals)');
+
+      // Validate with geometry checker
+      const result = validateGeometry(engine);
+      expect(result.valid).toBe(true);
+      if (!result.valid) {
+        console.log('Geometry validation errors:', result.errors);
+      }
+    });
+
+    it('should not produce diagonal segments when only some edges are extended', () => {
+      // Scenario from user: Left panel with top, left, right extended but NOT bottom
+      // This tests the case where corner merging applies at some corners but not others
+
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Set left face to tabs-in (female only) to make all edges eligible
+      engine.dispatch({
+        type: 'SET_FACE_CONFIG',
+        targetId: 'main-assembly',
+        payload: {
+          faceId: 'left',
+          config: { tabDirection: 'tabs-in' },
+        },
+      });
+
+      const snapshot1 = engine.getSnapshot();
+      const panels1 = snapshot1.children[0].derived.panels;
+      const leftPanel = panels1.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'left');
+      expect(leftPanel).toBeDefined();
+
+      // Extend top, left, right but NOT bottom
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: leftPanel!.id, edge: 'top', value: 15 },
+      });
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: leftPanel!.id, edge: 'left', value: 15 },
+      });
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: leftPanel!.id, edge: 'right', value: 15 },
+      });
+      // bottom stays at 0
+
+      const snapshot2 = engine.getSnapshot();
+      const panels2 = snapshot2.children[0].derived.panels;
+      const leftPanel2 = panels2.find((p: any) => p.id === leftPanel!.id);
+
+      console.log('Extensions: top=15, left=15, right=15, bottom=0');
+      console.log('Edge extensions:', leftPanel2!.props.edgeExtensions);
+
+      // Check all segments are axis-aligned (no diagonals)
+      const outline = leftPanel2!.derived.outline.points;
+      let hasDiagonal = false;
+      let diagonalSegment: any = null;
+
+      for (let i = 0; i < outline.length; i++) {
+        const p1 = outline[i];
+        const p2 = outline[(i + 1) % outline.length];
+
+        const dx = Math.abs(p2.x - p1.x);
+        const dy = Math.abs(p2.y - p1.y);
+
+        const isHorizontal = dy < 0.01;
+        const isVertical = dx < 0.01;
+
+        if (!isHorizontal && !isVertical) {
+          hasDiagonal = true;
+          diagonalSegment = { from: p1, to: p2, index: i };
+          console.log('DIAGONAL DETECTED at index', i);
+          console.log('  From:', p1);
+          console.log('  To:', p2);
+          console.log('  dx:', dx, 'dy:', dy);
+        }
+      }
+
+      if (!hasDiagonal) {
+        console.log('✓ All segments are axis-aligned');
+      }
+
+      expect(hasDiagonal).toBe(false);
+    });
+
+    it('at 0 extension, finger joints should render normally (not flat)', () => {
+      // This test verifies that when extension is 0, the edge still has finger joints
+      // (the "flat edge" logic should only apply when extension > 0)
+
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // With no extensions, the panel should have finger joints on all edges that meet faces
+      const outline = frontPanel!.derived.outline.points;
+
+      // Count the number of points - a panel with finger joints has many more points
+      // than a simple rectangle (which would have ~4 points)
+      // A panel with finger joints on all 4 edges should have dozens of points
+      console.log('Panel outline point count (0 extension):', outline.length);
+
+      // Front panel meets all 4 faces (left, right, top, bottom), so should have finger joints
+      // A simple rectangle has 4 points. With finger joints, we expect significantly more.
+      expect(outline.length).toBeGreaterThan(10);
+
+      // Now apply 0 extension explicitly and verify finger joints are preserved
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: 0 },
+      });
+
+      const snapshot2 = engine.getSnapshot();
+      const panels2 = snapshot2.children[0].derived.panels;
+      const frontPanel2 = panels2.find((p: any) => p.id === frontPanel!.id);
+      const outline2 = frontPanel2!.derived.outline.points;
+
+      console.log('Panel outline point count (after 0 extension set):', outline2.length);
+
+      // Point count should be the same - 0 extension should not flatten edges
+      expect(outline2.length).toBe(outline.length);
+
+      // Validate geometry
+      const result = validateGeometry(engine);
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  // ===========================================================================
   // Validator Coverage Check
   // ===========================================================================
 
