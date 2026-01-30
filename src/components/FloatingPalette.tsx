@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { NumberInput } from './UI/NumberInput';
 
 export interface FloatingPaletteProps {
   /** Screen position for the palette */
@@ -374,7 +375,7 @@ export const PaletteCheckboxGroup: React.FC<CheckboxGroupProps> = ({ label, chil
   );
 };
 
-interface NumberInputProps {
+interface PaletteNumberInputProps {
   label: string;
   value: number;
   min?: number;
@@ -384,7 +385,7 @@ interface NumberInputProps {
   onChange: (value: number) => void;
 }
 
-export const PaletteNumberInput: React.FC<NumberInputProps> = ({
+export const PaletteNumberInput: React.FC<PaletteNumberInputProps> = ({
   label,
   value,
   min,
@@ -396,18 +397,14 @@ export const PaletteNumberInput: React.FC<NumberInputProps> = ({
   return (
     <div className="palette-number-row">
       <label className="palette-label">{label}</label>
-      <div className="palette-number-input">
-        <input
-          type="number"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-          className="palette-input"
-        />
-        {unit && <span className="palette-unit">{unit}</span>}
-      </div>
+      <NumberInput
+        value={value}
+        onChange={onChange}
+        min={min}
+        max={max}
+        step={step}
+        unit={unit}
+      />
     </div>
   );
 };

@@ -424,16 +424,14 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
             <div className="palette-form-grid">
               <label>
                 <span>Thickness</span>
-                <div className="input-with-unit">
-                  <NumberInput
-                    value={currentThickness}
-                    onChange={(v) => handleAssemblyParamChange({ thickness: v })}
-                    min={0.5}
-                    max={20}
-                    step={0.5}
-                  />
-                  <span className="unit">mm</span>
-                </div>
+                <NumberInput
+                  value={currentThickness}
+                  onChange={(v) => handleAssemblyParamChange({ thickness: v })}
+                  min={0.5}
+                  max={20}
+                  step={0.5}
+                  unit="mm"
+                />
               </label>
             </div>
           </div>
@@ -444,29 +442,25 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
             <div className="palette-form-grid">
               <label>
                 <span>Finger Width</span>
-                <div className="input-with-unit">
-                  <NumberInput
-                    value={currentFingerWidth}
-                    onChange={(v) => handleAssemblyParamChange({ fingerWidth: v })}
-                    min={3}
-                    max={50}
-                    step={1}
-                  />
-                  <span className="unit">mm</span>
-                </div>
+                <NumberInput
+                  value={currentFingerWidth}
+                  onChange={(v) => handleAssemblyParamChange({ fingerWidth: v })}
+                  min={3}
+                  max={50}
+                  step={1}
+                  unit="mm"
+                />
               </label>
               <label>
                 <span>Corner Gap</span>
-                <div className="input-with-unit">
-                  <NumberInput
-                    value={currentFingerGap}
-                    onChange={(v) => handleAssemblyParamChange({ fingerGap: v })}
-                    min={0}
-                    max={5}
-                    step={0.1}
-                  />
-                  <span className="unit">x</span>
-                </div>
+                <NumberInput
+                  value={currentFingerGap}
+                  onChange={(v) => handleAssemblyParamChange({ fingerGap: v })}
+                  min={0}
+                  max={5}
+                  step={0.1}
+                  unit="x"
+                />
               </label>
             </div>
           </div>
@@ -486,42 +480,36 @@ export const ConfigurePalette: React.FC<ConfigurePaletteProps> = ({
               <div className="palette-form-grid">
                 <label>
                   <span>Height</span>
-                  <div className="input-with-unit">
-                    <NumberInput
-                      value={currentFeet.height}
-                      onChange={(v) => handleFeetUpdate({ height: v })}
-                      min={5}
-                      max={100}
-                      step={5}
-                    />
-                    <span className="unit">mm</span>
-                  </div>
+                  <NumberInput
+                    value={currentFeet.height}
+                    onChange={(v) => handleFeetUpdate({ height: v })}
+                    min={5}
+                    max={100}
+                    step={10}
+                    unit="mm"
+                  />
                 </label>
                 <label>
                   <span>Width</span>
-                  <div className="input-with-unit">
-                    <NumberInput
-                      value={currentFeet.width}
-                      onChange={(v) => handleFeetUpdate({ width: v })}
-                      min={10}
-                      max={100}
-                      step={5}
-                    />
-                    <span className="unit">mm</span>
-                  </div>
+                  <NumberInput
+                    value={currentFeet.width}
+                    onChange={(v) => handleFeetUpdate({ width: v })}
+                    min={10}
+                    max={100}
+                    step={10}
+                    unit="mm"
+                  />
                 </label>
                 <label>
                   <span>Inset</span>
-                  <div className="input-with-unit">
-                    <NumberInput
-                      value={currentFeet.inset}
-                      onChange={(v) => handleFeetUpdate({ inset: v })}
-                      min={0}
-                      max={50}
-                      step={1}
-                    />
-                    <span className="unit">mm</span>
-                  </div>
+                  <NumberInput
+                    value={currentFeet.inset}
+                    onChange={(v) => handleFeetUpdate({ inset: v })}
+                    min={0}
+                    max={50}
+                    step={1}
+                    unit="mm"
+                  />
                 </label>
               </div>
             )}

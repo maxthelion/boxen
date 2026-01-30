@@ -6,6 +6,10 @@ interface NumberInputProps {
   min?: number;
   max?: number;
   step?: number;
+  /** Optional unit label (e.g., "mm") displayed after the input */
+  unit?: string;
+  /** Whether to show +/- buttons. Defaults to true */
+  showButtons?: boolean;
   className?: string;
 }
 
@@ -14,13 +18,16 @@ interface NumberInputProps {
  * - Allows free-form text editing (can delete and retype)
  * - Updates the store live when the value is valid
  * - Only shows valid values in the preview
+ * - Optionally shows +/- buttons for increment/decrement
  */
 export const NumberInput: React.FC<NumberInputProps> = ({
   value,
   onChange,
   min,
   max,
-  step,
+  step = 1,
+  unit,
+  showButtons = true,
   className,
 }) => {
   const [localValue, setLocalValue] = useState(String(value));
@@ -78,19 +85,66 @@ export const NumberInput: React.FC<NumberInputProps> = ({
     }
   };
 
+  // Increment/decrement handlers
+  const handleIncrement = () => {
+    const newValue = value + step;
+    if (max === undefined || newValue <= max) {
+      onChange(newValue);
+    } else {
+      onChange(max);
+    }
+  };
+
+  const handleDecrement = () => {
+    const newValue = value - step;
+    if (min === undefined || newValue >= min) {
+      onChange(newValue);
+    } else {
+      onChange(min);
+    }
+  };
+
+  const isAtMin = min !== undefined && value <= min;
+  const isAtMax = max !== undefined && value >= max;
+
   return (
-    <input
-      ref={inputRef}
-      type="number"
-      value={localValue}
-      onChange={handleChange}
-      onFocus={handleFocus}
-      onBlur={handleBlur}
-      onKeyDown={handleKeyDown}
-      min={min}
-      max={max}
-      step={step}
-      className={className}
-    />
+    <div className={`number-input-wrapper ${className ?? ''}`}>
+      {showButtons && (
+        <button
+          type="button"
+          className="number-input-btn decrement"
+          onClick={handleDecrement}
+          disabled={isAtMin}
+          tabIndex={-1}
+        >
+          −
+        </button>
+      )}
+      <input
+        ref={inputRef}
+        type="number"
+        value={localValue}
+        onChange={handleChange}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        min={min}
+        max={max}
+        step={step}
+        className="number-input-field"
+      />
+      {showButtons && (
+        <button
+          type="button"
+          className="number-input-btn increment"
+          onClick={handleIncrement}
+          disabled={isAtMax}
+          tabIndex={-1}
+        >
+          +
+        </button>
+      )}
+      {unit && <span className="number-input-unit">{unit}</span>}
+    </div>
   );
 };
