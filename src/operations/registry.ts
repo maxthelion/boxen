@@ -539,3 +539,151 @@ export function operationIsImmediate(id: OperationId): boolean {
 export function operationIsViewOnly(id: OperationId): boolean {
   return OPERATION_DEFINITIONS[id].type === 'view';
 }
+
+// ==========================================================================
+// Tool to Operation Mapping
+// ==========================================================================
+
+/**
+ * Maps editor tool IDs to their corresponding operation IDs.
+ * Not all tools map to operations (e.g., 'select' is just selection mode).
+ */
+const TOOL_TO_OPERATION: Record<string, OperationId | null> = {
+  'select': null,
+  'rectangle': null,
+  'circle': null,
+  'path': null,
+  'inset': 'inset-outset',
+  'push-pull': 'push-pull',
+  'subdivide': 'subdivide',
+  'move': 'move',
+  'sub-box': 'create-sub-assembly',
+  'configure': 'configure',
+  'scale': 'scale',
+  'chamfer': 'chamfer-fillet',
+};
+
+/**
+ * Get the operation ID for an editor tool, if any.
+ */
+export function getOperationForTool(toolId: string): OperationId | null {
+  return TOOL_TO_OPERATION[toolId] ?? null;
+}
+
+// ==========================================================================
+// Selection Expansion - Parent/Child Relationships
+// ==========================================================================
+
+/**
+ * Selection type hierarchy for expansion.
+ * When an operation needs a child type, selecting a parent can expand to children.
+ *
+ * Hierarchy:
+ *   assembly → panel → edge
+ *   assembly → panel → corner
+ *   assembly → void
+ */
+const SELECTION_PARENTS: Record<SelectionType, SelectionType[]> = {
+  'edge': ['panel', 'assembly'],    // Panels and assemblies can expand to edges
+  'corner': ['panel', 'assembly'],  // Panels and assemblies can expand to corners
+  'panel': ['assembly'],            // Assemblies can expand to panels
+  'void': ['assembly'],             // Assemblies can expand to voids
+  'assembly': [],                   // No parent
+  'none': [],                       // N/A
+};
+
+/**
+ * Check if a selection type can be expanded to the target type.
+ * For example, 'panel' can expand to 'edge' (panel is parent of edge).
+ */
+export function canExpandSelection(
+  fromType: SelectionType,
+  toType: SelectionType
+): boolean {
+  const parents = SELECTION_PARENTS[toType];
+  return parents.includes(fromType);
+}
+
+/**
+ * Check if an operation allows additional selections based on current count.
+ */
+export function operationAllowsMoreSelections(
+  id: OperationId,
+  currentCount: number
+): boolean {
+  const op = OPERATION_DEFINITIONS[id];
+  return currentCount < op.maxSelection;
+}
+
+/**
+ * Check if an operation's selection requirements are met.
+ */
+export function operationSelectionValid(
+  id: OperationId,
+  currentCount: number
+): boolean {
+  const op = OPERATION_DEFINITIONS[id];
+  return currentCount >= op.minSelection && currentCount <= op.maxSelection;
+}
+
+/**
+ * Get selection behavior for an operation when a specific item type is clicked.
+ * Returns:
+ *   - 'select': Direct selection of the clicked type
+ *   - 'expand': Expand clicked item to child selections
+ *   - 'ignore': Operation doesn't accept this selection type
+ */
+export function getSelectionBehavior(
+  operationId: OperationId,
+  clickedType: SelectionType,
+  currentSelectionCount: number
+): 'select' | 'expand' | 'ignore' {
+  const op = OPERATION_DEFINITIONS[operationId];
+
+  // Check if we've hit max selections
+  if (currentSelectionCount >= op.maxSelection) {
+    return 'ignore';
+  }
+
+  // Direct match - operation wants this type
+  if (op.selectionType === clickedType) {
+    return 'select';
+  }
+
+  // Check if clicked type is a parent that can expand to what operation needs
+  if (canExpandSelection(clickedType, op.selectionType)) {
+    return 'expand';
+  }
+
+  return 'ignore';
+}
+
+/**
+ * Get selection behavior for a tool (looks up the operation for the tool).
+ * Returns null if the tool doesn't have an associated operation.
+ */
+export function getSelectionBehaviorForTool(
+  toolId: string,
+  clickedType: SelectionType,
+  currentSelectionCount: number
+): 'select' | 'expand' | 'ignore' | null {
+  const operationId = getOperationForTool(toolId);
+  if (!operationId) {
+    return null; // Tool doesn't have an operation, use default behavior
+  }
+  return getSelectionBehavior(operationId, clickedType, currentSelectionCount);
+}
+
+/**
+ * Check if a tool's operation allows more selections.
+ */
+export function toolAllowsMoreSelections(
+  toolId: string,
+  currentCount: number
+): boolean {
+  const operationId = getOperationForTool(toolId);
+  if (!operationId) {
+    return true; // No operation = no limit
+  }
+  return operationAllowsMoreSelections(operationId, currentCount);
+}

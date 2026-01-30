@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { useBoxStore } from '../store/useBoxStore';
 import { useEnginePanels, useEngineConfig } from '../engine';
 import { PanelPath, EdgePosition, EdgeStatus, EdgeStatusInfo } from '../types';
+import { getSelectionBehaviorForTool, toolAllowsMoreSelections } from '../operations/registry';
 
 // All edge positions in order
 const ALL_EDGES: EdgePosition[] = ['top', 'bottom', 'left', 'right'];
@@ -221,9 +222,17 @@ export const PanelEdgeRenderer: React.FC<PanelEdgeRendererProps> = ({ scale }) =
 
   // Hooks must be called before any early returns
   const handleEdgeClick = useCallback((panelId: string, edge: EdgePosition, event: React.MouseEvent) => {
-    const shiftKey = event.shiftKey;
-    selectEdge(panelId, edge, shiftKey);
-  }, [selectEdge]);
+    // Check if active tool allows additive edge selection
+    let additive = event.shiftKey;
+
+    const behavior = getSelectionBehaviorForTool(activeTool, 'edge', selectedEdges.size);
+    // If tool's operation directly accepts edges and allows more, use additive mode
+    if (behavior === 'select' && toolAllowsMoreSelections(activeTool, selectedEdges.size)) {
+      additive = true;
+    }
+
+    selectEdge(panelId, edge, additive);
+  }, [selectEdge, activeTool, selectedEdges.size]);
 
   const handleEdgeHover = useCallback((panelId: string, edge: EdgePosition, hovered: boolean) => {
     if (hovered) {

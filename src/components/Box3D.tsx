@@ -10,6 +10,7 @@ import { AssemblyAxisIndicator, LidFaceHighlight } from './AssemblyAxisIndicator
 import { PanelToggleOverlay } from './PanelToggleOverlay';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
+import { getSelectionBehaviorForTool } from '../operations/registry';
 import * as THREE from 'three';
 
 export interface PushPullCallbacks {
@@ -34,7 +35,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
-  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectPanel, selectAssembly, selectPanelEdges, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
+  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectedEdges, selectPanel, selectAssembly, selectPanelEdges, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
 
   // Compute visually selected panels (includes cascade from assembly selection)
   const allPanelIds = panelCollection?.panels.map(p => p.id) ?? [];
@@ -160,15 +161,18 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
           scale={scale}
           selectedPanelIds={selectedPanelIds}
           onPanelClick={(selectionMode === 'panel' || selectionMode === null) ? (panelId, e) => {
-            // When inset tool is active, clicking a panel selects all its eligible edges
-            if (activeTool === 'inset') {
+            // Check if active tool needs selection expansion (panel → edges)
+            const behavior = getSelectionBehaviorForTool(activeTool, 'panel', selectedEdges.size);
+            if (behavior === 'expand') {
+              // Panel clicked, but tool's operation needs edges - expand to panel's edges
               const panel = panelCollection.panels.find(p => p.id === panelId);
               if (panel?.edgeStatuses) {
                 selectPanelEdges(panelId, panel.edgeStatuses);
+                return;
               }
-            } else {
-              selectPanel(panelId, e?.shiftKey);
             }
+            // Default panel selection behavior (or tool doesn't need expansion)
+            selectPanel(panelId, e?.shiftKey);
           } : undefined}
           onPanelDoubleClick={selectionMode === null ? (panelId) => {
             // Look up panel to get its assembly from source

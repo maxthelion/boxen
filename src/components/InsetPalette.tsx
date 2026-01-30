@@ -3,6 +3,7 @@ import {
   FloatingPalette,
   PaletteNumberInput,
   PaletteButton,
+  PaletteButtonRow,
 } from './FloatingPalette';
 import { EdgePosition, EdgeStatus } from '../types';
 
@@ -32,6 +33,7 @@ interface InsetPaletteProps {
   onClose: () => void;
   onPositionChange?: (position: { x: number; y: number }) => void;
   containerRef?: React.RefObject<HTMLElement>;
+  closeOnClickOutside?: boolean;
 }
 
 // Colors for edge toggle buttons matching the 3D edge colors
@@ -139,6 +141,7 @@ export const InsetPalette: React.FC<InsetPaletteProps> = ({
   onClose,
   onPositionChange,
   containerRef,
+  closeOnClickOutside = true,
 }) => {
   // Count total selected edges
   const selectedEdgeCount = panelEdgeGroups.reduce(
@@ -163,6 +166,7 @@ export const InsetPalette: React.FC<InsetPaletteProps> = ({
       onPositionChange={onPositionChange}
       minWidth={220}
       containerRef={containerRef}
+      closeOnClickOutside={closeOnClickOutside}
     >
       {/* Panel groups with edge toggles */}
       <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '12px' }}>
@@ -193,13 +197,18 @@ export const InsetPalette: React.FC<InsetPaletteProps> = ({
             : 'No change'}
       </div>
 
-      <PaletteButton
-        variant="primary"
-        onClick={onApply}
-        disabled={offset === 0 || selectedEdgeCount === 0}
-      >
-        Apply
-      </PaletteButton>
+      <PaletteButtonRow>
+        <PaletteButton
+          variant="primary"
+          onClick={onApply}
+          disabled={offset === 0 || selectedEdgeCount === 0}
+        >
+          Apply
+        </PaletteButton>
+        <PaletteButton onClick={onClose}>
+          Cancel
+        </PaletteButton>
+      </PaletteButtonRow>
     </FloatingPalette>
   );
 };

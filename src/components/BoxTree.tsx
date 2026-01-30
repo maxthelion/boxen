@@ -1,8 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useBoxStore, getMainInteriorVoid } from '../store/useBoxStore';
 import { useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
 import { Panel } from './UI/Panel';
 import { Void, SubAssembly, Face, FaceId, PanelPath } from '../types';
+import { getSelectionBehaviorForTool } from '../operations/registry';
 
 // Represents a divider panel created by a subdivision
 interface DividerPanel {
@@ -957,9 +958,12 @@ export const BoxTree: React.FC = () => {
     selectedSubAssemblyIds,
     selectedPanelIds,
     selectedAssemblyId,
+    selectedEdges,
+    activeTool,
     selectVoid,
     selectSubAssembly,
     selectPanel,
+    selectPanelEdges,
     selectAssembly,
     hoveredVoidId,
     hoveredPanelId,
@@ -984,6 +988,23 @@ export const BoxTree: React.FC = () => {
     enterSketchView,
     setActiveTool,
   } = useBoxStore();
+
+  // Handle panel selection with edge expansion for tools that need it
+  // NOTE: Must be before early return to satisfy React hooks rules
+  const handleSelectPanel = useCallback((panelId: string, additive: boolean) => {
+    // Check if active tool needs selection expansion (panel → edges)
+    const behavior = getSelectionBehaviorForTool(activeTool, 'panel', selectedEdges.size);
+    if (behavior === 'expand') {
+      // Panel clicked, but tool's operation needs edges - expand to panel's edges
+      const panel = panelCollection?.panels.find(p => p.id === panelId);
+      if (panel?.edgeStatuses) {
+        selectPanelEdges(panelId, panel.edgeStatuses);
+        return;
+      }
+    }
+    // Default panel selection behavior
+    selectPanel(panelId, additive);
+  }, [activeTool, selectedEdges.size, panelCollection, selectPanelEdges, selectPanel]);
 
   // Early return if engine not initialized
   if (!rootVoid) return null;
@@ -1015,7 +1036,7 @@ export const BoxTree: React.FC = () => {
           selectedAssemblyId={selectedAssemblyId}
           onSelectVoid={selectVoid}
           onSelectSubAssembly={selectSubAssembly}
-          onSelectPanel={selectPanel}
+          onSelectPanel={handleSelectPanel}
           onSelectAssembly={selectAssembly}
           hoveredVoidId={hoveredVoidId}
           hoveredPanelId={hoveredPanelId}

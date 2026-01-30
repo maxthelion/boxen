@@ -36,6 +36,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const setActiveTool = useBoxStore((state) => state.setActiveTool);
   const insetFace = useBoxStore((state) => state.insetFace);
   const selectEdge = useBoxStore((state) => state.selectEdge);
+  const selectPanelEdges = useBoxStore((state) => state.selectPanelEdges);
 
   // Operation system from store
   const operationState = useBoxStore((state) => state.operationState);
@@ -276,6 +277,19 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     }
   }, [activeTool, selectedEdgesArray.length, operationState.activeOperation, cancelOperation]);
 
+  // Auto-expand selected panels to edges when inset tool is activated
+  useEffect(() => {
+    if (activeTool === 'inset' && selectedPanelIds.size > 0 && selectedEdges.size === 0 && panelCollection) {
+      // Expand each selected panel to its eligible edges
+      for (const panelId of selectedPanelIds) {
+        const panel = panelCollection.panels.find(p => p.id === panelId);
+        if (panel?.edgeStatuses) {
+          selectPanelEdges(panelId, panel.edgeStatuses);
+        }
+      }
+    }
+  }, [activeTool, selectedPanelIds, selectedEdges.size, panelCollection, selectPanelEdges]);
+
   // Handle inset offset change
   const handleInsetOffsetChange = useCallback((offset: number) => {
     if (operationState.activeOperation === 'inset-outset') {
@@ -461,6 +475,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         onClose={handleInsetPaletteClose}
         onPositionChange={setInsetPalettePosition}
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+        closeOnClickOutside={false}
       />
 
       <Canvas
