@@ -1058,6 +1058,202 @@ describe('Comprehensive Geometry Validation', () => {
   });
 
   // ===========================================================================
+  // Scenario 17: Four-Direction Extension (Female-Only Panel)
+  // Tests a panel with all 4 edges extended - validates rectangular outline
+  // ===========================================================================
+
+  describe('Scenario 17: Four-Direction Extension (Female-Only Panel)', () => {
+    beforeEach(() => {
+      engine.createAssembly(200, 150, 100, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Get bottom panel ID (all edges are female/unlocked)
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const bottomPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'bottom');
+
+      if (bottomPanel) {
+        // Apply extensions to all 4 edges
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: bottomPanel.id, edge: 'top', value: 15 },
+        });
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: bottomPanel.id, edge: 'bottom', value: 15 },
+        });
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: bottomPanel.id, edge: 'left', value: 15 },
+        });
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: bottomPanel.id, edge: 'right', value: 15 },
+        });
+      }
+    });
+
+    it('applies extensions to all 4 edges', () => {
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const bottomPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'bottom');
+
+      expect(bottomPanel).toBeDefined();
+      expect(bottomPanel!.props.edgeExtensions.top).toBe(15);
+      expect(bottomPanel!.props.edgeExtensions.bottom).toBe(15);
+      expect(bottomPanel!.props.edgeExtensions.left).toBe(15);
+      expect(bottomPanel!.props.edgeExtensions.right).toBe(15);
+    });
+
+    it('passes path validity checks (no diagonal lines)', () => {
+      const result = checkPathValidity(engine);
+
+      if (!result.valid) {
+        console.log(formatPathCheckResult(result));
+      }
+
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('passes corner merging validation (equal adjacent extensions)', () => {
+      const result = validateGeometry(engine);
+
+      // Filter for corner merging errors only
+      const cornerErrors = result.errors.filter((e: any) => e.rule === 'edge-extensions:corner-merging');
+
+      if (cornerErrors.length > 0) {
+        console.log('Corner merging errors:', cornerErrors);
+      }
+
+      expect(cornerErrors).toHaveLength(0);
+    });
+
+    it('passes rectangular outline validation', () => {
+      const result = validateGeometry(engine);
+
+      // Filter for rectangular outline errors only
+      const outlineErrors = result.errors.filter((e: any) => e.rule === 'extended-panel:rectangular-outline');
+
+      if (outlineErrors.length > 0) {
+        console.log('Rectangular outline errors:', outlineErrors);
+      }
+
+      expect(outlineErrors).toHaveLength(0);
+    });
+
+    it('passes all geometry validations', () => {
+      const result = validateGeometry(engine);
+
+      if (!result.valid) {
+        console.log(formatValidationResult(result));
+      }
+
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('corner merging produces clean rectangular outline (no L-shaped notches)', () => {
+      // When all 4 edges of a female-only panel are extended equally,
+      // the outline should be a simple rectangle with 4 corners at the extended positions.
+      // There should be NO L-shaped notches at corners.
+      //
+      // Expected outline for 200x100 panel with 15mm extension on all edges:
+      //   Extended dimensions: (200 + 30) x (100 + 30) = 230 x 130
+      //   Extended corners: (-115, 65), (115, 65), (115, -65), (-115, -65)
+      //
+      // The outline should go around these 4 corners with only axis-aligned segments.
+
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const bottomPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'bottom');
+      expect(bottomPanel).toBeDefined();
+
+      const points = bottomPanel!.derived.outline.points;
+
+      // Debug: print all points
+      console.log('All outline points:');
+      points.forEach((p: any, i: number) => {
+        console.log(`  ${i}: (${p.x}, ${p.y})`);
+      });
+
+      // Calculate the bounding box of the outline
+      const minX = Math.min(...points.map((p: any) => p.x));
+      const maxX = Math.max(...points.map((p: any) => p.x));
+      const minY = Math.min(...points.map((p: any) => p.y));
+      const maxY = Math.max(...points.map((p: any) => p.y));
+
+      console.log(`Outline bounding box: (${minX}, ${minY}) to (${maxX}, ${maxY})`);
+      console.log(`Expected: (-115, -65) to (115, 65)`);
+
+      // The bounding box should match the extended dimensions
+      expect(minX).toBeCloseTo(-115, 0);
+      expect(maxX).toBeCloseTo(115, 0);
+      expect(minY).toBeCloseTo(-65, 0);
+      expect(maxY).toBeCloseTo(65, 0);
+
+      // Count how many times each corner point appears
+      const cornerPoints = [
+        { x: 115, y: 65, name: 'TR' },
+        { x: -115, y: 65, name: 'TL' },
+        { x: 115, y: -65, name: 'BR' },
+        { x: -115, y: -65, name: 'BL' },
+      ];
+
+      const tolerance = 0.1;
+      for (const corner of cornerPoints) {
+        const occurrences = points.filter((p: any) =>
+          Math.abs(p.x - corner.x) < tolerance && Math.abs(p.y - corner.y) < tolerance
+        ).length;
+
+        console.log(`Corner ${corner.name} (${corner.x}, ${corner.y}): appears ${occurrences} time(s)`);
+
+        // Each extended corner should appear EXACTLY ONCE in the outline
+        // If it appears more than once, there's a path construction issue
+        expect(occurrences).toBe(1);
+      }
+
+      // Check for L-shaped notches at the corners
+      // An L-shaped notch at a corner would have intermediate points between
+      // the extended corner and the adjacent extended corner.
+      // For clean corner merging, the path should go directly between extended corners
+      // (only finger joint patterns should appear BETWEEN corners, not AT corners)
+
+      // Check the segments around each extended corner
+      // For TL (-115, 65): the adjacent points should be at Y=65 (top cap) or X=-115 (left side)
+      // For TR (115, 65): the adjacent points should be at Y=65 (top cap) or X=115 (right side)
+      // etc.
+
+      // Find indices of extended corners in the path
+      const findCornerIndex = (x: number, y: number) =>
+        points.findIndex((p: any) => Math.abs(p.x - x) < tolerance && Math.abs(p.y - y) < tolerance);
+
+      const tlIdx = findCornerIndex(-115, 65);
+      const trIdx = findCornerIndex(115, 65);
+      const brIdx = findCornerIndex(115, -65);
+      const blIdx = findCornerIndex(-115, -65);
+
+      // The path from TL to TR should be direct (just the top cap)
+      // Check that the point after TL has y=65 (on the top cap)
+      const afterTL = points[(tlIdx + 1) % points.length];
+      expect(Math.abs(afterTL.y - 65)).toBeLessThan(tolerance);
+
+      // The point before TL should have x=-115 (on the left side)
+      const beforeTL = points[(tlIdx - 1 + points.length) % points.length];
+      expect(Math.abs(beforeTL.x - (-115))).toBeLessThan(tolerance);
+
+      console.log('Corner TL neighbors: before=', beforeTL, 'after=', afterTL);
+      console.log('Corner TR neighbors: before=', points[(trIdx - 1 + points.length) % points.length],
+                  'after=', points[(trIdx + 1) % points.length]);
+    });
+  });
+
+  // ===========================================================================
   // Validator Coverage Check
   // ===========================================================================
 

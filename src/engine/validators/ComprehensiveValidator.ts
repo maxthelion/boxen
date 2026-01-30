@@ -82,6 +82,7 @@ export class ComprehensiveValidator {
     this.validatePathValidity(assembly);
     this.validateExtendedEdgeSlots(assembly);
     this.validateCornerMerging(assembly);
+    this.validateExtendedPanelOutline(assembly);
 
     return this.buildResult();
   }
@@ -932,8 +933,9 @@ export class ComprehensiveValidator {
    * Validates the corner merging rule for edge extensions.
    *
    * Rule: edge-extensions:corner-merging
-   * When two adjacent edges have equal extensions, they should meet at a single
-   * diagonal corner point. When extensions differ, they should NOT be merged.
+   * When two adjacent edges are both extended, they should meet at a single
+   * corner point (using each edge's extension amount in its direction).
+   * Extensions don't need to be equal - the corner just won't be at 45 degrees.
    *
    * See docs/movecorneronadjacentextensions.md for the design spec.
    */
@@ -942,7 +944,6 @@ export class ComprehensiveValidator {
 
     this.markRuleChecked('edge-extensions:corner-merging');
 
-    const EQUAL_TOLERANCE = 0.01;
     const POINT_TOLERANCE = 0.1;
 
     for (const panel of panels) {
@@ -1002,11 +1003,9 @@ export class ComprehensiveValidator {
         const ext1 = extensions[corner.edges[0]];
         const ext2 = extensions[corner.edges[1]];
 
-        // Skip if neither edge is extended
-        if (ext1 < 0.001 && ext2 < 0.001) continue;
-
+        // Skip if neither or only one edge is extended (no merging needed)
         const bothExtended = ext1 > 0.001 && ext2 > 0.001;
-        const extensionsEqual = bothExtended && Math.abs(ext1 - ext2) < EQUAL_TOLERANCE;
+        if (!bothExtended) continue;
 
         // Check if diagonal point exists in outline
         const diagonalPointExists = outline.some(p =>
@@ -1014,8 +1013,8 @@ export class ComprehensiveValidator {
           Math.abs(p.y - corner.extendedDiagonal.y) < POINT_TOLERANCE
         );
 
-        if (extensionsEqual && !diagonalPointExists) {
-          // Equal extensions should produce merged corner
+        if (!diagonalPointExists) {
+          // Both edges extended but corner not merged - error
           this.addError('edge-extensions:corner-merging',
             `Panel ${this.getPanelName(panel)} corner ${corner.name} should be merged but diagonal point not found`,
             {
@@ -1027,21 +1026,6 @@ export class ComprehensiveValidator {
               edge2: corner.edges[1],
               edge2Extension: ext2,
               expectedDiagonalPoint: corner.extendedDiagonal,
-            }
-          );
-        } else if (bothExtended && !extensionsEqual && diagonalPointExists) {
-          // Unequal extensions should NOT produce merged corner
-          this.addError('edge-extensions:corner-merging',
-            `Panel ${this.getPanelName(panel)} corner ${corner.name} should NOT be merged but diagonal point was found`,
-            {
-              panelId: panel.id,
-              panelKind: panel.kind,
-              corner: corner.name,
-              edge1: corner.edges[0],
-              edge1Extension: ext1,
-              edge2: corner.edges[1],
-              edge2Extension: ext2,
-              unexpectedDiagonalPoint: corner.extendedDiagonal,
             }
           );
         }
@@ -1058,6 +1042,179 @@ export class ComprehensiveValidator {
     } else {
       const divider = panel as DividerPanelSnapshot;
       return `divider-${divider.props.axis}-${divider.props.position}`;
+    }
+  }
+
+  // ===========================================================================
+  // Module 9: Extended Panel Outline Validator
+  // ===========================================================================
+
+  /**
+   * Validates that panels with edge extensions have rectangular outlines.
+   *
+   * Rule: extended-panel:rectangular-outline
+   * When a panel has extended edges, the outer boundary should form a clean
+   * rectangle with corners at the expected extended positions.
+   *
+   * See docs/extended-panel-outline-rule.md for the design spec.
+   */
+  private validateExtendedPanelOutline(assembly: AssemblySnapshot): void {
+    const panels = assembly.derived.panels;
+    const feetConfig = assembly.props.feet;
+    const mt = assembly.props.material.thickness;
+    const assemblyAxis = assembly.props.assembly.assemblyAxis;
+
+    this.markRuleChecked('extended-panel:rectangular-outline');
+
+    const POINT_TOLERANCE = 0.5; // Allow some tolerance for floating point
+
+    // Determine which faces are walls (have feet if enabled)
+    const wallFaces: FaceId[] = assemblyAxis === 'y'
+      ? ['front', 'back', 'left', 'right']
+      : assemblyAxis === 'x'
+        ? ['front', 'back', 'top', 'bottom']
+        : ['left', 'right', 'top', 'bottom'];
+
+    for (const panel of panels) {
+      const extensions = panel.props.edgeExtensions;
+
+      // Skip panels with feet - feet create a non-rectangular shape intentionally
+      // (feet pattern with two feet separated by a gap)
+      if (panel.kind === 'face-panel' && feetConfig?.enabled && feetConfig?.height) {
+        const facePanel = panel as FacePanelSnapshot;
+        if (wallFaces.includes(facePanel.props.faceId)) {
+          // Wall panels have feet, skip rectangular outline validation
+          continue;
+        }
+      }
+
+      // Skip panels with no extensions
+      const hasExtensions = extensions.top > 0.001 || extensions.bottom > 0.001 ||
+                           extensions.left > 0.001 || extensions.right > 0.001;
+      if (!hasExtensions) {
+        continue;
+      }
+
+      const outline = panel.derived.outline.points;
+      const halfW = panel.derived.width / 2;
+      const halfH = panel.derived.height / 2;
+
+      // Calculate expected corner positions for the extended panel
+      // These are the outermost corners that define the rectangular boundary
+      const expectedCorners = [
+        {
+          name: 'topLeft',
+          x: -halfW - extensions.left,
+          y: halfH + extensions.top,
+        },
+        {
+          name: 'topRight',
+          x: halfW + extensions.right,
+          y: halfH + extensions.top,
+        },
+        {
+          name: 'bottomRight',
+          x: halfW + extensions.right,
+          y: -halfH - extensions.bottom,
+        },
+        {
+          name: 'bottomLeft',
+          x: -halfW - extensions.left,
+          y: -halfH - extensions.bottom,
+        },
+      ];
+
+      // Find the actual bounding box of the outline
+      let minX = Infinity, maxX = -Infinity;
+      let minY = Infinity, maxY = -Infinity;
+      for (const p of outline) {
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+      }
+
+      // Verify the bounding box matches expected dimensions
+      const expectedMinX = -halfW - extensions.left;
+      const expectedMaxX = halfW + extensions.right;
+      const expectedMinY = -halfH - extensions.bottom;
+      const expectedMaxY = halfH + extensions.top;
+
+      if (Math.abs(minX - expectedMinX) > POINT_TOLERANCE) {
+        this.addError('extended-panel:rectangular-outline',
+          `Panel ${this.getPanelName(panel)} left edge not at expected position`,
+          {
+            panelId: panel.id,
+            expected: expectedMinX,
+            actual: minX,
+            deviation: Math.abs(minX - expectedMinX),
+            extensions,
+          }
+        );
+      }
+
+      if (Math.abs(maxX - expectedMaxX) > POINT_TOLERANCE) {
+        this.addError('extended-panel:rectangular-outline',
+          `Panel ${this.getPanelName(panel)} right edge not at expected position`,
+          {
+            panelId: panel.id,
+            expected: expectedMaxX,
+            actual: maxX,
+            deviation: Math.abs(maxX - expectedMaxX),
+            extensions,
+          }
+        );
+      }
+
+      if (Math.abs(minY - expectedMinY) > POINT_TOLERANCE) {
+        this.addError('extended-panel:rectangular-outline',
+          `Panel ${this.getPanelName(panel)} bottom edge not at expected position`,
+          {
+            panelId: panel.id,
+            expected: expectedMinY,
+            actual: minY,
+            deviation: Math.abs(minY - expectedMinY),
+            extensions,
+          }
+        );
+      }
+
+      if (Math.abs(maxY - expectedMaxY) > POINT_TOLERANCE) {
+        this.addError('extended-panel:rectangular-outline',
+          `Panel ${this.getPanelName(panel)} top edge not at expected position`,
+          {
+            panelId: panel.id,
+            expected: expectedMaxY,
+            actual: maxY,
+            deviation: Math.abs(maxY - expectedMaxY),
+            extensions,
+          }
+        );
+      }
+
+      // Verify corner points exist (for panels with all 4 edges extended)
+      const allEdgesExtended = extensions.top > 0.001 && extensions.bottom > 0.001 &&
+                               extensions.left > 0.001 && extensions.right > 0.001;
+      if (allEdgesExtended) {
+        for (const corner of expectedCorners) {
+          const cornerExists = outline.some(p =>
+            Math.abs(p.x - corner.x) < POINT_TOLERANCE &&
+            Math.abs(p.y - corner.y) < POINT_TOLERANCE
+          );
+
+          if (!cornerExists) {
+            this.addError('extended-panel:rectangular-outline',
+              `Panel ${this.getPanelName(panel)} missing expected corner at ${corner.name}`,
+              {
+                panelId: panel.id,
+                corner: corner.name,
+                expectedPosition: { x: corner.x, y: corner.y },
+                extensions,
+              }
+            );
+          }
+        }
+      }
     }
   }
 

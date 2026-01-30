@@ -396,17 +396,39 @@ export abstract class BasePanel extends BaseNode {
     // Apply extensions as post-processing (similar to feet)
     // Extensions replace edge segments with: cap + reversed finger path
     const extensions = this._edgeExtensions;
+
+    // Pre-compute all 4 extended corners ONCE (based on diagram docs/IMG_8225.jpeg)
+    // These are the definitive corner positions - all edges use these same values
+    const extendedCorners = {
+      topLeft: {
+        x: outerCorners.topLeft.x - extensions.left,
+        y: outerCorners.topLeft.y + extensions.top,
+      },
+      topRight: {
+        x: outerCorners.topRight.x + extensions.right,
+        y: outerCorners.topRight.y + extensions.top,
+      },
+      bottomRight: {
+        x: outerCorners.bottomRight.x + extensions.right,
+        y: outerCorners.bottomRight.y - extensions.bottom,
+      },
+      bottomLeft: {
+        x: outerCorners.bottomLeft.x - extensions.left,
+        y: outerCorners.bottomLeft.y - extensions.bottom,
+      },
+    };
+
     if (extensions.top > 0.001) {
-      this.applyExtensionToEdge(points, 'top', extensions.top, outerCorners, fingerCorners, fingerData, topEdge, mt, fingerBlockingRanges, extensions, edgeConfigs);
+      this.applyExtensionToEdge(points, 'top', extensions.top, outerCorners, fingerCorners, fingerData, topEdge, mt, fingerBlockingRanges, extensions, edgeConfigs, extendedCorners);
     }
     if (extensions.right > 0.001) {
-      this.applyExtensionToEdge(points, 'right', extensions.right, outerCorners, fingerCorners, fingerData, rightEdge, mt, fingerBlockingRanges, extensions, edgeConfigs);
+      this.applyExtensionToEdge(points, 'right', extensions.right, outerCorners, fingerCorners, fingerData, rightEdge, mt, fingerBlockingRanges, extensions, edgeConfigs, extendedCorners);
     }
     if (extensions.bottom > 0.001) {
-      this.applyExtensionToEdge(points, 'bottom', extensions.bottom, outerCorners, fingerCorners, fingerData, bottomEdge, mt, fingerBlockingRanges, extensions, edgeConfigs);
+      this.applyExtensionToEdge(points, 'bottom', extensions.bottom, outerCorners, fingerCorners, fingerData, bottomEdge, mt, fingerBlockingRanges, extensions, edgeConfigs, extendedCorners);
     }
     if (extensions.left > 0.001) {
-      this.applyExtensionToEdge(points, 'left', extensions.left, outerCorners, fingerCorners, fingerData, leftEdge, mt, fingerBlockingRanges, extensions, edgeConfigs);
+      this.applyExtensionToEdge(points, 'left', extensions.left, outerCorners, fingerCorners, fingerData, leftEdge, mt, fingerBlockingRanges, extensions, edgeConfigs, extendedCorners);
     }
 
     // Apply feet if configured
@@ -533,6 +555,9 @@ export abstract class BasePanel extends BaseNode {
   /**
    * Apply extension to an edge (similar pattern to applyFeetToOutline)
    * Replaces the edge segment with: extended cap + reversed finger path
+   *
+   * Uses pre-computed extendedCorners (from docs/IMG_8225.jpeg approach) to ensure
+   * all edges use the same corner positions.
    */
   protected applyExtensionToEdge(
     points: Point2D[],
@@ -540,271 +565,225 @@ export abstract class BasePanel extends BaseNode {
     extensionAmount: number,
     outerCorners: { topLeft: Point2D; topRight: Point2D; bottomRight: Point2D; bottomLeft: Point2D },
     fingerCorners: { topLeft: Point2D; topRight: Point2D; bottomRight: Point2D; bottomLeft: Point2D },
-    fingerData: AssemblyFingerData | null,
-    edgeConfig: EdgeConfig | undefined,
-    materialThickness: number,
-    fingerBlockingRanges: Map<EdgePosition, { start: number; end: number }[]>,
+    _fingerData: AssemblyFingerData | null,
+    _edgeConfig: EdgeConfig | undefined,
+    _materialThickness: number,
+    _fingerBlockingRanges: Map<EdgePosition, { start: number; end: number }[]>,
     allExtensions: EdgeExtensions,
-    allEdgeConfigs: EdgeConfig[]
+    _allEdgeConfigs: EdgeConfig[],
+    extendedCorners: { topLeft: Point2D; topRight: Point2D; bottomRight: Point2D; bottomLeft: Point2D }
   ): void {
-    // Determine the start and end corners for this edge (in clockwise traversal order)
-    // Use fingerCorners for finding indices in the path (which is built with fingerCorners)
-    let fingerStartCorner: Point2D, fingerEndCorner: Point2D;
-    switch (edgePosition) {
-      case 'top':
-        fingerStartCorner = fingerCorners.topLeft;
-        fingerEndCorner = fingerCorners.topRight;
-        break;
-      case 'right':
-        fingerStartCorner = fingerCorners.topRight;
-        fingerEndCorner = fingerCorners.bottomRight;
-        break;
-      case 'bottom':
-        fingerStartCorner = fingerCorners.bottomRight;
-        fingerEndCorner = fingerCorners.bottomLeft;
-        break;
-      case 'left':
-        fingerStartCorner = fingerCorners.bottomLeft;
-        fingerEndCorner = fingerCorners.topLeft;
-        break;
-    }
-
-    // Use outer corners for extension geometry (full panel width by default)
-    // Then apply dynamic detection for adjacent extensions
-    let startCorner: Point2D, endCorner: Point2D;
-    const getEdgeConfig = (pos: EdgePosition) => allEdgeConfigs.find(e => e.position === pos);
+    // Map edge to its corners (clockwise traversal)
+    // finger* = where finger pattern starts/ends (may be inset from outer)
+    // outer* = full panel dimension corners
+    // extended* = pre-computed extended corners (same positions used by all edges)
+    let fingerStart: Point2D, fingerEnd: Point2D;
+    let outerStart: Point2D, outerEnd: Point2D;
+    let extendedStart: Point2D, extendedEnd: Point2D;
+    let adjacentStartEdge: EdgePosition, adjacentEndEdge: EdgePosition;
 
     switch (edgePosition) {
       case 'top':
-        startCorner = { ...outerCorners.topLeft };
-        endCorner = { ...outerCorners.topRight };
-        // Check if left edge is extended AND is female - female takes corner
-        if (allExtensions.left > 0.001 && getEdgeConfig('left')?.gender === 'female') {
-          startCorner.x += materialThickness;
-        }
-        // Check if right edge is extended AND is female
-        if (allExtensions.right > 0.001 && getEdgeConfig('right')?.gender === 'female') {
-          endCorner.x -= materialThickness;
-        }
+        fingerStart = fingerCorners.topLeft;
+        fingerEnd = fingerCorners.topRight;
+        outerStart = outerCorners.topLeft;
+        outerEnd = outerCorners.topRight;
+        extendedStart = extendedCorners.topLeft;
+        extendedEnd = extendedCorners.topRight;
+        adjacentStartEdge = 'left';
+        adjacentEndEdge = 'right';
         break;
       case 'right':
-        startCorner = { ...outerCorners.topRight };
-        endCorner = { ...outerCorners.bottomRight };
-        // Check if top edge is extended AND is female
-        if (allExtensions.top > 0.001 && getEdgeConfig('top')?.gender === 'female') {
-          startCorner.y -= materialThickness;
-        }
-        // Check if bottom edge is extended AND is female
-        if (allExtensions.bottom > 0.001 && getEdgeConfig('bottom')?.gender === 'female') {
-          endCorner.y += materialThickness;
-        }
+        fingerStart = fingerCorners.topRight;
+        fingerEnd = fingerCorners.bottomRight;
+        outerStart = outerCorners.topRight;
+        outerEnd = outerCorners.bottomRight;
+        extendedStart = extendedCorners.topRight;
+        extendedEnd = extendedCorners.bottomRight;
+        adjacentStartEdge = 'top';
+        adjacentEndEdge = 'bottom';
         break;
       case 'bottom':
-        startCorner = { ...outerCorners.bottomRight };
-        endCorner = { ...outerCorners.bottomLeft };
-        // Check if right edge is extended AND is female
-        if (allExtensions.right > 0.001 && getEdgeConfig('right')?.gender === 'female') {
-          startCorner.x -= materialThickness;
-        }
-        // Check if left edge is extended AND is female
-        if (allExtensions.left > 0.001 && getEdgeConfig('left')?.gender === 'female') {
-          endCorner.x += materialThickness;
-        }
+        fingerStart = fingerCorners.bottomRight;
+        fingerEnd = fingerCorners.bottomLeft;
+        outerStart = outerCorners.bottomRight;
+        outerEnd = outerCorners.bottomLeft;
+        extendedStart = extendedCorners.bottomRight;
+        extendedEnd = extendedCorners.bottomLeft;
+        adjacentStartEdge = 'right';
+        adjacentEndEdge = 'left';
         break;
       case 'left':
-        startCorner = { ...outerCorners.bottomLeft };
-        endCorner = { ...outerCorners.topLeft };
-        // Check if bottom edge is extended AND is female
-        if (allExtensions.bottom > 0.001 && getEdgeConfig('bottom')?.gender === 'female') {
-          startCorner.y += materialThickness;
-        }
-        // Check if top edge is extended AND is female
-        if (allExtensions.top > 0.001 && getEdgeConfig('top')?.gender === 'female') {
-          endCorner.y -= materialThickness;
-        }
-        break;
-    }
-
-    // Find indices of the finger corners in the outline (the path is built with fingerCorners)
-    const tolerance = 0.1;
-    let startIdx = -1;
-    let endIdx = -1;
-
-    for (let i = 0; i < points.length; i++) {
-      const p = points[i];
-      if (startIdx === -1 && Math.abs(p.x - fingerStartCorner.x) < tolerance && Math.abs(p.y - fingerStartCorner.y) < tolerance) {
-        startIdx = i;
-      }
-      if (Math.abs(p.x - fingerEndCorner.x) < tolerance && Math.abs(p.y - fingerEndCorner.y) < tolerance) {
-        endIdx = i;
-      }
-    }
-
-    // If we didn't find both corners, can't apply extension
-    if (startIdx === -1 || endIdx === -1) {
-      return;
-    }
-
-    // Calculate extended corners (using outer corners, adjusted for adjacent extensions)
-    let extendedStart = this.getExtendedCorner(startCorner, edgePosition, extensionAmount, 'start');
-    let extendedEnd = this.getExtendedCorner(endCorner, edgePosition, extensionAmount, 'end');
-
-    // Apply corner merging rule: when adjacent edges have equal extensions,
-    // extend diagonally to a single point instead of creating an L-shape.
-    // See docs/movecorneronadjacentextensions.md for details.
-    const EQUAL_TOLERANCE = 0.01;
-
-    // Determine which edges are adjacent to start/end corners
-    // Start corner is the first corner in clockwise traversal, end corner is second
-    let adjacentStartEdge: EdgePosition;
-    let adjacentEndEdge: EdgePosition;
-
-    switch (edgePosition) {
-      case 'top':
-        adjacentStartEdge = 'left';   // topLeft corner
-        adjacentEndEdge = 'right';    // topRight corner
-        break;
-      case 'right':
-        adjacentStartEdge = 'top';    // topRight corner
-        adjacentEndEdge = 'bottom';   // bottomRight corner
-        break;
-      case 'bottom':
-        adjacentStartEdge = 'right';  // bottomRight corner
-        adjacentEndEdge = 'left';     // bottomLeft corner
-        break;
-      case 'left':
-        adjacentStartEdge = 'bottom'; // bottomLeft corner
-        adjacentEndEdge = 'top';      // topLeft corner
+        fingerStart = fingerCorners.bottomLeft;
+        fingerEnd = fingerCorners.topLeft;
+        outerStart = outerCorners.bottomLeft;
+        outerEnd = outerCorners.topLeft;
+        extendedStart = extendedCorners.bottomLeft;
+        extendedEnd = extendedCorners.topLeft;
+        adjacentStartEdge = 'bottom';
+        adjacentEndEdge = 'top';
         break;
     }
 
     const adjacentStartExtension = allExtensions[adjacentStartEdge];
     const adjacentEndExtension = allExtensions[adjacentEndEdge];
 
-    // Check if start corner should be merged (both extensions > 0 and equal)
-    if (extensionAmount > 0.001 && adjacentStartExtension > 0.001 &&
-        Math.abs(extensionAmount - adjacentStartExtension) < EQUAL_TOLERANCE) {
-      // Extend diagonally to single point
-      extendedStart = this.getExtendedCornerDiagonal(
-        startCorner, edgePosition, extensionAmount, adjacentStartEdge, adjacentStartExtension
-      );
+    // Corner merging: when both this edge and adjacent edge are extended
+    const startHasCornerMerging = extensionAmount > 0.001 && adjacentStartExtension > 0.001;
+    const endHasCornerMerging = extensionAmount > 0.001 && adjacentEndExtension > 0.001;
+
+    // Corner ownership: edges processed in order top(0), right(1), bottom(2), left(3)
+    // Earlier edge owns the corner
+    const EDGE_ORDER: Record<EdgePosition, number> = { top: 0, right: 1, bottom: 2, left: 3 };
+    const currentOrder = EDGE_ORDER[edgePosition];
+    const skipStart = startHasCornerMerging && EDGE_ORDER[adjacentStartEdge] < currentOrder;
+    const skipEnd = endHasCornerMerging && EDGE_ORDER[adjacentEndEdge] < currentOrder;
+
+    // Find corners in the path
+    // Search for: extended corner (if adjacent already processed) OR finger corner
+    const tolerance = 0.1;
+    let startIdx = -1;
+    let endIdx = -1;
+
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+
+      // For start corner
+      if (startIdx === -1) {
+        // If adjacent edge already processed and merged, look for extended corner first
+        if (skipStart) {
+          if (Math.abs(p.x - extendedStart.x) < tolerance && Math.abs(p.y - extendedStart.y) < tolerance) {
+            startIdx = i;
+          }
+        }
+        // Otherwise (or as fallback), look for finger corner
+        if (startIdx === -1) {
+          if (Math.abs(p.x - fingerStart.x) < tolerance && Math.abs(p.y - fingerStart.y) < tolerance) {
+            startIdx = i;
+          }
+        }
+      }
+
+      // For end corner (always check, keep last match)
+      if (skipEnd) {
+        if (Math.abs(p.x - extendedEnd.x) < tolerance && Math.abs(p.y - extendedEnd.y) < tolerance) {
+          endIdx = i;
+        }
+      }
+      if (endIdx === -1 || !skipEnd) {
+        if (Math.abs(p.x - fingerEnd.x) < tolerance && Math.abs(p.y - fingerEnd.y) < tolerance) {
+          endIdx = i;
+        }
+      }
     }
 
-    // Check if end corner should be merged (both extensions > 0 and equal)
-    if (extensionAmount > 0.001 && adjacentEndExtension > 0.001 &&
-        Math.abs(extensionAmount - adjacentEndExtension) < EQUAL_TOLERANCE) {
-      // Extend diagonally to single point
-      extendedEnd = this.getExtendedCornerDiagonal(
-        endCorner, edgePosition, extensionAmount, adjacentEndEdge, adjacentEndExtension
-      );
+    if (startIdx === -1 || endIdx === -1) {
+      return; // Couldn't find corners
     }
 
-    // Build extension path with axis-aligned transitions from finger corners to outer corners
-    // The path must maintain axis-alignment throughout
+    // Build extension path
+    // The path goes: [transition from finger to outer] → outer → extended → extended → outer → [transition to finger]
     const extensionPath: Point2D[] = [];
+    const isHorizontal = edgePosition === 'top' || edgePosition === 'bottom';
 
-    // Transition from finger start corner to outer start corner (if different)
-    // Add intermediate point for axis-aligned transition
-    const needsStartTransition = Math.abs(fingerStartCorner.x - startCorner.x) > 0.001 ||
-                                  Math.abs(fingerStartCorner.y - startCorner.y) > 0.001;
-    if (needsStartTransition) {
-      extensionPath.push(fingerStartCorner);
-      if (edgePosition === 'top' || edgePosition === 'bottom') {
-        // Horizontal edge - move X first (perpendicular), then Y (along edge)
-        extensionPath.push({ x: startCorner.x, y: fingerStartCorner.y });
+    // Helper to add axis-aligned transition between two points
+    const addAxisAlignedTransition = (from: Point2D, to: Point2D, horizontalFirst: boolean) => {
+      if (Math.abs(from.x - to.x) < 0.001 && Math.abs(from.y - to.y) < 0.001) return;
+      if (horizontalFirst) {
+        if (Math.abs(from.x - to.x) > 0.001) extensionPath.push({ x: to.x, y: from.y });
       } else {
-        // Vertical edge - move Y first (perpendicular), then X (along edge)
-        extensionPath.push({ x: fingerStartCorner.x, y: startCorner.y });
+        if (Math.abs(from.y - to.y) > 0.001) extensionPath.push({ x: from.x, y: to.y });
+      }
+    };
+
+    // Start corner handling
+    if (!skipStart) {
+      // Add transition from finger corner to outer corner (if different)
+      if (Math.abs(fingerStart.x - outerStart.x) > 0.001 || Math.abs(fingerStart.y - outerStart.y) > 0.001) {
+        extensionPath.push({ ...fingerStart });
+        addAxisAlignedTransition(fingerStart, outerStart, !isHorizontal);
+      }
+      // Add outer corner
+      extensionPath.push({ ...outerStart });
+      // Add transition to extended corner (axis-aligned)
+      addAxisAlignedTransition(outerStart, extendedStart, isHorizontal);
+      // Add extended corner
+      extensionPath.push({ ...extendedStart });
+    }
+
+    // End corner handling
+    if (!skipEnd) {
+      // Add extended end corner
+      extensionPath.push({ ...extendedEnd });
+      // Add transition from extended to outer (axis-aligned)
+      addAxisAlignedTransition(extendedEnd, outerEnd, isHorizontal);
+      // Add outer corner
+      extensionPath.push({ ...outerEnd });
+      // Add transition from outer to finger corner (if different)
+      if (Math.abs(outerEnd.x - fingerEnd.x) > 0.001 || Math.abs(outerEnd.y - fingerEnd.y) > 0.001) {
+        addAxisAlignedTransition(outerEnd, fingerEnd, !isHorizontal);
+        extensionPath.push({ ...fingerEnd });
       }
     }
 
-    // Extension geometry: startCorner → extendedStart → extendedEnd → endCorner
-    // When corners are diagonal (from corner merging), add intermediate axis-aligned points
-    extensionPath.push(startCorner);
-
-    // Check if extendedStart is diagonal from startCorner (corner merging case)
-    const startIsDiagonal = Math.abs(extendedStart.x - startCorner.x) > 0.001 &&
-                            Math.abs(extendedStart.y - startCorner.y) > 0.001;
-    if (startIsDiagonal) {
-      // Add intermediate point for axis-aligned transition to diagonal corner
-      if (edgePosition === 'top' || edgePosition === 'bottom') {
-        // Horizontal edge: move Y first (outward), then X (perpendicular)
-        extensionPath.push({ x: startCorner.x, y: extendedStart.y });
+    // Handle both corners skipped (e.g., left edge when all 4 are extended)
+    if (skipStart && skipEnd) {
+      // Just remove inner points, extended corners already in place from other edges
+      if (startIdx < endIdx) {
+        const before = points.slice(0, startIdx + 1);
+        const after = points.slice(endIdx);
+        points.length = 0;
+        points.push(...before, ...after);
       } else {
-        // Vertical edge: move X first (outward), then Y (perpendicular)
-        extensionPath.push({ x: extendedStart.x, y: startCorner.y });
+        // Wrap-around
+        const middle = points.slice(endIdx, startIdx + 1);
+        points.length = 0;
+        points.push(...middle);
       }
-    }
-    extensionPath.push(extendedStart);
-    extensionPath.push(extendedEnd);
-
-    // Check if extendedEnd is diagonal from endCorner (corner merging case)
-    const endIsDiagonal = Math.abs(extendedEnd.x - endCorner.x) > 0.001 &&
-                          Math.abs(extendedEnd.y - endCorner.y) > 0.001;
-    if (endIsDiagonal) {
-      // Add intermediate point for axis-aligned transition from diagonal corner
-      if (edgePosition === 'top' || edgePosition === 'bottom') {
-        // Horizontal edge: move X first (perpendicular), then Y (inward)
-        extensionPath.push({ x: endCorner.x, y: extendedEnd.y });
-      } else {
-        // Vertical edge: move Y first (perpendicular), then X (inward)
-        extensionPath.push({ x: extendedEnd.x, y: endCorner.y });
-      }
-    }
-    extensionPath.push(endCorner);
-
-    // Transition from outer end corner to finger end corner (if different)
-    const needsEndTransition = Math.abs(fingerEndCorner.x - endCorner.x) > 0.001 ||
-                                Math.abs(fingerEndCorner.y - endCorner.y) > 0.001;
-    if (needsEndTransition) {
-      if (edgePosition === 'top' || edgePosition === 'bottom') {
-        // Horizontal edge - move Y first, then X
-        extensionPath.push({ x: endCorner.x, y: fingerEndCorner.y });
-      } else {
-        // Vertical edge - move X first, then Y
-        extensionPath.push({ x: fingerEndCorner.x, y: endCorner.y });
-      }
-      extensionPath.push(fingerEndCorner);
+      return;
     }
 
-    // Replace the segment from startIdx to endIdx with the extension path
+    // Replace segment in path
     if (startIdx < endIdx) {
-      // Normal case: start comes before end in the array
-      // beforeSegment ends before startCorner, afterSegment starts after endCorner
-      const beforeSegment = points.slice(0, startIdx);
-      const afterSegment = points.slice(endIdx + 1);
+      // Normal case
+      const effectiveStart = skipStart ? startIdx + 1 : startIdx;
+      const effectiveEnd = skipEnd ? endIdx - 1 : endIdx;
 
-      points.length = 0;
-      points.push(...beforeSegment);
-      points.push(...extensionPath);
-      points.push(...afterSegment);
+      if (effectiveStart <= effectiveEnd) {
+        const before = points.slice(0, effectiveStart);
+        const after = points.slice(effectiveEnd + 1);
+        points.length = 0;
+        points.push(...before, ...extensionPath, ...after);
+      }
     } else {
-      // Edge wraps around (e.g., left edge: bottomLeft to topLeft where topLeft is at index 0)
-      // In clockwise order: endCorner (topLeft, index 0) comes before startCorner (bottomLeft)
-      //
-      // Original path: endCorner → [top, right, bottom edges] → startCorner → [left edge] → endCorner
-      // With extension: endCorner → [top, right, bottom edges] → extensionPath... → endCorner
-      //
-      // The extension path includes transitions if finger corners differ from outer corners
+      // Wrap-around case (e.g., left edge: BL → TL where TL is at index 0)
+      const adjustedStart = skipStart ? startIdx + 1 : startIdx;
+      const middle = points.slice(endIdx + 1, adjustedStart);
 
-      const middleSegment = points.slice(endIdx + 1, startIdx);
-
-      // Rebuild path in correct clockwise order
       points.length = 0;
 
-      // For wrap-around, we need to handle differently based on whether we have transitions
-      if (needsEndTransition) {
-        // End transition brings us back to fingerEndCorner, which is where the path should close
-        points.push(fingerEndCorner);
-      } else {
-        points.push(endCorner);
+      // Start with the end point of extension path (or extended end if skip)
+      if (skipEnd) {
+        points.push({ ...extendedEnd });
+      } else if (extensionPath.length > 0) {
+        points.push(extensionPath[extensionPath.length - 1]);
       }
-      points.push(...middleSegment);
-      // Insert all extension points except the last (which would duplicate the closing point)
-      for (let i = 0; i < extensionPath.length - 1; i++) {
-        points.push(extensionPath[i]);
+
+      // Add middle segment (other edges)
+      points.push(...middle);
+
+      // Add extension path (except last point which is the closing point)
+      if (!skipStart && extensionPath.length > 0) {
+        for (let i = 0; i < extensionPath.length - 1; i++) {
+          points.push(extensionPath[i]);
+        }
+      } else if (skipStart && extensionPath.length > 0) {
+        // When start is skipped, extension path only has end section
+        // Add all except last (closing point)
+        for (let i = 0; i < extensionPath.length - 1; i++) {
+          points.push(extensionPath[i]);
+        }
       }
-      // Path closes automatically back to the first point
     }
   }
 
