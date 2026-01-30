@@ -80,6 +80,7 @@ export class ComprehensiveValidator {
     this.validateFingerPoints(assembly);
     this.validateParentChildIntersections(assembly);
     this.validatePathValidity(assembly);
+    this.validateExtendedEdgeSlots(assembly);
 
     return this.buildResult();
   }
@@ -826,6 +827,100 @@ export class ComprehensiveValidator {
         });
       }
     }
+  }
+
+  // ===========================================================================
+  // Module 7: Extended Edge Slot Validator
+  // ===========================================================================
+
+  /**
+   * Validates that face panels with extended edges have the required
+   * extension-slot holes for mating with perpendicular panels.
+   *
+   * Rule: extended-edges:female-edge-slots
+   * When a female edge is extended (e.g., via feet), the panel should have
+   * extension-slot holes to receive tabs from the mating male panel.
+   */
+  private validateExtendedEdgeSlots(assembly: AssemblySnapshot): void {
+    const panels = assembly.derived.panels;
+    const facePanels = panels.filter(p => p.kind === 'face-panel') as FacePanelSnapshot[];
+    const feetConfig = assembly.props.feet;
+
+    // Rule: Extended female edges must have extension-slot holes
+    this.markRuleChecked('extended-edges:female-edge-slots');
+
+    // Skip if no feet (no edge extensions)
+    if (!feetConfig?.enabled || !feetConfig?.height) {
+      return;
+    }
+
+    // Wall panels have feet extending their bottom edge
+    // For Y-axis assembly: front, back, left, right are walls
+    const assemblyAxis = assembly.props.assembly.assemblyAxis;
+    const wallFaces: FaceId[] = assemblyAxis === 'y'
+      ? ['front', 'back', 'left', 'right']
+      : assemblyAxis === 'x'
+        ? ['front', 'back', 'top', 'bottom']
+        : ['left', 'right', 'top', 'bottom'];
+
+    for (const face of facePanels) {
+      const faceId = face.props.faceId;
+
+      // Only check wall panels (which have feet)
+      if (!wallFaces.includes(faceId)) continue;
+
+      // The bottom edge is extended by feet
+      // Check if this panel has extension-slot holes
+      const holes = face.derived.outline.holes;
+      const extensionSlots = holes.filter(h => h.source.type === 'extension-slot');
+
+      // Determine if the bottom edge is female for this face
+      // (receives tabs from the bottom panel)
+      const bottomEdgeIsFemale = this.isBottomEdgeFemale(faceId, assemblyAxis);
+
+      if (bottomEdgeIsFemale && extensionSlots.length === 0) {
+        this.addError('extended-edges:female-edge-slots',
+          `Face panel ${faceId} has extended female bottom edge but no extension-slot holes`,
+          {
+            faceId,
+            feetHeight: feetConfig.height,
+            expectedSlots: true,
+            actualSlots: 0,
+            allHoleTypes: holes.map(h => h.source.type),
+          }
+        );
+      }
+    }
+  }
+
+  /**
+   * Determines if the bottom edge of a face panel is female (receives tabs).
+   * Based on wall priority rules from genderRules.ts
+   */
+  private isBottomEdgeFemale(faceId: FaceId, assemblyAxis: Axis): boolean {
+    // For Y-axis assembly:
+    // - Wall panels (front, back, left, right) meet bottom panel at their bottom edge
+    // - The bottom panel typically tabs OUT (is male) to walls
+    // - So wall bottom edges are female (receive tabs)
+    //
+    // This is a simplified check - the actual gender determination is complex
+    // but for feet (which are on walls), the wall's bottom edge is typically female
+
+    if (assemblyAxis === 'y') {
+      return ['front', 'back', 'left', 'right'].includes(faceId);
+    }
+
+    // For X-axis assembly: similar logic for the "floor" faces
+    if (assemblyAxis === 'x') {
+      return ['front', 'back', 'top', 'bottom'].includes(faceId);
+    }
+
+    // For Z-axis assembly
+    if (assemblyAxis === 'z') {
+      return ['left', 'right', 'top', 'bottom'].includes(faceId);
+    }
+
+    return false;
   }
 
   // ===========================================================================
