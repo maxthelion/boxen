@@ -689,6 +689,30 @@ export class Engine {
         break;
       }
 
+      case 'SET_CORNER_FILLET': {
+        // Corner fillets are stored at the assembly level
+        if (assembly) {
+          assembly.setPanelCornerFillet(
+            action.payload.panelId,
+            action.payload.corner,
+            action.payload.radius
+          );
+          return true;
+        }
+        break;
+      }
+
+      case 'SET_CORNER_FILLETS_BATCH': {
+        // Batch corner fillets - atomic operation for undo/redo
+        if (assembly) {
+          for (const fillet of action.payload.fillets) {
+            assembly.setPanelCornerFillet(fillet.panelId, fillet.corner, fillet.radius);
+          }
+          return true;
+        }
+        break;
+      }
+
       case 'CREATE_SUB_ASSEMBLY': {
         const voidNodeRaw = findInScene(action.payload.voidId);
         const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;

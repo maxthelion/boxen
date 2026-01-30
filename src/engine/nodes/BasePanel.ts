@@ -30,6 +30,11 @@ import {
   Axis,
   AssemblyFingerData,
   EdgeStatusInfo,
+  CornerKey,
+  CornerFillet,
+  CornerEligibility,
+  ALL_CORNERS,
+  getCornerEdges,
 } from '../types';
 import { generateFingerJointPathV2, Point } from '../../utils/fingerJoints';
 
@@ -60,6 +65,7 @@ export interface EdgeConfig {
 export abstract class BasePanel extends BaseNode {
   // Input properties
   protected _edgeExtensions: EdgeExtensions = { top: 0, bottom: 0, left: 0, right: 0 };
+  protected _cornerFillets: Map<CornerKey, number> = new Map();  // corner -> radius
   protected _visible: boolean = true;
 
   // Cached derived values (recomputed when dirty)
@@ -68,6 +74,7 @@ export abstract class BasePanel extends BaseNode {
   protected _cachedEdges: PanelEdge[] | null = null;
   protected _cachedTransform: Transform3D | null = null;
   protected _cachedEdgeAnchors: EdgeAnchor[] | null = null;
+  protected _cachedCornerEligibility: CornerEligibility[] | null = null;
 
   constructor(id?: string) {
     super(id);
@@ -93,6 +100,48 @@ export abstract class BasePanel extends BaseNode {
     for (const [edge, value] of Object.entries(extensions) as [EdgePosition, number][]) {
       if (this._edgeExtensions[edge] !== value) {
         this._edgeExtensions[edge] = value;
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.markDirty();
+    }
+  }
+
+  // Corner fillet accessors
+  get cornerFillets(): CornerFillet[] {
+    return Array.from(this._cornerFillets.entries()).map(([corner, radius]) => ({
+      corner,
+      radius,
+    }));
+  }
+
+  getCornerFillet(corner: CornerKey): number {
+    return this._cornerFillets.get(corner) ?? 0;
+  }
+
+  setCornerFillet(corner: CornerKey, radius: number): void {
+    const currentRadius = this._cornerFillets.get(corner) ?? 0;
+    if (currentRadius !== radius) {
+      if (radius <= 0) {
+        this._cornerFillets.delete(corner);
+      } else {
+        this._cornerFillets.set(corner, radius);
+      }
+      this.markDirty();
+    }
+  }
+
+  setCornerFillets(fillets: CornerFillet[]): void {
+    let changed = false;
+    for (const { corner, radius } of fillets) {
+      const currentRadius = this._cornerFillets.get(corner) ?? 0;
+      if (currentRadius !== radius) {
+        if (radius <= 0) {
+          this._cornerFillets.delete(corner);
+        } else {
+          this._cornerFillets.set(corner, radius);
+        }
         changed = true;
       }
     }
@@ -163,6 +212,13 @@ export abstract class BasePanel extends BaseNode {
   abstract computeEdgeStatuses(): EdgeStatusInfo[];
 
   /**
+   * Get the extension amount of the adjacent panel's edge at this corner.
+   * Used for computing fillet eligibility (free length calculation).
+   * Returns 0 if no adjacent panel or edge is open.
+   */
+  abstract getAdjacentPanelExtension(edge: EdgePosition): number;
+
+  /**
    * Get feet configuration if this panel should have feet
    * Override in subclass to enable feet for specific panels
    * Returns null if no feet should be applied
@@ -183,6 +239,80 @@ export abstract class BasePanel extends BaseNode {
       this._cachedDimensions = this.computeDimensions();
     }
     return this._cachedDimensions;
+  }
+
+  /**
+   * Get corner eligibility for fillet operations (cached)
+   */
+  getCornerEligibility(): CornerEligibility[] {
+    if (!this._cachedCornerEligibility) {
+      this._cachedCornerEligibility = this.computeCornerEligibility();
+    }
+    return this._cachedCornerEligibility;
+  }
+
+  /**
+   * Compute corner eligibility for fillet operations.
+   * A corner is eligible if both adjacent edges have "free length" > 0.
+   * Free length = this panel's extension - adjacent panel's extension (if any).
+   */
+  protected computeCornerEligibility(): CornerEligibility[] {
+    const edgeStatuses = this.computeEdgeStatuses();
+    const extensions = this._edgeExtensions;
+    const MIN_FILLET_RADIUS = 1; // mm
+
+    return ALL_CORNERS.map((corner): CornerEligibility => {
+      const [edge1, edge2] = getCornerEdges(corner);
+
+      // Get edge statuses
+      const status1 = edgeStatuses.find(s => s.position === edge1);
+      const status2 = edgeStatuses.find(s => s.position === edge2);
+
+      // Locked edges (male joints) cannot have filleted corners
+      if (status1?.status === 'locked' || status2?.status === 'locked') {
+        return {
+          corner,
+          eligible: false,
+          reason: 'no-free-length',
+          maxRadius: 0,
+          freeLength1: 0,
+          freeLength2: 0,
+        };
+      }
+
+      // Calculate free length for each edge at this corner
+      // Free length = this extension - adjacent panel's extension
+      const thisExt1 = extensions[edge1];
+      const thisExt2 = extensions[edge2];
+      const adjExt1 = this.getAdjacentPanelExtension(edge1);
+      const adjExt2 = this.getAdjacentPanelExtension(edge2);
+
+      const freeLength1 = Math.max(0, thisExt1 - adjExt1);
+      const freeLength2 = Math.max(0, thisExt2 - adjExt2);
+
+      // Max radius is the minimum of the two free lengths
+      const maxRadius = Math.min(freeLength1, freeLength2);
+
+      // Corner is eligible if max radius >= minimum fillet radius
+      if (maxRadius < MIN_FILLET_RADIUS) {
+        return {
+          corner,
+          eligible: false,
+          reason: maxRadius > 0 ? 'below-minimum' : 'no-free-length',
+          maxRadius: 0,
+          freeLength1,
+          freeLength2,
+        };
+      }
+
+      return {
+        corner,
+        eligible: true,
+        maxRadius,
+        freeLength1,
+        freeLength2,
+      };
+    });
   }
 
   /**
@@ -437,10 +567,162 @@ export abstract class BasePanel extends BaseNode {
       this.applyFeetToOutline(points, fingerCorners, mt, feetConfig.params);
     }
 
+    // Apply corner fillets as final post-processing
+    if (this._cornerFillets.size > 0) {
+      this.applyFilletsToOutline(points, extendedCorners);
+    }
+
     return {
       points,
       holes,
     };
+  }
+
+  /**
+   * Apply fillets to corners in the outline.
+   * Replaces sharp corners with arc segments.
+   */
+  protected applyFilletsToOutline(
+    points: Point2D[],
+    extendedCorners: { topLeft: Point2D; topRight: Point2D; bottomRight: Point2D; bottomLeft: Point2D }
+  ): void {
+    // Map corner keys to their extended corner positions
+    const cornerPositions: Record<CornerKey, Point2D> = {
+      'left:top': extendedCorners.topLeft,
+      'right:top': extendedCorners.topRight,
+      'bottom:right': extendedCorners.bottomRight,
+      'bottom:left': extendedCorners.bottomLeft,
+    };
+
+    // Process each fillet
+    for (const [corner, radius] of this._cornerFillets) {
+      if (radius <= 0) continue;
+
+      const cornerPos = cornerPositions[corner];
+      if (!cornerPos) continue;
+
+      // Find the corner point in the path
+      const tolerance = 0.5;
+      let cornerIdx = -1;
+      for (let i = 0; i < points.length; i++) {
+        if (Math.abs(points[i].x - cornerPos.x) < tolerance &&
+            Math.abs(points[i].y - cornerPos.y) < tolerance) {
+          cornerIdx = i;
+          break;
+        }
+      }
+
+      if (cornerIdx === -1) continue;
+
+      // Get adjacent points to determine arc direction
+      const prevIdx = (cornerIdx - 1 + points.length) % points.length;
+      const nextIdx = (cornerIdx + 1) % points.length;
+      const prevPt = points[prevIdx];
+      const nextPt = points[nextIdx];
+      const cornerPt = points[cornerIdx];
+
+      // Calculate vectors from corner to adjacent points
+      const toPrev = { x: prevPt.x - cornerPt.x, y: prevPt.y - cornerPt.y };
+      const toNext = { x: nextPt.x - cornerPt.x, y: nextPt.y - cornerPt.y };
+
+      // Normalize vectors
+      const lenPrev = Math.sqrt(toPrev.x * toPrev.x + toPrev.y * toPrev.y);
+      const lenNext = Math.sqrt(toNext.x * toNext.x + toNext.y * toNext.y);
+      if (lenPrev < 0.001 || lenNext < 0.001) continue;
+
+      const normPrev = { x: toPrev.x / lenPrev, y: toPrev.y / lenPrev };
+      const normNext = { x: toNext.x / lenNext, y: toNext.y / lenNext };
+
+      // Clamp radius to available edge lengths
+      const effectiveRadius = Math.min(radius, lenPrev, lenNext);
+      if (effectiveRadius < 0.5) continue;
+
+      // Calculate arc start and end points
+      const arcStart = {
+        x: cornerPt.x + normPrev.x * effectiveRadius,
+        y: cornerPt.y + normPrev.y * effectiveRadius,
+      };
+      const arcEnd = {
+        x: cornerPt.x + normNext.x * effectiveRadius,
+        y: cornerPt.y + normNext.y * effectiveRadius,
+      };
+
+      // Generate arc points
+      const arcPoints = this.generateFilletArc(cornerPt, arcStart, arcEnd, effectiveRadius);
+
+      // Replace the corner point with arc points
+      points.splice(cornerIdx, 1, ...arcPoints);
+    }
+  }
+
+  /**
+   * Generate arc points for a fillet.
+   * The arc goes from arcStart to arcEnd, curving away from the corner.
+   */
+  protected generateFilletArc(
+    corner: Point2D,
+    arcStart: Point2D,
+    arcEnd: Point2D,
+    radius: number,
+    segments: number = 8
+  ): Point2D[] {
+    // Calculate arc center - it's offset from corner by radius in the direction
+    // perpendicular to the bisector of the two edges
+    const midX = (arcStart.x + arcEnd.x) / 2;
+    const midY = (arcStart.y + arcEnd.y) / 2;
+
+    // Direction from corner to midpoint of arc chord
+    const toMid = { x: midX - corner.x, y: midY - corner.y };
+    const lenToMid = Math.sqrt(toMid.x * toMid.x + toMid.y * toMid.y);
+
+    if (lenToMid < 0.001) {
+      // Degenerate case - return just the endpoints
+      return [arcStart, arcEnd];
+    }
+
+    // Arc center is along the line from corner through midpoint,
+    // at distance such that it's radius away from both arcStart and arcEnd
+    const normToMid = { x: toMid.x / lenToMid, y: toMid.y / lenToMid };
+
+    // Calculate the distance from corner to arc center
+    // Using the formula: distance = radius / sin(halfAngle)
+    // where halfAngle is half the angle between the two edges
+    const chordLen = Math.sqrt(
+      (arcEnd.x - arcStart.x) ** 2 + (arcEnd.y - arcStart.y) ** 2
+    );
+    const halfChord = chordLen / 2;
+
+    // Distance from center to chord midpoint
+    const centerToChordDist = Math.sqrt(Math.max(0, radius * radius - halfChord * halfChord));
+
+    // Arc center
+    const centerDist = lenToMid + centerToChordDist;
+    const center = {
+      x: corner.x + normToMid.x * centerDist,
+      y: corner.y + normToMid.y * centerDist,
+    };
+
+    // Calculate start and end angles
+    const startAngle = Math.atan2(arcStart.y - center.y, arcStart.x - center.x);
+    const endAngle = Math.atan2(arcEnd.y - center.y, arcEnd.x - center.x);
+
+    // Determine arc direction (should be the shorter arc)
+    let angleDiff = endAngle - startAngle;
+    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+    // Generate arc points
+    const arcPoints: Point2D[] = [];
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const angle = startAngle + angleDiff * t;
+      arcPoints.push({
+        x: center.x + radius * Math.cos(angle),
+        y: center.y + radius * Math.sin(angle),
+      });
+    }
+
+    return arcPoints;
   }
 
   /**
@@ -1046,6 +1328,7 @@ export abstract class BasePanel extends BaseNode {
     this._cachedEdges = null;
     this._cachedTransform = null;
     this._cachedEdgeAnchors = null;
+    this._cachedCornerEligibility = null;
   }
 
   // ==========================================================================
@@ -1111,6 +1394,7 @@ export abstract class BasePanel extends BaseNode {
       children: [] as [],
       props: {
         edgeExtensions: this.edgeExtensions,
+        cornerFillets: this.cornerFillets,
         visible: this._visible,
       },
       derived: {
@@ -1122,6 +1406,7 @@ export abstract class BasePanel extends BaseNode {
         worldTransform: this.getTransform(),
         edgeAnchors: this.getEdgeAnchors(),
         edgeStatuses: this.computeEdgeStatuses(),
+        cornerEligibility: this.getCornerEligibility(),
       },
     };
   }

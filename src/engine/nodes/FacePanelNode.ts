@@ -717,6 +717,53 @@ export class FacePanelNode extends BasePanel {
     });
   }
 
+  /**
+   * Get the extension amount of the adjacent panel's edge at this corner.
+   * For face panels, this looks at the adjacent face panel's corresponding edge.
+   */
+  getAdjacentPanelExtension(edge: EdgePosition): number {
+    const adjacentFaceId = getAdjacentFace(this.faceId, edge);
+    if (!adjacentFaceId) return 0;
+
+    // Get the adjacent panel
+    const adjacentPanel = this._assembly.getFacePanel(adjacentFaceId);
+    if (!adjacentPanel) return 0;
+
+    // Map this edge to the corresponding edge on the adjacent panel
+    // When two panels meet at an edge, their edges correspond:
+    // - This panel's top → adjacent panel's edge depends on orientation
+    // This is complex - for now, return the adjacent panel's extension
+    // on the edge that faces this panel
+    const adjacentEdge = this.getCorrespondingEdge(edge, adjacentFaceId);
+    if (!adjacentEdge) return 0;
+
+    return adjacentPanel.edgeExtensions[adjacentEdge];
+  }
+
+  /**
+   * Get the edge on the adjacent panel that corresponds to this edge.
+   * When this panel's edge meets the adjacent panel, which edge of the adjacent
+   * panel is at the same corner?
+   */
+  protected getCorrespondingEdge(_thisEdge: EdgePosition, adjacentFaceId: FaceId): EdgePosition | null {
+    // This mapping depends on how faces are oriented relative to each other
+    // For a standard box:
+    // - Front panel top → Top panel bottom
+    // - Front panel bottom → Bottom panel top
+    // - Front panel left → Left panel right
+    // - Front panel right → Right panel left
+    // Similar patterns for other faces
+
+    // Find which edge of the adjacent panel meets this panel
+    for (const adjEdge of ALL_EDGE_POSITIONS) {
+      const meetsFace = getAdjacentFace(adjacentFaceId, adjEdge);
+      if (meetsFace === this.faceId) {
+        return adjEdge;
+      }
+    }
+    return null;
+  }
+
   // ==========================================================================
   // Helper Methods
   // ==========================================================================

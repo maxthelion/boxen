@@ -35,6 +35,8 @@ import {
   VoidAlignmentError,
   EdgeExtensions,
   Subdivision,
+  CornerKey,
+  CornerFillet,
 } from '../types';
 import { VoidNode } from './VoidNode';
 import { FacePanelNode } from './FacePanelNode';
@@ -95,6 +97,9 @@ export abstract class BaseAssembly extends BaseNode {
 
   // Stored edge extensions for panels (keyed by panel ID)
   protected _panelEdgeExtensions: Map<string, EdgeExtensions> = new Map();
+
+  // Stored corner fillets for panels (keyed by panel ID)
+  protected _panelCornerFillets: Map<string, Map<CornerKey, number>> = new Map();
 
   // Cached finger point data (computed from dimensions + material)
   protected _cachedFingerData: AssemblyFingerData | null = null;
@@ -403,6 +408,114 @@ export abstract class BaseAssembly extends BaseNode {
    */
   setPanelEdgeExtensions(panelId: string, extensions: EdgeExtensions): void {
     this._panelEdgeExtensions.set(panelId, { ...extensions });
+    this.markDirty();
+  }
+
+  // ==========================================================================
+  // Panel Access
+  // ==========================================================================
+
+  /**
+   * Get a face panel node for a given face ID.
+   * Creates a temporary panel node with stored extensions/fillets applied.
+   * Useful for querying panel properties without regenerating all panels.
+   */
+  getFacePanel(faceId: FaceId): FacePanelNode | null {
+    const face = this._faces.get(faceId);
+    if (!face?.solid) return null;
+
+    // Get or create cached UUID for this face panel
+    let panelId = this._facePanelIds.get(faceId);
+    if (!panelId) {
+      panelId = crypto.randomUUID();
+      this._facePanelIds.set(faceId, panelId);
+    }
+
+    const panelNode = new FacePanelNode(faceId, this, panelId);
+
+    // Apply stored edge extensions
+    const storedExtensions = this._panelEdgeExtensions.get(panelNode.id)
+      || this._panelEdgeExtensions.get(`face-${faceId}`);
+    if (storedExtensions) {
+      panelNode.setEdgeExtensions(storedExtensions);
+    }
+
+    // Apply stored corner fillets
+    const storedFillets = this._panelCornerFillets.get(panelNode.id)
+      || this._panelCornerFillets.get(`face-${faceId}`);
+    if (storedFillets) {
+      for (const [corner, radius] of storedFillets) {
+        panelNode.setCornerFillet(corner, radius);
+      }
+    }
+
+    return panelNode;
+  }
+
+  // ==========================================================================
+  // Corner Fillet Management
+  // ==========================================================================
+
+  /**
+   * Get corner fillets for a panel
+   */
+  getPanelCornerFillets(panelId: string): CornerFillet[] {
+    const filletMap = this._panelCornerFillets.get(panelId);
+    if (!filletMap) return [];
+    return Array.from(filletMap.entries()).map(([corner, radius]) => ({
+      corner,
+      radius,
+    }));
+  }
+
+  /**
+   * Get corner fillet radius for a specific corner
+   */
+  getPanelCornerFillet(panelId: string, corner: CornerKey): number {
+    const filletMap = this._panelCornerFillets.get(panelId);
+    return filletMap?.get(corner) ?? 0;
+  }
+
+  /**
+   * Set corner fillet for a panel
+   */
+  setPanelCornerFillet(panelId: string, corner: CornerKey, radius: number): void {
+    let filletMap = this._panelCornerFillets.get(panelId);
+    if (!filletMap) {
+      filletMap = new Map();
+      this._panelCornerFillets.set(panelId, filletMap);
+    }
+
+    const currentRadius = filletMap.get(corner) ?? 0;
+    if (currentRadius !== radius) {
+      if (radius <= 0) {
+        filletMap.delete(corner);
+        // Clean up empty map
+        if (filletMap.size === 0) {
+          this._panelCornerFillets.delete(panelId);
+        }
+      } else {
+        filletMap.set(corner, radius);
+      }
+      this.markDirty();
+    }
+  }
+
+  /**
+   * Set all corner fillets for a panel
+   */
+  setPanelCornerFillets(panelId: string, fillets: CornerFillet[]): void {
+    const filletMap = new Map<CornerKey, number>();
+    for (const { corner, radius } of fillets) {
+      if (radius > 0) {
+        filletMap.set(corner, radius);
+      }
+    }
+    if (filletMap.size > 0) {
+      this._panelCornerFillets.set(panelId, filletMap);
+    } else {
+      this._panelCornerFillets.delete(panelId);
+    }
     this.markDirty();
   }
 
@@ -735,6 +848,15 @@ export abstract class BaseAssembly extends BaseNode {
           panelNode.setEdgeExtensions(storedExtensions);
         }
 
+        // Apply stored corner fillets
+        const storedFillets = this._panelCornerFillets.get(panelNode.id)
+          || this._panelCornerFillets.get(`face-${faceId}`);
+        if (storedFillets) {
+          for (const [corner, radius] of storedFillets) {
+            panelNode.setCornerFillet(corner, radius);
+          }
+        }
+
         panels.push(panelNode.serialize());
       }
     }
@@ -797,6 +919,14 @@ export abstract class BaseAssembly extends BaseNode {
               dividerNode.setEdgeExtensions(storedExtensions);
             }
 
+            // Apply stored corner fillets
+            const storedFillets = this._panelCornerFillets.get(dividerNode.id);
+            if (storedFillets) {
+              for (const [corner, radius] of storedFillets) {
+                dividerNode.setCornerFillet(corner, radius);
+              }
+            }
+
             panels.push(dividerNode.serialize());
           }
         }
@@ -840,6 +970,14 @@ export abstract class BaseAssembly extends BaseNode {
         const storedExtensions = this._panelEdgeExtensions.get(dividerNode.id);
         if (storedExtensions) {
           dividerNode.setEdgeExtensions(storedExtensions);
+        }
+
+        // Apply stored corner fillets
+        const storedFillets = this._panelCornerFillets.get(dividerNode.id);
+        if (storedFillets) {
+          for (const [corner, radius] of storedFillets) {
+            dividerNode.setCornerFillet(corner, radius);
+          }
         }
 
         panels.push(dividerNode.serialize());
@@ -934,6 +1072,12 @@ export abstract class BaseAssembly extends BaseNode {
     target._panelEdgeExtensions = new Map();
     for (const [panelId, extensions] of this._panelEdgeExtensions) {
       target._panelEdgeExtensions.set(panelId, { ...extensions });
+    }
+
+    // Copy panel corner fillets
+    target._panelCornerFillets = new Map();
+    for (const [panelId, filletMap] of this._panelCornerFillets) {
+      target._panelCornerFillets.set(panelId, new Map(filletMap));
     }
 
     // Copy face panel IDs (preserve UUIDs across clones)

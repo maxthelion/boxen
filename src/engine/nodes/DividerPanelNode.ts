@@ -516,6 +516,32 @@ export class DividerPanelNode extends BasePanel {
   }
 
   /**
+   * Get the extension amount of the adjacent panel's edge at this corner.
+   * For divider panels, this looks at the face panel that this edge meets.
+   * Since dividers have female joints with faces, the adjacent face's extension
+   * determines how much of this divider's edge is free.
+   */
+  getAdjacentPanelExtension(edge: EdgePosition): number {
+    const edgeConfigs = this.computeEdgeConfigs();
+    const config = edgeConfigs.find(e => e.position === edge);
+
+    // If this edge doesn't meet a face, there's no adjacent panel
+    if (!config?.meetsFaceId) return 0;
+
+    const assembly = this.findParentAssembly();
+    if (!assembly) return 0;
+
+    // Get the face panel
+    const facePanel = assembly.getFacePanel(config.meetsFaceId as FaceId);
+    if (!facePanel) return 0;
+
+    // For now, return 0 - face panels typically don't have extensions
+    // that would affect divider corner eligibility.
+    // Future: could check which face edge meets this divider and get its extension.
+    return 0;
+  }
+
+  /**
    * Compute the axis position for a corner of an edge.
    * This determines where the edge starts/ends along the world axis.
    * Used for finger joint alignment across panels.
