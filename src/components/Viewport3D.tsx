@@ -299,6 +299,28 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     return baseExtensions;
   }, []);
 
+  // Compute current fillet radii for selected corners from the committed scene
+  const computeCurrentFilletRadii = useCallback((corners: string[]): Record<string, number> => {
+    const engine = getEngine();
+    // Get from main scene (not preview) to get committed fillet values
+    const mainScene = engine.getMainScene();
+    const assembly = mainScene.primaryAssembly;
+    if (!assembly) return {};
+
+    const radii: Record<string, number> = {};
+    for (const cornerKey of corners) {
+      // Corner key format: "panelId:corner" where corner is like "left:top"
+      const parts = cornerKey.split(':');
+      if (parts.length >= 3) {
+        const panelId = parts.slice(0, -2).join(':');
+        const corner = `${parts[parts.length - 2]}:${parts[parts.length - 1]}` as CornerKey;
+        const radius = assembly.getPanelCornerFillet(panelId, corner);
+        radii[cornerKey] = radius;
+      }
+    }
+    return radii;
+  }, []);
+
   // Start operation when entering inset mode with edges selected
   useEffect(() => {
     const isOperationActive = operationState.activeOperation === 'inset-outset';
@@ -505,10 +527,20 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   useEffect(() => {
     const isOperationActive = operationState.activeOperation === 'corner-fillet';
     if (activeTool === 'fillet' && selectedCornersArray.length > 0 && !isOperationActive) {
+      // Compute current fillet radii from committed state BEFORE starting preview
+      const currentRadii = computeCurrentFilletRadii(selectedCornersArray);
+      const existingRadii = Object.values(currentRadii).filter(r => r > 0);
+
+      // Use minimum existing radius if any corners have fillets, otherwise default to 5
+      const initialRadius = existingRadii.length > 0
+        ? Math.min(...existingRadii)
+        : 5;
+
+      setFilletRadius(initialRadius);
       startOperation('corner-fillet');
-      updateOperationParams({ corners: selectedCornersArray, radius: filletRadius });
+      updateOperationParams({ corners: selectedCornersArray, radius: initialRadius });
     }
-  }, [activeTool, selectedCornersArray, operationState.activeOperation, startOperation, updateOperationParams, filletRadius]);
+  }, [activeTool, selectedCornersArray, operationState.activeOperation, startOperation, updateOperationParams, computeCurrentFilletRadii]);
 
   // Cancel fillet operation when leaving fillet mode or deselecting all corners
   useEffect(() => {

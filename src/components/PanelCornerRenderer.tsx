@@ -9,25 +9,26 @@ import React, { useMemo, useCallback } from 'react';
 import * as THREE from 'three';
 import { useBoxStore } from '../store/useBoxStore';
 import { useEnginePanels, useEngineConfig } from '../engine';
-import { PanelPath } from '../types';
+import { PanelPath, EdgeExtensions } from '../types';
 import { CornerKey, CornerEligibility, ALL_CORNERS } from '../engine/types';
 
-// Corner indicator radius in mm
-const CORNER_INDICATOR_RADIUS = 4;
+// Corner indicator dimensions in mm
+const CORNER_INDICATOR_OUTER_RADIUS = 5;
+const CORNER_INDICATOR_INNER_RADIUS = 3;  // Creates ring effect
 
-// Colors for different corner states
+// Colors for different corner states (cyan theme)
 const CORNER_COLORS = {
   // Base colors by eligibility
-  eligible: '#28a745',     // Green - can fillet
-  ineligible: '#6c757d',   // Gray - cannot fillet
+  eligible: '#00bcd4',     // Cyan - can fillet
+  ineligible: '#546e7a',   // Blue-gray - cannot fillet
 
   // Hover colors (brighter)
-  eligibleHover: '#51cf66',
-  ineligibleHover: '#868e96',
+  eligibleHover: '#4dd0e1',
+  ineligibleHover: '#78909c',
 
   // Selected colors
-  selected: '#9b59b6',     // Purple
-  selectedHover: '#a855f7',
+  selected: '#00e5ff',     // Bright cyan
+  selectedHover: '#18ffff',
 };
 
 interface CornerMeshProps {
@@ -40,24 +41,31 @@ interface CornerMeshProps {
   rotation: [number, number, number];
   panelWidth: number;
   panelHeight: number;
+  edgeExtensions: EdgeExtensions;  // Edge extensions to position at extended corners
+  thickness: number;  // Panel thickness for positioning on outer face
   scale: number;
   onHover: (hovered: boolean) => void;
   onClick: (event: React.MouseEvent) => void;
 }
 
 /**
- * Get corner position offset in panel-local coordinates
+ * Get corner position offset in panel-local coordinates, accounting for edge extensions
  */
-function getCornerOffset(corner: CornerKey, halfWidth: number, halfHeight: number): [number, number] {
+function getCornerOffset(
+  corner: CornerKey,
+  halfWidth: number,
+  halfHeight: number,
+  extensions: { top: number; bottom: number; left: number; right: number }
+): [number, number] {
   switch (corner) {
     case 'left:top':
-      return [-halfWidth, halfHeight];
+      return [-(halfWidth + extensions.left), halfHeight + extensions.top];
     case 'right:top':
-      return [halfWidth, halfHeight];
+      return [halfWidth + extensions.right, halfHeight + extensions.top];
     case 'bottom:left':
-      return [-halfWidth, -halfHeight];
+      return [-(halfWidth + extensions.left), -(halfHeight + extensions.bottom)];
     case 'bottom:right':
-      return [halfWidth, -halfHeight];
+      return [halfWidth + extensions.right, -(halfHeight + extensions.bottom)];
   }
 }
 
@@ -74,6 +82,8 @@ const CornerMesh: React.FC<CornerMeshProps> = ({
   rotation,
   panelWidth,
   panelHeight,
+  edgeExtensions,
+  thickness,
   scale,
   onHover,
   onClick,
@@ -89,13 +99,25 @@ const CornerMesh: React.FC<CornerMeshProps> = ({
     return isHovered ? CORNER_COLORS.eligibleHover : CORNER_COLORS.eligible;
   }, [isEligible, isSelected, isHovered]);
 
-  // Opacity: ineligible corners are dimmer
-  const opacity = !isEligible ? 0.3 : isSelected ? 0.9 : isHovered ? 0.8 : 0.6;
+  // Opacity: selected corners are solid, ineligible are dimmer
+  const opacity = isSelected ? 1.0 : !isEligible ? 0.4 : 0.8;
 
-  // Create circle geometry for corner indicator
+  // Create geometry: filled circle for selected, ring for unselected
   const geometry = useMemo(() => {
-    return new THREE.CircleGeometry(CORNER_INDICATOR_RADIUS * scale, 16);
-  }, [scale]);
+    if (isSelected) {
+      // Solid filled circle for selected corners
+      return new THREE.CircleGeometry(
+        CORNER_INDICATOR_OUTER_RADIUS * scale,
+        24  // segments for smooth circle
+      );
+    }
+    // Ring for unselected corners
+    return new THREE.RingGeometry(
+      CORNER_INDICATOR_INNER_RADIUS * scale,
+      CORNER_INDICATOR_OUTER_RADIUS * scale,
+      24  // segments for smooth ring
+    );
+  }, [scale, isSelected]);
 
   // Calculate corner position in world space
   const cornerPosition = useMemo(() => {
@@ -103,17 +125,25 @@ const CornerMesh: React.FC<CornerMeshProps> = ({
     const halfWidth = (panelWidth * scale) / 2;
     const halfHeight = (panelHeight * scale) / 2;
 
-    // Get corner offset in panel-local space
-    const [localX, localY] = getCornerOffset(corner, halfWidth, halfHeight);
+    // Scale the edge extensions
+    const scaledExtensions = {
+      top: edgeExtensions.top * scale,
+      bottom: edgeExtensions.bottom * scale,
+      left: edgeExtensions.left * scale,
+      right: edgeExtensions.right * scale,
+    };
 
-    // Offset slightly in front of panel to prevent z-fighting
-    const zOffset = 0.1;
+    // Get corner offset in panel-local space (including extensions)
+    const [localX, localY] = getCornerOffset(corner, halfWidth, halfHeight, scaledExtensions);
+
+    // Position on outer face: half thickness + small offset to prevent z-fighting
+    const zOffset = (thickness * scale / 2) + 0.05;
 
     // Create panel's rotation as Euler, then convert to quaternion for transforms
     const panelEuler = new THREE.Euler(rotation[0], rotation[1], rotation[2], 'XYZ');
     const panelQuat = new THREE.Quaternion().setFromEuler(panelEuler);
 
-    // Local offset from panel center to corner (on panel surface)
+    // Local offset from panel center to corner (on panel outer surface)
     const localOffset = new THREE.Vector3(localX, localY, zOffset);
 
     // Transform local offset to world space
@@ -124,7 +154,7 @@ const CornerMesh: React.FC<CornerMeshProps> = ({
       py + worldOffset.y,
       pz + worldOffset.z,
     ] as [number, number, number];
-  }, [corner, position, rotation, panelWidth, panelHeight, scale]);
+  }, [corner, position, rotation, panelWidth, panelHeight, edgeExtensions, thickness, scale]);
 
   // Corner indicator faces the same direction as the panel
   const cornerRotation = useMemo(() => {
@@ -160,7 +190,7 @@ const CornerMesh: React.FC<CornerMeshProps> = ({
       onPointerOver={handlePointerOver}
       onPointerOut={handlePointerOut}
     >
-      <meshStandardMaterial
+      <meshBasicMaterial
         color={color}
         transparent
         opacity={opacity}
@@ -246,6 +276,8 @@ export const PanelCornerRenderer: React.FC<PanelCornerRendererProps> = ({ scale 
               rotation={panel.rotation}
               panelWidth={panel.width}
               panelHeight={panel.height}
+              edgeExtensions={panel.edgeExtensions}
+              thickness={config.materialThickness}
               scale={scale}
               onHover={(hovered) => handleCornerHover(panel.id, corner, hovered)}
               onClick={(event) => handleCornerClick(panel.id, corner, event)}
