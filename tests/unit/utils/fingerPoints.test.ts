@@ -5,8 +5,8 @@ import {
   getFingerPointsInRange,
   getSectionTypeAtPosition,
   generateExtendedFingerPoints,
-} from './fingerPoints';
-import { FingerPointConfig, BoxConfig } from '../types';
+} from '../../../src/utils/fingerPoints';
+import { FingerPointConfig, BoxConfig } from '../../../src/types';
 
 describe('Finger Point Calculator', () => {
   describe('calculateAxisFingerPoints', () => {

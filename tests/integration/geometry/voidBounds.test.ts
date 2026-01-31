@@ -5,7 +5,7 @@
  * so that finger joints align correctly between dividers and faces.
  */
 import { describe, it, expect } from 'vitest';
-import { createEngine } from '../Engine';
+import { createEngine } from '../../../src/engine/Engine';
 
 describe('Void Bounds and Finger Region Verification', () => {
   it('should have divider body matching face body for correct finger alignment', () => {

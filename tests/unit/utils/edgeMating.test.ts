@@ -22,8 +22,8 @@ import {
   PathPoint,
   defaultAssemblyConfig,
   AssemblyConfig,
-} from '../types';
-import { generatePanelCollection } from './panelGenerator';
+} from '../../../src/types';
+import { generatePanelCollection } from '../../../src/utils/panelGenerator';
 
 // =============================================================================
 // Types

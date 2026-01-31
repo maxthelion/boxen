@@ -10,12 +10,12 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createEngine } from '../Engine';
+import { createEngine } from '../../../src/engine/Engine';
 import {
   checkEdgeExtensions,
   formatEdgeExtensionCheckResult,
-} from './EdgeExtensionChecker';
-import type { Engine } from '../Engine';
+} from '../../../src/engine/validators/EdgeExtensionChecker';
+import type { Engine } from '../../../src/engine/Engine';
 
 describe('EdgeExtensionChecker', () => {
   let engine: Engine;

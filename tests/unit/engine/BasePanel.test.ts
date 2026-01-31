@@ -3,10 +3,10 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createEngine } from '../Engine';
-import { Engine } from '../Engine';
-import { generatePanelCollection } from '../../utils/panelGenerator';
-import { BoxConfig, Face } from '../../types';
+import { createEngine } from '../../../src/engine/Engine';
+import { Engine } from '../../../src/engine/Engine';
+import { generatePanelCollection } from '../../../src/utils/panelGenerator';
+import { BoxConfig, Face } from '../../../src/types';
 
 describe('BasePanel finger joint generation', () => {
   let engine: Engine;

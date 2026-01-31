@@ -6,9 +6,9 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createEngine } from './Engine';
-import { checkGeometry, formatGeometryCheckResult } from './geometryChecker';
-import type { Engine } from './Engine';
+import { createEngine } from '../../../src/engine/Engine';
+import { checkGeometry, formatGeometryCheckResult } from '../../../src/engine/geometryChecker';
+import type { Engine } from '../../../src/engine/Engine';
 
 describe('GeometryChecker', () => {
   let engine: Engine;

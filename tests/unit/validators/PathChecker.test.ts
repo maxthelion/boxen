@@ -8,15 +8,15 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createEngine } from '../Engine';
+import { createEngine } from '../../../src/engine/Engine';
 import {
   checkPathValidity,
   isPathAxisAligned,
   findDiagonalSegments,
   formatPathCheckResult,
-} from './PathChecker';
-import type { Engine } from '../Engine';
-import type { Point2D } from '../types';
+} from '../../../src/engine/validators/PathChecker';
+import type { Engine } from '../../../src/engine/Engine';
+import type { Point2D } from '../../../src/engine/types';
 
 describe('PathChecker', () => {
   let engine: Engine;

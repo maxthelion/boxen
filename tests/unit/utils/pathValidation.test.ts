@@ -5,8 +5,8 @@ import {
   findDuplicatePoints,
   holeTouchesBoundary,
   validatePanelPath,
-} from './pathValidation';
-import { PathPoint } from '../types';
+} from '../../../src/utils/pathValidation';
+import { PathPoint } from '../../../src/types';
 
 describe('pathValidation', () => {
   describe('computeSignedArea', () => {

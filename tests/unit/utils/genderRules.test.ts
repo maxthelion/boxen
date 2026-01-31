@@ -6,8 +6,8 @@ import {
   getDividerEdgeGender,
   getAllEdgeGenders,
   validateMatingGenders,
-} from './genderRules';
-import { Face, AssemblyConfig, FaceId } from '../types';
+} from '../../../src/utils/genderRules';
+import { Face, AssemblyConfig, FaceId } from '../../../src/types';
 
 describe('Gender Rules', () => {
   // Standard test configuration

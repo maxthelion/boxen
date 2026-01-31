@@ -17,8 +17,8 @@ import {
   PanelHole,
   PathPoint,
   defaultAssemblyConfig,
-} from '../types';
-import { generatePanelCollection, getFaceDimensions } from './panelGenerator';
+} from '../../../src/types';
+import { generatePanelCollection, getFaceDimensions } from '../../../src/utils/panelGenerator';
 
 // =============================================================================
 // Test Helpers

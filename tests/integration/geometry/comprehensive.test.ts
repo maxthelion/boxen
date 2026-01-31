@@ -6,11 +6,11 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createEngine } from '../Engine';
-import { validateGeometry, formatValidationResult } from '../validators/ComprehensiveValidator';
-import { checkPathValidity, formatPathCheckResult } from '../validators/PathChecker';
-import { checkEdgeExtensions, formatEdgeExtensionCheckResult } from '../validators/EdgeExtensionChecker';
-import type { Engine } from '../Engine';
+import { createEngine } from '../../../src/engine/Engine';
+import { validateGeometry, formatValidationResult } from '../../../src/engine/validators/ComprehensiveValidator';
+import { checkPathValidity, formatPathCheckResult } from '../../../src/engine/validators/PathChecker';
+import { checkEdgeExtensions, formatEdgeExtensionCheckResult } from '../../../src/engine/validators/EdgeExtensionChecker';
+import type { Engine } from '../../../src/engine/Engine';
 
 describe('Comprehensive Geometry Validation', () => {
   let engine: Engine;

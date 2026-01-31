@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { generateFingerJointPathV2, Point } from './fingerJoints';
-import { AxisFingerPoints } from '../types';
+import { generateFingerJointPathV2, Point } from '../../../src/utils/fingerJoints';
+import { AxisFingerPoints } from '../../../src/types';
 
 describe('generateFingerJointPathV2', () => {
   // Test finger points: transitions at 20, 32.8, 45.6, 58.4

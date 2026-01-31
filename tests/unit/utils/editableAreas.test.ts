@@ -5,8 +5,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { getEditableAreas, EditableArea } from './editableAreas';
-import { PanelPath, BoxConfig, FaceConfig, defaultAssemblyConfig } from '../types';
+import { getEditableAreas, EditableArea } from '../../../src/utils/editableAreas';
+import { PanelPath, BoxConfig, FaceConfig, defaultAssemblyConfig } from '../../../src/types';
 
 // =============================================================================
 // Test Helpers

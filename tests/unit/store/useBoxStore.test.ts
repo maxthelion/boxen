@@ -17,9 +17,9 @@ import {
   defaultAssemblyConfig,
   Bounds,
   MAIN_FACE_PANEL_IDS,
-} from '../types';
-import { useBoxStore } from './useBoxStore';
-import { dispatchToEngine, syncStoreToEngine } from '../engine';
+} from '../../../src/types';
+import { useBoxStore } from '../../../src/store/useBoxStore';
+import { dispatchToEngine, syncStoreToEngine } from '../../../src/engine';
 
 // Mock the store creation for testing
 // We test the logic directly without the full store implementation

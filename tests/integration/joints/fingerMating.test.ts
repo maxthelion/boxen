@@ -15,8 +15,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createEngine, Engine } from '../Engine';
-import { PanelPath, PathPoint, FaceId } from '../../types';
+import { createEngine, Engine } from '../../../src/engine/Engine';
+import { PanelPath, PathPoint, FaceId } from '../../../src/types';
 
 // =============================================================================
 // Types

@@ -21,9 +21,9 @@ import {
   isLeafVoid,
   findVoidBetweenPanels,
   getValidSubdivisionAxes,
-} from './validators';
-import { Void, Face, PanelPath, FaceId } from '../types';
-import { Axis } from '../engine/types';
+} from '../../../src/operations/validators';
+import { Void, Face, PanelPath, FaceId } from '../../../src/types';
+import { Axis } from '../../../src/engine/types';
 
 // =============================================================================
 // Test Fixtures
@@ -744,7 +744,7 @@ describe('validateSelection (unified)', () => {
 import {
   getExistingSubdivisions,
   checkSubdivisionModificationImpact,
-} from './validators';
+} from '../../../src/operations/validators';
 
 describe('getExistingSubdivisions', () => {
   it('returns empty info for leaf void (no subdivisions)', () => {

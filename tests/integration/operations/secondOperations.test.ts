@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createEngineWithAssembly } from '../Engine';
+import { createEngineWithAssembly } from '../../../src/engine/Engine';
 
 // Standard test material config
 const testMaterial = { thickness: 3, fingerWidth: 10, fingerGap: 1.5 };

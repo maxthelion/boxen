@@ -4,8 +4,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { serializeProject, deserializeProject, ProjectState } from './urlState';
-import { BoxConfig, Face, Void, SubAssembly } from '../types';
+import { serializeProject, deserializeProject, ProjectState } from '../../../src/utils/urlState';
+import { BoxConfig, Face, Void, SubAssembly } from '../../../src/types';
 
 // Helper to create a basic config
 const createBasicConfig = (overrides?: Partial<BoxConfig>): BoxConfig => ({
@@ -643,7 +643,7 @@ describe('Serialization Roundtrip', () => {
 describe('URL Loading Integration', () => {
   it('should load subdivided project from URL and have subdivisions in engine', async () => {
     // This tests the full roundtrip: serialize -> deserialize -> engine has correct state
-    const { resetEngine, syncStoreToEngine, getEngine } = await import('../engine');
+    const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
 
     // Reset engine to simulate fresh page load
     resetEngine();
@@ -714,7 +714,7 @@ describe('URL Loading Integration', () => {
   });
 
   it('should load grid subdivision from URL and have grid in engine', async () => {
-    const { resetEngine, syncStoreToEngine, getEngine } = await import('../engine');
+    const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
 
     // Reset engine to simulate fresh page load
     resetEngine();

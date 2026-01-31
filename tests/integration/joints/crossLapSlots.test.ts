@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createEngine, Engine } from '../Engine';
+import { createEngine, Engine } from '../../../src/engine/Engine';
 
 describe('Cross-Lap Slots', () => {
   let engine: Engine;

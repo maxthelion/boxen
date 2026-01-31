@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { AssemblyNode } from './AssemblyNode';
-import { MaterialConfig } from '../types';
+import { AssemblyNode } from '../../../src/engine/nodes/AssemblyNode';
+import { MaterialConfig } from '../../../src/engine/types';
 
 describe('BaseAssembly', () => {
   describe('Finger Parameter Validation', () => {

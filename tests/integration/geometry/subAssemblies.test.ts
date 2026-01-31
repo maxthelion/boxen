@@ -13,14 +13,14 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { useBoxStore } from '../store/useBoxStore';
+import { useBoxStore } from '../../../src/store/useBoxStore';
 import {
   getEngine,
   syncStoreToEngine,
   resetEngine,
-} from '../engine';
-import { defaultAssemblyConfig } from '../types';
-import { INITIAL_OPERATION_STATE } from '../operations/types';
+} from '../../../src/engine';
+import { defaultAssemblyConfig } from '../../../src/types';
+import { INITIAL_OPERATION_STATE } from '../../../src/operations/types';
 
 // ==========================================================================
 // Test Setup

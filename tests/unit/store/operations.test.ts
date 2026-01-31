@@ -9,19 +9,19 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { useBoxStore } from './useBoxStore';
+import { useBoxStore } from '../../../src/store/useBoxStore';
 import {
   getEngine,
   syncStoreToEngine,
   dispatchToEngine,
-} from '../engine';
+} from '../../../src/engine';
 import {
   OPERATION_DEFINITIONS,
   operationHasPreview,
   getOperationsByType,
-} from '../operations/registry';
-import { OperationId, INITIAL_OPERATION_STATE } from '../operations/types';
-import { defaultAssemblyConfig } from '../types';
+} from '../../../src/operations/registry';
+import { OperationId, INITIAL_OPERATION_STATE } from '../../../src/operations/types';
+import { defaultAssemblyConfig } from '../../../src/types';
 
 // ==========================================================================
 // Test Setup

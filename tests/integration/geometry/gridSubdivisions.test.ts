@@ -4,10 +4,10 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidNode } from './VoidNode';
-import { AssemblyNode } from './AssemblyNode';
-import { Engine, createEngineWithAssembly } from '../Engine';
-import { MaterialConfig, Bounds3D } from '../types';
+import { VoidNode } from '../../../src/engine/nodes/VoidNode';
+import { AssemblyNode } from '../../../src/engine/nodes/AssemblyNode';
+import { Engine, createEngineWithAssembly } from '../../../src/engine/Engine';
+import { MaterialConfig, Bounds3D } from '../../../src/engine/types';
 
 const defaultMaterial: MaterialConfig = {
   thickness: 3,
