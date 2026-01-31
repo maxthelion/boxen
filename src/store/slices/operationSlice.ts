@@ -2,6 +2,10 @@ import { StateCreator } from 'zustand';
 import { OperationId, OperationState, INITIAL_OPERATION_STATE, BoxConfig, Face, Void } from '../../types';
 import { getOperation, operationHasPreview } from '../../operations';
 import { getEngine, getEngineSnapshot, notifyEngineStateChanged } from '../../engine';
+import { debug, enableDebugTag } from '../../utils/debug';
+
+// Enable push-pull debugging
+// enableDebugTag('push-pull');  // Disabled
 
 // =============================================================================
 // Operation Slice - Unified operation system for model modifications
@@ -26,6 +30,23 @@ type FullStoreState = OperationSlice & {
   selectedPanelIds: Set<string>;
   panelsDirty?: boolean;
 };
+
+// Helper to find sub-assembly in a snapshot for debugging
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function findSubAssemblyInSnapshot(snapshot: any): any {
+  const findSubAsm = (children: any[]): any => {
+    for (const child of children || []) {
+      if (child.kind === 'sub-assembly') return child;
+      if (child.children) {
+        const found = findSubAsm(child.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  const mainAssembly = snapshot.children?.[0];
+  return mainAssembly ? findSubAsm(mainAssembly.children) : null;
+}
 
 export const createOperationSlice: StateCreator<
   FullStoreState,
@@ -74,6 +95,26 @@ export const createOperationSlice: StateCreator<
 
         // Find the target assembly - either main assembly or a sub-assembly
         let targetAssembly = snapshot.children?.[0]; // Default to main assembly
+
+        // DEBUG: Log dimensions from engine snapshot
+        const debugInfo = {
+          hasPreview: engine.hasPreview(),
+          assemblyId,
+          offset: newParams.offset,
+          faceId: newParams.faceId,
+          mainAssemblyDims: snapshot.children?.[0]?.props ? {
+            w: snapshot.children[0].props.width,
+            h: snapshot.children[0].props.height,
+            d: snapshot.children[0].props.depth,
+          } : null,
+          targetAssemblyDims: targetAssembly?.props ? {
+            w: targetAssembly.props.width,
+            h: targetAssembly.props.height,
+            d: targetAssembly.props.depth,
+            positionOffset: targetAssembly.props.positionOffset,
+          } : null,
+        };
+        debug('push-pull', `updateOperationParams: ${JSON.stringify(debugInfo, null, 2)}`);
 
         if (assemblyId && assemblyId !== 'main-assembly' && targetAssembly) {
           // Look for sub-assembly in the void tree
@@ -144,7 +185,18 @@ export const createOperationSlice: StateCreator<
       // For parameter operations, commit the preview
       if (operationHasPreview(activeOperation)) {
         const engine = getEngine();
+
+        // DEBUG: Log dimensions before commit
+        const preCommitSnapshot = engine.getSnapshot();
+        const preSubAsm = findSubAssemblyInSnapshot(preCommitSnapshot);
+        debug('push-pull', `applyOperation BEFORE commit: mainW=${preCommitSnapshot.children?.[0]?.props?.width}, subAsmW=${preSubAsm?.props?.width}, subAsmOffset=${JSON.stringify(preSubAsm?.props?.positionOffset)}`);
+
         engine.commitPreview();
+
+        // DEBUG: Log dimensions after commit
+        const postCommitSnapshot = engine.getSnapshot();
+        const postSubAsm = findSubAssemblyInSnapshot(postCommitSnapshot);
+        debug('push-pull', `applyOperation AFTER commit: mainW=${postCommitSnapshot.children?.[0]?.props?.width}, subAsmW=${postSubAsm?.props?.width}, subAsmOffset=${JSON.stringify(postSubAsm?.props?.positionOffset)}`);
 
         // Sync engine state back to store so future operations use the committed state
         const engineSnapshot = getEngineSnapshot();

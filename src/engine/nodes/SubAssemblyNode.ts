@@ -202,6 +202,11 @@ export class SubAssemblyNode extends BaseAssembly {
     // Copy base assembly properties
     this.copyBasePropertiesTo(cloned);
 
+    // Copy dimensions (constructor calculates from void bounds, but we want the actual dimensions)
+    cloned._width = this._width;
+    cloned._height = this._height;
+    cloned._depth = this._depth;
+
     // Copy position offset
     cloned._positionOffset = { ...this._positionOffset };
 

@@ -49,7 +49,7 @@ function getPanelEligibility(
 
 // Enable debug tags for debugging
 // enableDebugTag('selection');  // Disabled - too verbose
-enableDebugTag('slot-geometry');
+// enableDebugTag('slot-geometry');  // Disabled
 
 interface PanelPathRendererProps {
   panel: PanelPath;
