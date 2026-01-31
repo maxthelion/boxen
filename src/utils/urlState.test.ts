@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { serializeProject, deserializeProject, ProjectState } from './urlState';
-import { BoxConfig, Face, Void, SubAssembly, EdgeExtensions } from '../types';
+import { BoxConfig, Face, Void, SubAssembly } from '../types';
 
 // Helper to create a basic config
 const createBasicConfig = (overrides?: Partial<BoxConfig>): BoxConfig => ({

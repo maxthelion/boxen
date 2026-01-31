@@ -1,4 +1,4 @@
-import { BoxConfig, Face, Void, AssemblyConfig, defaultAssemblyConfig, EdgeExtensions, defaultEdgeExtensions, SubAssembly, FaceOffsets, defaultFaceOffsets } from '../types';
+import { BoxConfig, Face, Void, AssemblyConfig, defaultAssemblyConfig, EdgeExtensions, SubAssembly, FaceOffsets, defaultFaceOffsets } from '../types';
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
 
 // Compact serialization format for URL storage
