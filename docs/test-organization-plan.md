@@ -6,7 +6,7 @@ Tests are scattered across the codebase:
 - `src/utils/*.test.ts` - Utility function tests
 - `src/engine/nodes/*.test.ts` - Engine node tests
 - `src/engine/integration/*.test.ts` - Some integration tests
-- `src/engine/validators/*.test.ts` - Validator tests
+- `src/engine/validators/*.ts` - Validator modules (not tests)
 - `src/store/*.test.ts` - Store and operation tests
 - `src/engine/subAssembly.integration.test.ts` - Inconsistent naming
 
@@ -19,6 +19,14 @@ This makes it difficult to:
 
 ```
 tests/
+├── validators/              # Validator modules (used by integration tests)
+│   ├── index.ts             # Re-exports all validators
+│   ├── GeometryValidator.ts # Validates 3D geometry (positions, dimensions)
+│   ├── PathValidator.ts     # Validates 2D paths (axis-aligned, no diagonals)
+│   ├── JointValidator.ts    # Validates finger joints and slots
+│   ├── EventValidator.ts    # Validates event source recording
+│   └── SelectionValidator.ts # Validates selection eligibility
+│
 ├── unit/                    # Fast, isolated tests
 │   ├── utils/
 │   │   ├── fingerJoints.test.ts
@@ -32,21 +40,26 @@ tests/
 │   │   ├── BasePanel.test.ts
 │   │   ├── BaseAssembly.test.ts
 │   │   └── geometryChecker.test.ts
-│   ├── validators/
-│   │   ├── EdgeExtensionChecker.test.ts
-│   │   └── PathChecker.test.ts
-│   ├── store/
-│   │   ├── useBoxStore.test.ts
-│   │   └── operations.test.ts
-│   └── operations/
-│       └── validators.test.ts
+│   └── store/
+│       ├── useBoxStore.test.ts
+│       └── slices.test.ts
 │
 ├── integration/             # Tests that exercise multiple systems together
-│   ├── geometry/            # Geometry validation after operations
+│   ├── operations/          # Operation-specific integration tests
+│   │   ├── _template.test.ts       # Template with required test structure
+│   │   ├── pushPull.test.ts
+│   │   ├── subdivide.test.ts
+│   │   ├── subdivideGrid.test.ts
+│   │   ├── insetOutset.test.ts
+│   │   ├── cornerFillet.test.ts
+│   │   ├── move.test.ts
+│   │   ├── createSubAssembly.test.ts
+│   │   ├── configure.test.ts
+│   │   └── scale.test.ts
+│   ├── geometry/            # Cross-cutting geometry validation
 │   │   ├── subdivisions.test.ts
 │   │   ├── gridSubdivisions.test.ts
 │   │   ├── subAssemblies.test.ts
-│   │   ├── edgeExtensions.test.ts
 │   │   └── comprehensive.test.ts
 │   ├── serialization/       # Roundtrip tests
 │   │   └── urlState.test.ts
@@ -58,7 +71,301 @@ tests/
     ├── createEngine.ts      # Engine setup helpers
     ├── createProject.ts     # ProjectState factories
     ├── materials.ts         # Default material configs
-    └── assertions.ts        # Custom matchers (compareVoids, etc.)
+    └── assertions.ts        # Custom matchers
+```
+
+## Validators (`tests/validators/`)
+
+Validators are modules (not tests) that perform specific validation checks. They are primarily used by integration tests to validate operation outputs.
+
+```typescript
+// tests/validators/index.ts
+export { GeometryValidator } from './GeometryValidator';
+export { PathValidator } from './PathValidator';
+export { JointValidator } from './JointValidator';
+export { EventValidator } from './EventValidator';
+export { SelectionValidator } from './SelectionValidator';
+
+// Convenience function to run all validators
+export function validateOperation(
+  engine: Engine,
+  options?: ValidationOptions
+): ValidationResult {
+  const results: ValidationResult[] = [];
+
+  results.push(GeometryValidator.validate(engine));
+  results.push(PathValidator.validate(engine));
+  results.push(JointValidator.validate(engine));
+
+  if (options?.checkEvents) {
+    results.push(EventValidator.validate(engine));
+  }
+
+  return mergeResults(results);
+}
+```
+
+### Validator Responsibilities
+
+| Validator | What It Checks |
+|-----------|----------------|
+| `GeometryValidator` | Void bounds, panel dimensions, 3D positions, relative sizes |
+| `PathValidator` | Axis-aligned segments, no diagonals, minimum points, no duplicates |
+| `JointValidator` | Finger point alignment, slot positions, cross-lap joints |
+| `EventValidator` | Actions recorded to event source, replay consistency |
+| `SelectionValidator` | Only expected object types can be selected for operation |
+
+## Operation Integration Tests
+
+Each operation must have a comprehensive integration test in `tests/integration/operations/`. These tests follow a standard pattern.
+
+### Required Test Structure
+
+```typescript
+// tests/integration/operations/_template.test.ts
+/**
+ * OPERATION INTEGRATION TEST TEMPLATE
+ *
+ * Copy this file when creating tests for a new operation.
+ * All sections marked [REQUIRED] must be implemented.
+ *
+ * The tests verify:
+ * 1. Geometry validation - all output objects have valid geometry
+ * 2. Path validation - all 2D paths are axis-aligned with no diagonals
+ * 3. Event recording - actions are properly recorded for undo/redo
+ * 4. Preview behavior - preview shows expected changes
+ * 5. Apply behavior - changes are committed correctly
+ * 6. Cancel behavior - changes are discarded, state reverts
+ * 7. Selection eligibility - only valid objects can be selected
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { Engine, createEngineWithAssembly } from '../../../src/engine';
+import { useBoxStore } from '../../../src/store/useBoxStore';
+import {
+  validateOperation,
+  GeometryValidator,
+  PathValidator,
+  EventValidator,
+  SelectionValidator,
+} from '../../validators';
+import { defaultMaterial, createBasicBox } from '../../fixtures/createEngine';
+
+describe('[OPERATION_NAME] Operation', () => {
+  let engine: Engine;
+
+  beforeEach(() => {
+    engine = createBasicBox();
+    useBoxStore.getState().reset?.();
+  });
+
+  // =========================================================================
+  // [REQUIRED] Section 1: Geometry Validation
+  // =========================================================================
+  describe('Geometry Validation', () => {
+    it('should produce valid geometry after operation', () => {
+      // Perform the operation
+      engine.dispatch({
+        type: 'OPERATION_ACTION',
+        targetId: 'main-assembly',
+        payload: { /* ... */ },
+      });
+
+      // Validate geometry
+      const result = GeometryValidator.validate(engine);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should maintain valid geometry with edge cases', () => {
+      // Test minimum values, maximum values, boundary conditions
+    });
+  });
+
+  // =========================================================================
+  // [REQUIRED] Section 2: Path Validation
+  // =========================================================================
+  describe('Path Validation', () => {
+    it('should produce axis-aligned paths with no diagonal segments', () => {
+      // Perform operation
+      engine.dispatch({ /* ... */ });
+
+      // Validate paths
+      const result = PathValidator.validate(engine);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should have no degenerate paths (too few points, duplicates)', () => {
+      // Check path integrity
+    });
+  });
+
+  // =========================================================================
+  // [REQUIRED] Section 3: Event Recording
+  // =========================================================================
+  describe('Event Recording', () => {
+    it('should record action to event source', () => {
+      engine.dispatch({ /* ... */ });
+
+      const events = engine.getEventHistory();
+      expect(events).toContainEqual(
+        expect.objectContaining({ type: 'OPERATION_ACTION' })
+      );
+    });
+
+    it('should be replayable from event history', () => {
+      // Create fresh engine
+      // Replay events
+      // Compare state
+    });
+  });
+
+  // =========================================================================
+  // [REQUIRED] Section 4: Preview Behavior
+  // =========================================================================
+  describe('Preview Behavior', () => {
+    it('should create preview when operation starts', () => {
+      useBoxStore.getState().startOperation('operation-id');
+
+      expect(engine.hasPreview()).toBe(true);
+    });
+
+    it('should update preview when parameters change', () => {
+      useBoxStore.getState().startOperation('operation-id');
+      useBoxStore.getState().updateOperationParams({ param: 10 });
+
+      // Verify preview reflects new parameters
+      const previewPanels = engine.getPreviewPanels();
+      // Assert expected changes in preview
+    });
+
+    it('should not affect committed state during preview', () => {
+      const originalState = engine.getSnapshot();
+
+      useBoxStore.getState().startOperation('operation-id');
+      useBoxStore.getState().updateOperationParams({ param: 10 });
+
+      // Main scene should be unchanged
+      expect(engine.getMainScene()).toEqual(originalState);
+    });
+  });
+
+  // =========================================================================
+  // [REQUIRED] Section 5: Apply Behavior
+  // =========================================================================
+  describe('Apply Behavior', () => {
+    it('should commit changes when applied', () => {
+      useBoxStore.getState().startOperation('operation-id');
+      useBoxStore.getState().updateOperationParams({ param: 10 });
+      useBoxStore.getState().applyOperation();
+
+      // Verify changes are committed
+      expect(engine.hasPreview()).toBe(false);
+      // Assert expected changes in main scene
+    });
+
+    it('should clear operation state after apply', () => {
+      useBoxStore.getState().startOperation('operation-id');
+      useBoxStore.getState().applyOperation();
+
+      const state = useBoxStore.getState().operationState;
+      expect(state.activeOperation).toBeNull();
+      expect(state.phase).toBe('idle');
+    });
+
+    it('should pass full validation after apply', () => {
+      useBoxStore.getState().startOperation('operation-id');
+      useBoxStore.getState().updateOperationParams({ param: 10 });
+      useBoxStore.getState().applyOperation();
+
+      const result = validateOperation(engine);
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  // =========================================================================
+  // [REQUIRED] Section 6: Cancel Behavior
+  // =========================================================================
+  describe('Cancel Behavior', () => {
+    it('should discard preview when cancelled', () => {
+      const originalState = engine.getSnapshot();
+
+      useBoxStore.getState().startOperation('operation-id');
+      useBoxStore.getState().updateOperationParams({ param: 10 });
+      useBoxStore.getState().cancelOperation();
+
+      expect(engine.hasPreview()).toBe(false);
+      expect(engine.getSnapshot()).toEqual(originalState);
+    });
+
+    it('should reset operation state after cancel', () => {
+      useBoxStore.getState().startOperation('operation-id');
+      useBoxStore.getState().cancelOperation();
+
+      const state = useBoxStore.getState().operationState;
+      expect(state.activeOperation).toBeNull();
+      expect(state.phase).toBe('idle');
+    });
+  });
+
+  // =========================================================================
+  // [REQUIRED] Section 7: Selection Eligibility
+  // =========================================================================
+  describe('Selection Eligibility', () => {
+    it('should only accept valid selection types', () => {
+      // For panel operations: verify only panels can be selected
+      // For void operations: verify only voids can be selected
+      // For edge operations: verify only edges can be selected
+      // etc.
+    });
+
+    it('should reject ineligible objects', () => {
+      // Test that wrong object types cannot be selected
+      // E.g., for move: face panels should be rejected
+      // E.g., for push-pull: divider panels should be rejected
+    });
+
+    it('should respect selection count limits', () => {
+      // Test minSelection and maxSelection from operation definition
+    });
+  });
+
+  // =========================================================================
+  // [OPTIONAL] Operation-Specific Tests
+  // =========================================================================
+  describe('Operation-Specific Behavior', () => {
+    // Add tests specific to this operation's unique behavior
+    // E.g., for subdivide: test multiple axes, grid creation
+    // E.g., for fillet: test radius constraints, corner eligibility
+  });
+});
+```
+
+### Example: Inset/Outset Operation Test
+
+```typescript
+// tests/integration/operations/insetOutset.test.ts
+describe('Inset/Outset Operation', () => {
+  // ... standard sections from template ...
+
+  describe('Operation-Specific Behavior', () => {
+    it('should only allow extending unlocked edges', () => {
+      // Male edges (locked) cannot be extended
+    });
+
+    it('should allow outward-only extension on female edges', () => {
+      // Female edges can extend outward, not inward
+    });
+
+    it('should allow bidirectional extension on open edges', () => {
+      // Open face edges can extend or retract
+    });
+
+    it('should create proper edge extension geometry', () => {
+      // Verify extension adds to panel outline correctly
+    });
+  });
+});
 ```
 
 ## Test Categories
@@ -73,27 +380,13 @@ Fast, isolated tests that test a single function or class in isolation.
 - Run in milliseconds
 - Test edge cases and error conditions
 
-**Example:**
-```typescript
-// tests/unit/utils/fingerPoints.test.ts
-describe('computeFingerPoints', () => {
-  it('should generate correct number of points', () => {
-    const points = computeFingerPoints(100, 10, 1.5);
-    expect(points.length).toBeGreaterThan(0);
-  });
-});
-```
-
 ### Integration Tests (`tests/integration/`)
 
-Tests that exercise multiple systems together, typically:
-1. Set up a scene with the engine
-2. Perform operations
-3. Validate the resulting geometry/state
+Tests that exercise multiple systems together.
 
 **Characteristics:**
 - Test realistic scenarios
-- Use the geometry checker to validate output
+- Use validators to check output
 - May be slower than unit tests
 - Test that systems work together correctly
 
@@ -102,30 +395,25 @@ Tests that exercise multiple systems together, typically:
 For integration tests that need to validate multiple aspects of the same output:
 
 ```typescript
-// tests/integration/geometry/subdivisions.test.ts
-import { createEngineWithAssembly, defaultMaterial } from '../../fixtures/createEngine';
-import { checkEngineGeometry } from '../../../src/engine/geometryChecker';
-
 describe('X-axis subdivision geometry', () => {
   let engine: Engine;
   let panels: PanelSnapshot[];
-  let geometryResult: GeometryCheckResult;
+  let validationResult: ValidationResult;
 
   beforeAll(() => {
     // Setup once - expensive operation
-    engine = createEngineWithAssembly(100, 80, 60, defaultMaterial);
+    engine = createBasicBox();
     engine.dispatch({
       type: 'ADD_SUBDIVISION',
       targetId: 'main-assembly',
       payload: { voidId: 'root', axis: 'x', position: 50 },
     });
     panels = engine.generatePanelsFromNodes();
-    geometryResult = checkEngineGeometry(engine);
+    validationResult = validateOperation(engine);
   });
 
-  // Test many aspects of the same setup
-  it('should pass geometry validation', () => {
-    expect(geometryResult.valid).toBe(true);
+  it('should pass all validations', () => {
+    expect(validationResult.valid).toBe(true);
   });
 
   it('should create a divider panel', () => {
@@ -133,84 +421,8 @@ describe('X-axis subdivision geometry', () => {
     expect(divider).toBeDefined();
   });
 
-  it('should have correct divider dimensions', () => {
-    const divider = panels.find(p => p.kind === 'divider-panel');
-    expect(divider!.derived.width).toBeCloseTo(54, 1);
-  });
-
-  it('should create two child voids', () => {
-    const assembly = engine.assembly;
-    expect(assembly?.rootVoid.getVoidChildren().length).toBe(2);
-  });
-
-  it('should create finger joints on divider edges', () => {
-    const divider = panels.find(p => p.kind === 'divider-panel');
-    // Check outline has finger joint pattern...
-  });
+  // ... more tests using the same setup
 });
-```
-
-### Fixtures (`tests/fixtures/`)
-
-Shared helpers to reduce duplication across tests.
-
-```typescript
-// tests/fixtures/createEngine.ts
-import { Engine, createEngineWithAssembly } from '../../src/engine';
-import { MaterialConfig } from '../../src/engine/types';
-
-export const defaultMaterial: MaterialConfig = {
-  thickness: 3,
-  fingerWidth: 10,
-  fingerGap: 1.5,
-};
-
-export const thinMaterial: MaterialConfig = {
-  thickness: 1.5,
-  fingerWidth: 6,
-  fingerGap: 1,
-};
-
-export function createBasicBox(
-  width = 100,
-  height = 80,
-  depth = 60,
-  material = defaultMaterial
-): Engine {
-  return createEngineWithAssembly(width, height, depth, material);
-}
-
-export function createSubdividedBox(
-  axis: 'x' | 'y' | 'z',
-  position: number
-): Engine {
-  const engine = createBasicBox();
-  engine.dispatch({
-    type: 'ADD_SUBDIVISION',
-    targetId: 'main-assembly',
-    payload: { voidId: 'root', axis, position },
-  });
-  return engine;
-}
-```
-
-```typescript
-// tests/fixtures/assertions.ts
-import { Void } from '../../src/types';
-
-export function compareVoids(a: Void, b: Void, path = 'root'): void {
-  expect(a.id, `${path}.id`).toBe(b.id);
-  expect(a.bounds.x, `${path}.bounds.x`).toBeCloseTo(b.bounds.x, 2);
-  // ... rest of comparison
-}
-
-export function expectValidGeometry(engine: Engine): void {
-  const result = checkEngineGeometry(engine);
-  if (!result.valid) {
-    console.error('Geometry errors:', result.errors);
-  }
-  expect(result.valid).toBe(true);
-}
 ```
 
 ## Migration Plan
@@ -218,79 +430,30 @@ export function expectValidGeometry(engine: Engine): void {
 ### Phase 1: Create Structure
 
 1. Create `tests/` directory with subdirectories
-2. Create `tests/fixtures/` with shared helpers
-3. Update `vitest.config.ts`:
-   ```typescript
-   import { defineConfig } from 'vitest/config';
+2. Move validators from `src/engine/validators/` to `tests/validators/`
+3. Create `tests/fixtures/` with shared helpers
+4. Update `vitest.config.ts`
 
-   export default defineConfig({
-     test: {
-       globals: true,
-       environment: 'node',
-       include: ['tests/**/*.test.ts'],
-     },
-   });
-   ```
+### Phase 2: Create Operation Test Template
 
-### Phase 2: Move Unit Tests
+1. Create `tests/integration/operations/_template.test.ts`
+2. Document required sections with comments
+3. Create first operation test using template
 
-Move tests that don't require complex setup:
+### Phase 3: Move and Reorganize Tests
 
 | From | To |
 |------|-----|
-| `src/utils/fingerJointsV2.test.ts` | `tests/unit/utils/fingerJoints.test.ts` |
-| `src/utils/fingerPoints.test.ts` | `tests/unit/utils/fingerPoints.test.ts` |
-| `src/utils/genderRules.test.ts` | `tests/unit/utils/genderRules.test.ts` |
-| `src/utils/editableAreas.test.ts` | `tests/unit/utils/editableAreas.test.ts` |
-| `src/utils/panelGenerator.test.ts` | `tests/unit/utils/panelGenerator.test.ts` |
-| `src/utils/edgeMating.test.ts` | `tests/unit/utils/edgeMating.test.ts` |
-| `src/utils/pathValidation.test.ts` | `tests/unit/utils/pathValidation.test.ts` |
-| `src/engine/nodes/BasePanel.test.ts` | `tests/unit/engine/BasePanel.test.ts` |
-| `src/engine/nodes/BaseAssembly.test.ts` | `tests/unit/engine/BaseAssembly.test.ts` |
-| `src/engine/geometryChecker.test.ts` | `tests/unit/engine/geometryChecker.test.ts` |
-| `src/engine/validators/EdgeExtensionChecker.test.ts` | `tests/unit/validators/EdgeExtensionChecker.test.ts` |
-| `src/engine/validators/PathChecker.test.ts` | `tests/unit/validators/PathChecker.test.ts` |
-| `src/store/useBoxStore.test.ts` | `tests/unit/store/useBoxStore.test.ts` |
-| `src/store/operations.test.ts` | `tests/unit/store/operations.test.ts` |
-| `src/operations/validators.test.ts` | `tests/unit/operations/validators.test.ts` |
+| `src/engine/validators/*.ts` | `tests/validators/` |
+| `src/utils/*.test.ts` | `tests/unit/utils/` |
+| `src/engine/nodes/*.test.ts` | `tests/unit/engine/` |
+| `src/store/*.test.ts` | `tests/unit/store/` |
+| `src/engine/integration/*.test.ts` | `tests/integration/geometry/` |
+| Operation-related tests | `tests/integration/operations/` |
 
-### Phase 3: Move Integration Tests
+### Phase 4: Implement Missing Operation Tests
 
-Move and consolidate integration tests:
-
-| From | To |
-|------|-----|
-| `src/engine/integration/jointMating.test.ts` | `tests/integration/joints/fingerMating.test.ts` |
-| `src/engine/integration/comprehensiveGeometry.test.ts` | `tests/integration/geometry/comprehensive.test.ts` |
-| `src/engine/integration/voidBoundsDiagnostic.test.ts` | `tests/integration/geometry/voidBounds.test.ts` |
-| `src/engine/subAssembly.integration.test.ts` | `tests/integration/geometry/subAssemblies.test.ts` |
-| `src/engine/nodes/gridSubdivision.test.ts` | `tests/integration/geometry/gridSubdivisions.test.ts` |
-| `src/engine/nodes/crossLapSlots.test.ts` | `tests/integration/joints/crossLapSlots.test.ts` |
-| `src/utils/urlState.test.ts` | `tests/integration/serialization/urlState.test.ts` |
-
-### Phase 4: Extract Fixtures
-
-1. Identify duplicated setup code across tests
-2. Extract to `tests/fixtures/`
-3. Update imports in test files
-
-### Phase 5: Update Imports
-
-After moving files, update all import paths. Since tests are now outside `src/`, imports will look like:
-
-```typescript
-// Before (co-located)
-import { computeFingerPoints } from './fingerPoints';
-
-// After (centralized)
-import { computeFingerPoints } from '../../src/utils/fingerPoints';
-```
-
-## Naming Conventions
-
-- **Unit tests**: `{module}.test.ts`
-- **Integration tests**: `{feature}.test.ts`
-- **Fixtures**: `{purpose}.ts` (no `.test` suffix)
+For each operation in `src/operations/registry.ts`, ensure there's a corresponding test file in `tests/integration/operations/` that follows the template.
 
 ## Running Tests
 
@@ -304,18 +467,35 @@ npm run test:run -- tests/unit
 # Run only integration tests
 npm run test:run -- tests/integration
 
-# Run specific test file
-npm run test:run -- tests/integration/geometry/subdivisions.test.ts
+# Run only operation tests
+npm run test:run -- tests/integration/operations
+
+# Run specific operation test
+npm run test:run -- tests/integration/operations/insetOutset.test.ts
 
 # Run tests in watch mode
 npm run test
 ```
 
-## Guidelines for New Tests
+## Guidelines for New Operations
 
-1. **Unit tests** go in `tests/unit/{category}/`
-2. **Integration tests** go in `tests/integration/{feature}/`
-3. **Always use fixtures** for common setup (don't duplicate `createEngineWithAssembly` calls)
-4. **Integration tests must run geometry checker** to validate output
-5. **Use `beforeAll`** for expensive setup that multiple tests share
-6. **Keep unit tests fast** - mock external dependencies if needed
+When adding a new operation:
+
+1. **Add operation definition** in `src/operations/registry.ts`
+2. **Create test file** by copying `tests/integration/operations/_template.test.ts`
+3. **Implement all required sections** (marked `[REQUIRED]` in template)
+4. **Add operation-specific tests** for unique behavior
+5. **Run full test suite** to ensure no regressions
+
+## Validation Checklist
+
+Before merging any operation, verify:
+
+- [ ] All 7 required test sections are implemented
+- [ ] Geometry validation passes
+- [ ] Path validation passes (no diagonals)
+- [ ] Event recording works
+- [ ] Preview creates/updates correctly
+- [ ] Apply commits changes
+- [ ] Cancel reverts state
+- [ ] Only valid objects can be selected

@@ -19,5 +19,5 @@
 | [second-operations-plan.md](second-operations-plan.md) | in-progress | Second operation behavior (delta vs absolute modes) |
 | [subdivide-edit-mode-plan.md](subdivide-edit-mode-plan.md) | complete | Subdivision editing workflow |
 | [template-edge-extensions-plan.md](template-edge-extensions-plan.md) | draft | Template-based edge extensions |
-| [test-organization-plan.md](test-organization-plan.md) | complete | Test file organization |
+| [test-organization-plan.md](test-organization-plan.md) | in-progress | Test file organization and operation test template |
 | [uuid-migration-plan.md](uuid-migration-plan.md) | complete | Migration from deterministic IDs to UUIDs |
