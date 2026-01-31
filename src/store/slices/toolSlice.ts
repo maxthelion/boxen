@@ -17,7 +17,7 @@ export interface ToolSlice {
   selectCorner: (cornerId: string, addToSelection?: boolean) => void;
   selectCorners: (cornerIds: string[]) => void;
   clearCornerSelection: () => void;
-  selectPanelCorners: (panelId: string, cornerEligibility: CornerEligibility[]) => void;
+  selectPanelCorners: (panelId: string, cornerEligibility: CornerEligibility[], additive?: boolean) => void;
   setHoveredCorner: (cornerId: string | null) => void;
 }
 
@@ -58,16 +58,31 @@ export const createToolSlice: StateCreator<ToolSlice, [], [], ToolSlice> = (set)
     set({ selectedCornerIds: new Set<string>() }),
 
   // Select all eligible corners for a panel (for fillet tool)
-  selectPanelCorners: (panelId: string, cornerEligibility: CornerEligibility[]) =>
+  selectPanelCorners: (panelId: string, cornerEligibility: CornerEligibility[], additive = false) =>
     set((state) => {
       // Only add eligible corners to the selection
       const eligibleCornerKeys = cornerEligibility
         .filter(e => e.eligible)
         .map(e => `${panelId}:${e.corner}`);
 
-      // Add to existing selection
-      const newSet = new Set([...state.selectedCornerIds, ...eligibleCornerKeys]);
-      return { selectedCornerIds: newSet };
+      if (additive) {
+        // Shift-click: Check if this panel's corners are already selected - if so, deselect them
+        const panelCornersSelected = eligibleCornerKeys.every(key => state.selectedCornerIds.has(key));
+        if (panelCornersSelected && eligibleCornerKeys.length > 0) {
+          // Toggle off - remove this panel's corners
+          const newSet = new Set(state.selectedCornerIds);
+          for (const key of eligibleCornerKeys) {
+            newSet.delete(key);
+          }
+          return { selectedCornerIds: newSet };
+        }
+        // Add to existing selection
+        const newSet = new Set([...state.selectedCornerIds, ...eligibleCornerKeys]);
+        return { selectedCornerIds: newSet };
+      }
+
+      // Non-additive: Replace selection with this panel's corners
+      return { selectedCornerIds: new Set(eligibleCornerKeys) };
     }),
 
   setHoveredCorner: (cornerId: string | null) =>

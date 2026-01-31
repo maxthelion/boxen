@@ -356,12 +356,12 @@ export interface BoxActions {
   selectCorners: (cornerIds: string[]) => void;
   clearCornerSelection: () => void;
   setHoveredCorner: (cornerId: string | null) => void;
-  selectPanelCorners: (panelId: string, cornerEligibility: import('./engine/types').CornerEligibility[]) => void;
+  selectPanelCorners: (panelId: string, cornerEligibility: import('./engine/types').CornerEligibility[], additive?: boolean) => void;
   // Edge selection actions (for inset/outset tool)
   selectEdge: (panelId: string, edge: EdgePosition, additive?: boolean) => void;
   deselectEdge: (panelId: string, edge: EdgePosition) => void;
   clearEdgeSelection: () => void;
-  selectPanelEdges: (panelId: string, edgeStatuses: EdgeStatusInfo[]) => void;
+  selectPanelEdges: (panelId: string, edgeStatuses: EdgeStatusInfo[], additive?: boolean) => void;
   setHoveredEdge: (panelId: string | null, edge: EdgePosition | null) => void;
   // Operation actions - unified operation system
   startOperation: (operationId: OperationId) => void;

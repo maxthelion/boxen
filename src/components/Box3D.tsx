@@ -11,7 +11,7 @@ import { AssemblyAxisIndicator, LidFaceHighlight } from './AssemblyAxisIndicator
 import { PanelToggleOverlay } from './PanelToggleOverlay';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
-import { getSelectionBehaviorForTool } from '../operations/registry';
+import { getSelectionBehaviorForTool, getOperationForTool, getOperation } from '../operations/registry';
 import * as THREE from 'three';
 
 export interface PushPullCallbacks {
@@ -36,7 +36,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
-  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectedEdges, selectPanel, selectAssembly, selectPanelEdges, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
+  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectedEdges, selectedCornerIds, selectPanel, selectAssembly, selectPanelEdges, selectPanelCorners, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
 
   // Compute visually selected panels (includes cascade from assembly selection)
   const allPanelIds = panelCollection?.panels.map(p => p.id) ?? [];
@@ -162,18 +162,39 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
           scale={scale}
           selectedPanelIds={selectedPanelIds}
           onPanelClick={(selectionMode === 'panel' || selectionMode === null) ? (panelId, e) => {
-            // Check if active tool needs selection expansion (panel → edges)
-            const behavior = getSelectionBehaviorForTool(activeTool, 'panel', selectedEdges.size);
-            if (behavior === 'expand') {
-              // Panel clicked, but tool's operation needs edges - expand to panel's edges
-              const panel = panelCollection.panels.find(p => p.id === panelId);
-              if (panel?.edgeStatuses) {
-                selectPanelEdges(panelId, panel.edgeStatuses);
-                return;
+            const isShiftClick = e?.shiftKey ?? false;
+            // Check if active tool needs selection expansion (panel → edges or corners)
+            const operationId = getOperationForTool(activeTool);
+            if (operationId) {
+              const operation = getOperation(operationId);
+              const selectionType = operation.selectionType;
+
+              // Edge expansion (inset tool)
+              if (selectionType === 'edge') {
+                const behavior = getSelectionBehaviorForTool(activeTool, 'panel', selectedEdges.size);
+                if (behavior === 'expand') {
+                  const panel = panelCollection.panels.find(p => p.id === panelId);
+                  if (panel?.edgeStatuses) {
+                    selectPanelEdges(panelId, panel.edgeStatuses, isShiftClick);
+                    return;
+                  }
+                }
+              }
+
+              // Corner expansion (fillet tool)
+              if (selectionType === 'corner') {
+                const behavior = getSelectionBehaviorForTool(activeTool, 'panel', selectedCornerIds.size);
+                if (behavior === 'expand') {
+                  const panel = panelCollection.panels.find(p => p.id === panelId);
+                  if (panel?.cornerEligibility) {
+                    selectPanelCorners(panelId, panel.cornerEligibility, isShiftClick);
+                    return;
+                  }
+                }
               }
             }
             // Default panel selection behavior (or tool doesn't need expansion)
-            selectPanel(panelId, e?.shiftKey);
+            selectPanel(panelId, isShiftClick);
           } : undefined}
           onPanelDoubleClick={selectionMode === null ? (panelId) => {
             // Look up panel to get its assembly from source

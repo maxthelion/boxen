@@ -3,7 +3,7 @@ import { useBoxStore, getMainInteriorVoid } from '../store/useBoxStore';
 import { useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
 import { Panel } from './UI/Panel';
 import { Void, SubAssembly, Face, FaceId, PanelPath } from '../types';
-import { getSelectionBehaviorForTool } from '../operations/registry';
+import { getSelectionBehaviorForTool, getOperationForTool, getOperation } from '../operations/registry';
 
 // Represents a divider panel created by a subdivision
 interface DividerPanel {
@@ -951,11 +951,13 @@ export const BoxTree: React.FC = () => {
     selectedPanelIds,
     selectedAssemblyId,
     selectedEdges,
+    selectedCornerIds,
     activeTool,
     selectVoid,
     selectSubAssembly,
     selectPanel,
     selectPanelEdges,
+    selectPanelCorners,
     selectAssembly,
     hoveredVoidId,
     hoveredPanelId,
@@ -981,22 +983,71 @@ export const BoxTree: React.FC = () => {
     setActiveTool,
   } = useBoxStore();
 
-  // Handle panel selection with edge expansion for tools that need it
+  // Helper to find a panel in the engine collection by ID
+  // Handles both UUID format and face-* format from BoxTree
+  const findEnginePanel = useCallback((panelId: string) => {
+    if (!panelCollection) return null;
+
+    // Try direct ID match first (for UUIDs)
+    let panel = panelCollection.panels.find(p => p.id === panelId);
+    if (panel) return panel;
+
+    // Try matching by faceId (for face-* format from BoxTree)
+    if (panelId.startsWith('face-')) {
+      const faceId = panelId.replace('face-', '');
+      panel = panelCollection.panels.find(p =>
+        p.source.type === 'face' && p.source.faceId === faceId
+      );
+    }
+
+    return panel ?? null;
+  }, [panelCollection]);
+
+  // Handle panel selection with edge/corner expansion for tools that need it
   // NOTE: Must be before early return to satisfy React hooks rules
-  const handleSelectPanel = useCallback((panelId: string, additive: boolean) => {
-    // Check if active tool needs selection expansion (panel → edges)
-    const behavior = getSelectionBehaviorForTool(activeTool, 'panel', selectedEdges.size);
-    if (behavior === 'expand') {
-      // Panel clicked, but tool's operation needs edges - expand to panel's edges
-      const panel = panelCollection?.panels.find(p => p.id === panelId);
-      if (panel?.edgeStatuses) {
-        selectPanelEdges(panelId, panel.edgeStatuses);
-        return;
+  const handleSelectPanel = useCallback((panelId: string | null, additive?: boolean) => {
+    if (!panelId) {
+      selectPanel(null, additive);
+      return;
+    }
+
+    const isAdditive = additive ?? false;
+
+    // Check if active tool needs selection expansion (panel → edges or corners)
+    const operationId = getOperationForTool(activeTool);
+    if (operationId) {
+      const operation = getOperation(operationId);
+      const selectionType = operation.selectionType;
+
+      // Edge expansion (inset tool)
+      if (selectionType === 'edge') {
+        const behavior = getSelectionBehaviorForTool(activeTool, 'panel', selectedEdges.size);
+        if (behavior === 'expand') {
+          const panel = findEnginePanel(panelId);
+          if (panel?.edgeStatuses) {
+            // Use the engine panel's UUID for edge selection
+            selectPanelEdges(panel.id, panel.edgeStatuses, isAdditive);
+            return;
+          }
+        }
+      }
+
+      // Corner expansion (fillet tool)
+      if (selectionType === 'corner') {
+        const behavior = getSelectionBehaviorForTool(activeTool, 'panel', selectedCornerIds.size);
+        if (behavior === 'expand') {
+          const panel = findEnginePanel(panelId);
+          if (panel?.cornerEligibility) {
+            // Use the engine panel's UUID for corner selection
+            selectPanelCorners(panel.id, panel.cornerEligibility, isAdditive);
+            return;
+          }
+        }
       }
     }
     // Default panel selection behavior
-    selectPanel(panelId, additive);
-  }, [activeTool, selectedEdges.size, panelCollection, selectPanelEdges, selectPanel]);
+    selectPanel(panelId, isAdditive);
+  }, [activeTool, selectedEdges.size, selectedCornerIds.size, findEnginePanel, selectPanelEdges, selectPanelCorners, selectPanel]);
 
   // Early return if engine not initialized
   if (!rootVoid) return null;

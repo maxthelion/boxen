@@ -353,11 +353,11 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Auto-expand selected panels to edges when inset tool is activated
   useEffect(() => {
     if (activeTool === 'inset' && selectedPanelIds.size > 0 && selectedEdges.size === 0 && panelCollection) {
-      // Expand each selected panel to its eligible edges
+      // Expand each selected panel to its eligible edges (additive to accumulate all)
       for (const panelId of selectedPanelIds) {
         const panel = panelCollection.panels.find(p => p.id === panelId);
         if (panel?.edgeStatuses) {
-          selectPanelEdges(panelId, panel.edgeStatuses);
+          selectPanelEdges(panelId, panel.edgeStatuses, true);
         }
       }
     }
@@ -521,8 +521,8 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         }
 
         if (panel?.cornerEligibility) {
-          // Use the actual panel UUID for corner selection
-          selectPanelCorners(panel.id, panel.cornerEligibility);
+          // Use the actual panel UUID for corner selection (additive to accumulate all)
+          selectPanelCorners(panel.id, panel.cornerEligibility, true);
         }
       }
     }

@@ -14,7 +14,7 @@ export interface EdgeSelectionSlice {
   selectEdge: (panelId: string, edge: string, additive?: boolean) => void;
   deselectEdge: (panelId: string, edge: string) => void;
   clearEdgeSelection: () => void;
-  selectPanelEdges: (panelId: string, edgeStatuses: EdgeStatusInfo[]) => void;
+  selectPanelEdges: (panelId: string, edgeStatuses: EdgeStatusInfo[], additive?: boolean) => void;
   setHoveredEdge: (panelId: string | null, edge: string | null) => void;
 }
 
@@ -70,16 +70,37 @@ export const createEdgeSelectionSlice: StateCreator<
   clearEdgeSelection: () =>
     set({ selectedEdges: new Set<string>() }),
 
-  selectPanelEdges: (panelId, edgeStatuses) =>
+  selectPanelEdges: (panelId, edgeStatuses, additive = false) =>
     set((state) => {
       // Filter to non-locked edges and create edge keys
       const eligibleEdgeKeys = edgeStatuses
         .filter(s => s.status !== 'locked')
         .map(s => `${panelId}:${s.position}`);
 
-      // Add to existing selection
-      const newSet = new Set([...state.selectedEdges, ...eligibleEdgeKeys]);
-      return { selectedEdges: newSet };
+      if (additive) {
+        // Shift-click: Check if this panel's edges are already selected - if so, deselect them
+        const panelEdgesSelected = eligibleEdgeKeys.every(key => state.selectedEdges.has(key));
+        if (panelEdgesSelected && eligibleEdgeKeys.length > 0) {
+          // Toggle off - remove this panel's edges
+          const newSet = new Set(state.selectedEdges);
+          for (const key of eligibleEdgeKeys) {
+            newSet.delete(key);
+          }
+          return { selectedEdges: newSet };
+        }
+        // Add to existing selection
+        const newSet = new Set([...state.selectedEdges, ...eligibleEdgeKeys]);
+        return { selectedEdges: newSet };
+      }
+
+      // Non-additive: Replace selection with this panel's edges
+      return {
+        selectedEdges: new Set(eligibleEdgeKeys),
+        selectedVoidIds: new Set<string>(),
+        selectedPanelIds: new Set<string>(),
+        selectedSubAssemblyIds: new Set<string>(),
+        selectedAssemblyId: null,
+      };
     }),
 
   setHoveredEdge: (panelId, edge) =>
