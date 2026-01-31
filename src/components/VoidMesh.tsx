@@ -7,6 +7,7 @@ import { useThree } from '@react-three/fiber';
 import { useBoxStore, isVoidVisible } from '../store/useBoxStore';
 import { useEngineConfig, useEngineFaces, useEngineVoidTree } from '../engine';
 import { Bounds } from '../types';
+import { useColors } from '../hooks/useColors';
 
 interface VoidMeshProps {
   voidId: string;
@@ -16,6 +17,7 @@ interface VoidMeshProps {
 
 export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter }) => {
   const meshRef = useRef<THREE.Mesh>(null);
+  const colors = useColors();
 
   // Model state from engine
   const config = useEngineConfig();
@@ -109,13 +111,13 @@ export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter })
     geometry.setPositions(positions);
 
     const material = new LineMaterial({
-      color: 0xff00ff,
+      color: new THREE.Color(colors.void.wireframe).getHex(),
       linewidth: 2, // in pixels
       resolution: new THREE.Vector2(canvasSize.width, canvasSize.height),
     });
 
     return { lineGeometry: geometry, lineMaterial: material };
-  }, [size[0], size[1], size[2], canvasSize.width, canvasSize.height]);
+  }, [size[0], size[1], size[2], canvasSize.width, canvasSize.height, colors.void.wireframe]);
 
   // Create LineSegments2 instance
   const lineSegments = useMemo(() => {
@@ -157,9 +159,9 @@ export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter })
       >
         <boxGeometry args={[insetBounds.w, insetBounds.h, insetBounds.d]} />
         <meshStandardMaterial
-          color={isSelected ? '#4a90d9' : isHovered ? '#6ab04c' : '#95a5a6'}
+          color={isSelected ? colors.void.selected.base : isHovered ? colors.interactive.hover.base : colors.void.default.base}
           transparent
-          opacity={isSelected ? 0.6 : isHovered ? 0.4 : 0.2}
+          opacity={isSelected ? colors.opacity.default : isHovered ? colors.opacity.subtle : colors.opacity.faint}
         />
       </mesh>
     </group>

@@ -6,6 +6,7 @@ import {
   PaletteButtonRow,
 } from './FloatingPalette';
 import { EdgePosition, EdgeStatus } from '../types';
+import { getColors } from '../config/colors';
 
 // Edge info for a single edge
 export interface PanelEdgeInfo {
@@ -61,17 +62,20 @@ export const InsetPalette: React.FC<InsetPaletteProps> = ({
   const edgeLabel = selectedEdgeCount === 1 ? '1 edge' : `${selectedEdgeCount} edges`;
   const title = `Inset/Outset: ${edgeLabel}`;
 
+  // Get colors from config
+  const colors = getColors();
+
   // Get status color for an edge
   // Status values: 'locked' | 'outward-only' | 'unlocked'
   const getEdgeColor = (status: EdgeStatus, isSelected: boolean): string => {
     if (isSelected) {
-      return status === 'locked' ? '#666' : '#4a9eff';
+      return status === 'locked' ? colors.interactive.disabled.base : colors.edge.selected.base;
     }
     switch (status) {
-      case 'locked': return '#444';
-      case 'unlocked': return '#4ade80';      // Open face edge (green)
-      case 'outward-only': return '#fbbf24';  // Female joint edge (yellow)
-      default: return '#666';
+      case 'locked': return colors.edge.locked.base;
+      case 'unlocked': return colors.edge.unlocked.base;
+      case 'outward-only': return colors.edge.outwardOnly.base;
+      default: return colors.interactive.disabled.base;
     }
   };
 

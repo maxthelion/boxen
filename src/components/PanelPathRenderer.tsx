@@ -1,9 +1,51 @@
 import React, { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
-import { PanelPath, PathPoint } from '../types';
+import { PanelPath, PathPoint, EditorTool } from '../types';
 import { useBoxStore, isPanelSelectedIn3DView, getAssemblyIdForPanel } from '../store/useBoxStore';
 import { useEnginePanels, useEngineMainPanels, getEngine } from '../engine';
 import { debug, enableDebugTag } from '../utils/debug';
+import { useColors } from '../hooks/useColors';
+
+/**
+ * Determine panel eligibility for the active tool.
+ * Returns 'eligible', 'ineligible', or null (no eligibility coloring).
+ */
+function getPanelEligibility(
+  panel: PanelPath,
+  activeTool: EditorTool
+): 'eligible' | 'ineligible' | null {
+  // Only show eligibility coloring for relevant tools
+  if (!['inset', 'fillet', 'move', 'push-pull'].includes(activeTool)) {
+    return null;
+  }
+
+  switch (activeTool) {
+    case 'inset':
+      // Eligible if any edge is not locked
+      const hasNonLockedEdge = panel.edgeStatuses?.some(
+        e => e.status !== 'locked'
+      );
+      return hasNonLockedEdge ? 'eligible' : 'ineligible';
+
+    case 'fillet':
+      // Eligible if any corner is eligible
+      const hasEligibleCorner = panel.cornerEligibility?.some(
+        c => c.eligible
+      );
+      return hasEligibleCorner ? 'eligible' : 'ineligible';
+
+    case 'move':
+      // Only dividers are eligible
+      return panel.source.type === 'divider' ? 'eligible' : 'ineligible';
+
+    case 'push-pull':
+      // Only face panels are eligible
+      return panel.source.type === 'face' ? 'eligible' : 'ineligible';
+
+    default:
+      return null;
+  }
+}
 
 // Enable debug tags for debugging
 // enableDebugTag('selection');  // Disabled - too verbose
@@ -348,7 +390,7 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
       {edgeGeometry && (
         <lineSegments geometry={edgeGeometry}>
           <lineBasicMaterial
-            color={isSelected ? '#7b4397' : isHovered ? '#2d6a4f' : '#1a5276'}
+            color={isSelected ? '#7b4397' : isHovered ? '#4a7c59' : '#2a5a7a'}
             linewidth={1}
           />
         </lineSegments>
@@ -373,6 +415,9 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
   onPanelDoubleClick,
   hiddenFaceIds = new Set(),
 }) => {
+  // Get centralized colors
+  const colors = useColors();
+
   // Get panel collection from engine - automatically includes preview when active
   const panelCollection = useEnginePanels();
   // Get main (committed) panels to compare and identify new preview-only panels
@@ -476,11 +521,26 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
           debug('selection', `Panel ${panel.id}: visuallySelected=${isSelected} (direct=${isPanelDirectlySelected}, asmSel=${isAssemblySelected}, hasEdge=${hasSelectedEdge}), hovered=${isHovered}, asmId=${panelAssemblyId}`);
         }
 
-        // Color based on panel type
-        // New preview panels (not in main scene): bright green
-        // Sub-assembly: teal, Divider: orange, Main box: blue
+        // Determine panel color based on eligibility and panel type
+        // Priority: selection > hover > eligibility > panel type
         const isNewPreviewPanel = isPreviewMode && !mainPanelIds.has(panel.id);
-        const color = isNewPreviewPanel ? '#00ff00' : isSubAssemblyPanel ? '#1abc9c' : isDivider ? '#f39c12' : '#3498db';
+        const eligibility = getPanelEligibility(panel, activeTool);
+
+        // Base color by panel type
+        let baseColor: string;
+        if (isNewPreviewPanel) {
+          baseColor = colors.panel.preview.base;
+        } else if (eligibility === 'eligible') {
+          baseColor = colors.eligibility.eligible.base;
+        } else if (eligibility === 'ineligible') {
+          baseColor = colors.eligibility.ineligible.base;
+        } else if (isSubAssemblyPanel) {
+          baseColor = colors.panel.subAssembly.base;
+        } else if (isDivider) {
+          baseColor = colors.panel.divider.base;
+        } else {
+          baseColor = colors.panel.face.base;
+        }
 
         return (
           <PanelPathRenderer
@@ -492,8 +552,9 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
             onClick={onPanelClick ? (e) => onPanelClick(panel.id, e) : undefined}
             onDoubleClick={onPanelDoubleClick ? (e) => onPanelDoubleClick(panel.id, e) : undefined}
             onHover={(hovered) => setHoveredPanel(hovered ? panel.id : null)}
-            color={color}
-            selectedColor={'#9b59b6'}
+            color={baseColor}
+            selectedColor={colors.selection.primary.base}
+            hoveredColor={colors.interactive.hover.base}
           />
         );
       })}

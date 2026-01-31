@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState, useCallback } from 'react';
 import { useThree, ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { FaceId } from '../types';
+import { useColors } from '../hooks/useColors';
 
 interface PushPullArrowProps {
   faceId: FaceId;
@@ -37,6 +38,7 @@ export const PushPullArrow: React.FC<PushPullArrowProps> = ({
   onDragEnd,
 }) => {
   const { camera, gl } = useThree();
+  const colors = useColors();
   const [isDragging, setIsDragging] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const dragStartRef = useRef<{ offset: number; worldPos: THREE.Vector3 } | null>(null);
@@ -181,9 +183,10 @@ export const PushPullArrow: React.FC<PushPullArrowProps> = ({
     }
   }, [isDragging, gl.domElement, onDragEnd]);
 
-  // Arrow color - darker blue for better visibility, orange when dragging, brighter on hover
-  const baseColor = offset >= 0 ? '#1e5a9e' : '#b33939';  // Darker blue/red
-  const arrowColor = isDragging ? '#ffaa00' : isHovered ? '#2e7ad1' : baseColor;
+  // Arrow color - positive/negative based on offset direction, orange when dragging
+  const baseColor = offset >= 0 ? colors.operation.positive.base : colors.operation.negative.base;
+  const hoverColor = offset >= 0 ? colors.operation.positive.hover : colors.operation.negative.hover;
+  const arrowColor = isDragging ? colors.operation.dragging : isHovered ? hoverColor : baseColor;
 
   // Common pointer handlers for all arrow meshes (to prevent click-through)
   const meshPointerHandlers = {

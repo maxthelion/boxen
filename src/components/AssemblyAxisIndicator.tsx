@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Line, Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { useColors } from '../hooks/useColors';
 
 type Axis = 'x' | 'y' | 'z';
 
@@ -14,13 +15,6 @@ interface AssemblyAxisIndicatorProps {
   /** Opacity of the indicator */
   opacity?: number;
 }
-
-// Colors for each axis (standard RGB convention)
-const AXIS_COLORS: Record<Axis, string> = {
-  x: '#e74c3c', // Red
-  y: '#2ecc71', // Green
-  z: '#3498db', // Blue
-};
 
 // Friendly names for axes
 const AXIS_LABELS: Record<Axis, string> = {
@@ -40,6 +34,9 @@ export const AssemblyAxisIndicator: React.FC<AssemblyAxisIndicatorProps> = ({
   visible = true,
   opacity = 0.8,
 }) => {
+  const colors = useColors();
+  const axisColors = colors.axis;
+
   // Calculate arrow geometry
   const { arrowStart, arrowEnd, conePosition, coneRotation, labelPosition } = useMemo(() => {
     const { width, height, depth } = dimensions;
@@ -87,7 +84,7 @@ export const AssemblyAxisIndicator: React.FC<AssemblyAxisIndicatorProps> = ({
 
   if (!visible) return null;
 
-  const color = AXIS_COLORS[axis];
+  const color = axisColors[axis];
   const minDim = Math.min(dimensions.width, dimensions.height, dimensions.depth);
   const coneRadius = minDim * 0.03;
   const coneHeight = minDim * 0.1;
@@ -148,6 +145,9 @@ export const LidFaceHighlight: React.FC<LidFaceHighlightProps> = ({
   dimensions,
   visible = true,
 }) => {
+  const colors = useColors();
+  const axisColors = colors.axis;
+
   const { positiveFace, negativeFace } = useMemo(() => {
     const { width, height, depth } = dimensions;
     const halfW = width / 2;
@@ -205,7 +205,7 @@ export const LidFaceHighlight: React.FC<LidFaceHighlightProps> = ({
 
   if (!visible) return null;
 
-  const color = AXIS_COLORS[axis];
+  const color = axisColors[axis];
 
   return (
     <group>

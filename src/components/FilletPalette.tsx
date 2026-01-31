@@ -12,6 +12,7 @@ import {
   PaletteButtonRow,
 } from './FloatingPalette';
 import { CornerKey } from '../engine/types';
+import { getColors } from '../config/colors';
 
 // Corner info for display
 export interface PanelCornerInfo {
@@ -78,12 +79,15 @@ export const FilletPalette: React.FC<FilletPaletteProps> = ({
   const cornerLabel = selectedCornerCount === 1 ? '1 corner' : `${selectedCornerCount} corners`;
   const title = `Fillet: ${cornerLabel}`;
 
+  // Get colors from config
+  const colors = getColors();
+
   // Get color for a corner based on eligibility and selection
   const getCornerColor = (isEligible: boolean, isSelected: boolean): string => {
     if (isSelected) {
-      return isEligible ? '#9b59b6' : '#666';  // Purple for selected
+      return isEligible ? colors.corner.selected.base : colors.interactive.disabled.base;
     }
-    return isEligible ? '#4ade80' : '#444';    // Green for eligible, gray for ineligible
+    return isEligible ? colors.corner.eligible.base : colors.corner.ineligible.base;
   };
 
   return (
