@@ -3725,3 +3725,48 @@ body {
   color: #888;
   text-align: center;
 }
+
+
+/* ============================================================================= */
+/* Ineligibility Tooltip                                                         */
+/* ============================================================================= */
+
+.ineligibility-tooltip {
+  position: absolute;
+  top: 100px;
+  right: 20px;
+  z-index: 900;
+  background: rgba(255, 100, 100, 0.15);
+  border: 1px solid rgba(255, 100, 100, 0.4);
+  border-radius: 6px;
+  padding: 8px 12px;
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: ineligibility-tooltip-fade-in 0.15s ease-out;
+  pointer-events: none;
+}
+
+.ineligibility-tooltip-icon {
+  color: rgba(255, 100, 100, 0.9);
+  font-size: 14px;
+}
+
+.ineligibility-tooltip-text {
+  color: rgba(255, 200, 200, 0.95);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+@keyframes ineligibility-tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

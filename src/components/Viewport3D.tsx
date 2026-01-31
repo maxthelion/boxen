@@ -24,12 +24,14 @@ import { ConfigurePalette } from './ConfigurePalette';
 import { ScalePalette } from './ScalePalette';
 import { InsetPalette, PanelEdgeGroup } from './InsetPalette';
 import { FilletPalette, PanelCornerGroup } from './FilletPalette';
+import { IneligibilityTooltip } from './IneligibilityTooltip';
 import { useBoxStore } from '../store/useBoxStore';
 import { EdgePosition, EdgeStatus } from '../types';
 import { useEnginePanels, getEngine } from '../engine';
 import { CornerKey, ALL_CORNERS } from '../engine/types';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
+import { useIneligibilityTooltip } from '../hooks/useIneligibilityTooltip';
 
 export interface Viewport3DHandle {
   getCanvas: () => HTMLCanvasElement | null;
@@ -92,6 +94,9 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const [filletRadius, setFilletRadius] = useState(5);
   const selectedCornerIds = useBoxStore((state) => state.selectedCornerIds);
   const selectCorner = useBoxStore((state) => state.selectCorner);
+
+  // Ineligibility tooltip
+  const tooltipMessage = useIneligibilityTooltip();
 
   // Get selected face ID for push-pull tool
   // Panel IDs are UUIDs, so we need to look up the panel source metadata
@@ -762,6 +767,9 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
         closeOnClickOutside={false}
       />
+
+      {/* Ineligibility Tooltip - shows why hovered items can't be operated on */}
+      <IneligibilityTooltip message={tooltipMessage} visible={!!tooltipMessage} />
 
       <Canvas
         camera={{ position: [150, 150, 150], fov: 50 }}

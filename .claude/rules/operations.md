@@ -279,3 +279,34 @@ Use `SelectionRequirement` in `validators.ts`:
 | X | Left OR right face is open |
 | Y | Top OR bottom face is open |
 | Z | Front OR back face is open |
+
+---
+
+## Eligibility Tooltip System
+
+When hovering over ineligible items, a tooltip appears in the top-right of the viewport explaining why the item can't be operated on.
+
+### Files Involved
+
+| File | Purpose |
+|------|---------|
+| `src/operations/eligibility.ts` | Eligibility check functions and message constants |
+| `src/hooks/useIneligibilityTooltip.ts` | Hook that computes the tooltip message |
+| `src/components/IneligibilityTooltip.tsx` | Tooltip UI component |
+| `src/App.css` | Tooltip styling (`.ineligibility-tooltip*`) |
+
+### Adding Eligibility Messages for a New Operation
+
+1. **Add reason codes** to `IneligibilityReason` in `eligibility.ts`
+2. **Add messages** to `PANEL_INELIGIBILITY_MESSAGES` or `ITEM_INELIGIBILITY_MESSAGES`
+3. **Add eligibility function** (e.g., `getMyOperationEligibility()`)
+4. **Update hook** in `useIneligibilityTooltip.ts` to call your eligibility function
+
+### Message Types
+
+| Level | When Shown | Example |
+|-------|------------|---------|
+| Panel-level | Hovering over an ineligible panel | "No eligible edges on this panel" |
+| Item-level | Hovering over a specific edge/corner | "Edge has finger joints" |
+
+**Priority:** Item-level messages take precedence over panel-level messages.
