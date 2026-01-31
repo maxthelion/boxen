@@ -303,7 +303,6 @@ export interface BoxActions {
   // Assembly config actions for main box
   setAssemblyAxis: (axis: AssemblyAxis) => void;
   setLidTabDirection: (side: 'positive' | 'negative', direction: LidTabDirection) => void;
-  setLidInset: (side: 'positive' | 'negative', inset: number) => void;
   setFeetConfig: (feetConfig: FeetConfig) => void;
   setFaceOffset: (faceId: FaceId, offset: number, mode: 'scale' | 'extend') => void;
   insetFace: (faceId: FaceId, insetAmount: number) => void;
@@ -316,7 +315,6 @@ export interface BoxActions {
   // Assembly config actions for sub-assemblies
   setSubAssemblyAxis: (subAssemblyId: string, axis: AssemblyAxis) => void;
   setSubAssemblyLidTabDirection: (subAssemblyId: string, side: 'positive' | 'negative', direction: LidTabDirection) => void;
-  setSubAssemblyLidInset: (subAssemblyId: string, side: 'positive' | 'negative', inset: number) => void;
   // Visibility actions for voids
   toggleVoidVisibility: (voidId: string) => void;
   setIsolatedVoid: (voidId: string | null) => void;

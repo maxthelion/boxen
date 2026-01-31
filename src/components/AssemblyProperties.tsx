@@ -5,8 +5,6 @@ import { Panel } from './UI/Panel';
 import { NumberInput } from './UI/NumberInput';
 import { FaceId, AssemblyAxis, LidTabDirection, getLidFaceId, defaultFeetConfig } from '../types';
 
-const faceOrder: FaceId[] = ['front', 'back', 'left', 'right', 'top', 'bottom'];
-
 export const AssemblyProperties: React.FC = () => {
   // Model state from engine
   const config = useEngineConfig();
@@ -23,10 +21,8 @@ export const AssemblyProperties: React.FC = () => {
     setSubAssemblyClearance,
     setAssemblyAxis,
     setLidTabDirection,
-    setLidInset,
     setSubAssemblyAxis,
     setSubAssemblyLidTabDirection,
-    setSubAssemblyLidInset,
     setFeetConfig,
   } = useBoxStore();
 
@@ -151,20 +147,10 @@ export const AssemblyProperties: React.FC = () => {
                   <select
                     value={config.assembly.lids.positive.tabDirection}
                     onChange={(e) => setLidTabDirection('positive', e.target.value as LidTabDirection)}
-                    disabled={config.assembly.lids.positive.inset > 0}
                   >
                     <option value="tabs-out">Tabs Out (into walls)</option>
                     <option value="tabs-in">Tabs In (from walls)</option>
                   </select>
-                </label>
-                <label>
-                  <span>Inset (mm)</span>
-                  <NumberInput
-                    value={config.assembly.lids.positive.inset}
-                    onChange={(v) => setLidInset('positive', v)}
-                    min={0}
-                    step={1}
-                  />
                 </label>
               </div>
             </div>
@@ -180,20 +166,10 @@ export const AssemblyProperties: React.FC = () => {
                   <select
                     value={config.assembly.lids.negative.tabDirection}
                     onChange={(e) => setLidTabDirection('negative', e.target.value as LidTabDirection)}
-                    disabled={config.assembly.lids.negative.inset > 0}
                   >
                     <option value="tabs-out">Tabs Out (into walls)</option>
                     <option value="tabs-in">Tabs In (from walls)</option>
                   </select>
-                </label>
-                <label>
-                  <span>Inset (mm)</span>
-                  <NumberInput
-                    value={config.assembly.lids.negative.inset}
-                    onChange={(v) => setLidInset('negative', v)}
-                    min={0}
-                    step={1}
-                  />
                 </label>
               </div>
             </div>
@@ -404,20 +380,10 @@ export const AssemblyProperties: React.FC = () => {
                 <select
                   value={subAssembly.assembly.lids.positive.tabDirection}
                   onChange={(e) => setSubAssemblyLidTabDirection(subAssembly.id, 'positive', e.target.value as LidTabDirection)}
-                  disabled={subAssembly.assembly.lids.positive.inset > 0}
                 >
                   <option value="tabs-out">Tabs Out (into walls)</option>
                   <option value="tabs-in">Tabs In (from walls)</option>
                 </select>
-              </label>
-              <label>
-                <span>Inset (mm)</span>
-                <NumberInput
-                  value={subAssembly.assembly.lids.positive.inset}
-                  onChange={(v) => setSubAssemblyLidInset(subAssembly.id, 'positive', v)}
-                  min={0}
-                  step={1}
-                />
               </label>
             </div>
           </div>
@@ -433,20 +399,10 @@ export const AssemblyProperties: React.FC = () => {
                 <select
                   value={subAssembly.assembly.lids.negative.tabDirection}
                   onChange={(e) => setSubAssemblyLidTabDirection(subAssembly.id, 'negative', e.target.value as LidTabDirection)}
-                  disabled={subAssembly.assembly.lids.negative.inset > 0}
                 >
                   <option value="tabs-out">Tabs Out (into walls)</option>
                   <option value="tabs-in">Tabs In (from walls)</option>
                 </select>
-              </label>
-              <label>
-                <span>Inset (mm)</span>
-                <NumberInput
-                  value={subAssembly.assembly.lids.negative.inset}
-                  onChange={(v) => setSubAssemblyLidInset(subAssembly.id, 'negative', v)}
-                  min={0}
-                  step={1}
-                />
               </label>
             </div>
           </div>
