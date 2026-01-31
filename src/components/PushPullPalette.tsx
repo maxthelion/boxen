@@ -4,6 +4,7 @@ import {
   PaletteNumberInput,
   PaletteToggleGroup,
   PaletteButton,
+  PaletteButtonRow,
 } from './FloatingPalette';
 import { FaceId } from '../types';
 
@@ -24,6 +25,7 @@ interface PushPullPaletteProps {
   selectedFaceId: FaceId | null;
   offset: number;
   mode: PushPullMode;
+  isSubAssembly?: boolean;
   onOffsetChange: (offset: number) => void;
   onModeChange: (mode: PushPullMode) => void;
   onApply: () => void;
@@ -39,6 +41,7 @@ export const PushPullPalette: React.FC<PushPullPaletteProps> = ({
   selectedFaceId,
   offset,
   mode,
+  isSubAssembly = false,
   onOffsetChange,
   onModeChange,
   onApply,
@@ -51,8 +54,13 @@ export const PushPullPalette: React.FC<PushPullPaletteProps> = ({
     return null;
   }
 
-  const title = `Push/Pull: ${faceNames[selectedFaceId]}`;
+  const title = isSubAssembly
+    ? `Push/Pull: Sub-Assembly ${faceNames[selectedFaceId]}`
+    : `Push/Pull: ${faceNames[selectedFaceId]}`;
   const canInsetFace = offset < 0;
+
+  // For sub-assemblies, always use extend mode (scale doesn't make sense)
+  const effectiveMode = isSubAssembly ? 'extend' : mode;
 
   return (
     <FloatingPalette
@@ -72,27 +80,36 @@ export const PushPullPalette: React.FC<PushPullPaletteProps> = ({
         unit="mm"
         onChange={onOffsetChange}
       />
-      <PaletteToggleGroup
-        label="Resize Mode"
-        options={[
-          { value: 'scale', label: 'Scale' },
-          { value: 'extend', label: 'Extend' },
-        ]}
-        value={mode}
-        onChange={(v) => onModeChange(v as PushPullMode)}
-      />
+      {!isSubAssembly && (
+        <PaletteToggleGroup
+          label="Resize Mode"
+          options={[
+            { value: 'scale', label: 'Scale' },
+            { value: 'extend', label: 'Extend' },
+          ]}
+          value={effectiveMode}
+          onChange={(v) => onModeChange(v as PushPullMode)}
+        />
+      )}
       <div className="palette-hint">
-        {mode === 'scale'
-          ? 'Scales box and all children'
-          : 'Extends box, adjacent void grows'}
+        {isSubAssembly
+          ? 'Extends face, opposite face stays anchored'
+          : effectiveMode === 'scale'
+            ? 'Scales box and all children'
+            : 'Extends box, adjacent void grows'}
       </div>
-      <PaletteButton
-        variant="primary"
-        onClick={onApply}
-        disabled={offset === 0}
-      >
-        Apply
-      </PaletteButton>
+      <PaletteButtonRow>
+        <PaletteButton onClick={onClose}>
+          Cancel
+        </PaletteButton>
+        <PaletteButton
+          variant="primary"
+          onClick={onApply}
+          disabled={offset === 0}
+        >
+          Apply
+        </PaletteButton>
+      </PaletteButtonRow>
       {canInsetFace && (
         <PaletteButton variant="secondary" onClick={onInsetFace}>
           Inset Face

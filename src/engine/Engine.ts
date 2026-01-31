@@ -16,6 +16,7 @@ import { BaseNode } from './nodes/BaseNode';
 import { BaseAssembly } from './nodes/BaseAssembly';
 import {
   Axis,
+  FaceId,
   MaterialConfig,
   SceneSnapshot,
   PanelCollectionSnapshot,
@@ -468,7 +469,54 @@ export class Engine {
     switch (action.type) {
       case 'SET_DIMENSIONS':
         if (assembly) {
-          assembly.setDimensions(action.payload);
+          // For sub-assemblies with faceId, calculate position offset to anchor opposite face
+          if (assembly.kind === 'sub-assembly' && action.payload.faceId) {
+            const subAsm = assembly as SubAssemblyNode;
+            const faceId = action.payload.faceId as FaceId;
+
+            // Get current dimensions before change
+            const oldWidth = subAsm.width;
+            const oldHeight = subAsm.height;
+            const oldDepth = subAsm.depth;
+
+            // Apply dimension changes
+            assembly.setDimensions(action.payload);
+
+            // Calculate dimension deltas
+            const deltaW = subAsm.width - oldWidth;
+            const deltaH = subAsm.height - oldHeight;
+            const deltaD = subAsm.depth - oldDepth;
+
+            // Calculate position offset to anchor the opposite face
+            // When pushing right face (+X), shift position +delta/2 to keep left face fixed
+            const currentOffset = subAsm.positionOffset;
+            const newOffset = { ...currentOffset };
+
+            switch (faceId) {
+              case 'right':
+                newOffset.x = currentOffset.x + deltaW / 2;
+                break;
+              case 'left':
+                newOffset.x = currentOffset.x - deltaW / 2;
+                break;
+              case 'top':
+                newOffset.y = currentOffset.y + deltaH / 2;
+                break;
+              case 'bottom':
+                newOffset.y = currentOffset.y - deltaH / 2;
+                break;
+              case 'front':
+                newOffset.z = currentOffset.z + deltaD / 2;
+                break;
+              case 'back':
+                newOffset.z = currentOffset.z - deltaD / 2;
+                break;
+            }
+
+            subAsm.setPositionOffset(newOffset);
+          } else {
+            assembly.setDimensions(action.payload);
+          }
           return true;
         }
         break;

@@ -27,6 +27,9 @@ export class SubAssemblyNode extends BaseAssembly {
   // Clearance from void walls (mm)
   protected _clearance: number;
 
+  // Position offset from centered position (for anchored resize)
+  protected _positionOffset: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 };
+
   constructor(
     parentVoid: VoidNode,
     material: MaterialConfig,
@@ -69,6 +72,33 @@ export class SubAssemblyNode extends BaseAssembly {
     }
   }
 
+  get positionOffset(): { x: number; y: number; z: number } {
+    return { ...this._positionOffset };
+  }
+
+  /**
+   * Set position offset from centered position
+   * Used by push-pull to anchor one face while moving the other
+   */
+  setPositionOffset(offset: { x?: number; y?: number; z?: number }): void {
+    let changed = false;
+    if (offset.x !== undefined && offset.x !== this._positionOffset.x) {
+      this._positionOffset.x = offset.x;
+      changed = true;
+    }
+    if (offset.y !== undefined && offset.y !== this._positionOffset.y) {
+      this._positionOffset.y = offset.y;
+      changed = true;
+    }
+    if (offset.z !== undefined && offset.z !== this._positionOffset.z) {
+      this._positionOffset.z = offset.z;
+      changed = true;
+    }
+    if (changed) {
+      this.markDirty();
+    }
+  }
+
   /**
    * Update dimensions when parent void bounds change
    */
@@ -86,7 +116,7 @@ export class SubAssemblyNode extends BaseAssembly {
 
   /**
    * Position sub-assembly within the parent void
-   * Centered in the void with clearance offset
+   * Centered in the void with clearance offset, plus any position offset from push-pull
    */
   getWorldTransform(): Transform3D {
     const bounds = this._parentVoid.bounds;
@@ -107,11 +137,12 @@ export class SubAssemblyNode extends BaseAssembly {
     const halfH = rootAssembly.height / 2;
     const halfD = rootAssembly.depth / 2;
 
+    // Apply position offset (from push-pull operations that anchor one face)
     return {
       position: [
-        voidCenterX - halfW,
-        voidCenterY - halfH,
-        voidCenterZ - halfD,
+        voidCenterX - halfW + this._positionOffset.x,
+        voidCenterY - halfH + this._positionOffset.y,
+        voidCenterZ - halfD + this._positionOffset.z,
       ],
       rotation: [0, 0, 0],
     };
@@ -147,6 +178,7 @@ export class SubAssemblyNode extends BaseAssembly {
         ...base.props,
         clearance: this._clearance,
         parentVoidId: this._parentVoid.id,
+        positionOffset: { ...this._positionOffset },
       },
     };
   }
@@ -169,6 +201,9 @@ export class SubAssemblyNode extends BaseAssembly {
 
     // Copy base assembly properties
     this.copyBasePropertiesTo(cloned);
+
+    // Copy position offset
+    cloned._positionOffset = { ...this._positionOffset };
 
     // Remove the default root void and replace with cloned one
     cloned.removeChild(cloned._rootVoid);

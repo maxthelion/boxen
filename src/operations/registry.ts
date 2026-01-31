@@ -51,8 +51,10 @@ export interface OperationDefinition {
  * Context passed to createPreviewAction for operations that need additional data
  */
 export interface PreviewActionContext {
-  /** Current box dimensions from engine snapshot */
+  /** Current box dimensions from engine snapshot (for the target assembly) */
   dimensions?: { width: number; height: number; depth: number };
+  /** ID of the assembly being operated on (main-assembly or sub-assembly ID) */
+  assemblyId?: string;
 }
 
 // ==========================================================================
@@ -72,10 +74,11 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     description: 'Extend or contract a face panel',
     shortcut: 'p',
     createPreviewAction: (params, context) => {
-      const { faceId, offset, mode } = params as {
+      const { faceId, offset, mode, assemblyId } = params as {
         faceId?: FaceId;
         offset?: number;
         mode?: 'scale' | 'extend';
+        assemblyId?: string;
       };
 
       if (!faceId || offset === undefined || !mode || !context?.dimensions) return null;
@@ -99,10 +102,19 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
           break;
       }
 
+      // Use the assembly ID from params (supports sub-assemblies)
+      const targetId = assemblyId ?? 'main-assembly';
+
       return {
         type: 'SET_DIMENSIONS',
-        targetId: 'main-assembly',
-        payload: { width: newWidth, height: newHeight, depth: newDepth },
+        targetId,
+        payload: {
+          width: newWidth,
+          height: newHeight,
+          depth: newDepth,
+          // Pass faceId for sub-assemblies so engine can calculate position offset
+          faceId: assemblyId && assemblyId !== 'main-assembly' ? faceId : undefined,
+        },
       };
     },
   },

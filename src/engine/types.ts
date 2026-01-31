@@ -388,6 +388,7 @@ export interface AssemblySnapshot extends BaseSnapshot {
     // Sub-assembly specific
     clearance?: number;
     parentVoidId?: string;
+    positionOffset?: { x: number; y: number; z: number };
   };
 
   // Derived properties
@@ -528,7 +529,7 @@ export interface PanelCollectionSnapshot {
 // =============================================================================
 
 export type EngineAction =
-  | { type: 'SET_DIMENSIONS'; targetId: string; payload: { width?: number; height?: number; depth?: number } }
+  | { type: 'SET_DIMENSIONS'; targetId: string; payload: { width?: number; height?: number; depth?: number; faceId?: FaceId } }
   | { type: 'SET_MATERIAL'; targetId: string; payload: Partial<MaterialConfig> }
   | { type: 'SET_FACE_SOLID'; targetId: string; payload: { faceId: FaceId; solid: boolean } }
   | { type: 'TOGGLE_FACE'; targetId: string; payload: { faceId: FaceId } }

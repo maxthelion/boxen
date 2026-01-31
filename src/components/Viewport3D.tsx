@@ -98,29 +98,41 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Ineligibility tooltip
   const tooltipMessage = useIneligibilityTooltip();
 
-  // Get selected face ID for push-pull tool
+  // Get selected face ID and assembly ID for push-pull tool
   // Panel IDs are UUIDs, so we need to look up the panel source metadata
-  const selectedFaceId = useMemo(() => {
+  const selectedFaceInfo = useMemo(() => {
     if (!panelCollection) return null;
     for (const panelId of selectedPanelIds) {
       const panel = panelCollection.panels.find(p => p.id === panelId);
       if (panel?.source.type === 'face' && panel.source.faceId) {
-        return panel.source.faceId;
+        return {
+          faceId: panel.source.faceId,
+          // Use sub-assembly ID if present, otherwise main assembly
+          assemblyId: panel.source.subAssemblyId ?? 'main-assembly',
+        };
       }
     }
     return null;
   }, [selectedPanelIds, panelCollection]);
+
+  const selectedFaceId = selectedFaceInfo?.faceId ?? null;
+  const selectedAssemblyId = selectedFaceInfo?.assemblyId ?? 'main-assembly';
+
+  // For sub-assemblies, always use extend mode (scale doesn't make sense)
+  const isSubAssembly = selectedAssemblyId !== 'main-assembly';
+  const effectiveMode = isSubAssembly ? 'extend' : pushPullMode;
 
   // Start operation when entering push-pull mode with a face selected
   useEffect(() => {
     const isOperationActive = operationState.activeOperation === 'push-pull';
     if (activeTool === 'push-pull' && selectedFaceId && !isOperationActive) {
       startOperation('push-pull');
-      // Initialize params (no offset yet)
-      updateOperationParams({ faceId: selectedFaceId, offset: 0, mode: pushPullMode });
+      // Initialize params (no offset yet) - include assemblyId for sub-assembly support
+      // For sub-assemblies, force extend mode
+      updateOperationParams({ faceId: selectedFaceId, offset: 0, mode: effectiveMode, assemblyId: selectedAssemblyId });
       setCurrentOffset(0);
     }
-  }, [activeTool, selectedFaceId, operationState.activeOperation, startOperation, updateOperationParams, pushPullMode]);
+  }, [activeTool, selectedFaceId, selectedAssemblyId, operationState.activeOperation, startOperation, updateOperationParams, effectiveMode]);
 
   // Cancel operation when leaving push-pull mode or deselecting face
   useEffect(() => {
@@ -138,20 +150,22 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
       action: 'Viewport3D - handlePreviewOffsetChange called',
       faceId: selectedFaceId ?? undefined,
       offset,
-      mode: pushPullMode,
+      mode: effectiveMode,
       previewState: {
         hasPreview: operationState.activeOperation === 'push-pull',
         type: operationState.activeOperation ?? undefined,
       },
       extra: {
         willUpdate: !!(selectedFaceId && operationState.activeOperation === 'push-pull'),
+        assemblyId: selectedAssemblyId,
+        isSubAssembly,
       },
     });
     if (selectedFaceId && operationState.activeOperation === 'push-pull') {
       setCurrentOffset(offset);
-      updateOperationParams({ faceId: selectedFaceId, offset, mode: pushPullMode });
+      updateOperationParams({ faceId: selectedFaceId, offset, mode: effectiveMode, assemblyId: selectedAssemblyId });
     }
-  }, [selectedFaceId, operationState.activeOperation, pushPullMode, updateOperationParams]);
+  }, [selectedFaceId, selectedAssemblyId, operationState.activeOperation, effectiveMode, isSubAssembly, updateOperationParams]);
 
   // Handle apply - commit the operation and close
   const handleApplyOffset = useCallback(() => {
@@ -677,6 +691,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         selectedFaceId={selectedFaceId}
         offset={currentOffset}
         mode={pushPullMode}
+        isSubAssembly={selectedAssemblyId !== 'main-assembly'}
         onOffsetChange={handlePreviewOffsetChange}
         onModeChange={setPushPullMode}
         onApply={handleApplyOffset}

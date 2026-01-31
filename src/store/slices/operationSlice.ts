@@ -70,9 +70,41 @@ export const createOperationSlice: StateCreator<
       if (operation.createPreviewAction) {
         // Build context for operations that need it (e.g., push-pull needs dimensions)
         const snapshot = engine.getSnapshot();
-        const assembly = snapshot.children?.[0];
-        const context = assembly
-          ? { dimensions: { width: assembly.props.width, height: assembly.props.height, depth: assembly.props.depth } }
+        const assemblyId = newParams.assemblyId as string | undefined;
+
+        // Find the target assembly - either main assembly or a sub-assembly
+        let targetAssembly = snapshot.children?.[0]; // Default to main assembly
+
+        if (assemblyId && assemblyId !== 'main-assembly' && targetAssembly) {
+          // Look for sub-assembly in the void tree
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const findSubAssembly = (children: any[]): typeof targetAssembly | undefined => {
+            for (const child of children || []) {
+              // Sub-assemblies have kind: 'sub-assembly' in their snapshot
+              if (child.kind === 'sub-assembly' && child.id === assemblyId) {
+                return child;
+              }
+              // Check nested children (voids can contain sub-assemblies)
+              if (child.children) {
+                const found = findSubAssembly(child.children);
+                if (found) return found;
+              }
+            }
+            return undefined;
+          };
+
+          // Search within the main assembly's children (voids)
+          const subAsm = findSubAssembly(targetAssembly.children);
+          if (subAsm) {
+            targetAssembly = subAsm;
+          }
+        }
+
+        const context = targetAssembly
+          ? {
+              dimensions: { width: targetAssembly.props.width, height: targetAssembly.props.height, depth: targetAssembly.props.depth },
+              assemblyId: assemblyId ?? 'main-assembly',
+            }
           : undefined;
 
         const action = operation.createPreviewAction(newParams, context);
