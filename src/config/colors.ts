@@ -88,6 +88,9 @@ export interface ColorConfig {
     editable: StateColors;     // Editable regions
     boundary: string;          // Conceptual panel boundary
     adjacent: StateColors;     // Adjacent panel cross-section
+    extension: string;         // Extension visualization on adjacent panels
+    hole: StateColors;         // Slot/hole rendering
+    label: string;             // Dimension and annotation labels
   };
 
   // ===== Opacity Presets =====
@@ -171,6 +174,9 @@ export const defaultColors: ColorConfig = {
     editable: { base: '#2ecc71', hover: '#3dd87f' },
     boundary: '#6a6a8a',
     adjacent: { base: '#4a5568', hover: '#718096' },
+    extension: '#e53e3e',
+    hole: { base: '#1a1a2e', hover: '#666' },
+    label: '#888',
   },
 
   opacity: {

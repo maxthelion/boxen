@@ -7,6 +7,7 @@ import { getEditableAreas, EditableArea } from '../utils/editableAreas';
 import { DetectedCorner } from '../utils/cornerFinish';
 import { EditorToolbar, EditorTool } from './EditorToolbar';
 import { FloatingPalette, PaletteSliderInput, PaletteToggleGroup, PaletteButtonRow, PaletteButton, PaletteCheckbox, PaletteCheckboxGroup, PaletteNumberInput } from './FloatingPalette';
+import { getColors } from '../config/colors';
 
 interface SketchView2DProps {
   className?: string;
@@ -152,7 +153,12 @@ const getJointSegments = (
 };
 
 // Grid pattern component
-const GridPattern: React.FC<{ gridSize: number; id: string }> = ({ gridSize, id }) => (
+const GridPattern: React.FC<{
+  gridSize: number;
+  id: string;
+  minorColor: string;
+  majorColor: string;
+}> = ({ gridSize, id, minorColor, majorColor }) => (
   <defs>
     <pattern
       id={id}
@@ -163,7 +169,7 @@ const GridPattern: React.FC<{ gridSize: number; id: string }> = ({ gridSize, id 
       <path
         d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`}
         fill="none"
-        stroke="#2a2a3e"
+        stroke={minorColor}
         strokeWidth="0.5"
       />
     </pattern>
@@ -177,7 +183,7 @@ const GridPattern: React.FC<{ gridSize: number; id: string }> = ({ gridSize, id 
       <path
         d={`M ${gridSize * 10} 0 L 0 0 0 ${gridSize * 10}`}
         fill="none"
-        stroke="#3a3a4e"
+        stroke={majorColor}
         strokeWidth="1"
       />
     </pattern>
@@ -259,6 +265,9 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
   // Early return if engine not initialized
   if (!config || !rootVoid) return null;
+
+  // Get centralized colors
+  const colors = getColors();
 
   // Corner interaction state
   const [hoveredCornerId, setHoveredCornerId] = useState<string | null>(null);
@@ -873,11 +882,11 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     const isDragging = dragEdge === edge;
 
     if (isLocked) {
-      return isHovered ? '#6ab0f9' : '#4a90d9'; // Blue for locked
+      return isHovered ? colors.edge.locked.hover : colors.edge.locked.base;
     } else {
-      if (isDragging) return '#ffb060'; // Bright orange when dragging
-      if (isHovered) return '#f0a050'; // Light orange when hovered
-      return '#e09040'; // Orange for editable
+      if (isDragging) return colors.operation.dragging;
+      if (isHovered) return colors.edge.unlocked.hover;
+      return colors.edge.unlocked.base;
     }
   };
 
@@ -945,7 +954,12 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         style={{ cursor: getCursor() }}
       >
         {/* Grid pattern */}
-        <GridPattern gridSize={gridSize} id="sketch-grid" />
+        <GridPattern
+          gridSize={gridSize}
+          id="sketch-grid"
+          minorColor={colors.sketch.grid.minor}
+          majorColor={colors.sketch.grid.major}
+        />
         <rect
           x={viewBox.x - viewBox.width}
           y={viewBox.y - viewBox.height}
@@ -960,7 +974,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           y1={0}
           x2={viewBox.x + viewBox.width * 2}
           y2={0}
-          stroke="#4a4a6a"
+          stroke={colors.sketch.grid.axes}
           strokeWidth="0.5"
           strokeDasharray="4 4"
         />
@@ -969,7 +983,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           y1={viewBox.y - viewBox.height}
           x2={0}
           y2={viewBox.y + viewBox.height * 2}
-          stroke="#4a4a6a"
+          stroke={colors.sketch.grid.axes}
           strokeWidth="0.5"
           strokeDasharray="4 4"
         />
@@ -1059,9 +1073,9 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                   y={y}
                   width={w}
                   height={h}
-                  fill="#4a5568"
+                  fill={colors.sketch.adjacent.base}
                   fillOpacity={0.4}
-                  stroke="#718096"
+                  stroke={colors.sketch.adjacent.hover}
                   strokeWidth={outlineStrokeWidth * 0.5}
                 />
                 {/* Extension visualization if adjacent panel extends in this direction */}
@@ -1071,9 +1085,9 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                     y={profile.edge === 'bottom' ? y - adjExt : profile.edge === 'top' ? y + h : y}
                     width={profile.edge === 'left' || profile.edge === 'right' ? adjExt : w}
                     height={profile.edge === 'top' || profile.edge === 'bottom' ? adjExt : h}
-                    fill="#e53e3e"
+                    fill={colors.sketch.extension}
                     fillOpacity={0.3}
-                    stroke="#e53e3e"
+                    stroke={colors.sketch.extension}
                     strokeWidth={outlineStrokeWidth * 0.5}
                     strokeDasharray={`${2 * strokeScale} ${1 * strokeScale}`}
                   />
@@ -1084,7 +1098,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                   y={-labelY}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fill="#a0aec0"
+                  fill={colors.sketch.label}
                   fontSize={Math.max(6, 8 * profileScale)}
                   fontFamily="monospace"
                   transform={`scale(1, -1)`}
@@ -1104,9 +1118,9 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
               y={area.y}
               width={area.width}
               height={area.height}
-              fill="#2ecc71"
+              fill={colors.sketch.editable.base}
               fillOpacity={0.15}
-              stroke="#2ecc71"
+              stroke={colors.sketch.editable.base}
               strokeWidth={outlineStrokeWidth * 0.8}
               strokeDasharray={`${4 * strokeScale} ${2 * strokeScale}`}
               opacity={0.7}
@@ -1130,7 +1144,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                 y1={boundary.start.y}
                 x2={boundary.end.x}
                 y2={boundary.end.y}
-                stroke="#6a6a8a"
+                stroke={colors.sketch.boundary}
                 strokeWidth={outlineStrokeWidth * 0.5}
                 strokeDasharray={`${3 * strokeScale} ${2 * strokeScale}`}
                 opacity={0.6}
@@ -1207,8 +1221,8 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             <path
               key={hole.id}
               d={pathToSvgD(hole.path.points, hole.path.closed)}
-              fill="#1a1a2e"
-              stroke="#666"
+              fill={colors.sketch.hole.base}
+              stroke={colors.sketch.hole.hover}
               strokeWidth={holeStrokeWidth}
             />
           ))}
@@ -1218,6 +1232,8 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             const isSelected = selectedCornerIds.has(corner.id);
             const isHovered = hoveredCornerId === corner.id;
             const radius = Math.max(3, strokeScale * 4);
+            const cornerSelectedColor = colors.corner.selected.base;
+            const cornerDefaultColor = colors.corner.ineligible.base;
 
             return (
               <g key={corner.id} style={{ cursor: 'pointer' }}>
@@ -1235,7 +1251,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                     cy={corner.position.y}
                     r={radius * 1.5}
                     fill="none"
-                    stroke="#00d9ff"
+                    stroke={cornerSelectedColor}
                     strokeWidth={outlineStrokeWidth}
                     opacity={0.5}
                   />
@@ -1245,9 +1261,9 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                   cx={corner.position.x}
                   cy={corner.position.y}
                   r={radius}
-                  fill={isSelected ? '#00d9ff' : isHovered ? '#00d9ff' : 'transparent'}
+                  fill={isSelected ? cornerSelectedColor : isHovered ? cornerSelectedColor : 'transparent'}
                   fillOpacity={isSelected ? 0.6 : isHovered ? 0.3 : 0}
-                  stroke={isSelected || isHovered ? '#00d9ff' : '#888'}
+                  stroke={isSelected || isHovered ? cornerSelectedColor : cornerDefaultColor}
                   strokeWidth={outlineStrokeWidth * (isSelected ? 1.5 : 1)}
                 />
                 {/* Checkmark for corners with existing finish */}
@@ -1262,7 +1278,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           x={0}
           y={-panel.height / 2 - 8}
           textAnchor="middle"
-          fill="#888"
+          fill={colors.sketch.label}
           fontSize="10"
           fontFamily="monospace"
         >
@@ -1272,7 +1288,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           x={panel.width / 2 + 8}
           y={0}
           textAnchor="start"
-          fill="#888"
+          fill={colors.sketch.label}
           fontSize="10"
           fontFamily="monospace"
           transform={`rotate(-90, ${panel.width / 2 + 8}, 0)`}

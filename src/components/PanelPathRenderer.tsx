@@ -4,7 +4,7 @@ import { PanelPath, PathPoint, EditorTool } from '../types';
 import { useBoxStore, isPanelSelectedIn3DView, getAssemblyIdForPanel } from '../store/useBoxStore';
 import { useEnginePanels, useEngineMainPanels, getEngine } from '../engine';
 import { debug, enableDebugTag } from '../utils/debug';
-import { useColors } from '../hooks/useColors';
+import { useColors, getColors } from '../hooks/useColors';
 
 /**
  * Determine panel eligibility for the active tool.
@@ -285,6 +285,9 @@ const createEdgeGeometry = (
   return geometry;
 };
 
+// Default colors from config (used when props not provided)
+const defaultPanelColors = getColors();
+
 export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
   panel,
   scale,
@@ -293,9 +296,9 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
   onClick,
   onDoubleClick,
   onHover,
-  color = '#3498db',
-  selectedColor = '#9b59b6',
-  hoveredColor = '#6ab04c',
+  color = defaultPanelColors.panel.face.base,
+  selectedColor = defaultPanelColors.selection.primary.base,
+  hoveredColor = defaultPanelColors.interactive.hover.base,
 }) => {
   const { outline, holes, thickness, position, rotation, visible } = panel;
 
@@ -371,6 +374,10 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
   const displayColor = isSelected ? selectedColor : isHovered ? hoveredColor : color;
   const displayOpacity = isSelected ? 0.9 : isHovered ? 0.8 : 0.7;
 
+  // Edge color is a darker variant of the display color
+  // Use the same color but rendered as lines (appears darker naturally)
+  const edgeColor = displayColor;
+
   return (
     <group position={scaledPosition} rotation={rotation}>
       <mesh
@@ -390,7 +397,7 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
       {edgeGeometry && (
         <lineSegments geometry={edgeGeometry}>
           <lineBasicMaterial
-            color={isSelected ? '#7b4397' : isHovered ? '#4a7c59' : '#2a5a7a'}
+            color={edgeColor}
             linewidth={1}
           />
         </lineSegments>
