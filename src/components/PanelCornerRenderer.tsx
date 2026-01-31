@@ -11,25 +11,11 @@ import { useBoxStore } from '../store/useBoxStore';
 import { useEnginePanels, useEngineConfig } from '../engine';
 import { PanelPath, EdgeExtensions } from '../types';
 import { CornerKey, CornerEligibility, ALL_CORNERS } from '../engine/types';
+import { useColors } from '../hooks/useColors';
 
 // Corner indicator dimensions in mm
 const CORNER_INDICATOR_OUTER_RADIUS = 5;
 const CORNER_INDICATOR_INNER_RADIUS = 3;  // Creates ring effect
-
-// Colors for different corner states (cyan theme)
-const CORNER_COLORS = {
-  // Base colors by eligibility
-  eligible: '#00bcd4',     // Cyan - can fillet
-  ineligible: '#546e7a',   // Blue-gray - cannot fillet
-
-  // Hover colors (brighter)
-  eligibleHover: '#4dd0e1',
-  ineligibleHover: '#78909c',
-
-  // Selected colors
-  selected: '#00e5ff',     // Bright cyan
-  selectedHover: '#18ffff',
-};
 
 interface CornerMeshProps {
   corner: CornerKey;
@@ -88,19 +74,21 @@ const CornerMesh: React.FC<CornerMeshProps> = ({
   onHover,
   onClick,
 }) => {
+  const colors = useColors();
+
   // Determine color based on state
   const color = useMemo(() => {
     if (isSelected) {
-      return isHovered ? CORNER_COLORS.selectedHover : CORNER_COLORS.selected;
+      return isHovered ? colors.corner.selected.hover : colors.corner.selected.base;
     }
     if (!isEligible) {
-      return isHovered ? CORNER_COLORS.ineligibleHover : CORNER_COLORS.ineligible;
+      return isHovered ? colors.corner.ineligible.hover : colors.corner.ineligible.base;
     }
-    return isHovered ? CORNER_COLORS.eligibleHover : CORNER_COLORS.eligible;
-  }, [isEligible, isSelected, isHovered]);
+    return isHovered ? colors.corner.eligible.hover : colors.corner.eligible.base;
+  }, [isEligible, isSelected, isHovered, colors]);
 
   // Opacity: selected corners are solid, ineligible are dimmer
-  const opacity = isSelected ? 1.0 : !isEligible ? 0.4 : 0.8;
+  const opacity = isSelected ? colors.opacity.solid : !isEligible ? colors.opacity.subtle : colors.opacity.selected;
 
   // Create geometry: filled circle for selected, ring for unselected
   const geometry = useMemo(() => {

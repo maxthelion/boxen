@@ -10,26 +10,10 @@ import * as THREE from 'three';
 import { useBoxStore } from '../store/useBoxStore';
 import { useEnginePanels, useEngineConfig } from '../engine';
 import { PanelPath, EdgePosition, EdgeStatus, EdgeStatusInfo } from '../types';
+import { useColors } from '../hooks/useColors';
 
 // All edge positions in order
 const ALL_EDGES: EdgePosition[] = ['top', 'bottom', 'left', 'right'];
-
-// Colors for different edge states
-const EDGE_COLORS = {
-  // Base colors by status
-  locked: '#6c757d',      // Gray - non-interactive
-  'outward-only': '#fd7e14', // Orange - can extend outward
-  unlocked: '#28a745',    // Green - full flexibility
-
-  // Hover colors (brighter)
-  lockedHover: '#868e96',
-  'outward-only-hover': '#ff922b',
-  unlockedHover: '#51cf66',
-
-  // Selected colors
-  selected: '#9b59b6',    // Purple
-  selectedHover: '#a855f7',
-};
 
 interface EdgeMeshProps {
   edge: EdgePosition;
@@ -63,22 +47,24 @@ const EdgeMesh: React.FC<EdgeMeshProps> = ({
   onHover,
   onClick,
 }) => {
+  const colors = useColors();
+
   // Determine color based on state
   const color = useMemo(() => {
     if (isSelected) {
-      return isHovered ? EDGE_COLORS.selectedHover : EDGE_COLORS.selected;
+      return isHovered ? colors.edge.selected.hover : colors.edge.selected.base;
     }
     if (status === 'locked') {
-      return isHovered ? EDGE_COLORS.lockedHover : EDGE_COLORS.locked;
+      return isHovered ? colors.edge.locked.hover : colors.edge.locked.base;
     }
     if (status === 'outward-only') {
-      return isHovered ? EDGE_COLORS['outward-only-hover'] : EDGE_COLORS['outward-only'];
+      return isHovered ? colors.edge.outwardOnly.hover : colors.edge.outwardOnly.base;
     }
-    return isHovered ? EDGE_COLORS.unlockedHover : EDGE_COLORS.unlocked;
-  }, [status, isSelected, isHovered]);
+    return isHovered ? colors.edge.unlocked.hover : colors.edge.unlocked.base;
+  }, [status, isSelected, isHovered, colors]);
 
   // Opacity: locked edges are dimmer
-  const opacity = status === 'locked' ? 0.3 : isSelected ? 0.9 : isHovered ? 0.8 : 0.6;
+  const opacity = status === 'locked' ? colors.opacity.faint : isSelected ? colors.opacity.solid : isHovered ? colors.opacity.selected : colors.opacity.default;
 
   // Create geometry for the edge face
   // The edge face is a rectangle with dimensions based on edge position:
