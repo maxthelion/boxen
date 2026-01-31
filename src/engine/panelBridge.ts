@@ -120,6 +120,28 @@ function subAssemblyNodeToSubAssembly(node: SubAssemblyNode): SubAssembly {
 }
 
 /**
+ * Helper to sync only children/grandchildren without re-syncing splitInfo.
+ * Used after subdivideMultiple/subdivideGrid which already set splitInfo correctly.
+ */
+function syncVoidChildrenOnly(
+  voidNode: VoidNode,
+  storeVoid: Void,
+  materialThickness: number
+): void {
+  // Only sync nested children if the store void has them
+  if (storeVoid.children && storeVoid.children.length > 0) {
+    // If the store child has children, we need to recursively sync them
+    const engineChildren = voidNode.getVoidChildren();
+    if (engineChildren.length === storeVoid.children.length) {
+      for (let i = 0; i < storeVoid.children.length; i++) {
+        syncVoidNodeFromStoreVoid(engineChildren[i], storeVoid.children[i], materialThickness);
+      }
+    }
+  }
+  // TODO: Handle sub-assemblies
+}
+
+/**
  * Sync engine VoidNode tree from store Void tree
  * Used when store is source of truth (current state during migration).
  *
@@ -162,25 +184,45 @@ export function syncVoidNodeFromStoreVoid(
 
     // Create new children if store has them
     if (storeChildren.length > 0) {
-      // Extract split positions from children (children after first have split info)
-      const positions: number[] = [];
-      const axis = storeChildren[1]?.splitAxis;
+      // Check if this is a grid subdivision (multi-axis)
+      if (storeVoid.gridSubdivision) {
+        // Use subdivideGrid for multi-axis subdivisions
+        const gridAxes = storeVoid.gridSubdivision.axes.map(axis => ({
+          axis,
+          positions: storeVoid.gridSubdivision!.positions[axis] || [],
+        }));
 
-      if (axis) {
-        for (let i = 1; i < storeChildren.length; i++) {
-          const pos = storeChildren[i].splitPosition;
-          if (pos !== undefined) {
-            positions.push(pos);
-          }
+        voidNode.subdivideGrid(gridAxes, materialThickness);
+
+        // Recursively sync grandchildren only (subdivideGrid handles the immediate structure)
+        const newChildren = voidNode.getVoidChildren();
+        for (let i = 0; i < Math.min(storeChildren.length, newChildren.length); i++) {
+          syncVoidChildrenOnly(newChildren[i], storeChildren[i], materialThickness);
         }
+      } else {
+        // Single-axis subdivision: extract split positions from children
+        // Note: splitAxis/splitPosition are stored on the FIRST child (index 0)
+        const positions: number[] = [];
+        const axis = storeChildren[0]?.splitAxis;
 
-        if (positions.length > 0) {
-          // Use subdivideMultiple to create matching structure
-          const newChildren = voidNode.subdivideMultiple(axis, positions, materialThickness);
+        if (axis) {
+          // Collect positions from all children that have splitPosition
+          for (const child of storeChildren) {
+            const pos = child.splitPosition;
+            if (pos !== undefined) {
+              positions.push(pos);
+            }
+          }
 
-          // Recursively sync each child
-          for (let i = 0; i < storeChildren.length; i++) {
-            syncVoidNodeFromStoreVoid(newChildren[i], storeChildren[i], materialThickness);
+          if (positions.length > 0) {
+            // Use subdivideMultiple to create matching structure
+            // This already sets splitInfo correctly on children[1+]
+            const newChildren = voidNode.subdivideMultiple(axis, positions, materialThickness);
+
+            // Recursively sync grandchildren only (not splitInfo, as subdivideMultiple handled it)
+            for (let i = 0; i < storeChildren.length; i++) {
+              syncVoidChildrenOnly(newChildren[i], storeChildren[i], materialThickness);
+            }
           }
         }
       }

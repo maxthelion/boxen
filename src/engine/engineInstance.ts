@@ -131,6 +131,11 @@ export function syncStoreToEngine(
       assembly.setFeet(engineFeet);
     }
 
+    // Sync void tree if provided (important for loading from URL)
+    if (rootVoid) {
+      syncVoidNodeFromStoreVoid(assembly.rootVoid, rootVoid, config.materialThickness);
+    }
+
     // Sync edge extensions from existing panels (on first creation)
     if (existingPanels) {
       for (const panel of existingPanels) {

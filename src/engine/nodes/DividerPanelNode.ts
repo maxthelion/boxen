@@ -756,59 +756,15 @@ export class DividerPanelNode extends BasePanel {
 
   /**
    * Get blocking ranges for finger generation based on cross-lap positions.
-   * This ensures finger tabs aren't generated where cross-lap slots remove material.
+   *
+   * NOTE: We intentionally do NOT block fingers at cross-lap positions.
+   * The finger tab provides the material for the cross-lap notch to cut into.
+   * The applyCrossLapSlotsToOutline method will insert the notch into the existing tab.
    */
   protected override getFingerBlockingRanges(): Map<EdgePosition, { start: number; end: number }[]> {
-    const ranges = new Map<EdgePosition, { start: number; end: number }[]>();
-    const assembly = this.findParentAssembly();
-    if (!assembly) return ranges;
-
-    const crossLapSlots = this.computeCrossLapSlots();
-    if (crossLapSlots.length === 0) return ranges;
-
-    const mt = assembly.material.thickness;
-    const dims = this.getDimensions();
-    const bounds = this._voidNode.bounds;
-
-    debug('cross-lap', `getFingerBlockingRanges for ${this.id} (${this._axis}), ${crossLapSlots.length} cross-lap slots`);
-
-    // Convert cross-lap X positions (panel-local coords) to axis positions
-    // The width axis depends on divider orientation
-    for (const slot of crossLapSlots) {
-      const edge = slot.fromEdge === 'top' ? 'top' : 'bottom';
-
-      // Get the axis and span for the width direction
-      let span: { start: number; end: number; center: number; size: number };
-      switch (this._axis) {
-        case 'x':
-          // X-divider: width spans Z
-          span = this.computeBodySpan(bounds.z, bounds.d, assembly.depth, mt);
-          break;
-        case 'y':
-          // Y-divider: width spans X
-          span = this.computeBodySpan(bounds.x, bounds.w, assembly.width, mt);
-          break;
-        case 'z':
-          // Z-divider: width spans X
-          span = this.computeBodySpan(bounds.x, bounds.w, assembly.width, mt);
-          break;
-      }
-
-      // The slot.xPosition is in panel-local coords (centered at 0)
-      // Convert to axis position: add span.center to get world position, then subtract mt for 0-based
-      const worldAxisPos = slot.xPosition + span.center;
-      const axisPos = worldAxisPos - mt;
-
-      const halfWidth = slot.width / 2;
-      const blockingRange = { start: axisPos - halfWidth, end: axisPos + halfWidth };
-
-      if (!ranges.has(edge)) {
-        ranges.set(edge, []);
-      }
-      ranges.get(edge)!.push(blockingRange);
-    }
-
-    return ranges;
+    // Return empty - don't block fingers at cross-lap positions
+    // The cross-lap notch will be cut into the finger tab
+    return new Map();
   }
 
   /**
@@ -826,12 +782,21 @@ export class DividerPanelNode extends BasePanel {
     const bounds = this._voidNode.bounds;
     const tolerance = 0.01;
 
+    debug('cross-lap', `\ncomputeCrossLapSlots for ${this._axis}-divider at ${this._position}`);
+    debug('cross-lap', `  voidNode bounds: x=${bounds.x}, z=${bounds.z}, w=${bounds.w}, d=${bounds.d}`);
+    debug('cross-lap', `  subdivisions count: ${subdivisions.length}`);
+
     // Track which axes we intersect with (for 3-axis validation)
     const intersectingAxes = new Set<Axis>();
 
     for (const sub of subdivisions) {
+      debug('cross-lap', `  checking sub: axis=${sub.axis}, pos=${sub.position}, bounds: x=${sub.bounds.x}, z=${sub.bounds.z}, w=${sub.bounds.w}, d=${sub.bounds.d}`);
+
       // Skip parallel dividers (same axis)
-      if (sub.axis === this._axis) continue;
+      if (sub.axis === this._axis) {
+        debug('cross-lap', `    skipped (same axis)`);
+        continue;
+      }
 
       // Check if the other divider's void bounds span includes our position
       let otherExtentLow: number;
@@ -852,22 +817,29 @@ export class DividerPanelNode extends BasePanel {
           break;
       }
 
+      debug('cross-lap', `    extent check: this._position=${this._position} in [${otherExtentLow}, ${otherExtentHigh}]?`);
+
       // Check if our position falls within the other divider's extent
       if (this._position < otherExtentLow - tolerance || this._position > otherExtentHigh + tolerance) {
+        debug('cross-lap', `    FAILED extent check`);
         continue;
       }
+
+      debug('cross-lap', `    PASSED extent check`);
 
       // This divider intersects with sub
       intersectingAxes.add(sub.axis);
 
       // Calculate slot position along our panel width
       const slotXPosition = this.calculateCrossLapSlotPosition(sub, bounds, assembly, mt);
+      debug('cross-lap', `    slotXPosition: ${slotXPosition}`);
       if (slotXPosition === null) continue;
 
       // Determine slot direction using axis priority rule
       // Compare axes alphabetically: lower axis gets slot from top
       const fromEdge = this.getCrossLapSlotEdge(this._axis, sub.axis);
 
+      debug('cross-lap', `    ADDING SLOT: x=${slotXPosition}, fromEdge=${fromEdge}`);
       slots.push({
         xPosition: slotXPosition,
         width: mt,
@@ -876,6 +848,8 @@ export class DividerPanelNode extends BasePanel {
         intersectingDividerId: sub.id,
       });
     }
+
+    debug('cross-lap', `  total slots found: ${slots.length}`);
 
     // Validate: 3-axis intersections are illegal
     if (intersectingAxes.size === 2) {
@@ -983,12 +957,18 @@ export class DividerPanelNode extends BasePanel {
 
     // Compute cross-lap slots
     const crossLapSlots = this.computeCrossLapSlots();
+    debug('cross-lap', `computeOutline for ${this._axis}-divider: crossLapSlots=${crossLapSlots.length}`);
+    for (const slot of crossLapSlots) {
+      debug('cross-lap', `  slot: x=${slot.xPosition}, edge=${slot.fromEdge}, depth=${slot.depth}`);
+    }
     if (crossLapSlots.length === 0) {
       return baseOutline;
     }
 
     // Apply cross-lap slots to the outline
+    debug('cross-lap', `  Calling applyCrossLapSlotsToOutline with ${baseOutline.points.length} base points`);
     const modifiedPoints = this.applyCrossLapSlotsToOutline(baseOutline.points, crossLapSlots);
+    debug('cross-lap', `  Result: ${modifiedPoints.length} modified points`);
 
     return {
       points: modifiedPoints,
@@ -1065,6 +1045,11 @@ export class DividerPanelNode extends BasePanel {
       .map(s => clampSlotToEdge(s, bottomEdgeLeft, bottomEdgeRight))
       .filter((s): s is CrossLapSlot => s !== null);
 
+    // Get material thickness for hole detection
+    const mt = this.getMaterial().thickness;
+    const holeLevel = halfH - mt;  // Hole level on top edge
+    const bottomHoleLevel = -halfH + mt;  // Hole level on bottom edge
+
     // Build new outline with slots inserted
     const newPoints: Point2D[] = [];
 
@@ -1074,18 +1059,28 @@ export class DividerPanelNode extends BasePanel {
 
       newPoints.push(current);
 
-      // Check if this segment is part of the top edge (y near +halfH, moving right)
-      const isTopEdge = Math.abs(current.y - halfH) < tolerance &&
-                        Math.abs(next.y - halfH) < tolerance &&
-                        next.x > current.x;
+      // Check if this segment is part of the top edge TAB (y near +halfH, moving right)
+      const isTopEdgeTab = Math.abs(current.y - halfH) < tolerance &&
+                           Math.abs(next.y - halfH) < tolerance &&
+                           next.x > current.x;
 
-      // Check if this segment is part of the bottom edge (y near -halfH, moving left)
-      const isBottomEdge = Math.abs(current.y - (-halfH)) < tolerance &&
-                           Math.abs(next.y - (-halfH)) < tolerance &&
-                           next.x < current.x;
+      // Check if this segment is part of the top edge HOLE (y near +halfH - mt, moving right)
+      const isTopEdgeHole = Math.abs(current.y - holeLevel) < tolerance &&
+                            Math.abs(next.y - holeLevel) < tolerance &&
+                            next.x > current.x;
 
-      if (isTopEdge) {
-        // Insert top slots that fall within this segment
+      // Check if this segment is part of the bottom edge TAB (y near -halfH, moving left)
+      const isBottomEdgeTab = Math.abs(current.y - (-halfH)) < tolerance &&
+                              Math.abs(next.y - (-halfH)) < tolerance &&
+                              next.x < current.x;
+
+      // Check if this segment is part of the bottom edge HOLE (y near -halfH + mt, moving left)
+      const isBottomEdgeHole = Math.abs(current.y - bottomHoleLevel) < tolerance &&
+                               Math.abs(next.y - bottomHoleLevel) < tolerance &&
+                               next.x < current.x;
+
+      if (isTopEdgeTab) {
+        // Insert top slots that fall within this TAB segment
         for (const slot of clampedTopSlots) {
           const slotLeft = slot.xPosition - slot.width / 2;
           const slotRight = slot.xPosition + slot.width / 2;
@@ -1101,8 +1096,28 @@ export class DividerPanelNode extends BasePanel {
         }
       }
 
-      if (isBottomEdge) {
-        // Insert bottom slots that fall within this segment (note: moving right to left)
+      if (isTopEdgeHole) {
+        // Insert top slots that fall within this HOLE segment
+        // The slot goes from the hole, UP to the edge, DOWN into the notch, back UP to hole level
+        for (const slot of clampedTopSlots) {
+          const slotLeft = slot.xPosition - slot.width / 2;
+          const slotRight = slot.xPosition + slot.width / 2;
+
+          // Check if slot falls within this segment
+          if (slotLeft >= current.x - tolerance && slotRight <= next.x + tolerance) {
+            // Go to slot left at hole level, up to edge level, down into notch, across, up, down to hole
+            newPoints.push({ x: slotLeft, y: holeLevel });
+            newPoints.push({ x: slotLeft, y: halfH });  // UP to edge
+            newPoints.push({ x: slotLeft, y: halfH - slot.depth });  // DOWN into notch
+            newPoints.push({ x: slotRight, y: halfH - slot.depth });  // ACROSS
+            newPoints.push({ x: slotRight, y: halfH });  // UP from notch
+            newPoints.push({ x: slotRight, y: holeLevel });  // DOWN to hole level
+          }
+        }
+      }
+
+      if (isBottomEdgeTab) {
+        // Insert bottom slots that fall within this TAB segment (note: moving right to left)
         // So we need to insert them in reverse order
         const relevantSlots = clampedBottomSlots.filter(slot => {
           const slotLeft = slot.xPosition - slot.width / 2;
@@ -1119,6 +1134,28 @@ export class DividerPanelNode extends BasePanel {
           newPoints.push({ x: slotRight, y: -halfH + slot.depth });
           newPoints.push({ x: slotLeft, y: -halfH + slot.depth });
           newPoints.push({ x: slotLeft, y: -halfH });
+        }
+      }
+
+      if (isBottomEdgeHole) {
+        // Insert bottom slots that fall within this HOLE segment (note: moving right to left)
+        const relevantSlots = clampedBottomSlots.filter(slot => {
+          const slotLeft = slot.xPosition - slot.width / 2;
+          const slotRight = slot.xPosition + slot.width / 2;
+          return slotRight <= current.x + tolerance && slotLeft >= next.x - tolerance;
+        }).sort((a, b) => b.xPosition - a.xPosition); // Sort right to left
+
+        for (const slot of relevantSlots) {
+          const slotLeft = slot.xPosition - slot.width / 2;
+          const slotRight = slot.xPosition + slot.width / 2;
+
+          // Go to slot right at hole level, down to edge level, up into notch, across, down, up to hole
+          newPoints.push({ x: slotRight, y: bottomHoleLevel });
+          newPoints.push({ x: slotRight, y: -halfH });  // DOWN to edge
+          newPoints.push({ x: slotRight, y: -halfH + slot.depth });  // UP into notch
+          newPoints.push({ x: slotLeft, y: -halfH + slot.depth });  // ACROSS
+          newPoints.push({ x: slotLeft, y: -halfH });  // DOWN from notch
+          newPoints.push({ x: slotLeft, y: bottomHoleLevel });  // UP to hole level
         }
       }
     }

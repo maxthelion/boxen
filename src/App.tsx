@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { LeftSidebar } from './components/LeftSidebar';
 import { Viewport3D, Viewport3DHandle } from './components/Viewport3D';
 import { SketchView2D } from './components/SketchView2D';
 import { SketchSidebar } from './components/SketchSidebar';
-import { SubdivisionControls } from './components/SubdivisionControls';
 import { ExportModal } from './components/ExportModal';
 import { ProjectBrowserModal } from './components/ProjectBrowserModal';
 import { SaveProjectModal } from './components/SaveProjectModal';
@@ -13,12 +12,13 @@ import { AboutModal } from './components/AboutModal';
 import { useBoxStore } from './store/useBoxStore';
 import { saveProject, loadProject, captureThumbnail } from './utils/projectStorage';
 import { ProjectState } from './utils/urlState';
-import { EdgeExtensions, FaceId, PanelPath } from './types';
+import { EdgeExtensions } from './types';
 import { hasDebug, getDebug } from './utils/debug';
 import {
   useEnginePanels,
   getEngineSnapshot,
   getEngine,
+  resetEngine,
   voidSnapshotToVoid,
   assemblySnapshotToConfig,
   faceConfigsToFaces,
@@ -26,48 +26,6 @@ import {
 import { AssemblySnapshot, VoidSnapshot } from './engine/types';
 import { ProjectTemplate } from './templates';
 import './App.css';
-
-// Get the normal axis for any panel (face or divider)
-const getPanelNormalAxis = (panel: PanelPath): 'x' | 'y' | 'z' | null => {
-  if (panel.source.type === 'face' && panel.source.faceId) {
-    const faceNormals: Record<FaceId, 'x' | 'y' | 'z'> = {
-      left: 'x', right: 'x',
-      top: 'y', bottom: 'y',
-      front: 'z', back: 'z',
-    };
-    return faceNormals[panel.source.faceId];
-  }
-  if (panel.source.type === 'divider' && panel.source.axis) {
-    return panel.source.axis;
-  }
-  return null;
-};
-
-// Check if two selected panels can potentially be subdivided between
-// This is a quick check - detailed validation happens in SubdivisionControls
-const canSubdivideBetweenPanels = (
-  selectedPanelIds: Set<string>,
-  panelCollection: { panels: PanelPath[] } | null
-): boolean => {
-  if (selectedPanelIds.size !== 2 || !panelCollection) return false;
-
-  const panelIds = Array.from(selectedPanelIds);
-  const panels = panelIds
-    .map(id => panelCollection.panels.find(p => p.id === id))
-    .filter((p): p is PanelPath => p !== undefined);
-
-  if (panels.length !== 2) return false;
-
-  // Both must be from main assembly (not sub-assembly)
-  if (panels.some(p => p.source.subAssemblyId)) return false;
-
-  // Get normal axes for both panels
-  const axis1 = getPanelNormalAxis(panels[0]);
-  const axis2 = getPanelNormalAxis(panels[1]);
-
-  // Both must have valid normal axes and they must match (parallel panels)
-  return axis1 !== null && axis1 === axis2;
-};
 
 function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -85,10 +43,6 @@ function App() {
   const panelCollection = useEnginePanels();
 
   const {
-    selectedVoidIds,
-    selectedPanelIds,
-    selectedAssemblyId,
-    selectedSubAssemblyIds,
     viewMode,
     loadFromUrl,
     getShareableUrl,
@@ -215,6 +169,9 @@ function App() {
   const handleLoadProject = (projectId: string) => {
     const loaded = loadProject(projectId);
     if (loaded) {
+      // Reset engine to start fresh (prevents merging with current scene)
+      resetEngine();
+
       // Update store with loaded state
       const state = useBoxStore.getState();
 
@@ -252,6 +209,9 @@ function App() {
 
   // Handle new project
   const handleNewProject = () => {
+    // Reset engine to start fresh
+    resetEngine();
+
     // Reset to default state
     useBoxStore.setState({
       config: {
@@ -296,12 +256,6 @@ function App() {
     window.history.replaceState(null, '', url.toString());
   };
 
-  // Check if two parallel panels are selected (for subdivision)
-  const showTwoPanelSubdivision = useMemo(() =>
-    canSubdivideBetweenPanels(selectedPanelIds, panelCollection),
-    [selectedPanelIds, panelCollection]
-  );
-
   // Determine what to show in the right sidebar based on selection
   const renderRightSidebar = () => {
     // 2D sketch mode - show sketch-specific sidebar
@@ -309,17 +263,7 @@ function App() {
       return <SketchSidebar />;
     }
 
-    // Void selected - show subdivision controls (only for single selection)
-    if (selectedVoidIds.size === 1) {
-      return <SubdivisionControls />;
-    }
-
-    // Two opposite panels selected - show subdivision controls
-    if (showTwoPanelSubdivision) {
-      return <SubdivisionControls />;
-    }
-
-    // Nothing selected, panel, or assembly selected - no sidebar
+    // No right sidebar in 3D mode - void operations are handled via toolbar tools
     return null;
   };
 

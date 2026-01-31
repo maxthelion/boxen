@@ -34,6 +34,11 @@ interface SerializedSubAssembly {
   a?: SerializedAssembly; // assembly config
 }
 
+interface SerializedGridSubdivision {
+  ax: ('x' | 'y' | 'z')[];  // axes
+  pos: Partial<Record<'x' | 'y' | 'z', number[]>>;  // positions per axis
+}
+
 interface SerializedVoid {
   id: string;
   b: [number, number, number, number, number, number];  // bounds [x, y, z, w, h, d]
@@ -41,6 +46,7 @@ interface SerializedVoid {
   sa?: 'x' | 'y' | 'z';   // splitAxis
   sp?: number;            // splitPosition
   sub?: SerializedSubAssembly;  // subAssembly
+  gs?: SerializedGridSubdivision;  // gridSubdivision
 }
 
 // Face order for bitmap encoding
@@ -116,6 +122,29 @@ const deserializeSubAssembly = (ssub: SerializedSubAssembly): SubAssembly => {
   };
 };
 
+// Serialize grid subdivision
+const serializeGridSubdivision = (gs: { axes: ('x' | 'y' | 'z')[]; positions: Partial<Record<'x' | 'y' | 'z', number[]>> }): SerializedGridSubdivision => {
+  // Round all position values
+  const roundedPositions: Partial<Record<'x' | 'y' | 'z', number[]>> = {};
+  for (const [axis, positions] of Object.entries(gs.positions)) {
+    if (positions) {
+      roundedPositions[axis as 'x' | 'y' | 'z'] = positions.map(r);
+    }
+  }
+  return {
+    ax: gs.axes,
+    pos: roundedPositions,
+  };
+};
+
+// Deserialize grid subdivision
+const deserializeGridSubdivision = (sgs: SerializedGridSubdivision): { axes: ('x' | 'y' | 'z')[]; positions: Partial<Record<'x' | 'y' | 'z', number[]>> } => {
+  return {
+    axes: sgs.ax,
+    positions: sgs.pos,
+  };
+};
+
 // Serialize void tree
 const serializeVoid = (v: Void): SerializedVoid => {
   const result: SerializedVoid = {
@@ -134,6 +163,9 @@ const serializeVoid = (v: Void): SerializedVoid => {
   }
   if (v.subAssembly) {
     result.sub = serializeSubAssembly(v.subAssembly);
+  }
+  if (v.gridSubdivision) {
+    result.gs = serializeGridSubdivision(v.gridSubdivision);
   }
 
   return result;
@@ -158,6 +190,10 @@ const deserializeVoid = (sv: SerializedVoid): Void => {
 
   if (sv.sub) {
     result.subAssembly = deserializeSubAssembly(sv.sub);
+  }
+
+  if (sv.gs) {
+    result.gridSubdivision = deserializeGridSubdivision(sv.gs);
   }
 
   return result;

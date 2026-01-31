@@ -516,4 +516,8 @@ export type EngineAction =
         parentVoidId?: string;
         axis?: Axis;
       }[];
+    }}
+  | { type: 'SET_GRID_SUBDIVISION'; targetId: string; payload: {
+      voidId: string;
+      axes: { axis: Axis; positions: number[] }[];
     }};

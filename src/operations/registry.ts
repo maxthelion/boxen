@@ -145,17 +145,38 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     description: 'Subdivide the void between two parallel panels',
     createPreviewAction: (params) => {
       // Uses same axes format as subdivide-grid
-      const { voidId, axes } = params as {
+      const { voidId, axes, isEdit } = params as {
         voidId?: string;
         axes?: { axis: Axis; positions: number[] }[];
+        isEdit?: boolean;  // If true, use SET_GRID_SUBDIVISION to replace existing
       };
 
       if (!voidId || !axes?.length) return null;
 
       // Filter out axes with empty positions
       const validAxes = axes.filter(a => a.positions && a.positions.length > 0);
-      if (validAxes.length === 0) return null;
+      if (validAxes.length === 0) {
+        // If in edit mode with no valid axes, clear the subdivisions
+        if (isEdit) {
+          return {
+            type: 'SET_GRID_SUBDIVISION',
+            targetId: 'main-assembly',
+            payload: { voidId, axes: [] },
+          };
+        }
+        return null;
+      }
 
+      // Edit mode: always use SET_GRID_SUBDIVISION to clear existing first
+      if (isEdit) {
+        return {
+          type: 'SET_GRID_SUBDIVISION',
+          targetId: 'main-assembly',
+          payload: { voidId, axes: validAxes },
+        };
+      }
+
+      // New subdivision mode
       // If only one axis with positions, use ADD_SUBDIVISIONS
       if (validAxes.length === 1) {
         return {
@@ -185,17 +206,38 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     description: 'Add a grid of dividers on multiple axes',
     shortcut: 'g',
     createPreviewAction: (params) => {
-      const { voidId, axes } = params as {
+      const { voidId, axes, isEdit } = params as {
         voidId?: string;
         axes?: { axis: Axis; positions: number[] }[];
+        isEdit?: boolean;  // If true, use SET_GRID_SUBDIVISION to replace existing
       };
 
       if (!voidId || !axes?.length) return null;
 
       // Filter out axes with empty positions
       const validAxes = axes.filter(a => a.positions && a.positions.length > 0);
-      if (validAxes.length === 0) return null;
+      if (validAxes.length === 0) {
+        // If in edit mode with no valid axes, clear the subdivisions
+        if (isEdit) {
+          return {
+            type: 'SET_GRID_SUBDIVISION',
+            targetId: 'main-assembly',
+            payload: { voidId, axes: [] },
+          };
+        }
+        return null;
+      }
 
+      // Edit mode: always use SET_GRID_SUBDIVISION to clear existing first
+      if (isEdit) {
+        return {
+          type: 'SET_GRID_SUBDIVISION',
+          targetId: 'main-assembly',
+          payload: { voidId, axes: validAxes },
+        };
+      }
+
+      // New subdivision mode
       // If only one axis with positions, use ADD_SUBDIVISIONS for backwards compatibility
       if (validAxes.length === 1) {
         return {

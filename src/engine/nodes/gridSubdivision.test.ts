@@ -266,4 +266,57 @@ describe('Grid Subdivision', () => {
       expect(rootVoid.isLeaf).toBe(true);
     });
   });
+
+  describe('Cross-lap slots', () => {
+    it('should create cross-lap slots on BOTH dividers in grid subdivision', () => {
+      const rootVoid = assembly.rootVoid;
+      const bounds = rootVoid.bounds;
+      const mt = defaultMaterial.thickness;
+
+      const xCenter = bounds.x + bounds.w / 2;
+      const zCenter = bounds.z + bounds.d / 2;
+
+      rootVoid.subdivideGrid([
+        { axis: 'x', positions: [xCenter] },
+        { axis: 'z', positions: [zCenter] },
+      ], mt);
+
+      // Get panels
+      const panels = assembly.getPanels();
+      const dividerPanels = panels.filter(p => p.kind === 'divider-panel');
+
+      expect(dividerPanels.length).toBe(2);
+
+      const xDivider = dividerPanels.find(p => p.props.axis === 'x');
+      const zDivider = dividerPanels.find(p => p.props.axis === 'z');
+
+      expect(xDivider).toBeDefined();
+      expect(zDivider).toBeDefined();
+
+      // The panel dimensions (height spans Y = 80)
+      const panelHalfHeight = assembly.height / 2; // 40
+
+      const xOutlinePoints = xDivider!.derived.outline.points;
+      const zOutlinePoints = zDivider!.derived.outline.points;
+
+      // Find cross-lap notch in X-divider (should be from TOP, so Y values at 0)
+      const xNotchPoints = xOutlinePoints.filter((p: {x: number, y: number}) => Math.abs(p.y) < panelHalfHeight * 0.1);
+
+      // Find cross-lap notch in Z-divider (should be from BOTTOM, so Y values at 0)
+      const zNotchPoints = zOutlinePoints.filter((p: {x: number, y: number}) => Math.abs(p.y) < panelHalfHeight * 0.1);
+
+      // Both should have cross-lap notch points at Y ≈ 0
+      // Cross-lap slots create points at the center of the panel (y=0)
+      expect(xNotchPoints.length).toBeGreaterThan(0);
+      expect(zNotchPoints.length).toBeGreaterThan(0);
+
+      // Check that the notch points are at the expected X position (around 0)
+      // The X-divider's notch should be around x=0 (center of Z span)
+      // The Z-divider's notch should be around x=0 (center of X span)
+      const xNotchCenter = xNotchPoints.find((p: {x: number, y: number}) => Math.abs(p.x) < 2);
+      const zNotchCenter = zNotchPoints.find((p: {x: number, y: number}) => Math.abs(p.x) < 2);
+      expect(xNotchCenter).toBeDefined();
+      expect(zNotchCenter).toBeDefined();
+    });
+  });
 });
