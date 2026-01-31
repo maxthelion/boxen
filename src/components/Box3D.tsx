@@ -5,6 +5,7 @@ import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { PanelCollectionRenderer } from './PanelPathRenderer';
 import { PanelEdgeRenderer } from './PanelEdgeRenderer';
+import { PanelCornerRenderer } from './PanelCornerRenderer';
 import { PushPullArrow } from './PushPullArrow';
 import { AssemblyAxisIndicator, LidFaceHighlight } from './AssemblyAxisIndicator';
 import { PanelToggleOverlay } from './PanelToggleOverlay';
@@ -186,6 +187,9 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
 
       {/* Panel edge faces for inset/outset tool */}
       <PanelEdgeRenderer scale={scale} />
+
+      {/* Panel corner indicators for fillet tool */}
+      <PanelCornerRenderer scale={scale} />
 
       {/* Push/Pull arrow indicator when tool is active and face panel is selected */}
       {activeTool === 'push-pull' && mainPanelCollection && pushPullCallbacks && (() => {

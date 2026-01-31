@@ -272,7 +272,8 @@ export interface BoxState {
   sketchPanelId: string | null;  // Panel being edited in 2D view
   // Editor tool state
   activeTool: EditorTool;
-  selectedCornerIds: Set<string>;  // Selected corners for chamfer/fillet tool
+  selectedCornerIds: Set<string>;  // Selected corners for chamfer/fillet tool. Format: "panelId:corner"
+  hoveredCorner: string | null;  // Format: "panelId:corner" e.g. "uuid:left:top"
   // Edge selection state (for inset/outset tool)
   selectedEdges: Set<string>;  // Format: "panelId:edge" e.g. "uuid:top"
   hoveredEdge: string | null;  // Format: "panelId:edge"
@@ -281,7 +282,7 @@ export interface BoxState {
 }
 
 // Editor tools available in 2D/3D views
-export type EditorTool = 'select' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer' | 'push-pull' | 'subdivide' | 'move' | 'create-sub-assembly' | 'configure' | 'scale';
+export type EditorTool = 'select' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer' | 'fillet' | 'push-pull' | 'subdivide' | 'move' | 'create-sub-assembly' | 'configure' | 'scale';
 
 export interface BoxActions {
   setConfig: (config: Partial<BoxConfig>) => void;
@@ -354,6 +355,8 @@ export interface BoxActions {
   selectCorner: (cornerId: string, toggle?: boolean) => void;
   selectCorners: (cornerIds: string[]) => void;
   clearCornerSelection: () => void;
+  setHoveredCorner: (cornerId: string | null) => void;
+  selectPanelCorners: (panelId: string, cornerEligibility: import('./engine/types').CornerEligibility[]) => void;
   // Edge selection actions (for inset/outset tool)
   selectEdge: (panelId: string, edge: EdgePosition, additive?: boolean) => void;
   deselectEdge: (panelId: string, edge: EdgePosition) => void;
@@ -503,6 +506,9 @@ export interface PanelPath {
 
   // Edge statuses for inset/outset tool (derived from engine)
   edgeStatuses?: EdgeStatusInfo[];
+
+  // Corner eligibility for fillet tool (derived from engine)
+  cornerEligibility?: import('./engine/types').CornerEligibility[];
 
   // Corner finishes (chamfers, fillets)
   cornerFinishes?: CornerFinish[];

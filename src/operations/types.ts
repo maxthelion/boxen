@@ -27,6 +27,7 @@ export type OperationId =
   | 'configure'
   | 'scale'
   | 'chamfer-fillet'
+  | 'corner-fillet'
   | 'move'
   | 'inset-outset'
   // Immediate operations (execute instantly)
@@ -130,12 +131,22 @@ export interface ScaleParams {
 }
 
 /**
- * Parameters for chamfer-fillet operation
+ * Parameters for chamfer-fillet operation (2D)
  */
 export interface ChamferFilletParams {
   cornerIds: string[];
   radius: number;
   type: 'chamfer' | 'fillet';
+}
+
+/**
+ * Parameters for corner-fillet operation (3D)
+ */
+export interface CornerFilletParams {
+  /** Selected corners in format "panelId:corner" (e.g., "uuid:left:top") */
+  corners: string[];
+  /** Fillet radius in mm */
+  radius: number;
 }
 
 /**

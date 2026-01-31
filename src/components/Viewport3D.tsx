@@ -23,9 +23,11 @@ import { CreateSubAssemblyPalette } from './CreateSubAssemblyPalette';
 import { ConfigurePalette } from './ConfigurePalette';
 import { ScalePalette } from './ScalePalette';
 import { InsetPalette, PanelEdgeGroup } from './InsetPalette';
+import { FilletPalette, PanelCornerGroup } from './FilletPalette';
 import { useBoxStore } from '../store/useBoxStore';
 import { EdgePosition, EdgeStatus } from '../types';
 import { useEnginePanels, getEngine } from '../engine';
+import { CornerKey, ALL_CORNERS } from '../engine/types';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
 
@@ -48,6 +50,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const insetFace = useBoxStore((state) => state.insetFace);
   const selectEdge = useBoxStore((state) => state.selectEdge);
   const selectPanelEdges = useBoxStore((state) => state.selectPanelEdges);
+  const selectPanelCorners = useBoxStore((state) => state.selectPanelCorners);
 
   // Operation system from store
   const operationState = useBoxStore((state) => state.operationState);
@@ -83,6 +86,12 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const [insetPalettePosition, setInsetPalettePosition] = useState({ x: 20, y: 150 });
   const [insetOffset, setInsetOffset] = useState(0);
   const baseExtensionsRef = useRef<Record<string, number>>({});
+
+  // Fillet palette state (local UI state only)
+  const [filletPalettePosition, setFilletPalettePosition] = useState({ x: 20, y: 150 });
+  const [filletRadius, setFilletRadius] = useState(5);
+  const selectedCornerIds = useBoxStore((state) => state.selectedCornerIds);
+  const selectCorner = useBoxStore((state) => state.selectCorner);
 
   // Get selected face ID for push-pull tool
   // Panel IDs are UUIDs, so we need to look up the panel source metadata
@@ -385,6 +394,164 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     setActiveTool('select');
   }, [cancelOperation, setActiveTool]);
 
+  // =========================================================================
+  // Fillet operation handlers
+  // =========================================================================
+
+  const selectedCornersArray = useMemo(() => Array.from(selectedCornerIds), [selectedCornerIds]);
+
+  // Build panel corner groups for the FilletPalette
+  const panelCornerGroups = useMemo((): PanelCornerGroup[] => {
+    if (activeTool !== 'fillet' || !panelCollection) {
+      return [];
+    }
+
+    // Get unique panel IDs from selected corners
+    const panelIdsWithCorners = new Set<string>();
+    for (const cornerKey of selectedCornerIds) {
+      // Format: "panelId:edge1:edge2"
+      const firstColonIndex = cornerKey.indexOf(':');
+      if (firstColonIndex > 0) {
+        panelIdsWithCorners.add(cornerKey.slice(0, firstColonIndex));
+      }
+    }
+
+    if (panelIdsWithCorners.size === 0) {
+      return [];
+    }
+
+    // Build groups for each panel
+    const groups: PanelCornerGroup[] = [];
+
+    for (const panelId of panelIdsWithCorners) {
+      const panel = panelCollection.panels.find(p => p.id === panelId);
+      if (!panel) continue;
+
+      // Get panel name from source
+      let panelName: string;
+      if (panel.source.type === 'face' && panel.source.faceId) {
+        const faceId = panel.source.faceId;
+        panelName = faceId.charAt(0).toUpperCase() + faceId.slice(1);
+      } else if (panel.source.type === 'divider') {
+        panelName = `Divider`;
+        if (panel.source.axis) {
+          panelName += ` (${panel.source.axis.toUpperCase()})`;
+        }
+      } else {
+        panelName = 'Panel';
+      }
+
+      // Build corner info from panel's corner eligibility
+      const corners = ALL_CORNERS.map(corner => {
+        const eligibility = panel.cornerEligibility?.find(e => e.corner === corner);
+        const isEligible = eligibility?.eligible ?? false;
+        const maxRadius = eligibility?.maxRadius ?? 0;
+        const isSelected = selectedCornerIds.has(`${panelId}:${corner}`);
+
+        return { corner, isEligible, maxRadius, isSelected };
+      });
+
+      groups.push({ panelId, panelName, corners });
+    }
+
+    return groups;
+  }, [activeTool, panelCollection, selectedCornerIds]);
+
+  // Calculate max radius across all selected corners
+  const filletMaxRadius = useMemo(() => {
+    let minMax = Infinity;
+    for (const group of panelCornerGroups) {
+      for (const corner of group.corners) {
+        if (corner.isSelected && corner.isEligible && corner.maxRadius > 0) {
+          minMax = Math.min(minMax, corner.maxRadius);
+        }
+      }
+    }
+    return minMax === Infinity ? 0 : minMax;
+  }, [panelCornerGroups]);
+
+  // Handle corner toggle from palette
+  const handleCornerToggle = useCallback((panelId: string, corner: CornerKey) => {
+    const cornerKey = `${panelId}:${corner}`;
+    selectCorner(cornerKey, true);  // additive = true to toggle
+  }, [selectCorner]);
+
+  // Auto-expand selected panels to corners when fillet tool is activated
+  useEffect(() => {
+    if (activeTool === 'fillet' && selectedPanelIds.size > 0 && selectedCornerIds.size === 0 && panelCollection) {
+      // Expand each selected panel to all its corners
+      for (const selectedId of selectedPanelIds) {
+        // The selected ID might be in 'face-front' format (from BoxTree) or UUID format
+        // Try to find panel by ID first, then by source.faceId
+        let panel = panelCollection.panels.find(p => p.id === selectedId);
+
+        if (!panel && selectedId.startsWith('face-')) {
+          // Try matching by faceId (e.g., 'face-front' -> find panel with source.faceId === 'front')
+          const faceId = selectedId.replace('face-', '');
+          panel = panelCollection.panels.find(p =>
+            p.source.type === 'face' && p.source.faceId === faceId
+          );
+        }
+
+        if (panel?.cornerEligibility) {
+          // Use the actual panel UUID for corner selection
+          selectPanelCorners(panel.id, panel.cornerEligibility);
+        }
+      }
+    }
+  }, [activeTool, selectedPanelIds, selectedCornerIds.size, panelCollection, selectPanelCorners]);
+
+  // Start fillet operation when entering fillet mode with corners selected
+  useEffect(() => {
+    const isOperationActive = operationState.activeOperation === 'corner-fillet';
+    if (activeTool === 'fillet' && selectedCornersArray.length > 0 && !isOperationActive) {
+      startOperation('corner-fillet');
+      updateOperationParams({ corners: selectedCornersArray, radius: filletRadius });
+    }
+  }, [activeTool, selectedCornersArray, operationState.activeOperation, startOperation, updateOperationParams, filletRadius]);
+
+  // Cancel fillet operation when leaving fillet mode or deselecting all corners
+  useEffect(() => {
+    if (operationState.activeOperation === 'corner-fillet') {
+      if (activeTool !== 'fillet' || selectedCornersArray.length === 0) {
+        cancelOperation();
+        setFilletRadius(5);
+      }
+    }
+  }, [activeTool, selectedCornersArray.length, operationState.activeOperation, cancelOperation]);
+
+  // Re-apply preview when selection changes during active fillet operation
+  useEffect(() => {
+    const isOperationActive = operationState.activeOperation === 'corner-fillet';
+    if (isOperationActive && selectedCornersArray.length > 0) {
+      updateOperationParams({ corners: selectedCornersArray, radius: filletRadius });
+    }
+  }, [selectedCornersArray, operationState.activeOperation, filletRadius, updateOperationParams]);
+
+  // Handle fillet radius change
+  const handleFilletRadiusChange = useCallback((radius: number) => {
+    if (operationState.activeOperation === 'corner-fillet') {
+      setFilletRadius(radius);
+      updateOperationParams({ corners: selectedCornersArray, radius });
+    }
+  }, [operationState.activeOperation, selectedCornersArray, updateOperationParams]);
+
+  // Handle fillet apply
+  const handleFilletApply = useCallback(() => {
+    if (operationState.activeOperation === 'corner-fillet' && filletRadius > 0) {
+      applyOperation();
+      setFilletRadius(5);
+      setActiveTool('select');
+    }
+  }, [operationState.activeOperation, filletRadius, applyOperation, setActiveTool]);
+
+  // Close fillet palette
+  const handleFilletPaletteClose = useCallback(() => {
+    cancelOperation();
+    setFilletRadius(5);
+    setActiveTool('select');
+  }, [cancelOperation, setActiveTool]);
+
   // Expose method to get the canvas element
   useImperativeHandle(ref, () => ({
     getCanvas: () => {
@@ -544,6 +711,22 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         onApply={handleInsetApply}
         onClose={handleInsetPaletteClose}
         onPositionChange={setInsetPalettePosition}
+        containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
+        closeOnClickOutside={false}
+      />
+
+      {/* Corner Fillet Palette */}
+      <FilletPalette
+        visible={activeTool === 'fillet' && panelCornerGroups.length > 0}
+        position={filletPalettePosition}
+        panelCornerGroups={panelCornerGroups}
+        radius={filletRadius}
+        maxRadius={filletMaxRadius}
+        onCornerToggle={handleCornerToggle}
+        onRadiusChange={handleFilletRadiusChange}
+        onApply={handleFilletApply}
+        onClose={handleFilletPaletteClose}
+        onPositionChange={setFilletPalettePosition}
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
         closeOnClickOutside={false}
       />

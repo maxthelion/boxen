@@ -16,6 +16,7 @@ import type {
   Point2D,
   Axis,
   FaceId,
+  CornerKey,
 } from '../types';
 
 // =============================================================================
@@ -946,14 +947,26 @@ export class ComprehensiveValidator {
 
     const POINT_TOLERANCE = 0.1;
 
+    // Map from corner name to CornerKey format used in fillets
+    const cornerNameToKey: Record<string, CornerKey> = {
+      'topLeft': 'left:top',
+      'topRight': 'right:top',
+      'bottomLeft': 'bottom:left',
+      'bottomRight': 'bottom:right',
+    };
+
     for (const panel of panels) {
       const extensions = panel.props.edgeExtensions;
       const outline = panel.derived.outline.points;
+      const cornerFillets = panel.props.cornerFillets || [];
 
       // Skip panels with no extensions
       if (!extensions.top && !extensions.bottom && !extensions.left && !extensions.right) {
         continue;
       }
+
+      // Build set of filleted corners for quick lookup
+      const filletedCorners = new Set(cornerFillets.map(f => f.corner));
 
       // Get base panel dimensions (before extensions)
       const halfW = panel.derived.width / 2;
@@ -1006,6 +1019,12 @@ export class ComprehensiveValidator {
         // Skip if neither or only one edge is extended (no merging needed)
         const bothExtended = ext1 > 0.001 && ext2 > 0.001;
         if (!bothExtended) continue;
+
+        // Skip corners that have fillets applied (they use arcs instead of diagonal points)
+        const cornerKey = cornerNameToKey[corner.name];
+        if (filletedCorners.has(cornerKey)) {
+          continue;
+        }
 
         // Check if diagonal point exists in outline
         const diagonalPointExists = outline.some(p =>

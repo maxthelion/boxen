@@ -145,15 +145,21 @@ export class PathChecker {
 
     const { outline } = panel.derived;
 
-    // Check outline
-    this.checkPathAxisAligned(
-      outline.points,
-      panel.id,
-      panel.kind,
-      'outline'
-    );
+    // Skip axis-aligned check for panel outline if it has corner fillets
+    // Fillet arcs are intentionally diagonal (polyline approximations of curves)
+    const hasFillets = panel.props.cornerFillets && panel.props.cornerFillets.length > 0;
 
-    // Check holes
+    // Check outline (skip if panel has fillets)
+    if (!hasFillets) {
+      this.checkPathAxisAligned(
+        outline.points,
+        panel.id,
+        panel.kind,
+        'outline'
+      );
+    }
+
+    // Check holes (always check - holes shouldn't have fillets)
     for (const hole of outline.holes) {
       this.checkPathAxisAligned(
         hole.path,

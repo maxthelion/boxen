@@ -14,6 +14,7 @@ export type EditorTool =
   | 'path'
   | 'inset'
   | 'chamfer'
+  | 'fillet'
   | 'push-pull'
   | 'subdivide'
   | 'move'
@@ -83,6 +84,13 @@ const tools: ToolButton[] = [
     label: 'Chamfer',
     tooltip: 'Chamfer corners (F)',
     modes: ['2d'],
+  },
+  {
+    id: 'fillet',
+    icon: '◠',
+    label: 'Fillet',
+    tooltip: 'Round corners (F)',
+    modes: ['3d'],
   },
   {
     id: 'push-pull',

@@ -300,6 +300,9 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
     adjacentFaceId: status.adjacentFaceId,
   }));
 
+  // Pass through corner eligibility from engine
+  const cornerEligibility = derived.cornerEligibility;
+
   return {
     id,
     source,
@@ -316,6 +319,7 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
     visible: props.visible,
     edgeExtensions: props.edgeExtensions,
     edgeStatuses,
+    cornerEligibility,
   };
 }
 

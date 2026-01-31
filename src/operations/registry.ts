@@ -418,6 +418,40 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     shortcut: 'c',
   },
 
+  'corner-fillet': {
+    id: 'corner-fillet',
+    name: 'Corner Fillet',
+    type: 'parameter',
+    selectionType: 'corner',
+    minSelection: 1,
+    maxSelection: Infinity,
+    availableIn: ['3d'],
+    description: 'Round panel corners with fillets',
+    shortcut: 'f',
+    createPreviewAction: (params) => {
+      const { corners, radius } = params as {
+        corners?: string[];  // Format: "panelId:corner" e.g., "uuid:left:top"
+        radius?: number;
+      };
+
+      if (!corners?.length || radius === undefined || radius <= 0) return null;
+
+      // Convert corner keys to fillet objects
+      const fillets = corners.map(cornerKey => {
+        const parts = cornerKey.split(':');
+        const panelId = parts[0];
+        const corner = `${parts[1]}:${parts[2]}` as 'bottom:left' | 'bottom:right' | 'left:top' | 'right:top';
+        return { panelId, corner, radius };
+      });
+
+      return {
+        type: 'SET_CORNER_FILLETS_BATCH',
+        targetId: 'main-assembly',
+        payload: { fillets },
+      };
+    },
+  },
+
   'inset-outset': {
     id: 'inset-outset',
     name: 'Inset/Outset',
@@ -602,6 +636,7 @@ const TOOL_TO_OPERATION: Record<string, OperationId | null> = {
   'circle': null,
   'path': null,
   'inset': 'inset-outset',
+  'fillet': 'corner-fillet',
   'push-pull': 'push-pull',
   'subdivide': 'subdivide',
   'move': 'move',
