@@ -730,11 +730,10 @@ describe('Subdivide-Two-Panel Operation', () => {
     useBoxStore.getState().startOperation('subdivide-two-panel');
     expect(engine.hasPreview()).toBe(true);
 
-    // Update params
+    // Update params with axes format expected by subdivide-two-panel
     useBoxStore.getState().updateOperationParams({
       voidId: 'root',
-      axis: 'y',
-      positions: [40],
+      axes: [{ axis: 'y', positions: [40] }],
     });
 
     // Verify preview has divider
@@ -786,7 +785,7 @@ describe('Operation Registry', () => {
       'subdivide',
       'subdivide-two-panel',
       'create-sub-assembly',
-      'configure-assembly',
+      'configure',
       'scale',
       'chamfer-fillet',
       'toggle-face',
@@ -823,7 +822,7 @@ describe('Configure Assembly Operation', () => {
     const engine = getEngine();
     expect(engine.hasPreview()).toBe(false);
 
-    useBoxStore.getState().startOperation('configure-assembly');
+    useBoxStore.getState().startOperation('configure');
     expect(engine.hasPreview()).toBe(true);
   });
 
@@ -831,7 +830,7 @@ describe('Configure Assembly Operation', () => {
     const engine = getEngine();
 
     // Start operation
-    useBoxStore.getState().startOperation('configure-assembly');
+    useBoxStore.getState().startOperation('configure');
 
     // Update material params - note: fingerWidth may be constrained by validation
     // With 60mm smallest dimension, thickness=5, fingerGap=3:
@@ -856,7 +855,7 @@ describe('Configure Assembly Operation', () => {
     const engine = getEngine();
 
     // Start operation
-    useBoxStore.getState().startOperation('configure-assembly');
+    useBoxStore.getState().startOperation('configure');
 
     // Update axis
     useBoxStore.getState().updateOperationParams({
@@ -873,7 +872,7 @@ describe('Configure Assembly Operation', () => {
     const engine = getEngine();
 
     // Start operation
-    useBoxStore.getState().startOperation('configure-assembly');
+    useBoxStore.getState().startOperation('configure');
 
     // Update params
     useBoxStore.getState().updateOperationParams({
@@ -900,7 +899,7 @@ describe('Configure Assembly Operation', () => {
     const originalThickness = originalSnapshot.children?.[0]?.props.material.thickness;
 
     // Start operation
-    useBoxStore.getState().startOperation('configure-assembly');
+    useBoxStore.getState().startOperation('configure');
 
     // Update params
     useBoxStore.getState().updateOperationParams({
