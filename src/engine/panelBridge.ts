@@ -15,12 +15,15 @@ import {
   PanelSource,
   PanelHole as StorePanelHole,
   defaultFaceOffsets,
+  FaceConfig,
+  BoxConfig,
 } from '../types';
 import { AssemblyNode } from './nodes/AssemblyNode';
 import { VoidNode } from './nodes/VoidNode';
 import { SubAssemblyNode } from './nodes/SubAssemblyNode';
 import { PanelSnapshot, FacePanelSnapshot, DividerPanelSnapshot } from './types';
 import { debug, enableDebugTag } from '../utils/debug';
+import { calculateSafeSpace } from './safeSpace';
 
 // Enable debug tags
 enableDebugTag('panel-gen');
@@ -363,6 +366,44 @@ export function generatePanelsFromEngine(assembly: AssemblyNode): PanelCollectio
 
   // Convert to store PanelPath format
   const panels = panelSnapshots.map(panelSnapshotToPanelPath);
+
+  // Get faces and config for safe space calculation
+  const faces: FaceConfig[] = assembly.getFaces().map(f => ({
+    id: f.id,
+    solid: f.solid,
+  }));
+
+  // Build a BoxConfig-compatible object for safe space calculation
+  // Note: engine's AssemblyConfig doesn't have 'enabled' on lids, so we add it
+  const engineConfig = assembly.assemblyConfig;
+  const config: BoxConfig = {
+    width: assembly.width,
+    height: assembly.height,
+    depth: assembly.depth,
+    materialThickness: assembly.material.thickness,
+    fingerWidth: assembly.material.fingerWidth,
+    fingerGap: assembly.material.fingerGap,
+    assembly: {
+      assemblyAxis: engineConfig.assemblyAxis,
+      lids: {
+        positive: {
+          enabled: true,
+          tabDirection: engineConfig.lids.positive.tabDirection,
+          inset: engineConfig.lids.positive.inset,
+        },
+        negative: {
+          enabled: true,
+          tabDirection: engineConfig.lids.negative.tabDirection,
+          inset: engineConfig.lids.negative.inset,
+        },
+      },
+    },
+  };
+
+  // Calculate safe space for each panel
+  for (const panel of panels) {
+    panel.safeSpace = calculateSafeSpace(panel, faces, config);
+  }
 
   return {
     panels,

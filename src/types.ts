@@ -512,6 +512,9 @@ export interface PanelPath {
 
   // Corner finishes (chamfers, fillets)
   cornerFinishes?: CornerFinish[];
+
+  // Safe space for custom geometry (cutouts, edge modifications)
+  safeSpace?: import('./engine/safeSpace').SafeSpaceRegion;
 }
 
 // Augmentation types that can be added to panels

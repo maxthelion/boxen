@@ -1,13 +1,13 @@
 import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { useBoxStore, getAllSubdivisions } from '../store/useBoxStore';
 import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
-import { PathPoint, PanelPath, FaceId, Face } from '../types';
+import { PathPoint, FaceId, Face } from '../types';
 import { getFaceEdgeStatuses, getDividerEdgeStatuses, EdgeStatusInfo } from '../utils/panelGenerator';
-import { getEditableAreas, EditableArea } from '../utils/editableAreas';
 import { DetectedCorner } from '../utils/cornerFinish';
 import { EditorToolbar, EditorTool } from './EditorToolbar';
 import { FloatingPalette, PaletteSliderInput, PaletteToggleGroup, PaletteButtonRow, PaletteButton, PaletteCheckbox, PaletteCheckboxGroup, PaletteNumberInput } from './FloatingPalette';
 import { getColors } from '../config/colors';
+import { SafeSpaceRegion } from '../engine/safeSpace';
 
 interface SketchView2DProps {
   className?: string;
@@ -356,11 +356,11 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     return getJointSegments(panel.outline.points, originalWidth, originalHeight);
   }, [panel]);
 
-  // Get editable areas (safe zones for cutouts)
-  const editableAreas = useMemo((): EditableArea[] => {
-    if (!panel) return [];
-    return getEditableAreas(panel, faces, config);
-  }, [panel, faces, config]);
+  // Get safe space from panel (includes exclusions and reserved regions)
+  const safeSpace = useMemo((): SafeSpaceRegion | null => {
+    if (!panel) return null;
+    return panel.safeSpace ?? null;
+  }, [panel]);
 
   // Detect corners for potential finishing
   // Find the actual corners from the panel outline (the extreme points)
@@ -1110,22 +1110,49 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             );
           })}
 
-          {/* Editable areas (safe zones for cutouts) */}
-          {editableAreas.map((area, i) => (
-            <rect
-              key={`editable-${i}`}
-              x={area.x}
-              y={area.y}
-              width={area.width}
-              height={area.height}
-              fill={colors.sketch.editable.base}
-              fillOpacity={0.15}
-              stroke={colors.sketch.editable.base}
-              strokeWidth={outlineStrokeWidth * 0.8}
-              strokeDasharray={`${4 * strokeScale} ${2 * strokeScale}`}
-              opacity={0.7}
-            />
-          ))}
+          {/* Safe Space Visualization */}
+          {safeSpace && (
+            <>
+              {/* Safe space outline (green dashed) */}
+              <polygon
+                points={safeSpace.outline.map(p => `${p.x},${p.y}`).join(' ')}
+                fill={colors.sketch.editable.base}
+                fillOpacity={0.1}
+                stroke={colors.sketch.editable.base}
+                strokeWidth={outlineStrokeWidth * 0.8}
+                strokeDasharray={`${4 * strokeScale} ${2 * strokeScale}`}
+                opacity={0.7}
+              />
+
+              {/* Slot exclusion zones (orange, hatched) */}
+              {safeSpace.exclusions.map((exclusion, i) => (
+                <polygon
+                  key={`exclusion-${i}`}
+                  points={exclusion.map(p => `${p.x},${p.y}`).join(' ')}
+                  fill={colors.sketch.exclusion.base}
+                  fillOpacity={0.2}
+                  stroke={colors.sketch.exclusion.base}
+                  strokeWidth={outlineStrokeWidth * 0.6}
+                  strokeDasharray={`${2 * strokeScale} ${2 * strokeScale}`}
+                  opacity={0.6}
+                />
+              ))}
+
+              {/* Reserved regions (red, semi-transparent) */}
+              {safeSpace.reserved.map((reserved, i) => (
+                <polygon
+                  key={`reserved-${i}`}
+                  points={reserved.polygon.map(p => `${p.x},${p.y}`).join(' ')}
+                  fill={colors.sketch.reserved.base}
+                  fillOpacity={reserved.type === 'slot' || reserved.type === 'slot-margin' ? 0.15 : 0.1}
+                  stroke={reserved.type === 'joint-edge' ? colors.sketch.reserved.base : 'none'}
+                  strokeWidth={outlineStrokeWidth * 0.5}
+                  strokeDasharray={`${3 * strokeScale} ${1 * strokeScale}`}
+                  opacity={0.5}
+                />
+              ))}
+            </>
+          )}
 
           {/* Conceptual boundary lines (dashed, showing ideal panel edges) */}
           {conceptualBoundary && (['top', 'bottom', 'left', 'right'] as EdgePosition[]).map(edge => {

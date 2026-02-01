@@ -85,7 +85,9 @@ export interface ColorConfig {
       major: string;
       axes: string;
     };
-    editable: StateColors;     // Editable regions
+    editable: StateColors;     // Editable/safe regions
+    reserved: StateColors;     // Reserved for joints (not editable)
+    exclusion: StateColors;    // Slot exclusion zones
     boundary: string;          // Conceptual panel boundary
     adjacent: StateColors;     // Adjacent panel cross-section
     extension: string;         // Extension visualization on adjacent panels
@@ -171,7 +173,9 @@ export const defaultColors: ColorConfig = {
       major: '#3a3a4e',
       axes: '#4a4a6a',
     },
-    editable: { base: '#2ecc71', hover: '#3dd87f' },
+    editable: { base: '#2ecc71', hover: '#3dd87f' },       // Green - safe to edit
+    reserved: { base: '#e74c3c', hover: '#ec7063' },       // Red - reserved for joints
+    exclusion: { base: '#f39c12', hover: '#f5b041' },      // Orange - slot exclusion zones
     boundary: '#6a6a8a',
     adjacent: { base: '#4a5568', hover: '#718096' },
     extension: '#e53e3e',

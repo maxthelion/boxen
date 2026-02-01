@@ -398,6 +398,67 @@ useEffect(() => {
 }, [undo, redo]);
 ```
 
+### Visual History Timeline
+
+Display applied operations as icons along the bottom of the 3D viewport:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│                         3D VIEWPORT                             │
+│                                                                 │
+│                                                                 │
+├─────────────────────────────────────────────────────────────────┤
+│ [📦] → [✂️] → [✂️] → [↔️] → [⬆️] → [◐] → [│]                    │
+│  ↑      ↑      ↑      ↑      ↑      ↑     ↑                     │
+│ Create  Sub    Sub   Resize Push   Fillet Current               │
+│ Box    divide divide        Pull                                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Behaviors:**
+
+1. **Single click**: Select operation (highlight), show tooltip with details
+2. **Double click**:
+   - Roll back history to that point
+   - Open the operation's palette with original values
+   - User can modify values and re-apply
+   - **Warning**: May break downstream operations (show confirmation if dependent operations exist)
+
+3. **Visual states**:
+   - Past operations: Normal icons
+   - Current position: Highlighted/selected
+   - Future (after undo): Grayed out (in redo stack)
+
+**Implementation notes:**
+
+- Each icon corresponds to a `Command` in the history stack
+- Icons derived from `CommandType` or operation metadata
+- Double-click triggers:
+  1. `restoreToIndex(clickedIndex - 1)` - restore to state before that command
+  2. `startOperation(command.type)` with `command.metadata` as initial params
+  3. Show warning dialog if `findDependentCommands(clickedIndex)` returns any
+
+```typescript
+interface HistoryTimelineProps {
+  commands: Command[];
+  currentIndex: number;
+  onSelectCommand: (index: number) => void;
+  onEditCommand: (index: number) => void;  // Double-click
+}
+
+// Icon mapping
+const COMMAND_ICONS: Record<CommandType, string> = {
+  'push-pull': '↔️',
+  'subdivide': '✂️',
+  'toggle-face': '◻️',
+  'chamfer-fillet': '◐',
+  'inset-edge': '⊟',
+  'set-dimensions': '📐',
+  // ...
+};
+```
+
 ---
 
 ## Implementation Phases
@@ -438,6 +499,38 @@ Some operations produce many rapid updates (e.g., dragging a slider). Options:
 3. **Coalesce same-type**: Merge consecutive commands of same type/target
 
 Recommendation: Use explicit commit (aligns with Apply/Cancel pattern).
+
+### Template Preview with Operation History (Nice to Have)
+
+The template preview window could display the sequence of operations that created the object:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Template: "Drawer Organizer"                            [X]    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│    ┌─────────────┐     Operations:                              │
+│    │             │     ┌────────────────────────────────┐       │
+│    │   PREVIEW   │     │ 1. [📦] Create Box 100×80×60   │ [✎]  │
+│    │             │     │ 2. [✂️] Subdivide X: 3 parts   │ [✎]  │
+│    │             │     │ 3. [✂️] Subdivide Z: 2 parts   │ [✎]  │
+│    └─────────────┘     │ 4. [◐] Fillet corners 5mm     │ [✎]  │
+│                        └────────────────────────────────┘       │
+│                                                                 │
+│    [Instantiate]  [Customize...]                                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Behaviors:**
+
+- Click [✎] on any operation to open its palette and modify values
+- Changes preview in real-time
+- Modified template can be saved as new template or instantiated directly
+- Builds on same `Command` history infrastructure
+
+This enables "recipe-style" templates where users understand and can tweak the construction process, not just the final parameters.
+
+---
 
 ### Branch History (Future)
 
