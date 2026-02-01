@@ -11,6 +11,116 @@ Enable users to customize panel geometry beyond the automatic finger joints and 
 
 ## Core Concepts
 
+### Geometry Model: Assembly → Panel
+
+The system has two distinct geometry domains with a constraint relationship:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  ASSEMBLY GEOMETRY                           │
+│                 (3D structural model)                        │
+├─────────────────────────────────────────────────────────────┤
+│  • Box dimensions (W × H × D)                                │
+│  • Face configuration (which faces solid)                    │
+│  • Void tree (subdivisions, sub-assemblies)                  │
+│  • Material properties (thickness, finger width)             │
+│  • Assembly config (axis, lids, feet)                        │
+│                                                              │
+│  Managed by: ENGINE (existing)                               │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           │ Derives constraints
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 PANEL CONSTRAINTS                            │
+│              (derived from assembly)                         │
+├─────────────────────────────────────────────────────────────┤
+│  Per panel (read-only, computed):                            │
+│  • Body dimensions                                           │
+│  • Edge types (male joint / female joint / open)             │
+│  • Safe space outline                                        │
+│  • Slot exclusions                                           │
+│  • Corner positions and max fillet radii                     │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           │ Constrains
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  PANEL GEOMETRY                              │
+│               (2D editable features)                         │
+├─────────────────────────────────────────────────────────────┤
+│  Per panel (editable within constraints):                    │
+│  • Custom edge paths (must stay within safe space)           │
+│  • Cutouts (must stay within safe space)                     │
+│  • Corner fillets (limited by max radius)                    │
+│  • Edge extensions (limited by edge type)                    │
+│                                                              │
+│  Managed by: ENGINE (new) + 2D EDITOR                        │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           │ Combined into
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   PANEL OUTPUT                               │
+│              (final renderable/exportable)                   │
+├─────────────────────────────────────────────────────────────┤
+│  • Complete outline (joints + custom paths + fillets)        │
+│  • All holes (slots + cutouts)                               │
+│  • Transform (3D position/rotation)                          │
+│  • Metadata (source, label)                                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key principles:**
+1. Assembly geometry changes invalidate panel constraints
+2. Panel geometry must respect panel constraints (validation)
+3. Both levels are persisted in engine state
+4. Panel output is derived (computed on demand)
+
+**Data model:**
+```typescript
+// Panel Constraints - derived, read-only
+interface PanelConstraints {
+  bodyDimensions: { width: number; height: number };
+  edges: Map<EdgePosition, EdgeConstraint>;
+  safeSpace: SafeSpaceRegion;
+  corners: Map<CornerPosition, CornerConstraint>;
+}
+
+interface EdgeConstraint {
+  type: 'male-joint' | 'female-joint' | 'open';
+  canExtend: boolean;
+  maxInset: number;
+}
+
+interface CornerConstraint {
+  position: PathPoint;
+  maxFilletRadius: number;
+  edges: [EdgePosition, EdgePosition];
+}
+
+// Panel Geometry - editable within constraints
+interface PanelGeometry {
+  edgePaths: Map<EdgePosition, CustomEdgePath>;
+  cutouts: Cutout[];
+  cornerFillets: Map<CornerPosition, number>;
+  edgeExtensions: Map<EdgePosition, number>;
+}
+```
+
+**Engine actions span both levels:**
+```typescript
+type EngineAction =
+  // Assembly-level (existing)
+  | { type: 'SET_DIMENSIONS'; ... }
+  | { type: 'ADD_SUBDIVISION'; ... }
+
+  // Panel-level (new)
+  | { type: 'SET_EDGE_PATH'; panelId: string; edge: EdgePosition; path: CustomEdgePath }
+  | { type: 'ADD_CUTOUT'; panelId: string; cutout: Cutout }
+  | { type: 'SET_CORNER_FILLET'; panelId: string; corner: CornerPosition; radius: number }
+```
+
 ### Safe Space (Editable Areas)
 
 **Direction:** The new safe space system will replace the existing `editableAreas.ts` with a more comprehensive approach that handles both edge joints AND slot holes.
@@ -115,6 +225,334 @@ Each panel edge can be one of three types:
 | **Custom** | User-defined edge path | Yes |
 
 *Female jointed edges can have custom paths if they extend beyond MT from the joint.
+
+### Interaction Modes
+
+The 2D editor has three distinct interaction modes, each with different state management and undo behavior:
+
+#### 1. Operations (Discrete Parameter Changes)
+
+Standard operations with clear inputs and atomic results. Uses the centralized operation system.
+
+**Examples:** Inset edge, fillet corner, add predefined cutout shape
+
+**Flow:**
+```
+Select target → Set parameters → Preview → Apply/Cancel
+```
+
+**Characteristics:**
+- Uses `startOperation` → `updateOperationParams` → `applyOperation`
+- Engine preview scene shows live result
+- Apply commits as single undo step
+- Cancel discards preview
+
+#### 2. Draft Mode (Creating New Geometry)
+
+For drawing new paths/shapes that don't exist yet. Geometry is collected in a temporary buffer and only added to the model on completion.
+
+**Examples:** Draw polyline, draw polygon, draw freehand path
+
+**Flow:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      DRAFT MODE                              │
+│                                                              │
+│   Model State                    Draft Buffer                │
+│  ┌──────────────┐              ┌──────────────────┐         │
+│  │              │              │ • Point 1        │         │
+│  │  (unchanged) │              │ • Point 2        │         │
+│  │              │              │ • Point 3 ←      │         │
+│  └──────────────┘              └──────────────────┘         │
+│                                                              │
+│   Draft rendered as overlay - NOT in model yet              │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Characteristics:**
+- Session starts implicitly on first input (e.g., first click places first point)
+- Points accumulate in temporary buffer, not in model
+- Draft rendered as visual overlay
+- `Cmd+Z` removes last point from buffer (simple array pop)
+- `Esc` discards entire draft
+- Finish (double-click, Enter, Done) creates single operation with final geometry
+
+**Data Model:**
+```typescript
+interface DraftState {
+  type: 'polyline' | 'polygon' | 'rectangle' | 'circle';
+  targetPanelId: string;
+  targetEdge?: EdgePosition;  // For edge paths
+  points: PathPoint[];        // Accumulated points
+}
+```
+
+**Implementation:**
+```typescript
+// Draft is just local state - no operation dispatch until finish
+function handleClick(point: PathPoint) {
+  draft.points.push(point);
+  renderDraftOverlay();
+}
+
+function handleUndo() {
+  draft.points.pop();  // Simple array manipulation
+  renderDraftOverlay();
+}
+
+function handleEscape() {
+  draft = null;  // Discard entirely, nothing to restore
+}
+
+function handleFinish() {
+  // NOW dispatch the actual operation
+  engine.dispatch({
+    type: 'ADD_CUSTOM_EDGE_PATH',
+    payload: { panelId, edge, points: draft.points }
+  });
+  draft = null;
+}
+```
+
+#### 3. Edit Session (Modifying Existing Geometry)
+
+For editing geometry that already exists in the model. Captures initial state and tracks micro-edits for session-scoped undo.
+
+**Examples:** Edit existing path nodes, reshape cutout, move vertices
+
+**Flow:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     EDIT SESSION                             │
+│                                                              │
+│   Initial State (captured)       Live State (in model)      │
+│  ┌──────────────┐              ┌──────────────────┐         │
+│  │ • Point 1    │              │ • Point 1        │         │
+│  │ • Point 2    │   ───────►   │ • Point 2 (moved)│         │
+│  │ • Point 3    │              │ • Point 3        │         │
+│  └──────────────┘              │ • Point 4 (new)  │         │
+│        ↑                       └──────────────────┘         │
+│   For Esc rollback                                          │
+│                                                              │
+│   Session undo stack: [move P2, add P4]                     │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Characteristics:**
+- Session starts implicitly when user begins editing (e.g., starts dragging a node)
+- Initial state captured for rollback
+- Micro-edits modify model directly (live feedback)
+- Session maintains its own undo stack
+- `Cmd+Z` undoes last micro-edit within session
+- `Esc` restores initial state (full rollback)
+- Done commits entire session as single operation
+
+**Data Model:**
+```typescript
+interface EditSession {
+  type: 'path-edit' | 'cutout-edit';
+  targetId: string;
+  initialState: SerializedState;  // For Esc rollback
+  undoStack: MicroEdit[];         // Session-scoped undo
+  redoStack: MicroEdit[];         // Session-scoped redo
+}
+
+type MicroEdit =
+  | { type: 'move-node'; nodeIndex: number; from: PathPoint; to: PathPoint }
+  | { type: 'add-node'; nodeIndex: number; point: PathPoint }
+  | { type: 'delete-node'; nodeIndex: number; point: PathPoint };
+```
+
+#### Mode Summary
+
+| Mode | When | Model State | Undo Behavior | Cancel (Esc) |
+|------|------|-------------|---------------|--------------|
+| **Operation** | Inset, fillet, add shape | Preview scene | N/A (adjust params) | Discard preview |
+| **Draft** | Drawing new path/shape | Unchanged | Pop from buffer | Discard buffer |
+| **Edit Session** | Editing existing geometry | Modified live | Session undo stack | Restore initial |
+
+#### Undo Routing
+
+```typescript
+function handleUndo() {
+  if (draftState) {
+    // In draft mode - pop last point
+    draftState.points.pop();
+  } else if (editSession) {
+    // In edit session - undo last micro-edit
+    const edit = editSession.undoStack.pop();
+    applyInverse(edit);
+    editSession.redoStack.push(edit);
+  } else {
+    // Normal - global undo
+    undoLastOperation();
+  }
+}
+
+function handleEscape() {
+  if (draftState) {
+    draftState = null;  // Discard draft
+  } else if (editSession) {
+    restoreState(editSession.initialState);  // Rollback
+    editSession = null;
+  }
+}
+```
+
+### Editor Context Architecture
+
+A unified **Editor Context** manages all interaction modes, providing a consistent interface across 2D and 3D views.
+
+#### State Machine (Pure, Testable)
+
+The core logic is a pure state machine with no React dependencies:
+
+```typescript
+// src/editor/EditorStateMachine.ts - NO React imports
+
+type EditorMode = 'idle' | 'operation' | 'draft' | 'editing';
+
+interface EditorState {
+  mode: EditorMode;
+  activeView: '2d' | '3d';
+  originView: '2d' | '3d';      // View that started this mode
+  validViews: ('2d' | '3d')[];  // Views where this mode works
+
+  // Operation mode
+  operationId?: string;
+  operationParams?: Record<string, unknown>;
+
+  // Draft mode
+  draftType?: 'polyline' | 'polygon' | 'rectangle';
+  draftTarget?: { panelId: string; edge?: EdgePosition };
+  draftPoints: PathPoint[];
+
+  // Edit session mode
+  editTarget?: string;
+  initialSnapshot?: SerializedState;
+  editHistory: MicroEdit[];
+  editHistoryIndex: number;
+}
+
+type EditorAction =
+  | { type: 'START_OPERATION'; operationId: string; params?: Record<string, unknown> }
+  | { type: 'UPDATE_PARAMS'; params: Record<string, unknown> }
+  | { type: 'START_DRAFT'; draftType: string; target: DraftTarget }
+  | { type: 'ADD_DRAFT_POINT'; point: PathPoint }
+  | { type: 'START_EDIT_SESSION'; targetId: string; snapshot: SerializedState }
+  | { type: 'RECORD_EDIT'; edit: MicroEdit }
+  | { type: 'UNDO' }
+  | { type: 'REDO' }
+  | { type: 'COMMIT' }
+  | { type: 'CANCEL' };
+
+// Pure reducer - testable without React
+function editorReducer(state: EditorState, action: EditorAction): EditorState;
+
+// Pure helper functions - testable
+function canUndo(state: EditorState): boolean;
+function canRedo(state: EditorState): boolean;
+function getCommitPayload(state: EditorState): CommitPayload | null;
+```
+
+#### React Hook (Thin Wrapper)
+
+```typescript
+// src/editor/useEditorContext.ts
+export function useEditorContext() {
+  const [state, dispatch] = useReducer(editorReducer, initialState);
+  const engine = useEngine();
+
+  return {
+    // Mode state
+    mode: state.mode,
+    isActive: state.mode !== 'idle',
+
+    // Unified interface - same for all modes
+    canUndo: canUndo(state),
+    canRedo: canRedo(state),
+    undo: () => dispatch({ type: 'UNDO' }),
+    redo: () => dispatch({ type: 'REDO' }),
+    commit: () => { /* dispatch to engine, then reset */ },
+    cancel: () => { /* restore/discard, then reset */ },
+
+    // Mode starters
+    startOperation: (opId, params) => dispatch({ type: 'START_OPERATION', ... }),
+    startDraft: (type, target) => dispatch({ type: 'START_DRAFT', ... }),
+
+    // Mode-specific accessors
+    draftPoints: state.draftPoints,
+    operationParams: state.operationParams,
+    // ...
+  };
+}
+```
+
+#### Single Context, View-Aware
+
+One EditorContext spans both 2D and 3D views:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    EDITOR CONTEXT                            │
+│                   (single instance)                          │
+├─────────────────────────────────────────────────────────────┤
+│  mode: 'idle' | 'operation' | 'draft' | 'editing'            │
+│  activeView: '2d' | '3d'                                     │
+│  validViews: ['2d'] | ['3d'] | ['2d', '3d']                  │
+└─────────────────────────────────────────────────────────────┘
+          │                           │
+          ▼                           ▼
+   ┌─────────────┐             ┌─────────────┐
+   │  3D View    │             │  2D View    │
+   └─────────────┘             └─────────────┘
+```
+
+**View-specific modes:**
+| Mode/Operation | Valid Views |
+|----------------|-------------|
+| Inset edge | 2D, 3D |
+| Fillet corner | 2D, 3D |
+| Draw polyline | 2D only |
+| Edit path nodes | 2D only |
+| Push-pull divider | 3D only |
+
+**View switch behavior:** If user tries to switch views while in a view-specific mode, prompt to finish or cancel first.
+
+#### Testability
+
+```typescript
+// Unit test the pure state machine
+describe('EditorStateMachine', () => {
+  it('accumulates draft points', () => {
+    let state = editorReducer(initialState, { type: 'START_DRAFT', ... });
+    state = editorReducer(state, { type: 'ADD_DRAFT_POINT', point: { x: 0, y: 0 } });
+    state = editorReducer(state, { type: 'ADD_DRAFT_POINT', point: { x: 10, y: 0 } });
+
+    expect(state.draftPoints).toHaveLength(2);
+  });
+
+  it('undo removes last draft point', () => {
+    // ... setup with 2 points ...
+    state = editorReducer(state, { type: 'UNDO' });
+
+    expect(state.draftPoints).toHaveLength(1);
+  });
+});
+
+// Integration test with mock context
+describe('LineTool', () => {
+  it('adds point on click', () => {
+    const mockContext = { addDraftPoint: vi.fn(), ... };
+    render(<EditorContext.Provider value={mockContext}><LineTool /></EditorContext.Provider>);
+
+    fireEvent.click(canvas, { clientX: 100, clientY: 100 });
+    expect(mockContext.addDraftPoint).toHaveBeenCalled();
+  });
+});
+```
 
 ---
 
@@ -454,7 +892,7 @@ interface SafeSpaceRegion {
 
 ## Implementation Phases
 
-### Phase 1: Safe Space Calculation
+### Phase 1: Safe Space Calculation ✅
 1. Create `src/engine/safeSpace.ts` with new calculation logic
 2. Include edge joint margins (existing logic from editableAreas.ts)
 3. Include slot hole detection from panel `holes` array
@@ -463,30 +901,202 @@ interface SafeSpaceRegion {
 6. Add `safeSpace` to PanelPath
 7. Update 2D view to show safe space outline and exclusion regions
 
-### Phase 2: Custom Edge Paths
+### Phase 2: Standardized 2D Operation System
+
+**Scope:** This phase implements the **Operations (Discrete)** interaction mode for 2D view. See "Interaction Modes" in Core Concepts for the full model including Draft Mode and Edit Sessions (implemented in later phases).
+
+**Problem:** 2D operations currently bypass the centralized operation system, using local component state instead. This causes:
+- No preview phase for 2D operations
+- No undo/redo support
+- Inconsistent behavior between 2D and 3D views
+- Each tool reimplements its own state management
+
+**Goal:** All discrete 2D operations (inset, fillet, add shape) must use the same `startOperation` → `updateOperationParams` → `applyOperation` flow as 3D operations.
+
+#### Current State vs Target State
+
+| Aspect | Current (2D) | Target (2D) |
+|--------|--------------|-------------|
+| State management | Local (`useState`) | Store (`operationState`) |
+| Preview | None/manual | Automatic via engine preview scene |
+| Apply/Cancel | Direct mutations | `applyOperation()`/`cancelOperation()` |
+| Undo support | None | Via engine dispatch |
+| Registry definition | No `createPreviewAction` | Has `createPreviewAction` |
+
+#### Implementation Steps
+
+**1. Add `createPreviewAction` to 2D operations in registry**
+
+Update `src/operations/registry.ts`:
+
+```typescript
+'inset-outset': {
+  // ... existing config ...
+  availableIn: ['2d', '3d'],  // Enable for both views
+  createPreviewAction: (params) => {
+    const { panelId, edge, offset } = params as InsetParams;
+    if (!panelId || !edge || offset === undefined) return null;
+    return {
+      type: 'SET_EDGE_EXTENSION',
+      targetId: 'main-assembly',
+      payload: { panelId, edge, extension: offset },
+    };
+  },
+},
+
+'chamfer-fillet': {
+  // ... existing config ...
+  createPreviewAction: (params) => {
+    const { corners, radius, type } = params as ChamferFilletParams;
+    if (!corners?.length || radius === undefined) return null;
+    return {
+      type: 'SET_CORNER_FILLETS_BATCH',
+      targetId: 'main-assembly',
+      payload: { corners, radius, type },
+    };
+  },
+},
+```
+
+**2. Refactor SketchView2D.tsx to use store operations**
+
+Replace local state:
+```typescript
+// REMOVE these local states:
+const [selectedEdges, setSelectedEdges] = useState<Set<EdgePosition>>(new Set());
+const [extensionAmount, setExtensionAmount] = useState(0);
+const [cornerFinishType, setCornerFinishType] = useState<'chamfer' | 'fillet'>('chamfer');
+const [cornerRadius, setCornerRadius] = useState(3);
+
+// USE store operations instead:
+const operationState = useBoxStore((state) => state.operationState);
+const startOperation = useBoxStore((state) => state.startOperation);
+const updateOperationParams = useBoxStore((state) => state.updateOperationParams);
+const applyOperation = useBoxStore((state) => state.applyOperation);
+const cancelOperation = useBoxStore((state) => state.cancelOperation);
+```
+
+**3. Update palette handlers to use operation params**
+
+```typescript
+// Inset tool - update params triggers preview
+const handleExtensionChange = (value: number) => {
+  updateOperationParams({ offset: value });
+};
+
+const handleApply = () => {
+  applyOperation();
+  setActiveTool('select');
+};
+
+const handleCancel = () => {
+  cancelOperation();
+  setActiveTool('select');
+};
+```
+
+**4. Ensure preview rendering in 2D view**
+
+The 2D view already uses `useEnginePanels()` which returns preview panels when an operation is active. Verify this works correctly for 2D-specific operations.
+
+**5. Add operation param types**
+
+In `src/operations/types.ts`:
+```typescript
+export interface InsetParams {
+  panelId: string;
+  edge: EdgePosition;
+  offset: number;
+}
+
+export interface ChamferFilletParams {
+  corners: string[];
+  radius: number;
+  type: 'chamfer' | 'fillet';
+}
+```
+
+#### Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/operations/registry.ts` | Add `createPreviewAction` to `inset-outset`, `chamfer-fillet` |
+| `src/operations/types.ts` | Add param types for 2D operations |
+| `src/components/SketchView2D.tsx` | Replace local state with store operations |
+| `src/components/InsetPalette2D.tsx` | Create (or refactor from SketchView2D) |
+| `src/components/ChamferFilletPalette2D.tsx` | Create (or refactor from SketchView2D) |
+
+#### Verification
+
+1. Activate inset tool in 2D view
+2. Select an edge and drag → Preview shows extended edge in real-time
+3. Click Apply → Extension committed
+4. Click Cancel → Extension reverted to original
+5. Same behavior for chamfer/fillet tool
+
+#### Interaction Mode Guidelines
+
+**Use the correct interaction mode for each feature:**
+
+| Feature Type | Interaction Mode | Example |
+|--------------|------------------|---------|
+| Parameter adjustment | **Operation** | Inset edge, fillet corner |
+| Add predefined shape | **Operation** | Add rectangle/circle cutout |
+| Draw new geometry | **Draft Mode** | Draw polyline, draw polygon |
+| Edit existing geometry | **Edit Session** | Move path nodes, reshape cutout |
+
+**For Operations (this phase):**
+1. Define in `src/operations/registry.ts` with `createPreviewAction`
+2. Use store's `startOperation`/`updateOperationParams`/`applyOperation` flow
+3. NOT use local component state for operation parameters
+4. Preview via engine preview scene
+
+**For Draft Mode (Phase 5):**
+1. Temporary buffer, geometry not in model until finish
+2. `Cmd+Z` pops from buffer, `Esc` discards buffer
+3. Finish creates single operation
+
+**For Edit Sessions (Phase 5):**
+1. Capture initial state on session start
+2. Session-scoped undo stack for micro-edits
+3. `Cmd+Z` undoes within session, `Esc` restores initial state
+4. Done commits as single operation
+
+### Phase 3: Custom Edge Paths
+**Interaction Mode:** Draft Mode (drawing new path), Edit Session (modifying existing)
+
 1. Add data model for custom edge paths
 2. Implement edge path rendering in panel generation
 3. Create edge path editor UI
 4. Implement feet as custom edge path preset
+5. Implement Draft Mode for drawing new paths
+6. Implement Edit Session for modifying existing paths
 
-### Phase 3: Basic Cutouts
+### Phase 4: Basic Cutouts
+**Interaction Mode:** Operation (add predefined shape), Edit Session (modify)
+
 1. Add cutout data model
-2. Implement rectangle and circle cutouts
+2. Implement rectangle and circle cutouts (Operation mode)
 3. Create cutout tools in 2D view
 4. Validate cutouts stay within safe space
+5. Implement Edit Session for reshaping/repositioning cutouts
 
-### Phase 4: 2D Drawing Tools
-1. Implement line tool with snapping
-2. Implement select tool with node editing
-3. Add shape mode toggle (add/subtract)
-4. Implement fillet tool for paths
+### Phase 5: 2D Drawing Tools & Session Infrastructure
+**Interaction Mode:** Draft Mode (line/shape tools), Edit Session (select tool)
 
-### Phase 5: Import Features
+1. Implement Draft Mode infrastructure (`DraftState`, undo buffer)
+2. Implement Edit Session infrastructure (`EditSession`, session undo stack)
+3. Implement line tool with snapping (Draft Mode)
+4. Implement select tool with node editing (Edit Session)
+5. Add shape mode toggle (add/subtract)
+6. Implement fillet tool for custom path vertices
+
+### Phase 6: Import Features
 1. Implement bitmap import as reference layer
 2. Implement SVG pattern import
 3. Create import dialogs
 
-### Phase 6: Panel Feature Copying
+### Phase 7: Panel Feature Copying
 1. Implement feature copying between compatible panels
 2. Add copy/paste UI
 3. Handle edge gender compatibility
@@ -495,17 +1105,36 @@ interface SafeSpaceRegion {
 
 ## Files to Create/Modify
 
+### Core Architecture
+
 | File | Action | Description |
 |------|--------|-------------|
-| `src/engine/safeSpace.ts` | Create | Safe space calculation with slot exclusions |
+| `src/editor/EditorStateMachine.ts` | Create | Pure state machine for all editing modes (testable) |
+| `src/editor/EditorStateMachine.test.ts` | Create | Unit tests for state machine |
+| `src/editor/useEditorContext.ts` | Create | React hook wrapping state machine |
+| `src/editor/types.ts` | Create | EditorState, EditorAction, mode types |
+| `src/contexts/EditorContext.tsx` | Create | React context provider |
+
+### Engine Extensions
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/engine/safeSpace.ts` | Created ✅ | Safe space calculation with slot exclusions |
+| `src/engine/PanelGeometry.ts` | Create | Panel-level geometry storage (paths, cutouts) |
+| `src/engine/PanelConstraints.ts` | Create | Derived constraints from assembly |
+| `src/engine/types.ts` | Modify | Add PanelGeometry, PanelConstraints, CustomEdgePath types |
+| `src/engine/panelBridge.ts` | Modify | Include panel geometry in output |
 | `src/utils/editableAreas.ts` | Deprecate | Legacy system, replaced by safeSpace.ts |
-| `src/engine/types.ts` | Modify | Add SafeSpaceRegion, CustomEdgePath, PanelCutout types |
-| `src/engine/panelBridge.ts` | Modify | Include safeSpace and custom geometry in PanelPath |
-| `src/components/SketchView2D.tsx` | Modify | Show safe space with exclusions, add 2D editing tools |
-| `src/components/tools/LineTool.tsx` | Create | Line drawing tool |
+
+### 2D Editor Components
+
+| File | Action | Description |
+|------|--------|-------------|
+| `src/components/SketchView2D.tsx` | Modify | Use EditorContext, show safe space |
+| `src/components/tools/LineTool.tsx` | Create | Line drawing (Draft Mode) |
 | `src/components/tools/RectangleTool.tsx` | Create | Rectangle tool |
 | `src/components/tools/CircleTool.tsx` | Create | Circle tool |
-| `src/components/tools/SelectTool.tsx` | Create | Selection and node editing |
+| `src/components/tools/SelectTool.tsx` | Create | Selection and node editing (Edit Session) |
 | `src/components/ImportDialog.tsx` | Create | SVG/bitmap import |
 | `src/utils/svgImport.ts` | Create | SVG parsing utilities |
 
@@ -513,7 +1142,7 @@ interface SafeSpaceRegion {
 
 ## Open Questions
 
-1. Should custom edge paths support curves (bezier) or only polylines?
-2. How to handle cutouts that would make panel structurally unsound?
-3. Should there be preset shape libraries (common handle shapes, vent patterns)?
-4. How does undo/redo interact with 2D editing? (ties into general undo feature)
+1. ~~How does undo/redo interact with 2D editing?~~ → Answered: EditorContext handles mode-specific undo
+2. Should custom edge paths support curves (bezier) or only polylines?
+3. How to handle cutouts that would make panel structurally unsound?
+4. Should there be preset shape libraries (common handle shapes, vent patterns)?
