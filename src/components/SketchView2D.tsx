@@ -8,6 +8,10 @@ import { EditorToolbar, EditorTool } from './EditorToolbar';
 import { FloatingPalette, PaletteSliderInput, PaletteToggleGroup, PaletteButtonRow, PaletteButton, PaletteCheckbox, PaletteCheckboxGroup, PaletteNumberInput } from './FloatingPalette';
 import { getColors } from '../config/colors';
 import { SafeSpaceRegion } from '../engine/safeSpace';
+import { debug, enableDebugTag } from '../utils/debug';
+
+// Ensure safe-space tag is active for this component
+enableDebugTag('safe-space');
 
 interface SketchView2DProps {
   className?: string;
@@ -330,36 +334,33 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   // because the outline points are generated from original dims + extensions at corners
   const edgeSegments = useMemo(() => {
     if (!panel) return null;
-    const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
-    const originalWidth = panel.width - (ext.left ?? 0) - (ext.right ?? 0);
-    const originalHeight = panel.height - (ext.top ?? 0) - (ext.bottom ?? 0);
-    return getEdgeSegments(panel.outline.points, originalWidth, originalHeight);
+    // panel.width/height are body dimensions (without extensions)
+    return getEdgeSegments(panel.outline.points, panel.width, panel.height);
   }, [panel]);
 
-  // Get conceptual boundary (straight lines at ORIGINAL panel edges, before extensions)
+  // Get conceptual boundary (straight lines at panel body edges)
   const conceptualBoundary = useMemo(() => {
     if (!panel) return null;
-    // Calculate original dimensions by subtracting extensions
-    const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
-    const originalWidth = panel.width - (ext.left ?? 0) - (ext.right ?? 0);
-    const originalHeight = panel.height - (ext.top ?? 0) - (ext.bottom ?? 0);
-    return getConceptualBoundary(originalWidth, originalHeight);
+    // panel.width/height are body dimensions (without extensions)
+    return getConceptualBoundary(panel.width, panel.height);
   }, [panel]);
 
   // Get joint segments (perpendicular parts of finger joints)
-  // Use original dimensions like edgeSegments
   const jointSegments = useMemo(() => {
     if (!panel) return [];
-    const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
-    const originalWidth = panel.width - (ext.left ?? 0) - (ext.right ?? 0);
-    const originalHeight = panel.height - (ext.top ?? 0) - (ext.bottom ?? 0);
-    return getJointSegments(panel.outline.points, originalWidth, originalHeight);
+    // panel.width/height are body dimensions (without extensions)
+    return getJointSegments(panel.outline.points, panel.width, panel.height);
   }, [panel]);
 
   // Get safe space from panel (includes exclusions and reserved regions)
   const safeSpace = useMemo((): SafeSpaceRegion | null => {
     if (!panel) return null;
-    return panel.safeSpace ?? null;
+    const ss = panel.safeSpace ?? null;
+    debug('safe-space', `SketchView2D: safeSpace exists=${!!ss}, panel.outline points=${panel.outline.points.length}`);
+    if (ss) {
+      debug('safe-space', `safeSpace outline: ${ss.outline.length} points`);
+    }
+    return ss;
   }, [panel]);
 
   // Detect corners for potential finishing
@@ -994,11 +995,9 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           {panel && adjacentPanelProfiles.map(profile => {
             if (!profile.exists) return null;
 
-            const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
-            const originalWidth = panel.width - (ext.left ?? 0) - (ext.right ?? 0);
-            const originalHeight = panel.height - (ext.top ?? 0) - (ext.bottom ?? 0);
-            const halfW = originalWidth / 2;
-            const halfH = originalHeight / 2;
+            // panel.width/height are body dimensions (without extensions)
+            const halfW = panel.width / 2;
+            const halfH = panel.height / 2;
             const mt = profile.materialThickness;
             const profileScale = Math.min(viewBox.width, viewBox.height) / 200; // Scale profile size
 
@@ -1028,7 +1027,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                 // Profile above the top edge - inset on left/right if those edges have joints
                 x = -halfW + leftInset;
                 y = halfH - topInset;  // Position at the finger joint line
-                w = originalWidth - leftInset - rightInset;
+                w = panel.width - leftInset - rightInset;
                 h = mt;
                 labelX = 0;
                 labelY = halfH + 5 * profileScale;
@@ -1037,7 +1036,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                 // Profile below the bottom edge - inset on left/right if those edges have joints
                 x = -halfW + leftInset;
                 y = -halfH + bottomInset - mt;  // Position at the finger joint line
-                w = originalWidth - leftInset - rightInset;
+                w = panel.width - leftInset - rightInset;
                 h = mt;
                 labelX = 0;
                 labelY = -halfH - 5 * profileScale;
@@ -1047,7 +1046,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                 x = -halfW + leftInset - mt;  // Position at the finger joint line
                 y = -halfH + bottomInset;
                 w = mt;
-                h = originalHeight - topInset - bottomInset;
+                h = panel.height - topInset - bottomInset;
                 labelX = -halfW - 5 * profileScale;
                 labelY = 0;
                 break;
@@ -1056,7 +1055,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                 x = halfW - rightInset;  // Position at the finger joint line
                 y = -halfH + bottomInset;
                 w = mt;
-                h = originalHeight - topInset - bottomInset;
+                h = panel.height - topInset - bottomInset;
                 labelX = halfW + 5 * profileScale;
                 labelY = 0;
                 break;
@@ -1092,17 +1091,18 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                     strokeDasharray={`${2 * strokeScale} ${1 * strokeScale}`}
                   />
                 )}
-                {/* Material thickness label */}
+                {/* Adjacent face label - small, positioned outside the profile */}
                 <text
-                  x={labelX}
-                  y={-labelY}
+                  x={labelX * 1.8}
+                  y={-labelY * 1.8}
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fill={colors.sketch.label}
-                  fontSize={Math.max(6, 8 * profileScale)}
+                  fontSize={Math.max(2.5, 3 * profileScale)}
                   fontFamily="monospace"
                   transform={`scale(1, -1)`}
                   style={{ pointerEvents: 'none' }}
+                  opacity={0.5}
                 >
                   {profile.faceId}
                 </text>
@@ -1300,28 +1300,67 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           })}
         </g>
 
-        {/* Dimension labels */}
-        <text
-          x={0}
-          y={-panel.height / 2 - 8}
-          textAnchor="middle"
-          fill={colors.sketch.label}
-          fontSize="10"
-          fontFamily="monospace"
-        >
-          {panel.width.toFixed(1)}
-        </text>
-        <text
-          x={panel.width / 2 + 8}
-          y={0}
-          textAnchor="start"
-          fill={colors.sketch.label}
-          fontSize="10"
-          fontFamily="monospace"
-          transform={`rotate(-90, ${panel.width / 2 + 8}, 0)`}
-        >
-          {panel.height.toFixed(1)}
-        </text>
+        {/* Dimension labels - positioned outside drawing with scaled font */}
+        {(() => {
+          const dimFontSize = Math.max(3, Math.min(5, strokeScale * 4));
+          const dimOffset = dimFontSize * 2;
+          const halfW = panel.width / 2;
+          const halfH = panel.height / 2;
+          return (
+            <>
+              {/* Top - width */}
+              <text
+                x={0}
+                y={-halfH - dimOffset}
+                textAnchor="middle"
+                fill={colors.sketch.label}
+                fontSize={dimFontSize}
+                fontFamily="monospace"
+                opacity={0.7}
+              >
+                {panel.width.toFixed(1)}
+              </text>
+              {/* Bottom - width */}
+              <text
+                x={0}
+                y={halfH + dimOffset + dimFontSize}
+                textAnchor="middle"
+                fill={colors.sketch.label}
+                fontSize={dimFontSize}
+                fontFamily="monospace"
+                opacity={0.7}
+              >
+                {panel.width.toFixed(1)}
+              </text>
+              {/* Right - height */}
+              <text
+                x={halfW + dimOffset}
+                y={0}
+                textAnchor="middle"
+                fill={colors.sketch.label}
+                fontSize={dimFontSize}
+                fontFamily="monospace"
+                opacity={0.7}
+                transform={`rotate(-90, ${halfW + dimOffset}, 0)`}
+              >
+                {panel.height.toFixed(1)}
+              </text>
+              {/* Left - height */}
+              <text
+                x={-halfW - dimOffset}
+                y={0}
+                textAnchor="middle"
+                fill={colors.sketch.label}
+                fontSize={dimFontSize}
+                fontFamily="monospace"
+                opacity={0.7}
+                transform={`rotate(90, ${-halfW - dimOffset}, 0)`}
+              >
+                {panel.height.toFixed(1)}
+              </text>
+            </>
+          );
+        })()}
       </svg>
 
 

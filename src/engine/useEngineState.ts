@@ -12,8 +12,9 @@
 import { useSyncExternalStore } from 'react';
 import { getEngine } from './engineInstance';
 import { SceneSnapshot, AssemblySnapshot, PanelSnapshot, VoidSnapshot } from './types';
-import { BoxConfig, Face, FaceId, Void, SubAssembly, PanelCollection, PanelPath, defaultFaceOffsets } from '../types';
+import { BoxConfig, Face, FaceId, FaceConfig, Void, SubAssembly, PanelCollection, PanelPath, defaultFaceOffsets } from '../types';
 import { panelSnapshotToPanelPath } from './panelBridge';
+import { calculateSafeSpace } from './safeSpace';
 import { debug } from '../utils/debug';
 
 // =============================================================================
@@ -171,10 +172,22 @@ export function faceConfigsToFaces(configs: { id: FaceId; solid: boolean }[]): F
 
 /**
  * Convert engine panel snapshots to store PanelCollection
+ * Also calculates safe space for each panel
  */
-function panelSnapshotsToPanelCollection(panels: PanelSnapshot[]): PanelCollection {
+function panelSnapshotsToPanelCollection(
+  panels: PanelSnapshot[],
+  faces: FaceConfig[],
+  config: BoxConfig
+): PanelCollection {
+  const convertedPanels = panels.map(panelSnapshotToPanelPath);
+
+  // Calculate safe space for each panel
+  for (const panel of convertedPanels) {
+    panel.safeSpace = calculateSafeSpace(panel, faces, config);
+  }
+
   return {
-    panels: panels.map(panelSnapshotToPanelPath),
+    panels: convertedPanels,
     augmentations: [],
     generatedAt: Date.now(),
   };
@@ -254,8 +267,9 @@ function getEngineModelState(): EngineModelState | null {
     ? voidSnapshotToVoid(rootVoidSnapshot)
     : { id: 'root', bounds: { x: 0, y: 0, z: 0, w: 0, h: 0, d: 0 }, children: [] };
 
-  // Get panels
-  const panelCollection = panelSnapshotsToPanelCollection(assemblySnapshot.derived.panels);
+  // Get panels (with safe space calculation)
+  const faceConfigs: FaceConfig[] = assemblySnapshot.props.faces.map(f => ({ id: f.id, solid: f.solid }));
+  const panelCollection = panelSnapshotsToPanelCollection(assemblySnapshot.derived.panels, faceConfigs, config);
 
   cachedState = {
     config,
@@ -347,7 +361,9 @@ function getMainPanels(): PanelCollection | null {
   const assemblySnapshot = mainScene.serialize().children[0] as AssemblySnapshot | undefined;
   if (!assemblySnapshot) return null;
 
-  cachedMainPanels = panelSnapshotsToPanelCollection(assemblySnapshot.derived.panels);
+  const config = assemblySnapshotToConfig(assemblySnapshot);
+  const faceConfigs: FaceConfig[] = assemblySnapshot.props.faces.map(f => ({ id: f.id, solid: f.solid }));
+  cachedMainPanels = panelSnapshotsToPanelCollection(assemblySnapshot.derived.panels, faceConfigs, config);
   return cachedMainPanels;
 }
 

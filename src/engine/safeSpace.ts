@@ -11,6 +11,13 @@
  */
 
 import { PanelPath, FaceConfig, BoxConfig, PathPoint } from '../types';
+import { debug, setDebugTags, disableDebugTag } from '../utils/debug';
+
+// Enable only safe-space debug tag, disable noisy ones
+setDebugTags(['safe-space']);
+disableDebugTag('slot-geometry');
+disableDebugTag('panel-gen');
+disableDebugTag('sub-assembly');
 
 // =============================================================================
 // Types
@@ -93,7 +100,9 @@ function getFaceEdgeMargins(
   const margins: Record<EdgePosition, number> = { top: 0, bottom: 0, left: 0, right: 0 };
 
   for (const edge of edges) {
-    margins[edge] = faceEdgeHasJoints(faceId, edge, faces) ? materialThickness : 0;
+    // Safe space needs 2×MT margin from edges with joints:
+    // 1×MT for the joint region itself, plus 1×MT clearance margin
+    margins[edge] = faceEdgeHasJoints(faceId, edge, faces) ? materialThickness * 2 : 0;
   }
 
   return margins;
@@ -101,13 +110,15 @@ function getFaceEdgeMargins(
 
 /**
  * Get edge margins for a divider panel (joints on all edges)
+ * Uses 2×MT: 1×MT for joint region + 1×MT clearance margin
  */
 function getDividerEdgeMargins(materialThickness: number): Record<EdgePosition, number> {
+  const margin = materialThickness * 2;
   return {
-    top: materialThickness,
-    bottom: materialThickness,
-    left: materialThickness,
-    right: materialThickness,
+    top: margin,
+    bottom: margin,
+    left: margin,
+    right: margin,
   };
 }
 
@@ -184,22 +195,21 @@ function getSlotExclusions(
 
 /**
  * Calculate the safe space outline based on edge margins
+ *
+ * Note: panelWidth and panelHeight are the BODY dimensions (without extensions).
+ * Extensions are additional material added beyond the body.
+ * The safe space is based on the body, inset by margins where joints exist.
  */
 function calculateSafeOutline(
   panelWidth: number,
   panelHeight: number,
-  edgeMargins: Record<EdgePosition, number>,
-  edgeExtensions?: { top?: number; bottom?: number; left?: number; right?: number }
+  edgeMargins: Record<EdgePosition, number>
 ): PathPoint[] {
-  // Calculate original dimensions (without extensions)
-  const ext = edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
-  const originalWidth = panelWidth - (ext.left ?? 0) - (ext.right ?? 0);
-  const originalHeight = panelHeight - (ext.top ?? 0) - (ext.bottom ?? 0);
+  // panelWidth/Height are already the body dimensions (without extensions)
+  const halfW = panelWidth / 2;
+  const halfH = panelHeight / 2;
 
-  const halfW = originalWidth / 2;
-  const halfH = originalHeight / 2;
-
-  // Safe space is inset from edges by their margins
+  // Safe space is inset from body edges by their margins
   const safeLeft = -halfW + edgeMargins.left;
   const safeRight = halfW - edgeMargins.right;
   const safeBottom = -halfH + edgeMargins.bottom;
@@ -216,22 +226,19 @@ function calculateSafeOutline(
 
 /**
  * Create reserved regions for edge joints
+ *
+ * Note: panelWidth and panelHeight are the BODY dimensions (without extensions).
  */
 function createEdgeReservedRegions(
   panelWidth: number,
   panelHeight: number,
-  edgeMargins: Record<EdgePosition, number>,
-  edgeExtensions?: { top?: number; bottom?: number; left?: number; right?: number }
+  edgeMargins: Record<EdgePosition, number>
 ): ReservedRegion[] {
   const reserved: ReservedRegion[] = [];
 
-  // Calculate original dimensions (without extensions)
-  const ext = edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
-  const originalWidth = panelWidth - (ext.left ?? 0) - (ext.right ?? 0);
-  const originalHeight = panelHeight - (ext.top ?? 0) - (ext.bottom ?? 0);
-
-  const halfW = originalWidth / 2;
-  const halfH = originalHeight / 2;
+  // panelWidth/Height are already the body dimensions
+  const halfW = panelWidth / 2;
+  const halfH = panelHeight / 2;
 
   // Create reserved region for each edge with joints
   if (edgeMargins.top > 0) {
@@ -308,6 +315,8 @@ export function calculateSafeSpace(
 ): SafeSpaceRegion {
   const { materialThickness } = config;
 
+  debug('safe-space', `calculateSafeSpace: panel=${panel.source.faceId || panel.source.axis} dims=${panel.width}x${panel.height} mt=${materialThickness}`);
+
   // Determine edge margins based on panel type
   let edgeMargins: Record<EdgePosition, number>;
 
@@ -321,12 +330,14 @@ export function calculateSafeSpace(
   }
 
   // Calculate the main safe space outline
+  // Note: panel.width/height are body dimensions, not including extensions
   const outline = calculateSafeOutline(
     panel.width,
     panel.height,
-    edgeMargins,
-    panel.edgeExtensions
+    edgeMargins
   );
+
+  debug('safe-space', `Safe outline: ${outline.length} points: ${JSON.stringify(outline)}`);
 
   // Get slot exclusions and their reserved regions
   const { exclusions, reserved: slotReserved } = getSlotExclusions(panel, materialThickness);
@@ -335,8 +346,7 @@ export function calculateSafeSpace(
   const edgeReserved = createEdgeReservedRegions(
     panel.width,
     panel.height,
-    edgeMargins,
-    panel.edgeExtensions
+    edgeMargins
   );
 
   // Combine all reserved regions
