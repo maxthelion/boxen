@@ -901,205 +901,606 @@ interface SafeSpaceRegion {
 6. Add `safeSpace` to PanelPath
 7. Update 2D view to show safe space outline and exclusion regions
 
-### Phase 2: Standardized 2D Operation System
+### Phase 2: Standardized 2D Operation System ✅
+Migrated inset and chamfer/fillet tools to use centralized operation system (`startOperation` → `updateOperationParams` → `applyOperation`). Operations now use engine preview scene for live feedback.
 
-**Scope:** This phase implements the **Operations (Discrete)** interaction mode for 2D view. See "Interaction Modes" in Core Concepts for the full model including Draft Mode and Edit Sessions (implemented in later phases).
+---
 
-**Problem:** 2D operations currently bypass the centralized operation system, using local component state instead. This causes:
-- No preview phase for 2D operations
-- No undo/redo support
-- Inconsistent behavior between 2D and 3D views
-- Each tool reimplements its own state management
+### Phase 3: Editor Context Architecture ✅ (Core Complete)
 
-**Goal:** All discrete 2D operations (inset, fillet, add shape) must use the same `startOperation` → `updateOperationParams` → `applyOperation` flow as 3D operations.
+**Goal:** Create a unified editing system that handles all three interaction modes (Operations, Draft, Edit Sessions) with a single, testable state machine.
 
-#### Current State vs Target State
+#### Completion Status
 
-| Aspect | Current (2D) | Target (2D) |
-|--------|--------------|-------------|
-| State management | Local (`useState`) | Store (`operationState`) |
-| Preview | None/manual | Automatic via engine preview scene |
-| Apply/Cancel | Direct mutations | `applyOperation()`/`cancelOperation()` |
-| Undo support | None | Via engine dispatch |
-| Registry definition | No `createPreviewAction` | Has `createPreviewAction` |
+**Core Infrastructure: DONE**
+- `src/editor/types.ts` - All type definitions ✅
+- `src/editor/EditorStateMachine.ts` - Pure reducer with all modes ✅
+- `src/editor/EditorStateMachine.test.ts` - 40 tests passing ✅
+- `src/editor/useEditorContext.ts` - React hook + engine sync ✅
+- `src/editor/EditorContext.tsx` - Provider + hooks ✅
+- `src/editor/useEditorKeyboard.ts` - Keyboard shortcuts ✅
+- App.tsx integration - EditorProvider wrapping app ✅
+
+**Remaining Work (to revisit after Phase 5):**
+
+1. **Draft Mode Commit** (`useEditorContext.ts` lines 130-135)
+   - Currently a stub - needs engine actions for custom paths/cutouts
+   - **Revisit when:** Phase 5 adds cutout engine actions
+
+2. **Edit Session Snapshot Restore** (`useEditorContext.ts` lines 159-161)
+   - Currently a stub - needs engine snapshot/restore mechanism
+   - **Revisit when:** Phase 4/5 adds geometry that can be edited
+
+3. **Component Migration** - 8 components still use `useBoxStore` for operations:
+   - `Viewport3D.tsx`, `SubdividePalette.tsx`, `ScalePalette.tsx`
+   - `MovePalette.tsx`, `ConfigurePalette.tsx`, `CreateSubAssemblyPalette.tsx`
+   - `PanelEdgeRenderer.tsx`, `PanelCornerRenderer.tsx`
+   - **Revisit when:** After Phase 4 to consolidate all operations
+
+**Currently Working:**
+- 2D inset/chamfer tools use EditorContext
+- Mode-aware undo/redo (Cmd+Z)
+- Escape to cancel active mode
+
+#### Why This Architecture?
+
+The current implementation has operations spread across:
+- `useBoxStore` (operation state)
+- `SketchView2D.tsx` (local tool state)
+- Individual palette components
+
+This makes it hard to:
+- Add new interaction modes (Draft, Edit Sessions)
+- Implement consistent undo/redo across modes
+- Test editing logic without React
+- Handle view switching during active edits
+
+#### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  EditorStateMachine.ts                       │
+│                   (Pure TypeScript)                          │
+├─────────────────────────────────────────────────────────────┤
+│  • No React dependencies                                     │
+│  • Pure reducer: (state, action) → state                     │
+│  • All mode logic in one place                               │
+│  • Fully unit-testable                                       │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   useEditorContext.ts                        │
+│                    (React Hook)                              │
+├─────────────────────────────────────────────────────────────┤
+│  • Thin wrapper around state machine                         │
+│  • Connects to engine for preview/commit                     │
+│  • Provides actions as callbacks                             │
+└─────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   EditorContext.tsx                          │
+│                  (React Provider)                            │
+├─────────────────────────────────────────────────────────────┤
+│  • Single context for both 2D and 3D views                   │
+│  • Tools consume via useEditor() hook                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### State Machine Design
+
+```typescript
+// src/editor/types.ts
+
+type EditorMode = 'idle' | 'operation' | 'draft' | 'editing';
+
+interface EditorState {
+  mode: EditorMode;
+
+  // View tracking
+  activeView: '2d' | '3d';
+  originView: '2d' | '3d';      // View that started this mode
+
+  // Operation mode (discrete parameter changes)
+  operation?: {
+    id: string;
+    params: Record<string, unknown>;
+  };
+
+  // Draft mode (accumulating new geometry)
+  draft?: {
+    type: 'polyline' | 'polygon' | 'rectangle' | 'circle';
+    targetPanelId: string;
+    targetEdge?: EdgePosition;
+    points: PathPoint[];
+  };
+
+  // Edit session mode (modifying existing geometry)
+  editSession?: {
+    targetId: string;
+    initialSnapshot: unknown;
+    history: MicroEdit[];
+    historyIndex: number;
+  };
+}
+
+type EditorAction =
+  // Mode transitions
+  | { type: 'START_OPERATION'; operationId: string; params?: Record<string, unknown> }
+  | { type: 'START_DRAFT'; draftType: DraftType; target: DraftTarget }
+  | { type: 'START_EDIT_SESSION'; targetId: string; snapshot: unknown }
+
+  // Operation mode
+  | { type: 'UPDATE_PARAMS'; params: Record<string, unknown> }
+
+  // Draft mode
+  | { type: 'ADD_DRAFT_POINT'; point: PathPoint }
+  | { type: 'UPDATE_DRAFT_POINT'; index: number; point: PathPoint }
+
+  // Edit session mode
+  | { type: 'RECORD_EDIT'; edit: MicroEdit }
+
+  // Universal
+  | { type: 'UNDO' }
+  | { type: 'REDO' }
+  | { type: 'COMMIT' }
+  | { type: 'CANCEL' }
+  | { type: 'SET_VIEW'; view: '2d' | '3d' };
+```
 
 #### Implementation Steps
 
-**1. Add `createPreviewAction` to 2D operations in registry**
+**Step 1: Create type definitions**
 
-Update `src/operations/registry.ts`:
+File: `src/editor/types.ts`
+- EditorMode, EditorState, EditorAction types
+- MicroEdit types for edit sessions
+- DraftType, DraftTarget types
 
+**Step 2: Implement pure state machine**
+
+File: `src/editor/EditorStateMachine.ts`
 ```typescript
-'inset-outset': {
-  // ... existing config ...
-  availableIn: ['2d', '3d'],  // Enable for both views
-  createPreviewAction: (params) => {
-    const { panelId, edge, offset } = params as InsetParams;
-    if (!panelId || !edge || offset === undefined) return null;
-    return {
-      type: 'SET_EDGE_EXTENSION',
-      targetId: 'main-assembly',
-      payload: { panelId, edge, extension: offset },
-    };
-  },
-},
+export function editorReducer(state: EditorState, action: EditorAction): EditorState {
+  switch (action.type) {
+    case 'START_OPERATION':
+      return {
+        ...state,
+        mode: 'operation',
+        originView: state.activeView,
+        operation: { id: action.operationId, params: action.params ?? {} },
+      };
 
-'chamfer-fillet': {
-  // ... existing config ...
-  createPreviewAction: (params) => {
-    const { corners, radius, type } = params as ChamferFilletParams;
-    if (!corners?.length || radius === undefined) return null;
-    return {
-      type: 'SET_CORNER_FILLETS_BATCH',
-      targetId: 'main-assembly',
-      payload: { corners, radius, type },
-    };
-  },
-},
+    case 'UPDATE_PARAMS':
+      if (state.mode !== 'operation' || !state.operation) return state;
+      return {
+        ...state,
+        operation: { ...state.operation, params: { ...state.operation.params, ...action.params } },
+      };
+
+    case 'UNDO':
+      return handleUndo(state);
+
+    case 'CANCEL':
+      return { ...state, mode: 'idle', operation: undefined, draft: undefined, editSession: undefined };
+
+    // ... other cases
+  }
+}
+
+function handleUndo(state: EditorState): EditorState {
+  switch (state.mode) {
+    case 'draft':
+      // Pop last point from draft buffer
+      if (!state.draft || state.draft.points.length === 0) return state;
+      return {
+        ...state,
+        draft: { ...state.draft, points: state.draft.points.slice(0, -1) },
+      };
+
+    case 'editing':
+      // Undo last micro-edit in session
+      if (!state.editSession || state.editSession.historyIndex < 0) return state;
+      return {
+        ...state,
+        editSession: {
+          ...state.editSession,
+          historyIndex: state.editSession.historyIndex - 1,
+        },
+      };
+
+    default:
+      return state; // Operations don't have undo (use cancel)
+  }
+}
+
+// Helper functions (pure, testable)
+export function canUndo(state: EditorState): boolean { /* ... */ }
+export function canRedo(state: EditorState): boolean { /* ... */ }
+export function canCommit(state: EditorState): boolean { /* ... */ }
+export function getOperationParams(state: EditorState): Record<string, unknown> | null { /* ... */ }
+export function getDraftPoints(state: EditorState): PathPoint[] { /* ... */ }
 ```
 
-**2. Refactor SketchView2D.tsx to use store operations**
+**Step 3: Write unit tests for state machine**
 
-Replace local state:
+File: `src/editor/EditorStateMachine.test.ts`
 ```typescript
-// REMOVE these local states:
-const [selectedEdges, setSelectedEdges] = useState<Set<EdgePosition>>(new Set());
-const [extensionAmount, setExtensionAmount] = useState(0);
-const [cornerFinishType, setCornerFinishType] = useState<'chamfer' | 'fillet'>('chamfer');
-const [cornerRadius, setCornerRadius] = useState(3);
+describe('EditorStateMachine', () => {
+  describe('Operation mode', () => {
+    it('starts operation with initial params', () => {
+      const state = editorReducer(initialState, {
+        type: 'START_OPERATION',
+        operationId: 'inset-outset',
+        params: { offset: 5 },
+      });
 
-// USE store operations instead:
+      expect(state.mode).toBe('operation');
+      expect(state.operation?.id).toBe('inset-outset');
+      expect(state.operation?.params.offset).toBe(5);
+    });
+
+    it('updates operation params', () => {
+      let state = editorReducer(initialState, { type: 'START_OPERATION', operationId: 'inset-outset' });
+      state = editorReducer(state, { type: 'UPDATE_PARAMS', params: { offset: 10 } });
+
+      expect(state.operation?.params.offset).toBe(10);
+    });
+
+    it('cancels operation and returns to idle', () => {
+      let state = editorReducer(initialState, { type: 'START_OPERATION', operationId: 'inset-outset' });
+      state = editorReducer(state, { type: 'CANCEL' });
+
+      expect(state.mode).toBe('idle');
+      expect(state.operation).toBeUndefined();
+    });
+  });
+
+  describe('Draft mode', () => {
+    it('accumulates draft points', () => {
+      let state = editorReducer(initialState, {
+        type: 'START_DRAFT',
+        draftType: 'polyline',
+        target: { panelId: 'panel-1' },
+      });
+      state = editorReducer(state, { type: 'ADD_DRAFT_POINT', point: { x: 0, y: 0 } });
+      state = editorReducer(state, { type: 'ADD_DRAFT_POINT', point: { x: 10, y: 0 } });
+
+      expect(state.draft?.points).toHaveLength(2);
+    });
+
+    it('undo removes last draft point', () => {
+      // ... setup with 2 points ...
+      state = editorReducer(state, { type: 'UNDO' });
+
+      expect(state.draft?.points).toHaveLength(1);
+    });
+
+    it('cancel discards entire draft', () => {
+      // ... setup with points ...
+      state = editorReducer(state, { type: 'CANCEL' });
+
+      expect(state.mode).toBe('idle');
+      expect(state.draft).toBeUndefined();
+    });
+  });
+
+  describe('Edit session mode', () => {
+    it('tracks micro-edits in history', () => { /* ... */ });
+    it('undo steps back through history', () => { /* ... */ });
+    it('cancel restores initial snapshot', () => { /* ... */ });
+  });
+});
+```
+
+**Step 4: Create React hook wrapper**
+
+File: `src/editor/useEditorContext.ts`
+```typescript
+export function useEditorContext() {
+  const [state, dispatch] = useReducer(editorReducer, initialEditorState);
+  const engine = getEngine();
+
+  // Sync operation params to engine preview
+  useEffect(() => {
+    if (state.mode === 'operation' && state.operation) {
+      const registry = getOperationRegistry();
+      const opDef = registry[state.operation.id];
+      if (opDef?.createPreviewAction) {
+        const action = opDef.createPreviewAction(state.operation.params);
+        if (action) {
+          engine.startPreview();
+          engine.dispatch(action, { preview: true });
+        }
+      }
+    }
+  }, [state.operation?.params]);
+
+  const commit = useCallback(() => {
+    if (state.mode === 'operation') {
+      engine.commitPreview();
+    } else if (state.mode === 'draft' && state.draft) {
+      // Create operation from draft
+      engine.dispatch({
+        type: 'ADD_CUSTOM_PATH',
+        payload: { panelId: state.draft.targetPanelId, points: state.draft.points },
+      });
+    }
+    dispatch({ type: 'COMMIT' });
+  }, [state, engine]);
+
+  const cancel = useCallback(() => {
+    if (state.mode === 'operation') {
+      engine.discardPreview();
+    } else if (state.mode === 'editing' && state.editSession) {
+      // Restore initial state
+      engine.restoreSnapshot(state.editSession.initialSnapshot);
+    }
+    dispatch({ type: 'CANCEL' });
+  }, [state, engine]);
+
+  return {
+    // State
+    mode: state.mode,
+    isActive: state.mode !== 'idle',
+    activeView: state.activeView,
+
+    // Operation mode
+    operationId: state.operation?.id,
+    operationParams: state.operation?.params ?? {},
+
+    // Draft mode
+    draftPoints: state.draft?.points ?? [],
+    draftType: state.draft?.type,
+
+    // Edit session
+    editTarget: state.editSession?.targetId,
+
+    // Capabilities
+    canUndo: canUndo(state),
+    canRedo: canRedo(state),
+    canCommit: canCommit(state),
+
+    // Actions
+    startOperation: (id: string, params?: Record<string, unknown>) =>
+      dispatch({ type: 'START_OPERATION', operationId: id, params }),
+    updateParams: (params: Record<string, unknown>) =>
+      dispatch({ type: 'UPDATE_PARAMS', params }),
+    startDraft: (type: DraftType, target: DraftTarget) =>
+      dispatch({ type: 'START_DRAFT', draftType: type, target }),
+    addDraftPoint: (point: PathPoint) =>
+      dispatch({ type: 'ADD_DRAFT_POINT', point }),
+    startEditSession: (targetId: string, snapshot: unknown) =>
+      dispatch({ type: 'START_EDIT_SESSION', targetId, snapshot }),
+    recordEdit: (edit: MicroEdit) =>
+      dispatch({ type: 'RECORD_EDIT', edit }),
+    undo: () => dispatch({ type: 'UNDO' }),
+    redo: () => dispatch({ type: 'REDO' }),
+    commit,
+    cancel,
+    setView: (view: '2d' | '3d') => dispatch({ type: 'SET_VIEW', view }),
+  };
+}
+```
+
+**Step 5: Create React context provider**
+
+File: `src/contexts/EditorContext.tsx`
+```typescript
+const EditorContext = createContext<ReturnType<typeof useEditorContext> | null>(null);
+
+export function EditorProvider({ children }: { children: ReactNode }) {
+  const editor = useEditorContext();
+  return <EditorContext.Provider value={editor}>{children}</EditorContext.Provider>;
+}
+
+export function useEditor() {
+  const context = useContext(EditorContext);
+  if (!context) throw new Error('useEditor must be used within EditorProvider');
+  return context;
+}
+```
+
+**Step 6: Migrate existing operations**
+
+Update `SketchView2D.tsx` to use the new context:
+```typescript
+// Before:
 const operationState = useBoxStore((state) => state.operationState);
 const startOperation = useBoxStore((state) => state.startOperation);
-const updateOperationParams = useBoxStore((state) => state.updateOperationParams);
-const applyOperation = useBoxStore((state) => state.applyOperation);
-const cancelOperation = useBoxStore((state) => state.cancelOperation);
+// ...
+
+// After:
+const { mode, operationParams, startOperation, updateParams, commit, cancel } = useEditor();
 ```
 
-**3. Update palette handlers to use operation params**
+**Step 7: Add keyboard handling**
 
+File: `src/editor/useEditorKeyboard.ts`
 ```typescript
-// Inset tool - update params triggers preview
-const handleExtensionChange = (value: number) => {
-  updateOperationParams({ offset: value });
-};
+export function useEditorKeyboard() {
+  const { mode, undo, redo, cancel, canUndo, canRedo } = useEditor();
 
-const handleApply = () => {
-  applyOperation();
-  setActiveTool('select');
-};
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Undo: Cmd+Z (mode-aware)
+      if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+        if (canUndo) {
+          e.preventDefault();
+          undo();
+        }
+      }
 
-const handleCancel = () => {
-  cancelOperation();
-  setActiveTool('select');
-};
-```
+      // Redo: Cmd+Shift+Z
+      if (e.key === 'z' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+        if (canRedo) {
+          e.preventDefault();
+          redo();
+        }
+      }
 
-**4. Ensure preview rendering in 2D view**
+      // Cancel: Escape
+      if (e.key === 'Escape' && mode !== 'idle') {
+        e.preventDefault();
+        cancel();
+      }
+    };
 
-The 2D view already uses `useEnginePanels()` which returns preview panels when an operation is active. Verify this works correctly for 2D-specific operations.
-
-**5. Add operation param types**
-
-In `src/operations/types.ts`:
-```typescript
-export interface InsetParams {
-  panelId: string;
-  edge: EdgePosition;
-  offset: number;
-}
-
-export interface ChamferFilletParams {
-  corners: string[];
-  radius: number;
-  type: 'chamfer' | 'fillet';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mode, undo, redo, cancel, canUndo, canRedo]);
 }
 ```
+
+#### Files to Create
+
+| File | Description |
+|------|-------------|
+| `src/editor/types.ts` | Type definitions for editor state machine |
+| `src/editor/EditorStateMachine.ts` | Pure state machine (no React) |
+| `src/editor/EditorStateMachine.test.ts` | Unit tests for state machine |
+| `src/editor/useEditorContext.ts` | React hook wrapping state machine |
+| `src/editor/useEditorKeyboard.ts` | Keyboard shortcut handling |
+| `src/contexts/EditorContext.tsx` | React context provider |
 
 #### Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/operations/registry.ts` | Add `createPreviewAction` to `inset-outset`, `chamfer-fillet` |
-| `src/operations/types.ts` | Add param types for 2D operations |
-| `src/components/SketchView2D.tsx` | Replace local state with store operations |
-| `src/components/InsetPalette2D.tsx` | Create (or refactor from SketchView2D) |
-| `src/components/ChamferFilletPalette2D.tsx` | Create (or refactor from SketchView2D) |
+| `src/App.tsx` | Wrap with `<EditorProvider>` |
+| `src/components/SketchView2D.tsx` | Use `useEditor()` instead of store operations |
+| `src/components/Viewport3D.tsx` | Use `useEditor()` for 3D operations |
+
+#### Migration Strategy
+
+1. Build new system alongside existing operation system
+2. Create adapter that maps old store operations to new editor context
+3. Migrate one tool at a time (start with inset in 2D)
+4. Once all tools migrated, remove old operation state from store
 
 #### Verification
 
-1. Activate inset tool in 2D view
-2. Select an edge and drag → Preview shows extended edge in real-time
-3. Click Apply → Extension committed
-4. Click Cancel → Extension reverted to original
-5. Same behavior for chamfer/fillet tool
+1. All existing operation tests still pass
+2. New state machine tests pass
+3. Inset tool works identically via new context
+4. Undo/redo works correctly per mode
+5. Escape cancels active mode
+6. View switching blocked during view-specific modes
 
-#### Interaction Mode Guidelines
+---
 
-**Use the correct interaction mode for each feature:**
+### Phase 4: Custom Edge Paths (PARKED - needs revisiting)
 
-| Feature Type | Interaction Mode | Example |
-|--------------|------------------|---------|
-| Parameter adjustment | **Operation** | Inset edge, fillet corner |
-| Add predefined shape | **Operation** | Add rectangle/circle cutout |
-| Draw new geometry | **Draft Mode** | Draw polyline, draw polygon |
-| Edit existing geometry | **Edit Session** | Move path nodes, reshape cutout |
+**Goal:** Allow users to customize panel edges with custom paths, including feet.
 
-**For Operations (this phase):**
-1. Define in `src/operations/registry.ts` with `createPreviewAction`
-2. Use store's `startOperation`/`updateOperationParams`/`applyOperation` flow
-3. NOT use local component state for operation parameters
-4. Preview via engine preview scene
+**Status:** Core functionality implemented (steps 1-4). Steps 5-6 deferred.
 
-**For Draft Mode (Phase 5):**
-1. Temporary buffer, geometry not in model until finish
-2. `Cmd+Z` pops from buffer, `Esc` discards buffer
-3. Finish creates single operation
+**TODO when revisiting:**
+- Step 5: Feet as edge path preset
+- Step 6: Edge path editing tool (drag/add/delete nodes)
+- Visual feedback improvements for path preview
+- Integration testing with actual panel rendering
 
-**For Edit Sessions (Phase 5):**
-1. Capture initial state on session start
-2. Session-scoped undo stack for micro-edits
-3. `Cmd+Z` undoes within session, `Esc` restores initial state
-4. Done commits as single operation
+#### Implementation Steps
 
-### Phase 3: Custom Edge Paths
-**Interaction Mode:** Draft Mode (drawing new path), Edit Session (modifying existing)
+1. **Add data model for custom edge paths** ✅
+   - Added `CustomEdgePath` and `EdgePathPoint` types to `src/engine/types.ts`
+   - Added `customEdgePaths` to `BasePanelSnapshot.props`
+   - Added `_customEdgePaths` Map to `BasePanel` class with get/set/clear accessors
+   - Storage in `BaseAssembly._panelCustomEdgePaths` with clone support
 
-1. Add data model for custom edge paths
-2. Implement edge path rendering in panel generation
-3. Create edge path editor UI
-4. Implement feet as custom edge path preset
-5. Implement Draft Mode for drawing new paths
-6. Implement Edit Session for modifying existing paths
+2. **Add engine actions for edge paths** ✅
+   - `SET_EDGE_PATH` - Set custom path on panel edge
+   - `CLEAR_EDGE_PATH` - Remove custom path, revert to default
+   - Dispatch handlers in `Engine.ts`
+   - Integration with panel generation (applies stored paths to panels)
 
-### Phase 4: Basic Cutouts
-**Interaction Mode:** Operation (add predefined shape), Edit Session (modify)
+3. **Implement edge path rendering in panel generation** ✅
+   - Added `applyCustomEdgePathToOutline()` method in `BasePanel.ts`
+   - Handles mirrored paths (define half, mirror automatically)
+   - Converts normalized coordinates (t=0-1 along edge, offset=perpendicular) to panel coordinates
+   - Replaces edge segment with custom path points
+   - Tests added: `tests/unit/engine/BasePanel.test.ts`
 
-1. Add cutout data model
-2. Implement rectangle and circle cutouts (Operation mode)
-3. Create cutout tools in 2D view
-4. Validate cutouts stay within safe space
-5. Implement Edit Session for reshaping/repositioning cutouts
+4. **Create edge path drawing tool** ✅ (uses Draft mode from EditorContext)
+   - Select panel edge to customize - click near editable edge starts draft
+   - Click to add points along edge - accumulated in draft buffer
+   - Preview path as it's drawn - SVG overlay with point markers
+   - Commit creates engine action - SET_EDGE_PATH dispatched on apply
+   - Fixed edge hit distance for reliable detection
 
-### Phase 5: 2D Drawing Tools & Session Infrastructure
-**Interaction Mode:** Draft Mode (line/shape tools), Edit Session (select tool)
+5. **Implement feet as custom edge path preset** (DEFERRED)
+   - Feet config generates equivalent CustomEdgePath
+   - Shorthand for common foot patterns
+   - Users can further edit generated path
 
-1. Implement Draft Mode infrastructure (`DraftState`, undo buffer)
-2. Implement Edit Session infrastructure (`EditSession`, session undo stack)
-3. Implement line tool with snapping (Draft Mode)
-4. Implement select tool with node editing (Edit Session)
-5. Add shape mode toggle (add/subtract)
-6. Implement fillet tool for custom path vertices
+6. **Create edge path editing tool** (DEFERRED)
+   - Select existing custom edge path
+   - Drag nodes to move them
+   - Add/delete nodes
+   - Session undo/redo for edits
 
-### Phase 6: Import Features
-1. Implement bitmap import as reference layer
-2. Implement SVG pattern import
-3. Create import dialogs
+---
 
-### Phase 7: Panel Feature Copying
-1. Implement feature copying between compatible panels
-2. Add copy/paste UI
-3. Handle edge gender compatibility
+### Phase 5: Basic Cutouts (IN PROGRESS)
+
+**Goal:** Allow users to add cutout shapes (rectangles, circles) to panels for handles, vents, etc.
+
+#### Implementation Steps
+
+1. **Add cutout data model**
+   - Define `Cutout` type with shape variants (rect, circle, path)
+   - Add `cutouts` array to panel storage in assembly
+   - Engine actions: `ADD_CUTOUT`, `UPDATE_CUTOUT`, `DELETE_CUTOUT`
+   - Integrate cutouts into panel outline generation as holes
+
+2. **Implement rectangle cutout tool** (uses Operation mode)
+   - Click-drag to define rectangle bounds
+   - Preview shows rectangle outline
+   - Snap to grid/edges optional
+   - Apply adds cutout via engine action
+
+3. **Implement circle cutout tool** (uses Operation mode)
+   - Click center, drag for radius
+   - Preview shows circle outline
+   - Apply adds cutout via engine action
+
+4. **Validate cutouts stay within safe space**
+   - Check cutout bounds against safe space region
+   - Warn or prevent cutouts that intersect joints/slots
+   - Visual feedback when cutout is invalid
+
+5. **Implement cutout editing** (uses Edit Session)
+   - Select existing cutout to edit
+   - Drag to move, handles to resize
+   - Delete key removes cutout
+   - Session undo/redo for edits
+
+---
+
+### Phase 6: Advanced Drawing Tools
+
+1. Line tool with snapping (uses Draft mode)
+2. Polygon tool (uses Draft mode)
+3. Freeform path tool (uses Draft mode)
+4. Shape mode toggle (add/subtract)
+
+---
+
+### Phase 7: Import Features
+
+1. Bitmap import as reference layer
+2. SVG pattern import
+3. Import dialogs
+
+---
+
+### Phase 8: Panel Feature Copying
+
+1. Feature copying between compatible panels
+2. Copy/paste UI
+3. Edge gender compatibility handling
 
 ---
 

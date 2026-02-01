@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { useBoxStore, getAllSubdivisions } from '../store/useBoxStore';
 import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
+import { useEditor } from '../editor';
 import { PathPoint, FaceId, Face } from '../types';
 import { getFaceEdgeStatuses, getDividerEdgeStatuses, EdgeStatusInfo } from '../utils/panelGenerator';
 import { DetectedCorner } from '../utils/cornerFinish';
@@ -12,6 +13,8 @@ import { debug, enableDebugTag } from '../utils/debug';
 
 // Ensure safe-space tag is active for this component
 enableDebugTag('safe-space');
+// enableDebugTag('path-tool'); // Uncomment to debug path tool edge detection
+// enableDebugTag('corner-click'); // Uncomment to debug corner hit detection
 
 interface SketchView2DProps {
   className?: string;
@@ -30,12 +33,14 @@ const pathToSvgD = (points: PathPoint[], closed: boolean): string => {
 };
 
 // Classify a line segment to an edge based on position
+// Note: tolerance needs to be larger than material thickness (typically 3mm) to account for
+// corner insets from finger joints. Using 5mm as default.
 const classifySegment = (
   p1: PathPoint,
   p2: PathPoint,
   panelWidth: number,
   panelHeight: number,
-  tolerance: number = 1
+  tolerance: number = 5
 ): EdgePosition | null => {
   const halfW = panelWidth / 2;
   const halfH = panelHeight / 2;
@@ -244,7 +249,6 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   const {
     sketchPanelId,
     exitSketchView,
-    setEdgeExtension,
     activeTool,
     setActiveTool,
     selectedCornerIds,
@@ -252,6 +256,25 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     selectCorners,
     clearCornerSelection,
   } = useBoxStore();
+
+  // Editor context for operations and drafts
+  const {
+    mode: editorMode,
+    operationId,
+    operationParams,
+    startOperation,
+    updateParams,
+    commit: commitOperation,
+    cancel: cancelOperation,
+    // Draft mode
+    draftType,
+    draftTarget,
+    draftPoints,
+    startDraft,
+    addDraftPoint,
+    commit: commitDraft,
+    cancel: cancelDraft,
+  } = useEditor();
 
   // Pan and zoom state
   const [viewBox, setViewBox] = useState({ x: 0, y: 0, width: 200, height: 200 });
@@ -277,14 +300,40 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   const [hoveredCornerId, setHoveredCornerId] = useState<string | null>(null);
   const [palettePosition, setPalettePosition] = useState({ x: 200, y: 100 });
 
-  // Corner finish settings (local state for the floating palette)
-  const [cornerFinishType, setCornerFinishType] = useState<'chamfer' | 'fillet'>('chamfer');
-  const [cornerRadius, setCornerRadius] = useState(3);
+  // Legend hover state - which element type is being highlighted
+  type LegendHighlight = 'locked-edge' | 'editable-edge' | 'boundary' | 'safe-zone' | 'corner' | null;
+  const [legendHighlight, setLegendHighlight] = useState<LegendHighlight>(null);
 
-  // Inset tool state
-  const [selectedEdges, setSelectedEdges] = useState<Set<EdgePosition>>(new Set());
-  const [extensionAmount, setExtensionAmount] = useState(0);
+  // Chamfer/fillet operation params - extracted from editor context
+  const isChamferOperationActive = operationId === 'chamfer-fillet';
+  const chamferParams = isChamferOperationActive ? operationParams : {};
+  const cornerFinishType = (chamferParams.type as 'chamfer' | 'fillet' | undefined) ?? 'chamfer';
+  const cornerRadius = (chamferParams.radius as number | undefined) ?? 3;
+
+  // Inset tool state - palette position only (params are in editor context)
   const [insetPalettePosition, setInsetPalettePosition] = useState({ x: 200, y: 100 });
+
+  // Path tool state
+  const [pathPalettePosition, setPathPalettePosition] = useState({ x: 200, y: 100 });
+  const isPathDraftActive = editorMode === 'draft' && draftType === 'edge-path';
+
+  // Extract inset operation params from editor context
+  const isInsetOperationActive = operationId === 'inset-outset';
+  const insetParams = isInsetOperationActive ? operationParams : {};
+  const selectedEdges = useMemo(() => {
+    const edges = (insetParams.edges as string[] | undefined) ?? [];
+    // Convert "panelId:edge" format to just edge positions for this panel
+    const edgeSet = new Set<EdgePosition>();
+    for (const edgeKey of edges) {
+      const parts = edgeKey.split(':');
+      if (parts.length === 2) {
+        edgeSet.add(parts[1] as EdgePosition);
+      }
+    }
+    return edgeSet;
+  }, [insetParams.edges]);
+  const extensionAmount = (insetParams.offset as number | undefined) ?? 0;
+  const baseExtensions = (insetParams.baseExtensions as Record<string, number> | undefined) ?? {};
 
   // Get the panel being edited
   const panel = useMemo(() => {
@@ -356,94 +405,85 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   const safeSpace = useMemo((): SafeSpaceRegion | null => {
     if (!panel) return null;
     const ss = panel.safeSpace ?? null;
-    debug('safe-space', `SketchView2D: safeSpace exists=${!!ss}, panel.outline points=${panel.outline.points.length}`);
+    debug('safe-space', `SketchView2D: panel=${panel.source.faceId || panel.source.axis} dims=${panel.width}x${panel.height}`);
+    debug('safe-space', `  edgeExtensions: top=${panel.edgeExtensions?.top ?? 0}, bottom=${panel.edgeExtensions?.bottom ?? 0}, left=${panel.edgeExtensions?.left ?? 0}, right=${panel.edgeExtensions?.right ?? 0}`);
     if (ss) {
-      debug('safe-space', `safeSpace outline: ${ss.outline.length} points`);
+      debug('safe-space', `  safeSpace outline bounds: x[${Math.min(...ss.outline.map(p => p.x))},${Math.max(...ss.outline.map(p => p.x))}] y[${Math.min(...ss.outline.map(p => p.y))},${Math.max(...ss.outline.map(p => p.y))}]`);
+      debug('safe-space', `  resultPaths count: ${ss.resultPaths.length}`);
+      if (ss.resultPaths.length > 0) {
+        const allMinY = Math.min(...ss.resultPaths.flatMap(p => p.map(pt => pt.y)));
+        const allMaxY = Math.max(...ss.resultPaths.flatMap(p => p.map(pt => pt.y)));
+        debug('safe-space', `  resultPaths Y range: [${allMinY}, ${allMaxY}]`);
+      }
+    } else {
+      debug('safe-space', `  NO safeSpace on panel!`);
     }
     return ss;
   }, [panel]);
 
   // Detect corners for potential finishing
-  // Find the actual corners from the panel outline (the extreme points)
+  // Use panel body dimensions + extensions to place corners at actual panel corners
+  // (not affected by fillet preview, but includes extensions)
   const detectedCorners = useMemo((): DetectedCorner[] => {
     if (!panel) return [];
 
-    const points = panel.outline.points;
-    if (points.length < 4) return [];
+    // Get edge extensions (default to 0 if not set)
+    const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
 
-    // Find the extreme points (actual corners of the bounding box)
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const p of points) {
-      if (p.x < minX) minX = p.x;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.y > maxY) maxY = p.y;
-    }
+    // Calculate corner positions including extensions
+    const halfW = panel.width / 2;
+    const halfH = panel.height / 2;
 
-    // Find the actual corner points closest to each extreme corner
-    const findCornerPoint = (targetX: number, targetY: number): { x: number; y: number; index: number } => {
-      let bestDist = Infinity;
-      let bestPoint = { x: targetX, y: targetY, index: -1 };
-      for (let i = 0; i < points.length; i++) {
-        const p = points[i];
-        const dist = Math.abs(p.x - targetX) + Math.abs(p.y - targetY);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestPoint = { x: p.x, y: p.y, index: i };
-        }
-      }
-      return bestPoint;
-    };
+    // Corners are at the extended panel edges
+    const leftX = -halfW - ext.left;
+    const rightX = halfW + ext.right;
+    const topY = halfH + ext.top;
+    const bottomY = -halfH - ext.bottom;
 
-    const tl = findCornerPoint(minX, maxY);
-    const tr = findCornerPoint(maxX, maxY);
-    const br = findCornerPoint(maxX, minY);
-    const bl = findCornerPoint(minX, minY);
-
-    const width = maxX - minX;
-    const height = maxY - minY;
-    const maxRadius = Math.min(width, height) * 0.3;
+    const totalWidth = panel.width + ext.left + ext.right;
+    const totalHeight = panel.height + ext.top + ext.bottom;
+    const maxRadius = Math.min(totalWidth, totalHeight) * 0.3;
 
     return [
       {
         id: 'corner-tl',
-        index: tl.index,
-        position: { x: tl.x, y: tl.y },
+        index: 0,
+        position: { x: leftX, y: topY },
         angle: Math.PI / 2,
         eligible: true,
         maxRadius,
-        incomingEdgeLength: width,
-        outgoingEdgeLength: height,
+        incomingEdgeLength: totalWidth,
+        outgoingEdgeLength: totalHeight,
       },
       {
         id: 'corner-tr',
-        index: tr.index,
-        position: { x: tr.x, y: tr.y },
+        index: 1,
+        position: { x: rightX, y: topY },
         angle: Math.PI / 2,
         eligible: true,
         maxRadius,
-        incomingEdgeLength: height,
-        outgoingEdgeLength: width,
+        incomingEdgeLength: totalHeight,
+        outgoingEdgeLength: totalWidth,
       },
       {
         id: 'corner-br',
-        index: br.index,
-        position: { x: br.x, y: br.y },
+        index: 2,
+        position: { x: rightX, y: bottomY },
         angle: Math.PI / 2,
         eligible: true,
         maxRadius,
-        incomingEdgeLength: width,
-        outgoingEdgeLength: height,
+        incomingEdgeLength: totalWidth,
+        outgoingEdgeLength: totalHeight,
       },
       {
         id: 'corner-bl',
-        index: bl.index,
-        position: { x: bl.x, y: bl.y },
+        index: 3,
+        position: { x: leftX, y: bottomY },
         angle: Math.PI / 2,
         eligible: true,
         maxRadius,
-        incomingEdgeLength: height,
-        outgoingEdgeLength: width,
+        incomingEdgeLength: totalHeight,
+        outgoingEdgeLength: totalWidth,
       },
     ];
   }, [panel]);
@@ -583,31 +623,101 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     return status?.status !== 'locked';
   }, [edgeStatuses]);
 
+  // Convert SVG coordinates to edge-relative (t, offset) coordinates
+  // t: 0-1 along edge from start to end
+  // offset: perpendicular distance from edge (positive = outward)
+  const svgToEdgeCoords = useCallback((svgX: number, svgY: number, edge: EdgePosition): { t: number; offset: number } | null => {
+    if (!panel) return null;
+
+    const halfW = panel.width / 2;
+    const halfH = panel.height / 2;
+
+    let t: number;
+    let offset: number;
+
+    switch (edge) {
+      case 'top':
+        // Top edge: left to right, positive y is outward
+        t = (svgX + halfW) / panel.width;
+        offset = svgY - halfH;
+        break;
+      case 'bottom':
+        // Bottom edge: left to right, negative y is outward
+        t = (svgX + halfW) / panel.width;
+        offset = -(svgY + halfH);
+        break;
+      case 'left':
+        // Left edge: bottom to top, negative x is outward
+        t = (svgY + halfH) / panel.height;
+        offset = -(svgX + halfW);
+        break;
+      case 'right':
+        // Right edge: bottom to top, positive x is outward
+        t = (svgY + halfH) / panel.height;
+        offset = svgX - halfW;
+        break;
+      default:
+        return null;
+    }
+
+    // Clamp t to [0, 1]
+    t = Math.max(0, Math.min(1, t));
+
+    return { t, offset };
+  }, [panel]);
+
+  // Convert edge-relative coordinates back to SVG coordinates for preview
+  const edgeCoordsToSvg = useCallback((t: number, offset: number, edge: EdgePosition): { x: number; y: number } | null => {
+    if (!panel) return null;
+
+    const halfW = panel.width / 2;
+    const halfH = panel.height / 2;
+
+    switch (edge) {
+      case 'top':
+        return { x: t * panel.width - halfW, y: halfH + offset };
+      case 'bottom':
+        return { x: t * panel.width - halfW, y: -halfH - offset };
+      case 'left':
+        return { x: -halfW - offset, y: t * panel.height - halfH };
+      case 'right':
+        return { x: halfW + offset, y: t * panel.height - halfH };
+      default:
+        return null;
+    }
+  }, [panel]);
+
   // Handle tool change
   const handleToolChange = useCallback((tool: EditorTool) => {
+    // Cancel active operations when switching away from their tools
+    if (tool !== 'inset' && isInsetOperationActive) {
+      cancelOperation();
+    }
+    if (tool !== 'chamfer' && isChamferOperationActive) {
+      cancelOperation();
+    }
+    if (tool !== 'path' && isPathDraftActive) {
+      cancelDraft();
+    }
     setActiveTool(tool);
     // Clear corner selection when switching away from chamfer tool
     if (tool !== 'chamfer') {
       clearCornerSelection();
     }
-    // Clear edge selection when switching away from inset tool
-    if (tool !== 'inset') {
-      setSelectedEdges(new Set());
-      setExtensionAmount(0);
-    }
-  }, [setActiveTool, clearCornerSelection]);
+  }, [setActiveTool, clearCornerSelection, isInsetOperationActive, isChamferOperationActive, isPathDraftActive, cancelOperation, cancelDraft]);
 
   // Find which corner (if any) is near a point
   const findCornerAtPoint = useCallback((svgX: number, svgY: number): DetectedCorner | null => {
     if (activeTool !== 'chamfer') return null;
 
-    const hitDistance = Math.max(5, viewBox.width / 30); // Scale hit area with zoom
+    const hitDistance = Math.max(10, viewBox.width / 20); // Scale hit area with zoom - made larger
 
     for (const corner of detectedCorners) {
       if (!corner.eligible) continue;
       const dx = svgX - corner.position.x;
       const dy = svgY - corner.position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
+      debug('corner-click', `Corner ${corner.id}: pos(${corner.position.x.toFixed(1)}, ${corner.position.y.toFixed(1)}), mouse(${svgX.toFixed(1)}, ${svgY.toFixed(1)}), dist: ${dist.toFixed(1)}, hitDist: ${hitDistance.toFixed(1)}`);
       if (dist < hitDistance) {
         return corner;
       }
@@ -615,78 +725,170 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     return null;
   }, [activeTool, detectedCorners, viewBox.width]);
 
-  // Handle corner click - toggle selection (click adds/removes, no shift needed)
+  // Handle corner click - toggle selection and update operation
   const handleCornerClick = useCallback((corner: DetectedCorner, event: React.MouseEvent) => {
     // Always toggle - makes multi-select easy
     selectCorner(corner.id, true);
 
     // Position the floating palette near the click
     setPalettePosition({ x: event.clientX + 20, y: event.clientY - 50 });
-  }, [selectCorner]);
 
-  // Toggle edge selection for inset tool
+    // Start operation if not already active
+    if (!isChamferOperationActive && panel) {
+      startOperation('chamfer-fillet');
+    }
+
+    // Get the new selected corners after toggle
+    const newCorners = selectedCornerIds.has(corner.id)
+      ? Array.from(selectedCornerIds).filter(id => id !== corner.id)
+      : [...Array.from(selectedCornerIds), corner.id];
+
+    // Update operation params with current selection
+    if (panel) {
+      updateParams({
+        panelId: panel.id,
+        corners: newCorners,
+        radius: cornerRadius,
+        type: cornerFinishType,
+      });
+    }
+  }, [selectCorner, isChamferOperationActive, panel, selectedCornerIds, cornerRadius, cornerFinishType, startOperation, updateParams]);
+
+  // Toggle edge selection for inset tool - uses operation system
   const toggleEdgeSelection = useCallback((edge: EdgePosition) => {
-    setSelectedEdges(prev => {
-      const next = new Set(prev);
-      if (next.has(edge)) {
-        next.delete(edge);
-      } else {
-        next.add(edge);
+    if (!panel) return;
+
+    // Build edge key in "panelId:edge" format
+    const edgeKey = `${panel.id}:${edge}`;
+
+    // Get current edges from params
+    const currentEdges = (insetParams.edges as string[] | undefined) ?? [];
+
+    // Toggle the edge in the array
+    let newEdges: string[];
+    if (currentEdges.includes(edgeKey)) {
+      newEdges = currentEdges.filter(e => e !== edgeKey);
+    } else {
+      newEdges = [...currentEdges, edgeKey];
+    }
+
+    // Capture base extension values for newly selected edges
+    const newBaseExtensions = { ...baseExtensions };
+    for (const key of newEdges) {
+      if (!(key in newBaseExtensions)) {
+        const parts = key.split(':');
+        if (parts.length === 2) {
+          const edgePos = parts[1] as EdgePosition;
+          newBaseExtensions[key] = panel.edgeExtensions?.[edgePos] ?? 0;
+        }
       }
-      return next;
+    }
+
+    // Start operation if not already active
+    if (!isInsetOperationActive) {
+      startOperation('inset-outset');
+    }
+
+    // Update params
+    updateParams({
+      edges: newEdges,
+      offset: extensionAmount,
+      baseExtensions: newBaseExtensions,
     });
-  }, []);
+  }, [panel, insetParams.edges, baseExtensions, extensionAmount, isInsetOperationActive, startOperation, updateParams]);
 
-  // Apply extension to all selected edges
-  const applyExtension = useCallback(() => {
-    if (!panel || selectedEdges.size === 0) return;
+  // Apply extension to all selected edges - commits the operation
+  const handleApplyExtension = useCallback(() => {
+    if (!isInsetOperationActive || selectedEdges.size === 0) return;
+    commitOperation();
+    setActiveTool('select');
+  }, [isInsetOperationActive, selectedEdges.size, commitOperation, setActiveTool]);
 
-    for (const edge of selectedEdges) {
-      // Only apply to editable edges
-      if (isEdgeEditable(edge)) {
-        const currentExtension = panel.edgeExtensions?.[edge] ?? 0;
-        setEdgeExtension(panel.id, edge, currentExtension + extensionAmount);
-      }
+  // Clear extension from selected edges (set offset so final value is 0)
+  const handleClearExtension = useCallback(() => {
+    if (!isInsetOperationActive || selectedEdges.size === 0 || !panel) return;
+
+    // To reset edges to 0, we need to set offset such that base + offset = 0
+    // But different edges might have different bases, so we need to handle this specially
+    // The simplest approach: set all base values to their current extensions and offset to negative of first one
+    // Actually, let's just update the base extensions to 0 for all and offset to 0
+    const edges = (insetParams.edges as string[] | undefined) ?? [];
+    const zeroBaseExtensions: Record<string, number> = {};
+    for (const edgeKey of edges) {
+      zeroBaseExtensions[edgeKey] = 0;
     }
 
-    // Reset extension amount after applying
-    setExtensionAmount(0);
-  }, [panel, selectedEdges, extensionAmount, isEdgeEditable, setEdgeExtension]);
-
-  // Clear extension from selected edges (set to 0)
-  const clearExtension = useCallback(() => {
-    if (!panel || selectedEdges.size === 0) return;
-
-    for (const edge of selectedEdges) {
-      if (isEdgeEditable(edge)) {
-        setEdgeExtension(panel.id, edge, 0);
-      }
-    }
-  }, [panel, selectedEdges, isEdgeEditable, setEdgeExtension]);
+    // Calculate what offset would make them all 0 from their current values
+    // Since we want final = 0 and final = base + offset, we set base = 0 and offset = 0
+    updateParams({
+      edges,
+      offset: 0,
+      baseExtensions: zeroBaseExtensions,
+    });
+  }, [isInsetOperationActive, selectedEdges.size, panel, insetParams.edges, updateParams]);
 
   // Convert screen coordinates to SVG coordinates
+  // Accounts for preserveAspectRatio="xMidYMid meet" (the default) which centers content
   const screenToSvg = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
     const svg = svgRef.current;
     if (!svg) return null;
 
     const rect = svg.getBoundingClientRect();
-    // Note: Y is flipped in our rendering
-    const x = ((clientX - rect.left) / rect.width) * viewBox.width + viewBox.x;
-    const y = -(((clientY - rect.top) / rect.height) * viewBox.height + viewBox.y);
+
+    // Calculate aspect ratios
+    const svgAspect = rect.width / rect.height;
+    const viewBoxAspect = viewBox.width / viewBox.height;
+
+    // Calculate the actual rendered area within the SVG element
+    // With "xMidYMid meet", the viewBox is scaled uniformly and centered
+    let renderWidth: number;
+    let renderHeight: number;
+    let offsetX: number;
+    let offsetY: number;
+
+    if (svgAspect > viewBoxAspect) {
+      // SVG is wider than viewBox - content is centered horizontally
+      renderHeight = rect.height;
+      renderWidth = rect.height * viewBoxAspect;
+      offsetX = (rect.width - renderWidth) / 2;
+      offsetY = 0;
+    } else {
+      // SVG is taller than viewBox - content is centered vertically
+      renderWidth = rect.width;
+      renderHeight = rect.width / viewBoxAspect;
+      offsetX = 0;
+      offsetY = (rect.height - renderHeight) / 2;
+    }
+
+    // Map screen coordinates to viewBox coordinates, accounting for offset
+    const localX = clientX - rect.left - offsetX;
+    const localY = clientY - rect.top - offsetY;
+
+    // Convert to viewBox coordinates
+    const x = (localX / renderWidth) * viewBox.width + viewBox.x;
+    // Note: Y is flipped in our rendering via scale(1, -1)
+    const y = -((localY / renderHeight) * viewBox.height + viewBox.y);
+
+    debug('corner-click', `screenToSvg: client(${clientX.toFixed(0)}, ${clientY.toFixed(0)}) offset(${offsetX.toFixed(0)}, ${offsetY.toFixed(0)}) render(${renderWidth.toFixed(0)}x${renderHeight.toFixed(0)}) => svg(${x.toFixed(1)}, ${y.toFixed(1)})`);
 
     return { x, y };
   }, [viewBox]);
 
   // Find which edge (if any) is near a point
   const findEdgeAtPoint = useCallback((svgX: number, svgY: number): EdgePosition | null => {
-    if (!edgeSegments || !panel) return null;
+    if (!edgeSegments || !panel) {
+      debug('path-tool', `findEdgeAtPoint: edgeSegments=${!!edgeSegments}, panel=${!!panel}`);
+      return null;
+    }
 
-    const hitDistance = Math.max(3, viewBox.width / 50); // Scale hit area with zoom
+    const hitDistance = Math.max(8, viewBox.width / 25); // Scale hit area with zoom, larger for easier edge selection
+    debug('path-tool', `findEdgeAtPoint: hitDistance=${hitDistance.toFixed(1)}, viewBox.width=${viewBox.width.toFixed(1)}`);
 
     for (const edge of ['top', 'bottom', 'left', 'right'] as EdgePosition[]) {
       const segments = edgeSegments[edge];
       for (const seg of segments) {
         const dist = distanceToSegment(svgX, svgY, seg.start.x, seg.start.y, seg.end.x, seg.end.y);
+        debug('path-tool', `  ${edge} segment (${seg.start.x.toFixed(1)},${seg.start.y.toFixed(1)})-(${seg.end.x.toFixed(1)},${seg.end.y.toFixed(1)}): dist=${dist.toFixed(1)}`);
         if (dist < hitDistance) {
           return edge;
         }
@@ -747,6 +949,38 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       }
     }
 
+    // Path tool: add points or start new draft
+    if (activeTool === 'path' && panel) {
+      debug('path-tool', `Path tool click at SVG(${svgPos.x.toFixed(1)}, ${svgPos.y.toFixed(1)})`);
+      if (isPathDraftActive && draftTarget?.edge) {
+        // Already in a draft - add a point
+        const edgeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, draftTarget.edge);
+        debug('path-tool', `Adding point to existing draft: ${JSON.stringify(edgeCoords)}`);
+        if (edgeCoords) {
+          // Store t as x, offset as y in the PathPoint structure
+          addDraftPoint({ x: edgeCoords.t, y: edgeCoords.offset });
+        }
+        return;
+      } else {
+        // Not in a draft - check if clicking near an editable edge to start one
+        const edge = findEdgeAtPoint(svgPos.x, svgPos.y);
+        debug('path-tool', `Found edge: ${edge}, isEditable: ${edge ? isEdgeEditable(edge) : 'N/A'}`);
+        if (edge && isEdgeEditable(edge)) {
+          debug('path-tool', `Starting new draft on edge: ${edge}`);
+          // Start a new edge path draft
+          startDraft('edge-path', { panelId: panel.id, edge });
+          // Add the first point
+          const edgeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, edge);
+          if (edgeCoords) {
+            addDraftPoint({ x: edgeCoords.t, y: edgeCoords.offset });
+          }
+          // Position palette near click
+          setPathPalettePosition({ x: e.clientX + 20, y: e.clientY - 50 });
+          return;
+        }
+      }
+    }
+
     // Edge dragging only works with inset tool
     if (activeTool === 'inset') {
       const edge = findEdgeAtPoint(svgPos.x, svgPos.y);
@@ -762,6 +996,19 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         } else {
           setDragStartPos(svgPos.x);
         }
+
+        // Start operation and select this edge
+        const edgeKey = `${panel.id}:${edge}`;
+        if (!isInsetOperationActive) {
+          startOperation('inset-outset');
+        }
+        // Set up the edge with its base extension
+        const newBaseExtensions: Record<string, number> = { [edgeKey]: currentExtension };
+        updateParams({
+          edges: [edgeKey],
+          offset: 0,
+          baseExtensions: newBaseExtensions,
+        });
         return;
       }
     }
@@ -769,13 +1016,13 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     // Default: start panning
     setIsPanning(true);
     setPanStart({ x: e.clientX, y: e.clientY });
-  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel, activeTool, findCornerAtPoint, handleCornerClick]);
+  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel, activeTool, findCornerAtPoint, handleCornerClick, isInsetOperationActive, startOperation, updateParams, isPathDraftActive, draftTarget, svgToEdgeCoords, addDraftPoint, startDraft]);
 
   // Handle mouse move
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const svgPos = screenToSvg(e.clientX, e.clientY);
 
-    if (isDraggingEdge && dragEdge && svgPos && panel) {
+    if (isDraggingEdge && dragEdge && svgPos && panel && isInsetOperationActive) {
       // Calculate drag delta
       let delta: number;
       if (dragEdge === 'top') {
@@ -788,12 +1035,13 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         delta = -(svgPos.x - dragStartPos);
       }
 
-      // Calculate new extension value
-      const newExtension = dragStartExtension + delta;
       // Clamp: inward limit is material thickness, outward has no practical limit
-      const clampedExtension = Math.max(-config.materialThickness, newExtension);
+      const clampedOffset = Math.max(-config.materialThickness - dragStartExtension, delta);
 
-      setEdgeExtension(panel.id, dragEdge, clampedExtension);
+      // Update operation params with the new offset
+      updateParams({
+        offset: clampedOffset,
+      });
     } else if (isPanning) {
       const svg = svgRef.current;
       if (!svg) return;
@@ -809,10 +1057,15 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       }));
       setPanStart({ x: e.clientX, y: e.clientY });
     } else if (svgPos) {
-      // Update hovered edge only when inset tool is active
-      if (activeTool === 'inset') {
+      // Update hovered edge when inset or path tool is active
+      if (activeTool === 'inset' || activeTool === 'path') {
         const edge = findEdgeAtPoint(svgPos.x, svgPos.y);
-        setHoveredEdge(edge);
+        // For path tool, only show hover on editable edges when not in a draft
+        if (activeTool === 'path' && !isPathDraftActive) {
+          setHoveredEdge(edge && isEdgeEditable(edge) ? edge : null);
+        } else {
+          setHoveredEdge(edge);
+        }
       } else {
         setHoveredEdge(null);
       }
@@ -825,7 +1078,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         setHoveredCornerId(null);
       }
     }
-  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, setEdgeExtension, config.materialThickness, activeTool, findCornerAtPoint]);
+  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, config.materialThickness, activeTool, findCornerAtPoint, isInsetOperationActive, updateParams, isPathDraftActive, isEdgeEditable]);
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
@@ -905,6 +1158,12 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         if (hoveredEdge === 'top' || hoveredEdge === 'bottom') return 'ns-resize';
         return 'ew-resize';
       }
+    }
+
+    // Path tool: crosshair when in draft, pointer when hovering edge
+    if (activeTool === 'path') {
+      if (isPathDraftActive) return 'crosshair';
+      if (hoveredEdge && isEdgeEditable(hoveredEdge)) return 'pointer';
     }
 
     // Chamfer tool: pointer cursor for corners
@@ -1111,48 +1370,84 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           })}
 
           {/* Safe Space Visualization */}
-          {safeSpace && (
-            <>
-              {/* Safe space outline (green dashed) */}
-              <polygon
-                points={safeSpace.outline.map(p => `${p.x},${p.y}`).join(' ')}
-                fill={colors.sketch.editable.base}
-                fillOpacity={0.1}
-                stroke={colors.sketch.editable.base}
-                strokeWidth={outlineStrokeWidth * 0.8}
-                strokeDasharray={`${4 * strokeScale} ${2 * strokeScale}`}
-                opacity={0.7}
-              />
+          {safeSpace && (() => {
+            // Use computed resultPaths directly instead of fill-rule="evenodd" trick
+            // Each resultPath is a simple closed polygon (typically a rectangle)
+            // representing an area where custom geometry can be added safely.
+            const hasResultPaths = safeSpace.resultPaths && safeSpace.resultPaths.length > 0;
 
-              {/* Slot exclusion zones (orange, hatched) */}
-              {safeSpace.exclusions.map((exclusion, i) => (
-                <polygon
-                  key={`exclusion-${i}`}
-                  points={exclusion.map(p => `${p.x},${p.y}`).join(' ')}
-                  fill={colors.sketch.exclusion.base}
-                  fillOpacity={0.2}
-                  stroke={colors.sketch.exclusion.base}
-                  strokeWidth={outlineStrokeWidth * 0.6}
-                  strokeDasharray={`${2 * strokeScale} ${2 * strokeScale}`}
-                  opacity={0.6}
-                />
-              ))}
+            return (
+              <>
+                {/* Safe space result paths (green dashed rectangles) */}
+                {hasResultPaths && safeSpace.resultPaths.map((path, i) => (
+                  <polygon
+                    key={`safe-path-${i}`}
+                    points={path.map(p => `${p.x},${p.y}`).join(' ')}
+                    fill={colors.sketch.editable.base}
+                    fillOpacity={legendHighlight === 'safe-zone' ? 0.3 : 0.1}
+                    stroke={colors.sketch.editable.base}
+                    strokeWidth={legendHighlight === 'safe-zone' ? outlineStrokeWidth * 2 : outlineStrokeWidth * 0.8}
+                    strokeDasharray={`${4 * strokeScale} ${2 * strokeScale}`}
+                    opacity={legendHighlight === 'safe-zone' ? 1 : 0.7}
+                    style={{ transition: 'opacity 0.15s, stroke-width 0.15s, fill-opacity 0.15s' }}
+                  />
+                ))}
 
-              {/* Reserved regions (red, semi-transparent) */}
-              {safeSpace.reserved.map((reserved, i) => (
-                <polygon
-                  key={`reserved-${i}`}
-                  points={reserved.polygon.map(p => `${p.x},${p.y}`).join(' ')}
-                  fill={colors.sketch.reserved.base}
-                  fillOpacity={reserved.type === 'slot' || reserved.type === 'slot-margin' ? 0.15 : 0.1}
-                  stroke={reserved.type === 'joint-edge' ? colors.sketch.reserved.base : 'none'}
-                  strokeWidth={outlineStrokeWidth * 0.5}
-                  strokeDasharray={`${3 * strokeScale} ${1 * strokeScale}`}
-                  opacity={0.5}
-                />
-              ))}
-            </>
-          )}
+                {/* Fallback: if no resultPaths, use the old fill-rule approach */}
+                {!hasResultPaths && (() => {
+                  const outlinePath = safeSpace.outline.map((p, i) =>
+                    i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`
+                  ).join(' ') + ' Z';
+
+                  const exclusionPaths = safeSpace.exclusions.map(exclusion => {
+                    const reversed = [...exclusion].reverse();
+                    return reversed.map((p, i) =>
+                      i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`
+                    ).join(' ') + ' Z';
+                  }).join(' ');
+
+                  return (
+                    <path
+                      d={outlinePath + ' ' + exclusionPaths}
+                      fill={colors.sketch.editable.base}
+                      fillOpacity={legendHighlight === 'safe-zone' ? 0.3 : 0.1}
+                      fillRule="evenodd"
+                      stroke={colors.sketch.editable.base}
+                      strokeWidth={legendHighlight === 'safe-zone' ? outlineStrokeWidth * 2 : outlineStrokeWidth * 0.8}
+                      strokeDasharray={`${4 * strokeScale} ${2 * strokeScale}`}
+                      opacity={legendHighlight === 'safe-zone' ? 1 : 0.7}
+                      style={{ transition: 'opacity 0.15s, stroke-width 0.15s, fill-opacity 0.15s' }}
+                    />
+                  );
+                })()}
+
+                {/* Exclusion zone outlines (show what's excluded) */}
+                {safeSpace.exclusions.map((exclusion, i) => (
+                  <polygon
+                    key={`exclusion-${i}`}
+                    points={exclusion.map(p => `${p.x},${p.y}`).join(' ')}
+                    fill="none"
+                    stroke={colors.sketch.exclusion.base}
+                    strokeWidth={outlineStrokeWidth * 0.6}
+                    strokeDasharray={`${2 * strokeScale} ${2 * strokeScale}`}
+                    opacity={legendHighlight === 'safe-zone' ? 0.5 : 0.4}
+                  />
+                ))}
+
+                {/* Reserved regions labels (for UI info, slots shown in red) */}
+                {safeSpace.reserved.filter(r => r.type === 'slot' || r.type === 'slot-margin').map((reserved, i) => (
+                  <polygon
+                    key={`reserved-${i}`}
+                    points={reserved.polygon.map(p => `${p.x},${p.y}`).join(' ')}
+                    fill={colors.sketch.reserved.base}
+                    fillOpacity={0.15}
+                    stroke="none"
+                    opacity={legendHighlight === 'safe-zone' ? 0.3 : 0.5}
+                  />
+                ))}
+              </>
+            );
+          })()}
 
           {/* Conceptual boundary lines (dashed, showing ideal panel edges) */}
           {conceptualBoundary && (['top', 'bottom', 'left', 'right'] as EdgePosition[]).map(edge => {
@@ -1164,6 +1459,8 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             // Only show conceptual boundary if this edge has joints (difference from actual)
             if (!hasJoints) return null;
 
+            const isHighlighted = legendHighlight === 'boundary';
+
             return (
               <line
                 key={`boundary-${edge}`}
@@ -1172,9 +1469,10 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                 x2={boundary.end.x}
                 y2={boundary.end.y}
                 stroke={colors.sketch.boundary}
-                strokeWidth={outlineStrokeWidth * 0.5}
+                strokeWidth={isHighlighted ? outlineStrokeWidth * 2 : outlineStrokeWidth * 0.5}
                 strokeDasharray={`${3 * strokeScale} ${2 * strokeScale}`}
-                opacity={0.6}
+                opacity={isHighlighted ? 1 : 0.6}
+                style={{ transition: 'opacity 0.15s, stroke-width 0.15s' }}
               />
             );
           })}
@@ -1207,6 +1505,11 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           {/* Panel outline with colored edges */}
           {edgeSegments && (['top', 'bottom', 'left', 'right'] as EdgePosition[]).map(edge => {
             const segments = edgeSegments[edge];
+            const status = edgeStatuses.find(e => e.position === edge);
+            const isLocked = status?.status === 'locked';
+            const isEdgeLegendHighlighted = (isLocked && legendHighlight === 'locked-edge') ||
+                                            (!isLocked && legendHighlight === 'editable-edge');
+
             return (
               <g key={`edge-${edge}`}>
                 {segments.map((seg, i) => (
@@ -1217,8 +1520,10 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                     x2={seg.end.x}
                     y2={seg.end.y}
                     stroke={getEdgeColor(edge)}
-                    strokeWidth={outlineStrokeWidth}
+                    strokeWidth={isEdgeLegendHighlighted ? outlineStrokeWidth * 3 : outlineStrokeWidth}
                     strokeLinecap="round"
+                    opacity={isEdgeLegendHighlighted ? 1 : undefined}
+                    style={{ transition: 'stroke-width 0.15s, opacity 0.15s' }}
                   />
                 ))}
               </g>
@@ -1228,6 +1533,9 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           {/* Joint line segments (perpendicular parts connecting fingers) */}
           {jointSegments.map((joint, i) => {
             const edgeColor = getEdgeColor(joint.nearEdge);
+            // Joints are part of locked edges - highlight when locked-edge is highlighted
+            const isHighlighted = legendHighlight === 'locked-edge';
+
             return (
               <line
                 key={`joint-${i}`}
@@ -1236,9 +1544,10 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                 x2={joint.end.x}
                 y2={joint.end.y}
                 stroke={edgeColor}
-                strokeWidth={outlineStrokeWidth}
+                strokeWidth={isHighlighted ? outlineStrokeWidth * 3 : outlineStrokeWidth}
                 strokeLinecap="round"
-                opacity={0.8}
+                opacity={isHighlighted ? 1 : 0.8}
+                style={{ transition: 'stroke-width 0.15s, opacity 0.15s' }}
               />
             );
           })}
@@ -1254,47 +1563,93 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             />
           ))}
 
+          {/* Path draft preview - shows when drawing a custom edge path */}
+          {isPathDraftActive && draftTarget?.edge && draftPoints.length > 0 && (() => {
+            // Convert draft points (stored as {x: t, y: offset}) to SVG coordinates
+            const previewPoints = draftPoints
+              .map(p => edgeCoordsToSvg(p.x, p.y, draftTarget.edge!))
+              .filter((p): p is { x: number; y: number } => p !== null);
+
+            if (previewPoints.length === 0) return null;
+
+            const pathD = previewPoints
+              .map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`))
+              .join(' ');
+
+            return (
+              <g>
+                {/* Path line preview */}
+                <path
+                  d={pathD}
+                  fill="none"
+                  stroke={colors.operation.positive.base}
+                  strokeWidth={outlineStrokeWidth * 2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeDasharray={`${4 * strokeScale} ${2 * strokeScale}`}
+                />
+                {/* Point markers */}
+                {previewPoints.map((p, i) => (
+                  <circle
+                    key={i}
+                    cx={p.x}
+                    cy={p.y}
+                    r={Math.max(1, strokeScale * 2)}
+                    fill={i === previewPoints.length - 1 ? colors.operation.positive.hover : colors.operation.positive.base}
+                    stroke="white"
+                    strokeWidth={strokeScale * 0.5}
+                  />
+                ))}
+              </g>
+            );
+          })()}
+
           {/* Corner indicators - only show when chamfer tool is active */}
           {activeTool === 'chamfer' && detectedCorners.filter(c => c.eligible).map((corner) => {
             const isSelected = selectedCornerIds.has(corner.id);
             const isHovered = hoveredCornerId === corner.id;
-            const radius = Math.max(3, strokeScale * 4);
+            const isLegendHighlighted = legendHighlight === 'corner';
+            // Fixed radius in viewBox units - scales with zoom
+            // Use smaller of panel dimensions to keep indicators proportional
+            const indicatorRadius = Math.min(panel.width, panel.height) * 0.02;
             const cornerSelectedColor = colors.corner.selected.base;
-            const cornerDefaultColor = colors.corner.ineligible.base;
+            const cornerEligibleColor = colors.corner.eligible?.base ?? '#4a9eff';
+            const displayRadius = isLegendHighlighted ? indicatorRadius * 1.5 : indicatorRadius;
 
             return (
-              <g key={corner.id} style={{ cursor: 'pointer' }}>
+              <g key={corner.id} style={{ cursor: 'pointer', pointerEvents: 'all', transition: 'transform 0.15s' }}>
                 {/* Hit area (larger invisible circle for easier clicking) */}
                 <circle
                   cx={corner.position.x}
                   cy={corner.position.y}
-                  r={radius * 2}
+                  r={displayRadius * 3}
                   fill="transparent"
+                  style={{ pointerEvents: 'all' }}
                 />
-                {/* Outer glow when hovered or selected */}
-                {(isHovered || isSelected) && (
+                {/* Outer glow when hovered, selected, or legend highlighted */}
+                {(isHovered || isSelected || isLegendHighlighted) && (
                   <circle
                     cx={corner.position.x}
                     cy={corner.position.y}
-                    r={radius * 1.5}
+                    r={displayRadius * 1.6}
                     fill="none"
-                    stroke={cornerSelectedColor}
-                    strokeWidth={outlineStrokeWidth}
-                    opacity={0.5}
+                    stroke={isLegendHighlighted ? cornerEligibleColor : cornerSelectedColor}
+                    strokeWidth={displayRadius * 0.5}
+                    opacity={isLegendHighlighted ? 0.8 : 0.6}
+                    style={{ transition: 'r 0.15s, opacity 0.15s' }}
                   />
                 )}
-                {/* Main indicator circle */}
+                {/* Main indicator circle - always visible with fill */}
                 <circle
                   cx={corner.position.x}
                   cy={corner.position.y}
-                  r={radius}
-                  fill={isSelected ? cornerSelectedColor : isHovered ? cornerSelectedColor : 'transparent'}
-                  fillOpacity={isSelected ? 0.6 : isHovered ? 0.3 : 0}
-                  stroke={isSelected || isHovered ? cornerSelectedColor : cornerDefaultColor}
-                  strokeWidth={outlineStrokeWidth * (isSelected ? 1.5 : 1)}
+                  r={displayRadius}
+                  fill={isSelected ? cornerSelectedColor : isHovered ? cornerSelectedColor : cornerEligibleColor}
+                  fillOpacity={isLegendHighlighted ? 0.9 : isSelected ? 0.8 : isHovered ? 0.6 : 0.4}
+                  stroke={isSelected ? cornerSelectedColor : isHovered ? cornerSelectedColor : cornerEligibleColor}
+                  strokeWidth={displayRadius * 0.2}
+                  style={{ transition: 'r 0.15s, fill-opacity 0.15s' }}
                 />
-                {/* Checkmark for corners with existing finish */}
-                {/* TODO: Add checkmark when corner has finish applied */}
               </g>
             );
           })}
@@ -1364,32 +1719,97 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       </svg>
 
 
-      {/* Floating palette for corner finish options */}
-      {activeTool === 'chamfer' && selectedCornerIds.size > 0 && (
+      {/* Floating palette for corner finish options - shows when chamfer tool is active */}
+      {activeTool === 'chamfer' && panel && (
         <FloatingPalette
           position={palettePosition}
-          title={`Corner Finish (${selectedCornerIds.size}/${detectedCorners.length})`}
-          onClose={clearCornerSelection}
+          title="Corner Fillet"
+          onClose={() => {
+            if (isChamferOperationActive) {
+              cancelOperation();
+            }
+            clearCornerSelection();
+            setActiveTool('select');
+          }}
           onPositionChange={setPalettePosition}
-          minWidth={200}
+          minWidth={220}
           containerRef={containerRef}
         >
+          <PaletteCheckboxGroup label="Select Corners">
+            {detectedCorners.filter(c => c.eligible).map(corner => {
+              const cornerLabels: Record<string, string> = {
+                'corner-tl': 'Top Left',
+                'corner-tr': 'Top Right',
+                'corner-bl': 'Bottom Left',
+                'corner-br': 'Bottom Right',
+              };
+              return (
+                <PaletteCheckbox
+                  key={corner.id}
+                  label={cornerLabels[corner.id] || corner.id}
+                  checked={selectedCornerIds.has(corner.id)}
+                  onChange={() => {
+                    // Toggle corner selection
+                    selectCorner(corner.id, true);
+
+                    // Start operation if not active
+                    if (!isChamferOperationActive) {
+                      startOperation('chamfer-fillet');
+                    }
+
+                    // Update operation params
+                    const newCorners = selectedCornerIds.has(corner.id)
+                      ? Array.from(selectedCornerIds).filter(id => id !== corner.id)
+                      : [...Array.from(selectedCornerIds), corner.id];
+
+                    updateParams({
+                      panelId: panel.id,
+                      corners: newCorners,
+                      radius: cornerRadius,
+                      type: cornerFinishType,
+                    });
+                  }}
+                />
+              );
+            })}
+          </PaletteCheckboxGroup>
+
           <PaletteButtonRow>
             <PaletteButton
               variant="secondary"
-              onClick={() => selectCorners(detectedCorners.map(c => c.id))}
-              disabled={selectedCornerIds.size === detectedCorners.length}
+              onClick={() => {
+                const allCornerIds = detectedCorners.filter(c => c.eligible).map(c => c.id);
+                selectCorners(allCornerIds);
+                if (!isChamferOperationActive) {
+                  startOperation('chamfer-fillet');
+                }
+                updateParams({
+                  panelId: panel.id,
+                  corners: allCornerIds,
+                  radius: cornerRadius,
+                  type: cornerFinishType,
+                });
+              }}
+              disabled={selectedCornerIds.size === detectedCorners.filter(c => c.eligible).length}
             >
               Select All
             </PaletteButton>
           </PaletteButtonRow>
+
           <PaletteToggleGroup
             options={[
               { value: 'chamfer', label: 'Chamfer' },
               { value: 'fillet', label: 'Fillet' },
             ]}
             value={cornerFinishType}
-            onChange={(v) => setCornerFinishType(v as 'chamfer' | 'fillet')}
+            onChange={(v) => {
+              if (!isChamferOperationActive && panel) {
+                startOperation('chamfer-fillet');
+              }
+              updateParams({
+                type: v as 'chamfer' | 'fillet',
+              });
+            }}
           />
           <PaletteSliderInput
             label="Radius"
@@ -1398,28 +1818,40 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             max={Math.min(20, config.materialThickness * 3)}
             step={0.5}
             unit="mm"
-            onChange={setCornerRadius}
+            onChange={(value) => {
+              if (!isChamferOperationActive && panel) {
+                startOperation('chamfer-fillet');
+              }
+              updateParams({
+                radius: value,
+              });
+            }}
           />
           <PaletteButtonRow>
             <PaletteButton
               variant="primary"
               onClick={() => {
-                // TODO: Apply corner finish to selected corners
-                console.log('Apply', cornerFinishType, cornerRadius, 'to corners:', Array.from(selectedCornerIds));
+                if (isChamferOperationActive) {
+                  commitOperation();
+                }
                 clearCornerSelection();
+                setActiveTool('select');
               }}
+              disabled={selectedCornerIds.size === 0}
             >
               Apply
             </PaletteButton>
             <PaletteButton
               variant="secondary"
               onClick={() => {
-                // TODO: Clear finish from selected corners
-                console.log('Clear finish from corners:', Array.from(selectedCornerIds));
+                if (isChamferOperationActive) {
+                  cancelOperation();
+                }
                 clearCornerSelection();
+                setActiveTool('select');
               }}
             >
-              Clear
+              Cancel
             </PaletteButton>
           </PaletteButtonRow>
         </FloatingPalette>
@@ -1431,8 +1863,9 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           position={insetPalettePosition}
           title="Edge Extension"
           onClose={() => {
-            setSelectedEdges(new Set());
-            setExtensionAmount(0);
+            if (isInsetOperationActive) {
+              cancelOperation();
+            }
           }}
           onPositionChange={setInsetPalettePosition}
           minWidth={220}
@@ -1463,20 +1896,24 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             max={30}
             step={0.5}
             unit="mm"
-            onChange={setExtensionAmount}
+            onChange={(value) => {
+              if (isInsetOperationActive) {
+                updateParams({ offset: value });
+              }
+            }}
           />
 
           <PaletteButtonRow>
             <PaletteButton
               variant="primary"
-              onClick={applyExtension}
-              disabled={selectedEdges.size === 0 || extensionAmount === 0}
+              onClick={handleApplyExtension}
+              disabled={selectedEdges.size === 0}
             >
               Apply
             </PaletteButton>
             <PaletteButton
               variant="secondary"
-              onClick={clearExtension}
+              onClick={handleClearExtension}
               disabled={selectedEdges.size === 0}
             >
               Reset
@@ -1484,6 +1921,131 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           </PaletteButtonRow>
         </FloatingPalette>
       )}
+
+      {/* Floating palette for path tool - shows when drawing a custom edge path */}
+      {activeTool === 'path' && isPathDraftActive && panel && draftTarget?.edge && (
+        <FloatingPalette
+          position={pathPalettePosition}
+          title={`Edge Path: ${draftTarget.edge}`}
+          onClose={() => {
+            cancelDraft();
+            setActiveTool('select');
+          }}
+          onPositionChange={setPathPalettePosition}
+          minWidth={200}
+          containerRef={containerRef}
+        >
+          <div style={{ fontSize: '12px', marginBottom: '8px', opacity: 0.8 }}>
+            Click to add points along the edge. Points will define a custom outline.
+          </div>
+          <div style={{ fontSize: '12px', marginBottom: '12px' }}>
+            Points: <strong>{draftPoints.length}</strong>
+          </div>
+          <PaletteButtonRow>
+            <PaletteButton
+              variant="primary"
+              onClick={() => {
+                if (draftPoints.length >= 2) {
+                  commitDraft();
+                  setActiveTool('select');
+                }
+              }}
+              disabled={draftPoints.length < 2}
+            >
+              Apply
+            </PaletteButton>
+            <PaletteButton
+              variant="secondary"
+              onClick={() => {
+                cancelDraft();
+                setActiveTool('select');
+              }}
+            >
+              Cancel
+            </PaletteButton>
+          </PaletteButtonRow>
+        </FloatingPalette>
+      )}
+
+      {/* Bottom-right overlay: Edge Status + Legend */}
+      <div className="sketch-overlay-bottom-right">
+        {/* Edge Status */}
+        <div className="sketch-overlay-section">
+          <h4>Edge Status</h4>
+          <div className="edge-status-grid">
+            {(['top', 'bottom', 'left', 'right'] as const).map(position => {
+              const status = edgeStatuses.find(e => e.position === position);
+              const isLocked = status?.status === 'locked';
+              const extension = panel.edgeExtensions?.[position] ?? 0;
+
+              return (
+                <div key={position} className={`edge-status-item ${isLocked ? 'locked' : 'editable'}`}>
+                  <span className="edge-name">{position}</span>
+                  <span
+                    className="edge-status-indicator"
+                    style={{ backgroundColor: isLocked ? colors.edge.locked.base : colors.edge.unlocked.base }}
+                  />
+                  {!isLocked && extension !== 0 && (
+                    <span className="edge-extension">{extension > 0 ? '+' : ''}{extension.toFixed(1)}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="edge-status-summary">
+            {edgeStatuses.filter(e => e.status === 'locked').length} locked, {edgeStatuses.filter(e => e.status !== 'locked').length} editable
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="sketch-overlay-section">
+          <h4>Legend</h4>
+          <div className="sketch-legend-items">
+            <div
+              className={`legend-row ${legendHighlight === 'locked-edge' ? 'highlighted' : ''}`}
+              onMouseEnter={() => setLegendHighlight('locked-edge')}
+              onMouseLeave={() => setLegendHighlight(null)}
+            >
+              <span className="legend-swatch" style={{ backgroundColor: colors.edge.locked.base }} />
+              <span>Locked edge (has joints)</span>
+            </div>
+            <div
+              className={`legend-row ${legendHighlight === 'editable-edge' ? 'highlighted' : ''}`}
+              onMouseEnter={() => setLegendHighlight('editable-edge')}
+              onMouseLeave={() => setLegendHighlight(null)}
+            >
+              <span className="legend-swatch" style={{ backgroundColor: colors.edge.unlocked.base }} />
+              <span>Editable edge</span>
+            </div>
+            <div
+              className={`legend-row ${legendHighlight === 'boundary' ? 'highlighted' : ''}`}
+              onMouseEnter={() => setLegendHighlight('boundary')}
+              onMouseLeave={() => setLegendHighlight(null)}
+            >
+              <span className="legend-swatch" style={{ backgroundColor: colors.sketch.boundary }} />
+              <span>Conceptual boundary</span>
+            </div>
+            <div
+              className={`legend-row ${legendHighlight === 'safe-zone' ? 'highlighted' : ''}`}
+              onMouseEnter={() => setLegendHighlight('safe-zone')}
+              onMouseLeave={() => setLegendHighlight(null)}
+            >
+              <span className="legend-swatch" style={{ backgroundColor: colors.sketch.editable.base }} />
+              <span>Safe zone (for cutouts)</span>
+            </div>
+            {activeTool === 'chamfer' && (
+              <div
+                className={`legend-row ${legendHighlight === 'corner' ? 'highlighted' : ''}`}
+                onMouseEnter={() => setLegendHighlight('corner')}
+                onMouseLeave={() => setLegendHighlight(null)}
+              >
+                <span className="legend-swatch" style={{ backgroundColor: colors.corner.eligible.base }} />
+                <span>Corner (click to select)</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
