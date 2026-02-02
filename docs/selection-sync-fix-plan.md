@@ -1,5 +1,26 @@
 # Selection Synchronization Fix Plan
 
+## Implementation Status: ✅ Complete
+
+The property-based ID system has been implemented:
+
+**New Architecture:**
+- **Selection/Hover/Edit**: Uses engine UUIDs (`panel.id`)
+- **Visibility/Isolation**: Uses property-based visibility keys (`main:front`, `drawer1:back`, etc.)
+
+**Files Changed:**
+- `src/utils/visibilityKey.ts` - New utility for computing stable visibility keys from panel properties
+- `src/components/BoxTree.tsx` - Updated to use UUID for selection, visibility key for hide/isolate
+- `src/components/PanelPathRenderer.tsx` - Updated visibility check to use visibility keys
+- `src/store/helpers/selection.ts` - Updated selection helpers to work with panel objects
+
+**Key Functions:**
+- `getVisibilityKey(panel)` - Computes stable key from `panel.source`
+- `getFaceVisibilityKey(faceId, subAssemblyId?)` - Convenience for face panels
+- `getDividerVisibilityKey(parentVoidId, axis, position)` - Convenience for dividers
+
+---
+
 ## Problem Summary
 
 Selection between 3D view and tree view is not synchronized:
@@ -10,6 +31,7 @@ Selection between 3D view and tree view is not synchronized:
 | Select panel in tree view | Not highlighted in 3D view |
 | Select in tree view | "Open Face" button available |
 | Select in 3D view | "Open Face" button NOT available |
+| Click "Edit in 2D" button | Shows "No panel selected for editing" |
 
 ## Root Cause: ID Format Mismatch
 
@@ -196,6 +218,90 @@ After implementation, verify:
 - [ ] Multi-select with shift works across views
 - [ ] Visibility toggle (hide/show) still works
 - [ ] 2D edit view opens for correct panel from either selection source
+
+---
+
+## Why This Wasn't Sorted Out Already
+
+The dual ID system exists for a **valid technical reason**: preview stability.
+
+### The Visibility Problem
+
+When a user hides a panel (e.g., "Front") and then starts a preview operation:
+
+1. User hides "Front" → `hiddenFaceIds = {"face-front"}`
+2. User starts a preview (e.g., subdivide)
+3. Engine clones the scene for preview
+4. **Cloned scene generates new UUIDs for all panels**
+5. If hiding used UUID `"abc-123"`, the new panel `"xyz-789"` wouldn't be hidden
+
+Using semantic IDs like `"face-front"` ensures panels stay hidden across scene clones, because the semantic identity (this is the front face) is stable even when the underlying object changes.
+
+### Why It Created Problems
+
+The implementation chose semantic IDs for visibility but didn't consistently apply this to selection:
+
+1. **Visibility system**: Uses semantic IDs (correctly, for preview stability)
+2. **Tree view selection**: Uses semantic IDs (for visibility compatibility)
+3. **3D view selection**: Uses engine UUIDs (direct from panel objects)
+4. **2D edit view**: Expects UUIDs (panel lookup by ID)
+
+The tree view created a bridge (`buildPanelLookup`) to translate between systems, but:
+- Selection clicks still pass semantic IDs
+- `enterSketchView` receives semantic ID but SketchView2D expects UUID
+
+### The Correct Architecture
+
+The fix standardizes on **UUIDs as the internal representation** with translation at boundaries:
+
+```
+User sees: "Front" panel
+Tree uses: panelLookup.facePanels.get("front") → UUID
+Store stores: UUID in selectedPanelIds
+3D checks: UUID match ✓
+2D receives: UUID ✓
+```
+
+For visibility, we keep semantic IDs but translate when checking:
+
+```
+User hides: "Front"
+Store stores: "face-front" in hiddenFaceIds
+Renderer checks: panel.source.faceId === "front" (from semantic ID)
+```
+
+---
+
+## Additional Case: 2D Panel Editing
+
+### The Bug
+
+Clicking "Edit in 2D" (✎ button) on a tree panel shows "No panel selected for editing".
+
+### Root Cause
+
+```typescript
+// BoxTree.tsx (line 844-849)
+const outerFacePanels = faces.map((face) => ({
+  id: `face-${face.id}`,  // Semantic ID
+  ...
+}));
+
+// BoxTree.tsx (line 255)
+onEditPanel(panel.id);  // Passes "face-front"
+
+// viewSlice.ts (line 36-39)
+enterSketchView: (panelId) =>
+  set({ sketchPanelId: panelId, ... });  // Stores "face-front"
+
+// SketchView2D.tsx (line 288)
+const panel = panelCollection.panels.find(p => p.id === sketchPanelId);
+// Looks for UUID === "face-front" → NO MATCH
+```
+
+### Fix
+
+Translate semantic ID to UUID in `enterSketchView`, or fix the tree to pass UUIDs. The latter is cleaner and consistent with the overall fix strategy.
 
 ---
 
