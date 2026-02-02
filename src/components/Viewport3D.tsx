@@ -46,6 +46,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const selectedPanelIds = useBoxStore((state) => state.selectedPanelIds);
   const selectedEdges = useBoxStore((state) => state.selectedEdges);
   const toggleFace = useBoxStore((state) => state.toggleFace);
+  const toggleSubAssemblyFace = useBoxStore((state) => state.toggleSubAssemblyFace);
   const purgeVoid = useBoxStore((state) => state.purgeVoid);
   const activeTool = useBoxStore((state) => state.activeTool);
   const setActiveTool = useBoxStore((state) => state.setActiveTool);
@@ -624,7 +625,12 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         // Face panel: toggle to non-solid (make it open)
         const faceId = panel.source.faceId;
         if (faceId) {
-          toggleFace(faceId as FaceId);
+          // Check if this is a sub-assembly face
+          if (panel.source.subAssemblyId) {
+            toggleSubAssemblyFace(panel.source.subAssemblyId, faceId as FaceId);
+          } else {
+            toggleFace(faceId as FaceId);
+          }
         }
       } else if (panel.source.type === 'divider') {
         // Divider panel: remove the subdivision
@@ -639,7 +645,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
     // Clear selection after deletion
     clearSelection();
-  }, [selectedPanelIds, panelCollection, toggleFace, purgeVoid, clearSelection]);
+  }, [selectedPanelIds, panelCollection, toggleFace, toggleSubAssemblyFace, purgeVoid, clearSelection]);
 
   // Handle keyboard shortcuts
   useEffect(() => {

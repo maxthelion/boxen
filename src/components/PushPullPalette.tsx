@@ -110,12 +110,12 @@ export const PushPullPalette: React.FC<PushPullPaletteProps> = ({
           Apply
         </PaletteButton>
       </PaletteButtonRow>
-      {canInsetFace && (
+      {canInsetFace && !isSubAssembly && (
         <PaletteButton variant="secondary" onClick={onInsetFace}>
           Inset Face
         </PaletteButton>
       )}
-      {canInsetFace && (
+      {canInsetFace && !isSubAssembly && (
         <div className="palette-hint">
           Opens face and creates divider at offset
         </div>
