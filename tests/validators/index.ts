@@ -18,10 +18,14 @@ export type { PathCheckResult, PathValidationError, PathRuleId } from '../../src
 export { EdgeExtensionChecker, checkEdgeExtensions } from '../../src/engine/validators/EdgeExtensionChecker';
 export type { EdgeExtensionCheckResult, EdgeExtensionValidationError, EdgeExtensionRuleId } from '../../src/engine/validators/EdgeExtensionChecker';
 
+export { OverlapChecker, checkOverlap } from '../../src/engine/validators/OverlapChecker';
+export type { OverlapCheckResult, OverlapValidationError, OverlapRuleId } from '../../src/engine/validators/OverlapChecker';
+
 import type { Engine } from '../../src/engine/Engine';
 import { ComprehensiveValidator, ValidationResult } from '../../src/engine/validators/ComprehensiveValidator';
 import { PathChecker, PathCheckResult } from '../../src/engine/validators/PathChecker';
 import { EdgeExtensionChecker, EdgeExtensionCheckResult } from '../../src/engine/validators/EdgeExtensionChecker';
+import { OverlapChecker, OverlapCheckResult } from '../../src/engine/validators/OverlapChecker';
 
 // =============================================================================
 // Unified Validation Interface
@@ -32,6 +36,8 @@ export interface OperationValidationOptions {
   checkPaths?: boolean;
   /** Check edge extension rules */
   checkEdgeExtensions?: boolean;
+  /** Check for panel overlaps in 3D space (default: true) */
+  checkOverlap?: boolean;
   /** Include warnings in valid check (default: false) */
   failOnWarnings?: boolean;
 }
@@ -41,6 +47,7 @@ export interface OperationValidationResult {
   geometry: ValidationResult;
   paths?: PathCheckResult;
   edgeExtensions?: EdgeExtensionCheckResult;
+  overlap?: OverlapCheckResult;
   summary: {
     totalErrors: number;
     totalWarnings: number;
@@ -64,6 +71,7 @@ export function validateOperation(
   const {
     checkPaths = true,
     checkEdgeExtensions = true,
+    checkOverlap: checkOverlapOption = true,
     failOnWarnings = false,
   } = options;
 
@@ -85,21 +93,31 @@ export function validateOperation(
     edgeExtensions = edgeChecker.check();
   }
 
+  // Run overlap validation (optional, default true)
+  let overlap: OverlapCheckResult | undefined;
+  if (checkOverlapOption) {
+    const overlapChecker = new OverlapChecker(engine);
+    overlap = overlapChecker.check();
+  }
+
   // Combine results
   const totalErrors =
     geometry.summary.errorCount +
     (paths?.summary.errorCount ?? 0) +
-    (edgeExtensions?.summary.errorCount ?? 0);
+    (edgeExtensions?.summary.errorCount ?? 0) +
+    (overlap?.summary.errorCount ?? 0);
 
   const totalWarnings =
     geometry.summary.warningCount +
     (paths?.summary.warningCount ?? 0) +
-    (edgeExtensions?.summary.warningCount ?? 0);
+    (edgeExtensions?.summary.warningCount ?? 0) +
+    (overlap?.summary.warningCount ?? 0);
 
   const rulesChecked = [
     ...geometry.summary.rulesChecked,
     ...(paths?.summary.rulesChecked ?? []),
     ...(edgeExtensions?.summary.rulesChecked ?? []),
+    ...(overlap?.summary.rulesChecked ?? []),
   ];
 
   const valid = failOnWarnings
@@ -111,6 +129,7 @@ export function validateOperation(
     geometry,
     paths,
     edgeExtensions,
+    overlap,
     summary: {
       totalErrors,
       totalWarnings,
