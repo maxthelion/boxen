@@ -21,3 +21,9 @@ npm-debug.log*
 # Local env files
 .env.local
 .env.*.local
+
+# Claude Code working files (keep .claude/rules/ tracked)
+.claude/feedback/
+.claude/instructions/
+.claude/plans/
+.claude/settings.local.json
