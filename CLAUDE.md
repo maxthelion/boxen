@@ -5,6 +5,36 @@
 - **After completing a feature**: When the user approves a feature, ask if they want to commit it to git.
 - **Planning documents**: Keep plans in the project repo at `docs/` (e.g., `docs/2d-sketch-plan.md`), not in Claude's default plan location (`~/.claude/plans/`). This ensures plans are version-controlled and accessible to everyone.
 
+## Pipe to Phone
+
+When the user says any of the following, use the `pipe` CLI to send a plan and wait for their response:
+
+- "send this to my phone"
+- "pipe this to my screen"
+- "get my feedback on this"
+- "ask me about this"
+- "send me a notification"
+- "wait for my response"
+
+### Usage
+
+```bash
+cd /path/to/pipe-it-to-my-screen/local-cli
+echo "YOUR_PLAN_CONTENT" | node dist/cli.js run --title "Title"
+```
+
+The CLI will:
+1. Send the content to the user's phone
+2. Wait for their response
+3. Return the response text to stdout
+
+### Example
+
+```bash
+cd /path/to/pipe-it-to-my-screen/local-cli
+echo "Here's my implementation plan:\n\n1. Create new component\n2. Add tests\n3. Update docs\n\nDoes this look good?" | node dist/cli.js run --title "Implementation Plan"
+```
+
 ## Local Environment Configuration
 
 A `.env.local` file in the project root provides per-directory customization. This file is git-ignored so each developer/directory can have unique settings.
