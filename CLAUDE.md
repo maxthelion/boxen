@@ -5,6 +5,70 @@
 - **After completing a feature**: When the user approves a feature, ask if they want to commit it to git.
 - **Planning documents**: Keep plans in the project repo at `docs/` (e.g., `docs/2d-sketch-plan.md`), not in Claude's default plan location (`~/.claude/plans/`). This ensures plans are version-controlled and accessible to everyone.
 
+## Issue Tracking
+
+Known geometry and functionality issues are tracked in `docs/issues/`. This provides a way to document bugs that are detected but not yet fixed.
+
+### When to Create an Issue
+
+Create an issue when:
+- A bug is discovered but fixing it requires significant work
+- A validator detects invalid geometry that the system currently generates
+- There's a known limitation that users should be aware of
+
+### Creating a New Issue
+
+**Note:** Issues should be created and committed on `main`, not on feature branches. This ensures issues are immediately visible and tracked regardless of branch state.
+
+1. **Create the issue file** in `docs/issues/` with format `NNN-short-description.md`:
+   ```markdown
+   # Issue NNN: Title
+
+   **Date Reported:** YYYY-MM-DD
+   **Status:** Open
+   **Branch:** <branch name>
+   **Commit:** <full commit hash>
+
+   ## Description
+   [What the issue is]
+
+   ### Steps to Reproduce
+   [Numbered steps]
+
+   ### Expected Behavior
+   [What should happen]
+
+   ### Actual Behavior
+   [What actually happens]
+
+   ## Technical Analysis
+   [Root cause explanation]
+
+   ## Recommended Fixes
+   [Options for fixing, labeled Option A, B, C, etc.]
+
+   ## Affected Code
+   [List of relevant files]
+
+   ## Detection
+   [How the issue is detected - validators, tests, etc.]
+   ```
+
+2. **Update the index** in `docs/issues/index.md`:
+   ```markdown
+   | [NNN](NNN-short-description.md) | Title | Open | YYYY-MM-DD |
+   ```
+
+### Issue Statuses
+
+- **Open**: Issue is known and not yet fixed
+- **In Progress**: Fix is being implemented
+- **Closed**: Issue has been resolved
+
+### Viewing Issues
+
+See `docs/issues/index.md` for the full list of tracked issues.
+
 ## Pipe to Phone
 
 When the user says any of the following, use the `pipe` CLI to send a plan and wait for their response:
