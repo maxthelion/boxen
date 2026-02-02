@@ -35,6 +35,67 @@ cd /path/to/pipe-it-to-my-screen/local-cli
 echo "Here's my implementation plan:\n\n1. Create new component\n2. Add tests\n3. Update docs\n\nDoes this look good?" | node dist/cli.js run --title "Implementation Plan"
 ```
 
+### Test-First Development for New Features
+
+**Before implementing a new feature that modifies geometry or user-facing behavior**, write integration tests FIRST that:
+
+1. **Test the final artifact, not intermediate state**
+   - BAD: Test that `extractAffectedEdges()` returns a map with entries
+   - GOOD: Test that `panel.outline.points` has more points after an extension operation
+   - BAD: Test that `classifyPolygon()` returns `'boundary'`
+   - GOOD: Test that after applying a boundary polygon, the panel's max Y coordinate increased by the expected amount
+
+2. **Use realistic scenarios with actual engine state**
+   - Create a real engine with `createEngineWithAssembly()`
+   - Use actual panel dimensions from `generatePanelsFromNodes()`
+   - Include finger joints (they have 100+ points; a simple rectangle has 4)
+   - Test with the actual dispatch/action flow, not direct function calls
+
+3. **Verify user-visible outcomes**
+   - For cutouts: Check `panel.holes.length` increased and hole has expected dimensions
+   - For edge extensions: Check `panel.outline.points` contains points beyond original bounds
+   - For modifications: Check specific coordinates changed (e.g., `maxY`, `minX`)
+   - Don't just check that operations "succeeded" - verify the geometry changed correctly
+
+4. **Write tests that FAIL before implementation**
+   - The test should fail with a clear message showing current vs expected behavior
+   - Example: `expected 38 to be greater than 132` reveals the outline lost points
+   - Run tests to confirm they fail, THEN implement the feature
+
+5. **Test edge cases from the user's perspective**
+   - Polygon drawn near (but not crossing) an edge
+   - Second operation on an already-modified edge
+   - Operations on panels with existing finger joints
+   - Operations that touch corners
+
+**Incorporate into planning phase:**
+
+When planning a new feature, include a "Failure Tests" section that explicitly lists:
+1. The integration tests you will write BEFORE implementing
+2. What each test verifies (the user-visible outcome)
+3. Why you expect each test to FAIL initially (what doesn't exist yet)
+
+Example plan section:
+```markdown
+## Failure Tests (to write before implementing)
+
+These tests should FAIL initially, proving the feature doesn't exist yet:
+
+| Test | Verifies | Expected Failure |
+|------|----------|------------------|
+| Boundary extension increases outline points | `panel.outline.points.length` > original | Will fail: APPLY_EDGE_OPERATION not implemented |
+| Extension preserves finger joints | Point count = original + extension points, not simple polygon | Will fail: No edge path integration with finger joints |
+| Interior polygon creates cutout | `panel.holes.length` increases | Will fail: Classification routes to wrong action |
+| Second extension preserves first | Outline contains both extension regions | Will fail: No merge logic for multiple operations |
+```
+
+**Why this matters:**
+- Unit tests on algorithms pass even when integration is broken
+- Algorithms can work perfectly in isolation but fail when composed
+- The user sees the final panel outline, not internal data structures
+- Finger joints, slots, and other computed geometry must be preserved
+- If a test passes before implementation, it's testing the wrong thing
+
 ## Local Environment Configuration
 
 A `.env.local` file in the project root provides per-directory customization. This file is git-ignored so each developer/directory can have unique settings.
