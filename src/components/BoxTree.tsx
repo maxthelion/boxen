@@ -4,10 +4,12 @@ import { useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
 import { Panel } from './UI/Panel';
 import { Void, SubAssembly, Face, FaceId, PanelPath } from '../types';
 import { getSelectionBehaviorForTool, getOperationForTool, getOperation } from '../operations/registry';
+import { getFaceVisibilityKey, getDividerVisibilityKey } from '../utils/visibilityKey';
 
 // Represents a divider panel created by a subdivision
 interface DividerPanel {
-  id: string;
+  id: string;           // Engine UUID
+  visibilityKey: string; // Stable key for visibility system
   voidId: string;  // The child void this divider belongs to (used for deletion)
   axis: 'x' | 'y' | 'z';
   position: number;
@@ -54,7 +56,8 @@ function buildPanelLookup(panels: PanelPath[]): PanelLookup {
 
 // Represents an outer face panel
 interface OuterFacePanel {
-  id: string;
+  id: string;           // Engine UUID for selection/edit
+  visibilityKey: string; // Stable key for visibility system (e.g., "main:front")
   faceId: FaceId;
   label: string;
   solid: boolean;
@@ -105,6 +108,7 @@ const getDividerPanels = (parent: Void, lookup: PanelLookup): DividerPanel[] => 
           }
           panels.push({
             id: panelId,
+            visibilityKey: getDividerVisibilityKey(parent.id, axis, position),
             voidId: parent.id,  // Grid dividers belong to the parent (purge to remove)
             axis,
             position,
@@ -145,6 +149,7 @@ const getDividerPanels = (parent: Void, lookup: PanelLookup): DividerPanel[] => 
       }
       panels.push({
         id: panelId,
+        visibilityKey: getDividerVisibilityKey(parent.id, child.splitAxis, child.splitPosition),
         voidId: child.id,  // Store child voidId for deletion (removing subdivision removes this child)
         axis: child.splitAxis,
         position: child.splitPosition,
@@ -211,11 +216,12 @@ const OuterPanelNode: React.FC<{
   onEditPanel: (panelId: string) => void;
   onConfigureFace: (panelId: string) => void;
 }> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, hiddenFaceIds, isolatedPanelId, onToggleFaceVisibility, onSetIsolatedPanel, onEditPanel, onConfigureFace }) => {
-  // Tree shows actual selection only (no cascade from assembly selection)
+  // Use id (UUID) for selection/hover sync with 3D view
+  // Use visibilityKey for visibility/isolation (stable across scene clones)
   const isSelected = selectedPanelIds.has(panel.id);
   const isHovered = hoveredPanelId === panel.id;
-  const isHidden = hiddenFaceIds.has(panel.id);
-  const isIsolated = isolatedPanelId === panel.id;
+  const isHidden = hiddenFaceIds.has(panel.visibilityKey);
+  const isIsolated = isolatedPanelId === panel.visibilityKey;
 
   return (
     <div className="tree-node">
@@ -262,7 +268,7 @@ const OuterPanelNode: React.FC<{
                 className={`tree-btn ${isHidden ? 'active' : ''}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onToggleFaceVisibility(panel.id);
+                  onToggleFaceVisibility(panel.visibilityKey);
                 }}
                 title={isHidden ? 'Show' : 'Hide'}
               >
@@ -272,7 +278,7 @@ const OuterPanelNode: React.FC<{
                 className={`tree-btn ${isIsolated ? 'active' : ''}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onSetIsolatedPanel(isIsolated ? null : panel.id);
+                  onSetIsolatedPanel(isIsolated ? null : panel.visibilityKey);
                 }}
                 title={isIsolated ? 'Unisolate' : 'Isolate'}
               >
@@ -301,11 +307,12 @@ const DividerPanelNode: React.FC<{
   onDelete: (voidId: string) => void;
   onEditPanel: (panelId: string) => void;
 }> = ({ panel, depth, selectedPanelIds, onSelectPanel, hoveredPanelId, onHoverPanel, hiddenFaceIds, isolatedPanelId, onToggleFaceVisibility, onSetIsolatedPanel, onDelete, onEditPanel }) => {
-  // Tree shows actual selection only (no cascade from assembly selection)
+  // Use id (UUID) for selection/hover/edit sync with 3D view
+  // Use visibilityKey for visibility/isolation (stable across scene clones)
   const isSelected = selectedPanelIds.has(panel.id);
   const isHovered = hoveredPanelId === panel.id;
-  const isHidden = hiddenFaceIds.has(panel.id);
-  const isIsolated = isolatedPanelId === panel.id;
+  const isHidden = hiddenFaceIds.has(panel.visibilityKey);
+  const isIsolated = isolatedPanelId === panel.visibilityKey;
   const axisLabel = panel.axis.toUpperCase();
 
   return (
@@ -339,7 +346,7 @@ const DividerPanelNode: React.FC<{
             className={`tree-btn ${isHidden ? 'active' : ''}`}
             onClick={(e) => {
               e.stopPropagation();
-              onToggleFaceVisibility(panel.id);
+              onToggleFaceVisibility(panel.visibilityKey);
             }}
             title={isHidden ? 'Show' : 'Hide'}
           >
@@ -349,7 +356,7 @@ const DividerPanelNode: React.FC<{
             className={`tree-btn ${isIsolated ? 'active' : ''}`}
             onClick={(e) => {
               e.stopPropagation();
-              onSetIsolatedPanel(isIsolated ? null : panel.id);
+              onSetIsolatedPanel(isIsolated ? null : panel.visibilityKey);
             }}
             title={isIsolated ? 'Unisolate' : 'Isolate'}
           >
@@ -662,13 +669,18 @@ const SubAssemblyNode: React.FC<SubAssemblyNodeProps> = ({
     return `${w.toFixed(0)}×${h.toFixed(0)}×${d.toFixed(0)}`;
   };
 
-  // Show all faces in tree - use subasm-*-face-* format for visibility compatibility
-  const outerFacePanels: OuterFacePanel[] = subAssembly.faces.map((face) => ({
-    id: `subasm-${subAssembly.id}-face-${face.id}`,  // Match format used in store visibility system
-    faceId: face.id,
-    label: faceLabels[face.id],
-    solid: face.solid,
-  }));
+  // Show all faces in tree
+  const outerFacePanels: OuterFacePanel[] = subAssembly.faces.map((face) => {
+    const lookupKey = `${subAssembly.id}-${face.id}`;
+    const panelId = panelLookup.subAssemblyFacePanels.get(lookupKey);
+    return {
+      id: panelId ?? `fallback-${subAssembly.id}-${face.id}`,  // Engine UUID for selection/edit
+      visibilityKey: getFaceVisibilityKey(face.id, subAssembly.id),  // Stable key for visibility
+      faceId: face.id,
+      label: faceLabels[face.id],
+      solid: face.solid,
+    };
+  });
 
   const treeOps: TreeOpsProps = {
     selectedVoidIds,
@@ -839,14 +851,17 @@ const MainBoxNode: React.FC<MainBoxNodeProps> = ({
   // When lid insets exist, this is the 'main-interior' child, otherwise it's rootVoid itself
   const interiorVoid = getMainInteriorVoid(rootVoid);
 
-  // Show all faces in tree - use face-* format for compatibility with visibility system
-  // (even though engine uses UUIDs, the store visibility system expects face-front, face-back, etc.)
-  const outerFacePanels: OuterFacePanel[] = faces.map((face) => ({
-    id: `face-${face.id}`,  // Use face-front, face-back format for visibility compatibility
-    faceId: face.id,
-    label: faceLabels[face.id],
-    solid: face.solid,
-  }));
+  // Show all faces in tree
+  const outerFacePanels: OuterFacePanel[] = faces.map((face) => {
+    const panelId = panelLookup.facePanels.get(face.id);
+    return {
+      id: panelId ?? `fallback-${face.id}`,  // Engine UUID for selection/edit
+      visibilityKey: getFaceVisibilityKey(face.id),  // Stable key for visibility
+      faceId: face.id,
+      label: faceLabels[face.id],
+      solid: face.solid,
+    };
+  });
 
   const treeOps: TreeOpsProps = {
     selectedVoidIds,

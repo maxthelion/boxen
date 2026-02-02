@@ -67,6 +67,55 @@ export interface SafeSpaceRegion {
 type EdgePosition = 'top' | 'bottom' | 'left' | 'right';
 
 // =============================================================================
+// Path Analysis Types
+// =============================================================================
+
+/**
+ * Result of analyzing a drawn path to determine its type and behavior.
+ *
+ * This is used to route drawn shapes to the appropriate storage:
+ * - Edge path: modifies panel edge outline
+ * - Cutout: creates hole in panel
+ * - Additive path: extends panel beyond boundary (on open edges)
+ */
+export interface PathAnalysis {
+  /**
+   * Whether any point of the path exactly touches the safe space border.
+   * If true, the path should be treated as an edge path modification.
+   */
+  touchesSafeSpaceBorder: boolean;
+
+  /**
+   * Which edge(s) the path borders, if any.
+   * A path may touch multiple edges (e.g., corner modifications).
+   */
+  borderedEdges: EdgePosition[];
+
+  /**
+   * Whether the path is entirely within the safe space.
+   * If true and doesn't touch border, it's a subtractive cutout.
+   */
+  whollyInSafeSpace: boolean;
+
+  /**
+   * Whether the path extends beyond the safe space on an open edge.
+   * If true, the path can be additive (extending panel) or subtractive.
+   */
+  spansOpenEdge: boolean;
+
+  /**
+   * Which open edges the path spans, if any.
+   */
+  openEdgesSpanned: EdgePosition[];
+
+  /**
+   * Whether the path touches a closed edge (edge with joints on all sides).
+   * Closed edges cannot have edge paths - only interior cutouts are allowed.
+   */
+  touchesClosedEdge: boolean;
+}
+
+// =============================================================================
 // Edge Joint Detection
 // =============================================================================
 
@@ -905,21 +954,24 @@ export function isPointInSafeSpace(
 }
 
 /**
- * Check if a rectangle is fully within the safe space
+ * Check if a rectangle is fully within the safe space.
+ * Note: rectX, rectY are the CENTER of the rectangle (matching cutout coordinate system).
  */
 export function isRectInSafeSpace(
-  rectX: number,
-  rectY: number,
+  centerX: number,
+  centerY: number,
   rectWidth: number,
   rectHeight: number,
   safeSpace: SafeSpaceRegion
 ): boolean {
-  // Check all four corners
+  // Calculate corners from center
+  const halfW = rectWidth / 2;
+  const halfH = rectHeight / 2;
   const corners = [
-    { x: rectX, y: rectY },
-    { x: rectX + rectWidth, y: rectY },
-    { x: rectX, y: rectY + rectHeight },
-    { x: rectX + rectWidth, y: rectY + rectHeight },
+    { x: centerX - halfW, y: centerY - halfH },
+    { x: centerX + halfW, y: centerY - halfH },
+    { x: centerX - halfW, y: centerY + halfH },
+    { x: centerX + halfW, y: centerY + halfH },
   ];
 
   for (const corner of corners) {
@@ -929,6 +981,213 @@ export function isRectInSafeSpace(
   }
 
   return true;
+}
+
+/**
+ * Check if a circle is fully within the safe space.
+ * Samples points around the circle perimeter to check containment.
+ */
+export function isCircleInSafeSpace(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  safeSpace: SafeSpaceRegion
+): boolean {
+  // Check center point
+  if (!isPointInSafeSpace(centerX, centerY, safeSpace)) {
+    return false;
+  }
+
+  // Sample points around the circle (8 points should be sufficient for our use case)
+  const numSamples = 8;
+  for (let i = 0; i < numSamples; i++) {
+    const angle = (i / numSamples) * Math.PI * 2;
+    const x = centerX + radius * Math.cos(angle);
+    const y = centerY + radius * Math.sin(angle);
+    if (!isPointInSafeSpace(x, y, safeSpace)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+// =============================================================================
+// Path Analysis
+// =============================================================================
+
+/**
+ * Analyze a drawn path to determine how it should be handled.
+ *
+ * This function examines where a path lies relative to the safe space:
+ * - Paths that exactly touch the safe space border → edge path modifications
+ * - Paths wholly inside safe space → subtractive cutouts
+ * - Paths that extend beyond safe space on open edges → additive/subtractive options
+ * - Paths on closed edges (joints on all sides) → cannot be edge paths
+ *
+ * @param points - The drawn path points in panel coordinates
+ * @param safeSpace - The safe space region for the panel
+ * @param edgeMargins - Which edges have joints (margin > 0 means joints)
+ * @param panelWidth - Panel body width (excluding extensions)
+ * @param panelHeight - Panel body height (excluding extensions)
+ * @param tolerance - Tolerance for "touching" detection (default 0.001)
+ */
+export function analyzePath(
+  points: PathPoint[],
+  safeSpace: SafeSpaceRegion,
+  edgeMargins: Record<EdgePosition, number>,
+  panelWidth: number,
+  panelHeight: number,
+  tolerance: number = 0.001
+): PathAnalysis {
+  const halfW = panelWidth / 2;
+  const halfH = panelHeight / 2;
+
+  // Identify which edges are open (no joints)
+  const openEdges: EdgePosition[] = [];
+  const closedEdges: EdgePosition[] = [];
+  for (const edge of ['top', 'bottom', 'left', 'right'] as EdgePosition[]) {
+    if (edgeMargins[edge] === 0) {
+      openEdges.push(edge);
+    } else {
+      closedEdges.push(edge);
+    }
+  }
+
+  // Get safe space boundary (the inner edge of the joint margins)
+  const safeMinX = -halfW + (edgeMargins.left > 0 ? edgeMargins.left : 0);
+  const safeMaxX = halfW - (edgeMargins.right > 0 ? edgeMargins.right : 0);
+  const safeMinY = -halfH + (edgeMargins.bottom > 0 ? edgeMargins.bottom : 0);
+  const safeMaxY = halfH - (edgeMargins.top > 0 ? edgeMargins.top : 0);
+
+  // Body boundary (the panel edge before extensions)
+  const bodyMinX = -halfW;
+  const bodyMaxX = halfW;
+  const bodyMinY = -halfH;
+  const bodyMaxY = halfH;
+
+  const borderedEdges: EdgePosition[] = [];
+  const openEdgesSpanned: EdgePosition[] = [];
+  let touchesSafeSpaceBorder = false;
+  let whollyInSafeSpace = true;
+  let spansOpenEdge = false;
+  let touchesClosedEdge = false;
+
+  for (const point of points) {
+    const { x, y } = point;
+
+    // Check if point is in safe space
+    const inSafeSpace = isPointInSafeSpace(x, y, safeSpace);
+    if (!inSafeSpace) {
+      whollyInSafeSpace = false;
+    }
+
+    // Check if point touches safe space border (inner edge of joint margins)
+    // For open edges, the "border" is the body edge
+    const touchesTopBorder = Math.abs(y - safeMaxY) < tolerance && edgeMargins.top > 0;
+    const touchesBottomBorder = Math.abs(y - safeMinY) < tolerance && edgeMargins.bottom > 0;
+    const touchesLeftBorder = Math.abs(x - safeMinX) < tolerance && edgeMargins.left > 0;
+    const touchesRightBorder = Math.abs(x - safeMaxX) < tolerance && edgeMargins.right > 0;
+
+    // For open edges, check if point touches the body edge
+    const touchesTopBody = Math.abs(y - bodyMaxY) < tolerance && edgeMargins.top === 0;
+    const touchesBottomBody = Math.abs(y - bodyMinY) < tolerance && edgeMargins.bottom === 0;
+    const touchesLeftBody = Math.abs(x - bodyMinX) < tolerance && edgeMargins.left === 0;
+    const touchesRightBody = Math.abs(x - bodyMaxX) < tolerance && edgeMargins.right === 0;
+
+    // Record which edges are bordered
+    if (touchesTopBorder || touchesTopBody) {
+      if (!borderedEdges.includes('top')) borderedEdges.push('top');
+      if (touchesTopBorder) touchesSafeSpaceBorder = true;
+      if (touchesTopBody) {
+        if (!openEdgesSpanned.includes('top')) openEdgesSpanned.push('top');
+      }
+    }
+    if (touchesBottomBorder || touchesBottomBody) {
+      if (!borderedEdges.includes('bottom')) borderedEdges.push('bottom');
+      if (touchesBottomBorder) touchesSafeSpaceBorder = true;
+      if (touchesBottomBody) {
+        if (!openEdgesSpanned.includes('bottom')) openEdgesSpanned.push('bottom');
+      }
+    }
+    if (touchesLeftBorder || touchesLeftBody) {
+      if (!borderedEdges.includes('left')) borderedEdges.push('left');
+      if (touchesLeftBorder) touchesSafeSpaceBorder = true;
+      if (touchesLeftBody) {
+        if (!openEdgesSpanned.includes('left')) openEdgesSpanned.push('left');
+      }
+    }
+    if (touchesRightBorder || touchesRightBody) {
+      if (!borderedEdges.includes('right')) borderedEdges.push('right');
+      if (touchesRightBorder) touchesSafeSpaceBorder = true;
+      if (touchesRightBody) {
+        if (!openEdgesSpanned.includes('right')) openEdgesSpanned.push('right');
+      }
+    }
+
+    // Check if point extends beyond body boundary (only valid on open edges)
+    const beyondTop = y > bodyMaxY + tolerance;
+    const beyondBottom = y < bodyMinY - tolerance;
+    const beyondLeft = x < bodyMinX - tolerance;
+    const beyondRight = x > bodyMaxX + tolerance;
+
+    if (beyondTop && edgeMargins.top === 0) {
+      spansOpenEdge = true;
+      if (!openEdgesSpanned.includes('top')) openEdgesSpanned.push('top');
+    }
+    if (beyondBottom && edgeMargins.bottom === 0) {
+      spansOpenEdge = true;
+      if (!openEdgesSpanned.includes('bottom')) openEdgesSpanned.push('bottom');
+    }
+    if (beyondLeft && edgeMargins.left === 0) {
+      spansOpenEdge = true;
+      if (!openEdgesSpanned.includes('left')) openEdgesSpanned.push('left');
+    }
+    if (beyondRight && edgeMargins.right === 0) {
+      spansOpenEdge = true;
+      if (!openEdgesSpanned.includes('right')) openEdgesSpanned.push('right');
+    }
+
+    // Check if point is in a closed edge region (joints on all sides)
+    // A point touches a closed edge if it's in the joint margin of a jointed edge
+    for (const edge of closedEdges) {
+      switch (edge) {
+        case 'top':
+          if (y > safeMaxY - tolerance) touchesClosedEdge = true;
+          break;
+        case 'bottom':
+          if (y < safeMinY + tolerance) touchesClosedEdge = true;
+          break;
+        case 'left':
+          if (x < safeMinX + tolerance) touchesClosedEdge = true;
+          break;
+        case 'right':
+          if (x > safeMaxX - tolerance) touchesClosedEdge = true;
+          break;
+      }
+    }
+  }
+
+  return {
+    touchesSafeSpaceBorder,
+    borderedEdges,
+    whollyInSafeSpace,
+    spansOpenEdge,
+    openEdgesSpanned,
+    touchesClosedEdge,
+  };
+}
+
+/**
+ * Get edge margins for a face panel (convenience function for analyzePath).
+ * This is a re-export of the internal function for external use.
+ */
+export function getEdgeMarginsForFace(
+  faceId: string,
+  faces: FaceConfig[],
+  materialThickness: number
+): Record<EdgePosition, number> {
+  return getFaceEdgeMargins(faceId, faces, materialThickness);
 }
 
 /**
@@ -969,4 +1228,1117 @@ export function getReservedReason(
     }
   }
   return null;
+}
+
+// =============================================================================
+// Edge Path Conversion
+// =============================================================================
+
+/**
+ * Edge path point for custom edge geometry.
+ * Duplicated here to avoid circular dependency with types.ts
+ */
+interface EdgePathPoint {
+  t: number;      // 0-1 normalized position along edge
+  offset: number; // mm, perpendicular offset from edge line
+}
+
+/**
+ * Custom edge path for panel edge customization.
+ */
+interface CustomEdgePathResult {
+  edge: EdgePosition;
+  baseOffset: number;
+  points: EdgePathPoint[];
+  mirrored: boolean;
+}
+
+/**
+ * Convert a rectangle that touches the safe space border into a CustomEdgePath.
+ *
+ * The rectangle creates a notch in the panel edge. The edge path defines
+ * the complete edge outline from t=0 to t=1, with the notch where the
+ * rectangle intersects.
+ *
+ * @param rectMinX - Rectangle left x coordinate
+ * @param rectMaxX - Rectangle right x coordinate
+ * @param rectMinY - Rectangle bottom y coordinate
+ * @param rectMaxY - Rectangle top y coordinate
+ * @param borderedEdge - Which edge the rectangle touches
+ * @param panelWidth - Panel body width (not including extensions)
+ * @param panelHeight - Panel body height (not including extensions)
+ * @returns CustomEdgePath for the edge, or null if invalid
+ */
+export function rectToEdgePath(
+  rectMinX: number,
+  rectMaxX: number,
+  rectMinY: number,
+  rectMaxY: number,
+  borderedEdge: EdgePosition,
+  panelWidth: number,
+  panelHeight: number
+): CustomEdgePathResult | null {
+  const halfW = panelWidth / 2;
+  const halfH = panelHeight / 2;
+
+  // Clamp rectangle to panel bounds to avoid invalid t values
+  const clampedMinX = Math.max(rectMinX, -halfW);
+  const clampedMaxX = Math.min(rectMaxX, halfW);
+  const clampedMinY = Math.max(rectMinY, -halfH);
+  const clampedMaxY = Math.min(rectMaxY, halfH);
+
+  // Check if clamped rectangle is valid
+  if (clampedMaxX <= clampedMinX || clampedMaxY <= clampedMinY) {
+    return null;
+  }
+
+  const points: EdgePathPoint[] = [];
+
+  switch (borderedEdge) {
+    case 'top': {
+      // Top edge: t goes from 0 (left, x=-halfW) to 1 (right, x=+halfW)
+      // Panel edge is at y = halfH
+      // Notch depth is how far down the rectangle goes from panel edge
+      const t_start = (clampedMinX + halfW) / panelWidth;
+      const t_end = (clampedMaxX + halfW) / panelWidth;
+      const notchDepth = clampedMinY - halfH; // Negative (inward)
+
+      // Define complete edge path with notch
+      points.push({ t: 0, offset: 0 });          // Start at left corner
+      points.push({ t: t_start, offset: 0 });    // Before notch
+      points.push({ t: t_start, offset: notchDepth }); // Down into notch
+      points.push({ t: t_end, offset: notchDepth });   // Across notch bottom
+      points.push({ t: t_end, offset: 0 });      // Back up
+      points.push({ t: 1, offset: 0 });          // End at right corner
+      break;
+    }
+
+    case 'bottom': {
+      // Bottom edge: t goes from 0 (left, x=-halfW) to 1 (right, x=+halfW)
+      // Panel edge is at y = -halfH
+      // Notch depth is how far up the rectangle goes from panel edge
+      const t_start = (clampedMinX + halfW) / panelWidth;
+      const t_end = (clampedMaxX + halfW) / panelWidth;
+      const notchDepth = -(clampedMaxY - (-halfH)); // Negative (inward from bottom)
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+      points.push({ t: t_start, offset: notchDepth });
+      points.push({ t: t_end, offset: notchDepth });
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+
+    case 'left': {
+      // Left edge: t goes from 0 (bottom, y=-halfH) to 1 (top, y=+halfH)
+      // Panel edge is at x = -halfW
+      // Notch depth is how far right the rectangle goes from panel edge
+      const t_start = (clampedMinY + halfH) / panelHeight;
+      const t_end = (clampedMaxY + halfH) / panelHeight;
+      const notchDepth = -(clampedMaxX - (-halfW)); // Negative (inward from left)
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+      points.push({ t: t_start, offset: notchDepth });
+      points.push({ t: t_end, offset: notchDepth });
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+
+    case 'right': {
+      // Right edge: t goes from 0 (bottom, y=-halfH) to 1 (top, y=+halfH)
+      // Panel edge is at x = halfW
+      // Notch depth is how far left the rectangle goes from panel edge
+      const t_start = (clampedMinY + halfH) / panelHeight;
+      const t_end = (clampedMaxY + halfH) / panelHeight;
+      const notchDepth = clampedMinX - halfW; // Negative (inward from right)
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+      points.push({ t: t_start, offset: notchDepth });
+      points.push({ t: t_end, offset: notchDepth });
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+  }
+
+  return {
+    edge: borderedEdge,
+    baseOffset: 0,
+    points,
+    mirrored: false, // User placed the shape at a specific location
+  };
+}
+
+/**
+ * Convert a circle that touches the safe space border into a CustomEdgePath.
+ *
+ * The circle creates a curved notch (approximated with line segments) in the
+ * panel edge.
+ *
+ * @param centerX - Circle center x coordinate
+ * @param centerY - Circle center y coordinate
+ * @param radius - Circle radius
+ * @param borderedEdge - Which edge the circle touches
+ * @param panelWidth - Panel body width
+ * @param panelHeight - Panel body height
+ * @param segments - Number of segments to approximate the arc (default 8)
+ * @returns CustomEdgePath for the edge, or null if invalid
+ */
+export function circleToEdgePath(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  borderedEdge: EdgePosition,
+  panelWidth: number,
+  panelHeight: number,
+  segments: number = 8
+): CustomEdgePathResult | null {
+  const halfW = panelWidth / 2;
+  const halfH = panelHeight / 2;
+
+  const points: EdgePathPoint[] = [];
+
+  switch (borderedEdge) {
+    case 'top': {
+      // Circle creates a notch in top edge. Find where circle intersects the edge (y = halfH)
+      // and only trace the arc between those intersection points.
+      const dy = halfH - centerY;
+      const discrim = radius * radius - dy * dy;
+      if (discrim < 0) return null; // Circle doesn't reach the edge
+
+      // X coordinates where circle intersects the edge
+      const dx = Math.sqrt(discrim);
+      const leftX = Math.max(centerX - dx, -halfW);
+      const rightX = Math.min(centerX + dx, halfW);
+      if (leftX >= rightX) return null;
+
+      const t_start = (leftX + halfW) / panelWidth;
+      const t_end = (rightX + halfW) / panelWidth;
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+
+      // Trace arc from left intersection to right intersection, going through the bottom
+      // We want the arc portion that goes INTO the panel (below the edge)
+      const startAngle = Math.atan2(halfH - centerY, leftX - centerX);
+      const endAngle = Math.atan2(halfH - centerY, rightX - centerX);
+
+      // Calculate the angular distance going the "long way" (through bottom of circle)
+      // Short way: startAngle → endAngle directly (goes through top if center is below edge)
+      // Long way: startAngle → bottom → endAngle (what we want for a notch)
+      let angleSpan = startAngle - endAngle;
+      if (angleSpan > 0 && angleSpan < Math.PI) {
+        // Short path goes through top of circle, we need long path through bottom
+        angleSpan = -(2 * Math.PI - angleSpan);
+      }
+
+      for (let i = 0; i <= segments; i++) {
+        const angle = startAngle - (angleSpan * i / segments);
+        const arcX = centerX + radius * Math.cos(angle);
+        const arcY = centerY + radius * Math.sin(angle);
+        const t = (Math.max(-halfW, Math.min(halfW, arcX)) + halfW) / panelWidth;
+        const offset = arcY - halfH; // Negative = into the panel
+        points.push({ t, offset });
+      }
+
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+
+    case 'bottom': {
+      // Circle creates a notch in bottom edge. Find where circle intersects the edge (y = -halfH)
+      // and only trace the arc between those intersection points.
+      const dy = -halfH - centerY;
+      const discrim = radius * radius - dy * dy;
+      if (discrim < 0) return null; // Circle doesn't reach the edge
+
+      // X coordinates where circle intersects the edge
+      const dx = Math.sqrt(discrim);
+      const leftX = Math.max(centerX - dx, -halfW);
+      const rightX = Math.min(centerX + dx, halfW);
+      if (leftX >= rightX) return null;
+
+      const t_start = (leftX + halfW) / panelWidth;
+      const t_end = (rightX + halfW) / panelWidth;
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+
+      // Trace arc from left intersection to right intersection, going through the top
+      // (the part that goes INTO the panel from the bottom edge)
+      const startAngle = Math.atan2(-halfH - centerY, leftX - centerX);
+      const endAngle = Math.atan2(-halfH - centerY, rightX - centerX);
+
+      // Calculate the angular distance going the "long way" (through top of circle)
+      let angleSpan = endAngle - startAngle;
+      if (angleSpan < 0) {
+        angleSpan = angleSpan + 2 * Math.PI;
+      }
+      if (angleSpan < Math.PI) {
+        // Short path, need long path through top
+        angleSpan = -(2 * Math.PI - angleSpan);
+      }
+
+      for (let i = 0; i <= segments; i++) {
+        const angle = startAngle + (angleSpan * i / segments);
+        const arcX = centerX + radius * Math.cos(angle);
+        const arcY = centerY + radius * Math.sin(angle);
+        const t = (Math.max(-halfW, Math.min(halfW, arcX)) + halfW) / panelWidth;
+        const offset = -(arcY - (-halfH)); // Negative = into the panel from bottom
+        points.push({ t, offset });
+      }
+
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+
+    case 'left': {
+      // Circle creates a notch in left edge. Find where circle intersects the edge (x = -halfW)
+      // and only trace the arc between those intersection points.
+      const dx = -halfW - centerX;
+      const discrim = radius * radius - dx * dx;
+      if (discrim < 0) return null; // Circle doesn't reach the edge
+
+      // Y coordinates where circle intersects the edge
+      const dy = Math.sqrt(discrim);
+      const bottomY = Math.max(centerY - dy, -halfH);
+      const topY = Math.min(centerY + dy, halfH);
+      if (bottomY >= topY) return null;
+
+      const t_start = (bottomY + halfH) / panelHeight;
+      const t_end = (topY + halfH) / panelHeight;
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+
+      // Trace arc from bottom intersection to top intersection, going through the right
+      // (the part that goes INTO the panel from the left edge)
+      const startAngle = Math.atan2(bottomY - centerY, -halfW - centerX);
+      const endAngle = Math.atan2(topY - centerY, -halfW - centerX);
+
+      // For left edge, we want to go the "long way" through the right side
+      let angleSpan = endAngle - startAngle;
+      if (angleSpan < 0) {
+        angleSpan = angleSpan + 2 * Math.PI;
+      }
+      // If angleSpan goes the short way (through left/exterior), take long way (through right/interior)
+      if (angleSpan > Math.PI) {
+        angleSpan = -(2 * Math.PI - angleSpan);
+      }
+
+      for (let i = 0; i <= segments; i++) {
+        const angle = startAngle + (angleSpan * i / segments);
+        const arcX = centerX + radius * Math.cos(angle);
+        const arcY = centerY + radius * Math.sin(angle);
+        const t = (Math.max(-halfH, Math.min(halfH, arcY)) + halfH) / panelHeight;
+        const offset = -(arcX - (-halfW)); // Negative = into the panel from left
+        points.push({ t, offset });
+      }
+
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+
+    case 'right': {
+      // Circle creates a notch in right edge. Find where circle intersects the edge (x = halfW)
+      // and only trace the arc between those intersection points.
+      const dx = halfW - centerX;
+      const discrim = radius * radius - dx * dx;
+      if (discrim < 0) return null; // Circle doesn't reach the edge
+
+      // Y coordinates where circle intersects the edge
+      const dy = Math.sqrt(discrim);
+      const bottomY = Math.max(centerY - dy, -halfH);
+      const topY = Math.min(centerY + dy, halfH);
+      if (bottomY >= topY) return null;
+
+      const t_start = (bottomY + halfH) / panelHeight;
+      const t_end = (topY + halfH) / panelHeight;
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+
+      // Trace arc from bottom intersection to top intersection, going through the left
+      // (the part that goes INTO the panel from the right edge)
+      const startAngle = Math.atan2(bottomY - centerY, halfW - centerX);
+      const endAngle = Math.atan2(topY - centerY, halfW - centerX);
+
+      // For right edge, we want to go the "long way" through the left side
+      let angleSpan = endAngle - startAngle;
+      if (angleSpan < 0) {
+        angleSpan = angleSpan + 2 * Math.PI;
+      }
+      // If angleSpan goes the short way (through right/exterior), take long way (through left/interior)
+      if (angleSpan > Math.PI) {
+        angleSpan = -(2 * Math.PI - angleSpan);
+      }
+
+      for (let i = 0; i <= segments; i++) {
+        const angle = startAngle + (angleSpan * i / segments);
+        const arcX = centerX + radius * Math.cos(angle);
+        const arcY = centerY + radius * Math.sin(angle);
+        const t = (Math.max(-halfH, Math.min(halfH, arcY)) + halfH) / panelHeight;
+        const offset = arcX - halfW; // Negative = into the panel from right
+        points.push({ t, offset });
+      }
+
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+  }
+
+  return {
+    edge: borderedEdge,
+    baseOffset: 0,
+    points,
+    mirrored: false,
+  };
+}
+
+/**
+ * Merge two edge paths for the same edge.
+ *
+ * When multiple shapes modify the same edge, their paths are merged:
+ * - Straight sections (offset=0) from one path don't override modifications from the other
+ * - Modified sections (offset!=0) from the new path take precedence in overlapping regions
+ * - The result contains all modifications from both paths
+ *
+ * @param existing - The existing edge path (may be null)
+ * @param newPath - The new edge path to merge in
+ * @returns Merged edge path
+ */
+export function mergeEdgePaths(
+  existing: CustomEdgePathResult | null,
+  newPath: CustomEdgePathResult
+): CustomEdgePathResult {
+  if (!existing) {
+    return newPath;
+  }
+
+  // Both paths must be for the same edge
+  if (existing.edge !== newPath.edge) {
+    console.warn('Cannot merge edge paths for different edges');
+    return newPath;
+  }
+
+  // Extract modified regions from each path
+  // A region is "modified" if it has points with offset != 0
+  const existingModifications = extractModifiedRegions(existing.points);
+  const newModifications = extractModifiedRegions(newPath.points);
+
+  // Merge modifications: new takes precedence in overlapping regions
+  const mergedModifications = mergeModifications(existingModifications, newModifications);
+
+  // Build the merged path from the modifications
+  const mergedPoints = buildPathFromModifications(mergedModifications);
+
+  return {
+    edge: newPath.edge,
+    baseOffset: Math.min(existing.baseOffset, newPath.baseOffset), // Use most inward offset
+    points: mergedPoints,
+    mirrored: false, // Merged paths are never mirrored
+  };
+}
+
+/**
+ * A modification region on an edge path
+ */
+interface ModificationRegion {
+  tStart: number;
+  tEnd: number;
+  points: EdgePathPoint[]; // Points in this region (including start/end at offset=0)
+}
+
+/**
+ * Extract regions where the path has modifications (offset != 0)
+ */
+function extractModifiedRegions(points: EdgePathPoint[]): ModificationRegion[] {
+  const regions: ModificationRegion[] = [];
+  let currentRegion: EdgePathPoint[] | null = null;
+  let regionStart = 0;
+
+  for (let i = 0; i < points.length; i++) {
+    const pt = points[i];
+    const isModified = Math.abs(pt.offset) > 0.001;
+    const prevIsModified = i > 0 && Math.abs(points[i - 1].offset) > 0.001;
+
+    if (isModified && !currentRegion) {
+      // Start of a modified region - include the preceding straight point
+      currentRegion = [];
+      if (i > 0) {
+        currentRegion.push(points[i - 1]);
+        regionStart = points[i - 1].t;
+      } else {
+        regionStart = pt.t;
+      }
+      currentRegion.push(pt);
+    } else if (isModified && currentRegion) {
+      // Continue modified region
+      currentRegion.push(pt);
+    } else if (!isModified && prevIsModified && currentRegion) {
+      // End of modified region - include this straight point
+      currentRegion.push(pt);
+      regions.push({
+        tStart: regionStart,
+        tEnd: pt.t,
+        points: currentRegion,
+      });
+      currentRegion = null;
+    }
+  }
+
+  // Handle region that extends to the end
+  if (currentRegion && currentRegion.length > 0) {
+    const lastPt = points[points.length - 1];
+    regions.push({
+      tStart: regionStart,
+      tEnd: lastPt.t,
+      points: currentRegion,
+    });
+  }
+
+  return regions;
+}
+
+/**
+ * Merge modification regions, with new regions taking precedence
+ */
+function mergeModifications(
+  existing: ModificationRegion[],
+  newMods: ModificationRegion[]
+): ModificationRegion[] {
+  // Combine all regions
+  const allRegions = [...existing, ...newMods];
+
+  if (allRegions.length === 0) {
+    return [];
+  }
+
+  // Sort by start position
+  allRegions.sort((a, b) => a.tStart - b.tStart);
+
+  const merged: ModificationRegion[] = [];
+
+  for (const region of allRegions) {
+    const isNew = newMods.includes(region);
+
+    if (merged.length === 0) {
+      merged.push(region);
+      continue;
+    }
+
+    const last = merged[merged.length - 1];
+    const lastIsNew = newMods.includes(last);
+
+    // Check for overlap
+    if (region.tStart < last.tEnd) {
+      // Overlapping regions
+      if (isNew && !lastIsNew) {
+        // New region takes precedence - split the existing region
+        if (region.tStart > last.tStart) {
+          // Keep the non-overlapping part of the existing region
+          const truncatedPoints = last.points.filter(p => p.t <= region.tStart);
+          if (truncatedPoints.length > 1) {
+            merged[merged.length - 1] = {
+              tStart: last.tStart,
+              tEnd: region.tStart,
+              points: truncatedPoints,
+            };
+          } else {
+            merged.pop();
+          }
+        } else {
+          merged.pop();
+        }
+        merged.push(region);
+      } else if (!isNew && lastIsNew) {
+        // Existing region, but new already has precedence - skip overlapping part
+        if (region.tEnd > last.tEnd) {
+          // Keep the non-overlapping part of the existing region
+          const remainingPoints = region.points.filter(p => p.t >= last.tEnd);
+          if (remainingPoints.length > 1) {
+            merged.push({
+              tStart: last.tEnd,
+              tEnd: region.tEnd,
+              points: remainingPoints,
+            });
+          }
+        }
+        // Otherwise skip entirely
+      } else {
+        // Both same source - later one wins (shouldn't happen often)
+        merged.pop();
+        merged.push(region);
+      }
+    } else {
+      // No overlap
+      merged.push(region);
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Build a complete edge path from modification regions
+ */
+function buildPathFromModifications(modifications: ModificationRegion[]): EdgePathPoint[] {
+  if (modifications.length === 0) {
+    // No modifications - straight edge
+    return [
+      { t: 0, offset: 0 },
+      { t: 1, offset: 0 },
+    ];
+  }
+
+  const points: EdgePathPoint[] = [];
+
+  // Start at t=0 if first modification doesn't start there
+  if (modifications[0].tStart > 0.001) {
+    points.push({ t: 0, offset: 0 });
+  }
+
+  for (let i = 0; i < modifications.length; i++) {
+    const region = modifications[i];
+
+    // Add straight section before this region if needed
+    if (points.length > 0) {
+      const lastT = points[points.length - 1].t;
+      if (region.tStart > lastT + 0.001) {
+        // Add point at start of region at offset 0
+        points.push({ t: region.tStart, offset: 0 });
+      }
+    }
+
+    // Add all points from this region (skip duplicates)
+    for (const pt of region.points) {
+      const lastPt = points[points.length - 1];
+      if (!lastPt || Math.abs(pt.t - lastPt.t) > 0.001 || Math.abs(pt.offset - lastPt.offset) > 0.001) {
+        points.push(pt);
+      }
+    }
+  }
+
+  // End at t=1 if last modification doesn't end there
+  const lastPt = points[points.length - 1];
+  if (lastPt.t < 0.999) {
+    if (Math.abs(lastPt.offset) > 0.001) {
+      points.push({ t: lastPt.t, offset: 0 });
+    }
+    points.push({ t: 1, offset: 0 });
+  }
+
+  return points;
+}
+
+/**
+ * Create an additive edge path that extends the panel outward.
+ *
+ * For shapes that span an open edge and should add material (tabs/extensions),
+ * this creates a path with positive offsets.
+ *
+ * @param rectMinX - Rectangle left x coordinate
+ * @param rectMaxX - Rectangle right x coordinate
+ * @param rectMinY - Rectangle bottom y coordinate
+ * @param rectMaxY - Rectangle top y coordinate
+ * @param borderedEdge - Which edge the rectangle touches
+ * @param panelWidth - Panel body width
+ * @param panelHeight - Panel body height
+ * @returns CustomEdgePath with positive offsets, or null if invalid
+ */
+export function rectToAdditiveEdgePath(
+  rectMinX: number,
+  rectMaxX: number,
+  rectMinY: number,
+  rectMaxY: number,
+  borderedEdge: EdgePosition,
+  panelWidth: number,
+  panelHeight: number
+): CustomEdgePathResult | null {
+  const halfW = panelWidth / 2;
+  const halfH = panelHeight / 2;
+
+  const points: EdgePathPoint[] = [];
+
+  switch (borderedEdge) {
+    case 'top': {
+      // Additive on top: shape extends above the panel edge (y > halfH)
+      // The extension height is how far above the panel edge
+      const t_start = Math.max(0, (rectMinX + halfW) / panelWidth);
+      const t_end = Math.min(1, (rectMaxX + halfW) / panelWidth);
+      const extensionHeight = rectMaxY - halfH; // Positive (outward)
+
+      if (extensionHeight <= 0) return null; // Not actually extending outward
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+      points.push({ t: t_start, offset: extensionHeight });
+      points.push({ t: t_end, offset: extensionHeight });
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+
+    case 'bottom': {
+      // Additive on bottom: shape extends below the panel edge (y < -halfH)
+      const t_start = Math.max(0, (rectMinX + halfW) / panelWidth);
+      const t_end = Math.min(1, (rectMaxX + halfW) / panelWidth);
+      const extensionHeight = (-halfH) - rectMinY; // Positive (outward from bottom)
+
+      if (extensionHeight <= 0) return null;
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+      points.push({ t: t_start, offset: extensionHeight });
+      points.push({ t: t_end, offset: extensionHeight });
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+
+    case 'left': {
+      // Additive on left: shape extends left of panel edge (x < -halfW)
+      const t_start = Math.max(0, (rectMinY + halfH) / panelHeight);
+      const t_end = Math.min(1, (rectMaxY + halfH) / panelHeight);
+      const extensionWidth = (-halfW) - rectMinX; // Positive (outward from left)
+
+      if (extensionWidth <= 0) return null;
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+      points.push({ t: t_start, offset: extensionWidth });
+      points.push({ t: t_end, offset: extensionWidth });
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+
+    case 'right': {
+      // Additive on right: shape extends right of panel edge (x > halfW)
+      const t_start = Math.max(0, (rectMinY + halfH) / panelHeight);
+      const t_end = Math.min(1, (rectMaxY + halfH) / panelHeight);
+      const extensionWidth = rectMaxX - halfW; // Positive (outward from right)
+
+      if (extensionWidth <= 0) return null;
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+      points.push({ t: t_start, offset: extensionWidth });
+      points.push({ t: t_end, offset: extensionWidth });
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+  }
+
+  return {
+    edge: borderedEdge,
+    baseOffset: 0,
+    points,
+    mirrored: false,
+  };
+}
+
+/**
+ * Create an additive edge path from a circle that extends outward.
+ */
+export function circleToAdditiveEdgePath(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  borderedEdge: EdgePosition,
+  panelWidth: number,
+  panelHeight: number,
+  segments: number = 8
+): CustomEdgePathResult | null {
+  const halfW = panelWidth / 2;
+  const halfH = panelHeight / 2;
+
+  const points: EdgePathPoint[] = [];
+
+  switch (borderedEdge) {
+    case 'top': {
+      // Circle extending above top edge. Find where circle intersects the edge (y = halfH)
+      // and trace the arc between those points going through the TOP (outside the panel).
+      const dy = halfH - centerY;
+      const discrim = radius * radius - dy * dy;
+      if (discrim < 0) return null; // Circle doesn't cross the edge
+
+      // Check if circle actually extends above the edge
+      if (centerY + radius <= halfH) return null;
+
+      const dx = Math.sqrt(discrim);
+      const leftX = Math.max(centerX - dx, -halfW);
+      const rightX = Math.min(centerX + dx, halfW);
+      if (leftX >= rightX) return null;
+
+      const t_start = (leftX + halfW) / panelWidth;
+      const t_end = (rightX + halfW) / panelWidth;
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+
+      // Trace arc from left to right, going through the TOP (above the edge)
+      const startAngle = Math.atan2(halfH - centerY, leftX - centerX);
+      const endAngle = Math.atan2(halfH - centerY, rightX - centerX);
+
+      // For extension, we need the LONG way (through the top of circle, outside the panel)
+      // First compute the short way, then take the opposite
+      let angleSpan = endAngle - startAngle;
+      if (angleSpan < -Math.PI) angleSpan += 2 * Math.PI;
+      if (angleSpan > Math.PI) angleSpan -= 2 * Math.PI;
+      // Now take the long way (opposite direction)
+      if (angleSpan > 0) angleSpan -= 2 * Math.PI;
+      else angleSpan += 2 * Math.PI;
+
+      for (let i = 0; i <= segments; i++) {
+        const angle = startAngle + (angleSpan * i / segments);
+        const arcX = centerX + radius * Math.cos(angle);
+        const arcY = centerY + radius * Math.sin(angle);
+        const t = Math.max(0, Math.min(1, (arcX + halfW) / panelWidth));
+        const offset = Math.max(0, arcY - halfH); // Positive = extending above
+        points.push({ t, offset });
+      }
+
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+
+    case 'bottom': {
+      // Circle extending below bottom edge. Find where circle intersects the edge (y = -halfH)
+      const dy = -halfH - centerY;
+      const discrim = radius * radius - dy * dy;
+      if (discrim < 0) return null;
+
+      // Check if circle actually extends below the edge
+      if (centerY - radius >= -halfH) return null;
+
+      const dx = Math.sqrt(discrim);
+      const leftX = Math.max(centerX - dx, -halfW);
+      const rightX = Math.min(centerX + dx, halfW);
+      if (leftX >= rightX) return null;
+
+      const t_start = (leftX + halfW) / panelWidth;
+      const t_end = (rightX + halfW) / panelWidth;
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+
+      // Trace arc from left to right, going through the BOTTOM (below the edge)
+      const startAngle = Math.atan2(-halfH - centerY, leftX - centerX);
+      const endAngle = Math.atan2(-halfH - centerY, rightX - centerX);
+
+      // For extension, we need the LONG way (through bottom of circle, outside the panel)
+      let angleSpan = endAngle - startAngle;
+      if (angleSpan < -Math.PI) angleSpan += 2 * Math.PI;
+      if (angleSpan > Math.PI) angleSpan -= 2 * Math.PI;
+      // Take the long way
+      if (angleSpan > 0) angleSpan -= 2 * Math.PI;
+      else angleSpan += 2 * Math.PI;
+
+      for (let i = 0; i <= segments; i++) {
+        const angle = startAngle + (angleSpan * i / segments);
+        const arcX = centerX + radius * Math.cos(angle);
+        const arcY = centerY + radius * Math.sin(angle);
+        const t = Math.max(0, Math.min(1, (arcX + halfW) / panelWidth));
+        const offset = Math.max(0, (-halfH) - arcY); // Positive = extending below
+        points.push({ t, offset });
+      }
+
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+
+    case 'left': {
+      // Circle extending left of left edge. Find where circle intersects the edge (x = -halfW)
+      const dx = -halfW - centerX;
+      const discrim = radius * radius - dx * dx;
+      if (discrim < 0) return null;
+
+      // Check if circle actually extends left of the edge
+      if (centerX - radius >= -halfW) return null;
+
+      const dy = Math.sqrt(discrim);
+      const bottomY = Math.max(centerY - dy, -halfH);
+      const topY = Math.min(centerY + dy, halfH);
+      if (bottomY >= topY) return null;
+
+      const t_start = (bottomY + halfH) / panelHeight;
+      const t_end = (topY + halfH) / panelHeight;
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+
+      // Trace arc from bottom to top, going through the LEFT (outside the panel)
+      const startAngle = Math.atan2(bottomY - centerY, -halfW - centerX);
+      const endAngle = Math.atan2(topY - centerY, -halfW - centerX);
+
+      // For extension, we need the LONG way (through left of circle, outside the panel)
+      let angleSpan = endAngle - startAngle;
+      if (angleSpan < -Math.PI) angleSpan += 2 * Math.PI;
+      if (angleSpan > Math.PI) angleSpan -= 2 * Math.PI;
+      // Take the long way
+      if (angleSpan > 0) angleSpan -= 2 * Math.PI;
+      else angleSpan += 2 * Math.PI;
+
+      for (let i = 0; i <= segments; i++) {
+        const angle = startAngle + (angleSpan * i / segments);
+        const arcX = centerX + radius * Math.cos(angle);
+        const arcY = centerY + radius * Math.sin(angle);
+        const t = Math.max(0, Math.min(1, (arcY + halfH) / panelHeight));
+        const offset = Math.max(0, (-halfW) - arcX); // Positive = extending left
+        points.push({ t, offset });
+      }
+
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+
+    case 'right': {
+      // Circle extending right of right edge. Find where circle intersects the edge (x = halfW)
+      const dx = halfW - centerX;
+      const discrim = radius * radius - dx * dx;
+      if (discrim < 0) return null;
+
+      // Check if circle actually extends right of the edge
+      if (centerX + radius <= halfW) return null;
+
+      const dy = Math.sqrt(discrim);
+      const bottomY = Math.max(centerY - dy, -halfH);
+      const topY = Math.min(centerY + dy, halfH);
+      if (bottomY >= topY) return null;
+
+      const t_start = (bottomY + halfH) / panelHeight;
+      const t_end = (topY + halfH) / panelHeight;
+
+      points.push({ t: 0, offset: 0 });
+      points.push({ t: t_start, offset: 0 });
+
+      // Trace arc from bottom to top, going through the RIGHT (outside the panel)
+      const startAngle = Math.atan2(bottomY - centerY, halfW - centerX);
+      const endAngle = Math.atan2(topY - centerY, halfW - centerX);
+
+      // For extension, we need the LONG way (through right of circle, outside the panel)
+      let angleSpan = endAngle - startAngle;
+      if (angleSpan < -Math.PI) angleSpan += 2 * Math.PI;
+      if (angleSpan > Math.PI) angleSpan -= 2 * Math.PI;
+      // Take the long way
+      if (angleSpan > 0) angleSpan -= 2 * Math.PI;
+      else angleSpan += 2 * Math.PI;
+
+      for (let i = 0; i <= segments; i++) {
+        const angle = startAngle + (angleSpan * i / segments);
+        const arcX = centerX + radius * Math.cos(angle);
+        const arcY = centerY + radius * Math.sin(angle);
+        const t = Math.max(0, Math.min(1, (arcY + halfH) / panelHeight));
+        const offset = Math.max(0, arcX - halfW); // Positive = extending right
+        points.push({ t, offset });
+      }
+
+      points.push({ t: t_end, offset: 0 });
+      points.push({ t: 1, offset: 0 });
+      break;
+    }
+  }
+
+  return {
+    edge: borderedEdge,
+    baseOffset: 0,
+    points,
+    mirrored: false,
+  };
+}
+
+// =============================================================================
+// Extract Edge Path from Modified Safe Area
+// =============================================================================
+
+/**
+ * Extract the edge path along a specific edge from a modified safe area polygon.
+ *
+ * This is the key function for the boolean-based edge modification system.
+ * It takes a polygon (the modified safe area after boolean operations) and
+ * extracts the boundary along a specific edge as a CustomEdgePath.
+ *
+ * Algorithm:
+ * 1. Find all polygon vertices that lie on or near the specified edge
+ * 2. Sort them by position along the edge
+ * 3. Convert to {t, offset} format
+ * 4. Handle transitions where the polygon boundary enters/exits the edge region
+ *
+ * @param polygon - The modified safe area polygon
+ * @param edge - Which edge to extract ('top', 'bottom', 'left', 'right')
+ * @param panelWidth - Panel body width (not including extensions)
+ * @param panelHeight - Panel body height (not including extensions)
+ * @returns CustomEdgePath for the edge, or null if no modification
+ */
+export function extractEdgePathFromPolygon(
+  polygon: PathPoint[],
+  edge: EdgePosition,
+  panelWidth: number,
+  panelHeight: number
+): CustomEdgePathResult | null {
+  if (!polygon || polygon.length < 3) {
+    return null;
+  }
+
+  const halfW = panelWidth / 2;
+  const halfH = panelHeight / 2;
+  const tolerance = 0.001;
+
+  // Determine the edge line position and perpendicular direction
+  // edgePos: the coordinate of the original panel body edge
+  // perpAxis: which axis is perpendicular to the edge
+  // along: which axis runs along the edge
+  let edgePos: number;
+  let perpAxis: 'x' | 'y';
+  let alongAxis: 'x' | 'y';
+  let alongMin: number;
+  let alongMax: number;
+  let outwardDirection: number; // +1 if positive values are outward, -1 if negative
+
+  switch (edge) {
+    case 'top':
+      edgePos = halfH;
+      perpAxis = 'y';
+      alongAxis = 'x';
+      alongMin = -halfW;
+      alongMax = halfW;
+      outwardDirection = 1; // y > halfH is outward
+      break;
+    case 'bottom':
+      edgePos = -halfH;
+      perpAxis = 'y';
+      alongAxis = 'x';
+      alongMin = -halfW;
+      alongMax = halfW;
+      outwardDirection = -1; // y < -halfH is outward
+      break;
+    case 'left':
+      edgePos = -halfW;
+      perpAxis = 'x';
+      alongAxis = 'y';
+      alongMin = -halfH;
+      alongMax = halfH;
+      outwardDirection = -1; // x < -halfW is outward
+      break;
+    case 'right':
+      edgePos = halfW;
+      perpAxis = 'x';
+      alongAxis = 'y';
+      alongMin = -halfH;
+      alongMax = halfH;
+      outwardDirection = 1; // x > halfW is outward
+      break;
+  }
+
+  const alongRange = alongMax - alongMin;
+
+  // Find all segments of the polygon that are "on the edge side"
+  // A segment is relevant if it passes through or is on the edge side of the body
+  interface EdgePoint {
+    t: number;  // 0-1 along the edge
+    offset: number;  // perpendicular offset from body edge
+  }
+
+  const edgePoints: EdgePoint[] = [];
+
+  // Walk through the polygon and extract points near this edge
+  for (let i = 0; i < polygon.length; i++) {
+    const p1 = polygon[i];
+    const p2 = polygon[(i + 1) % polygon.length];
+
+    const p1Along = alongAxis === 'x' ? p1.x : p1.y;
+    const p1Perp = perpAxis === 'y' ? p1.y : p1.x;
+    const p2Along = alongAxis === 'x' ? p2.x : p2.y;
+    const p2Perp = perpAxis === 'y' ? p2.y : p2.x;
+
+    // Skip segments entirely outside the edge's along-range
+    if (Math.max(p1Along, p2Along) < alongMin - tolerance ||
+        Math.min(p1Along, p2Along) > alongMax + tolerance) {
+      continue;
+    }
+
+    // Check if point is on the "edge side" (outward from body edge)
+    const p1OnEdgeSide = outwardDirection > 0
+      ? p1Perp >= edgePos - tolerance
+      : p1Perp <= edgePos + tolerance;
+
+    // If point is on the edge side, add it
+    if (p1OnEdgeSide && p1Along >= alongMin - tolerance && p1Along <= alongMax + tolerance) {
+      const t = (Math.max(alongMin, Math.min(alongMax, p1Along)) - alongMin) / alongRange;
+      const offset = (p1Perp - edgePos) * outwardDirection;
+      edgePoints.push({ t, offset });
+    }
+
+    // Check for intersection with the edge line
+    if ((p1Perp < edgePos && p2Perp > edgePos) || (p1Perp > edgePos && p2Perp < edgePos)) {
+      // Segment crosses the edge line - find intersection
+      const ratio = (edgePos - p1Perp) / (p2Perp - p1Perp);
+      const intersectAlong = p1Along + ratio * (p2Along - p1Along);
+      if (intersectAlong >= alongMin - tolerance && intersectAlong <= alongMax + tolerance) {
+        const t = (Math.max(alongMin, Math.min(alongMax, intersectAlong)) - alongMin) / alongRange;
+        edgePoints.push({ t, offset: 0 });
+      }
+    }
+  }
+
+  if (edgePoints.length < 2) {
+    // Not enough points to form an edge path
+    return null;
+  }
+
+  // Sort by t value
+  edgePoints.sort((a, b) => a.t - b.t);
+
+  // Remove consecutive duplicates
+  const uniquePoints: EdgePoint[] = [];
+  for (const pt of edgePoints) {
+    const last = uniquePoints[uniquePoints.length - 1];
+    if (!last || Math.abs(pt.t - last.t) > tolerance || Math.abs(pt.offset - last.offset) > tolerance) {
+      uniquePoints.push(pt);
+    }
+  }
+
+  // Check if this is just a straight edge (all offsets ≈ 0)
+  const hasModification = uniquePoints.some(p => Math.abs(p.offset) > tolerance);
+  if (!hasModification) {
+    return null; // No modification needed
+  }
+
+  // Build the final edge path, ensuring we start and end at t=0 and t=1
+  const finalPoints: EdgePathPoint[] = [];
+
+  // Add start point if needed
+  if (uniquePoints[0].t > tolerance) {
+    finalPoints.push({ t: 0, offset: 0 });
+  }
+
+  // Add all unique points
+  for (const pt of uniquePoints) {
+    finalPoints.push({ t: pt.t, offset: pt.offset });
+  }
+
+  // Add end point if needed
+  if (uniquePoints[uniquePoints.length - 1].t < 1 - tolerance) {
+    finalPoints.push({ t: 1, offset: 0 });
+  }
+
+  return {
+    edge,
+    baseOffset: 0,
+    points: finalPoints,
+    mirrored: false,
+  };
 }

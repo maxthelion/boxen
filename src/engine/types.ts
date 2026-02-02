@@ -126,6 +126,125 @@ export interface EdgeExtensions {
   right: number;
 }
 
+// =============================================================================
+// Custom Edge Path Types - User-defined edge geometry
+// =============================================================================
+
+/**
+ * A point on a custom edge path.
+ * Coordinates are relative to the edge:
+ * - t: normalized position along the edge (0 = start corner, 1 = end corner)
+ * - offset: perpendicular distance from the edge (positive = outward, negative = inward)
+ */
+export interface EdgePathPoint {
+  t: number;      // 0-1 normalized position along edge
+  offset: number; // mm, perpendicular offset from edge line
+}
+
+/**
+ * Custom edge path for panel edge customization.
+ * Replaces the default straight edge with a user-defined polyline.
+ *
+ * Storage: One CustomEdgePath per edge. Multiple drawing operations
+ * merge into the same path (straight segments fill gaps between modifications).
+ */
+export interface CustomEdgePath {
+  /** Which edge this path applies to */
+  edge: EdgePosition;
+  /**
+   * Base perpendicular offset from the joint face for the entire path.
+   * - For edges with joints: minimum = material thickness (MT)
+   * - For open edges with extension: minimum = 0
+   * - Positive values = outward (unlimited, for feet/decorative extensions)
+   * - Negative values = inward (limited by safe space depth)
+   * Default: 0
+   */
+  baseOffset: number;
+  /**
+   * Path points from start to end of edge.
+   * Point offsets are relative to baseOffset.
+   */
+  points: EdgePathPoint[];
+  /**
+   * Whether to mirror the path around the edge center.
+   * When true, only define points from t=0 to t=0.5, and the path
+   * will be automatically mirrored for the second half.
+   * Default: true
+   */
+  mirrored: boolean;
+  /**
+   * Optional fillet radii at interior vertices.
+   * Index corresponds to point index (excluding endpoints).
+   * Fillets are applied after mirroring if mirrored=true.
+   */
+  fillets?: number[];
+}
+
+// =============================================================================
+// Panel Cutouts
+// =============================================================================
+
+/**
+ * Base properties for all cutout shapes.
+ * Cutouts are holes cut into the panel body within the safe space.
+ * When mode is 'additive', the shape extends the panel boundary instead.
+ */
+export interface CutoutBase {
+  /** Unique identifier for this cutout */
+  id: string;
+  /** Center position in panel coordinates (origin at panel center) */
+  center: { x: number; y: number };
+  /**
+   * Whether this shape subtracts from (hole) or adds to (extension) the panel.
+   * - 'subtractive': Creates a hole in the panel (default)
+   * - 'additive': Extends the panel boundary outward (only valid on open edges)
+   */
+  mode?: 'additive' | 'subtractive';
+}
+
+/**
+ * Rectangular cutout shape.
+ * Defined by center point and dimensions.
+ */
+export interface RectCutout extends CutoutBase {
+  type: 'rect';
+  /** Width of the rectangle (mm) */
+  width: number;
+  /** Height of the rectangle (mm) */
+  height: number;
+  /** Optional corner radius for rounded rectangles (mm) */
+  cornerRadius?: number;
+}
+
+/**
+ * Circular cutout shape.
+ * Defined by center point and radius.
+ */
+export interface CircleCutout extends CutoutBase {
+  type: 'circle';
+  /** Radius of the circle (mm) */
+  radius: number;
+}
+
+/**
+ * Polygon/path cutout shape.
+ * Defined by a series of points forming a closed path.
+ */
+export interface PathCutout extends CutoutBase {
+  type: 'path';
+  /** Points relative to center, forming a closed polygon */
+  points: Array<{ x: number; y: number }>;
+}
+
+/**
+ * Union type for all cutout shapes.
+ */
+export type Cutout = RectCutout | CircleCutout | PathCutout;
+
+// =============================================================================
+// Subdivisions
+// =============================================================================
+
 /**
  * Subdivision info for slot hole generation
  * Represents where a divider panel intersects void space
@@ -338,8 +457,8 @@ export interface PanelHole {
   id: string;
   path: Point2D[];
   source: {
-    type: 'divider-slot' | 'sub-assembly-slot' | 'extension-slot' | 'custom';
-    sourceId?: string;
+    type: 'divider-slot' | 'sub-assembly-slot' | 'extension-slot' | 'cutout' | 'custom';
+    sourceId?: string;  // For cutouts, this is the cutout ID
   };
 }
 
@@ -449,6 +568,8 @@ export interface BasePanelSnapshot extends BaseSnapshot {
   props: {
     edgeExtensions: EdgeExtensions;
     cornerFillets: CornerFillet[];  // Corner fillet configurations
+    customEdgePaths: CustomEdgePath[];  // User-defined edge geometry
+    cutouts: Cutout[];  // Interior cutout shapes (holes)
     visible: boolean;
   };
   // Panels never have children
@@ -578,4 +699,18 @@ export type EngineAction =
       axes: { axis: Axis; positions: number[] }[];
     }}
   | { type: 'SET_CORNER_FILLET'; targetId: string; payload: { panelId: string; corner: CornerKey; radius: number } }
-  | { type: 'SET_CORNER_FILLETS_BATCH'; targetId: string; payload: { fillets: Array<{ panelId: string; corner: CornerKey; radius: number }> } };
+  | { type: 'SET_CORNER_FILLETS_BATCH'; targetId: string; payload: { fillets: Array<{ panelId: string; corner: CornerKey; radius: number }> } }
+  // Custom edge path actions (edge is embedded in path.edge)
+  | { type: 'SET_EDGE_PATH'; targetId: string; payload: { panelId: string; path: CustomEdgePath } }
+  | { type: 'CLEAR_EDGE_PATH'; targetId: string; payload: { panelId: string; edge: EdgePosition } }
+  // Cutout actions
+  | { type: 'ADD_CUTOUT'; targetId: string; payload: { panelId: string; cutout: Cutout } }
+  | { type: 'UPDATE_CUTOUT'; targetId: string; payload: { panelId: string; cutoutId: string; updates: Partial<Omit<Cutout, 'id' | 'type'>> } }
+  | { type: 'DELETE_CUTOUT'; targetId: string; payload: { panelId: string; cutoutId: string } }
+  // Boolean edge operations - modify panel safe area with union/difference
+  | { type: 'APPLY_EDGE_OPERATION'; targetId: string; payload: {
+      panelId: string;
+      operation: 'union' | 'difference';
+      shape: Array<{ x: number; y: number }>;  // Polygon in panel coordinates
+    }}
+  | { type: 'CLEAR_MODIFIED_SAFE_AREA'; targetId: string; payload: { panelId: string } };

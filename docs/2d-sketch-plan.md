@@ -246,6 +246,180 @@ mirrorMode: MirrorMode
 - Decorative holes
 - Cable management slots on both sides
 
+### 5.5 2D Space Model
+
+A conceptual model defining three distinct space types in the 2D panel editor, which govern where and how modifications can be made.
+
+#### Space Type Definitions
+
+| Space | Definition | Visual |
+|-------|------------|--------|
+| **Open Space** | Outside the panel boundary - unoccupied by any geometry | Beyond panel edges |
+| **Safe Space** | Interior region of a panel that can be modified | Panel body minus restricted areas |
+| **Restricted Space** | Areas that cannot be altered due to mechanical constraints (joints, slots) | Joint margins, slot regions |
+
+#### Space Boundaries
+
+| Boundary | Between | Description |
+|----------|---------|-------------|
+| Panel Outline | Open ↔ Safe | The panel edge boundary; can be modified via edge paths |
+| Joint Margin | Safe ↔ Restricted | MT (material thickness) inset from jointed edges |
+
+**Restricted Space includes:**
+- Joint margins: Area within MT of edges that have finger joints
+- Slot regions: Where other panels intersect (divider slots, etc.)
+- Areas required for structural integrity
+
+### 5.6 Path Tool Behavior
+
+The path tool enables freeform edge modification and cutout creation. Behavior depends on where the user clicks to start drawing.
+
+#### Path Session Lifecycle
+
+**Starting a path session:**
+When the path tool is active and the canvas is clicked, a new path session begins.
+
+**Two modes based on click location:**
+
+| Click Location | Mode | Behavior |
+|----------------|------|----------|
+| On boundary line (safe↔open edge) | **Forked mode** | Creates a potential fork point on existing edge |
+| In open space or safe space | **New path mode** | Creates first point of a new closed path |
+
+#### Forked Mode (Edge Modification)
+
+Use forked mode to modify existing panel edges by "forking" off the boundary and merging back.
+
+**Starting a fork:**
+1. Click on existing panel boundary or custom edge path line
+2. Creates a node at click point (the fork start)
+3. Additional points can be added from there into open or safe space
+
+**Completing a fork (merge):**
+1. Click on the **same edge** again to create the merge point
+2. Points between fork start and merge point on the original edge are **deleted**
+3. New path segment replaces the deleted portion
+4. Result: edge path is modified with the new segment
+
+**Example: Creating a notch in an edge**
+```
+Original edge:     A ─────────────── B
+
+Fork at point X:   A ───── X ─────── B
+                           │ (draw new points)
+                           ↓
+
+New segment:       A ───── X         B
+                            \       /
+                             Y ─── Z
+
+Merge at W:        A ───── X         W ── B
+                            \       /
+                             Y ─── Z
+
+Result:            A ───── X─Y─Z─W ── B
+                   (points between X and W on original edge removed)
+```
+
+**Fork Constraints:**
+- Fork start and merge point must be on the **same edge**
+- The new path segment must not cross into restricted space
+- The resulting edge must remain valid (no self-intersection)
+
+#### New Path Mode (Boolean Operations)
+
+Use new path mode to create cutouts or additions as closed shapes.
+
+**Drawing a closed path:**
+1. Click in open space or safe space to place the first point
+2. Continue clicking to add vertices
+3. Close the path by clicking near the starting point (or press Enter)
+4. When path is closed, the **boolean operation palette** appears (same as rectangle/circle tools)
+
+**Boolean behavior:**
+- Closed path is combined with the panel geometry
+- User selects operation mode:
+  - **Union (add material)**: Extends the panel outward
+  - **Difference (cut material)**: Creates a hole/cutout in the panel
+- Works identically to the existing rect/circle boolean system
+
+#### Validation Rules
+
+| Rule | Description |
+|------|-------------|
+| **Must overlap safe space** | If ALL points are in open space (no connection to panel), the path is invalid. At least part of the path must touch or overlap safe space. |
+| **Cannot modify restricted space** | Points or segments that would cut into restricted areas (joint margins, slots) are blocked |
+| **No self-intersection** | Resulting panel outline must not self-intersect |
+
+**Visual Feedback:**
+- Valid paths: shown in green during drawing
+- Invalid paths (all in open space, or touching restricted): shown in red
+- Restricted areas: highlighted when path approaches them
+
+#### Angle Constraints
+
+**Default behavior:** Diagonals are allowed - paths can have any angle between segments.
+
+**Shift key modifier:** When holding Shift while placing points:
+- Lines are constrained to **90° or 45°** angles only
+- Angles are relative to the panel's 2D coordinate system (X and Y axes)
+- Useful for creating precise geometric shapes
+
+#### Edge Path Constraints
+
+Rules for custom edge paths (from forked mode):
+
+| Constraint | Rule |
+|------------|------|
+| **Male jointed edges** | Cannot have custom paths on the jointed portion |
+| **Female jointed edges** | Can have custom paths only if edge extension > MT |
+| **Path endpoints** | Start and end must be on the panel boundary, not floating in empty space |
+| **Mirror mode** | Custom paths default to mirrored when mirror mode is active |
+
+**See also:** [Freeform Polygon Tool Flow Simplification](freeform-polygon-tool-plan.md) - Plan to streamline the polygon drawing UX with live preview and immediate palette display.
+
+### 5.7 Boolean-to-EdgePath Architecture
+
+**Reference**: See `docs/issueswith2deditor.md` for detailed issue tracking and `docs/issueswith2drenderer/IMG_8241.jpeg` for visual explanation.
+
+When a user draws a polygon that crosses the panel boundary (e.g., adding a tab or cutting a notch), the system must modify the panel outline. Rather than storing the entire boolean result (which would bypass other edge modification systems), the architecture extracts only the affected edge portions and stores them as `customEdgePaths`.
+
+#### Algorithm
+
+1. **Classify polygon**: Interior (entirely inside) vs boundary-crossing vs exterior
+2. **For interior polygons**: Use `ADD_CUTOUT` (becomes a THREE.js hole)
+3. **For boundary-crossing polygons**:
+   - Compute boolean (union/difference) on a COPY of the panel outline
+   - Compare result to original to identify which edge(s) changed
+   - For each affected edge, extract the modified portion from the result
+   - Convert absolute coordinates to (t, offset) relative to the original edge line
+   - Store as `customEdgePath` for that edge (replaces existing path on that edge only)
+   - Unaffected edges retain their existing customEdgePaths
+
+#### Benefits
+
+- **Composable**: `edgeExtensions` and `cornerFillets` continue to work
+- **Scoped**: Only affected edges are modified; other edges preserved
+- **Unified**: Boolean operations become another way to generate customEdgePaths
+- **Reversible**: Can clear individual edge paths without losing others
+
+#### Example: Triangle Addition on Top Edge
+
+```
+Original:       ┌────────────┐
+
+Boolean result: ┌────/\──────┐
+
+Extracted:      ────/\──────  (just top edge as open path)
+
+Stored as customEdgePath "top":
+  [{ t: 0.3, offset: 0 }, { t: 0.5, offset: 15 }, { t: 0.7, offset: 0 }]
+```
+
+#### Corner-Spanning Shapes
+
+If a shape affects multiple edges (e.g., spans a corner), extract a separate `customEdgePath` for each affected edge.
+
 ---
 
 ## Phase 6: Assembly Feet

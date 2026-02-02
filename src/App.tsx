@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { LeftSidebar } from './components/LeftSidebar';
 import { Viewport3D, Viewport3DHandle } from './components/Viewport3D';
 import { SketchView2D } from './components/SketchView2D';
-import { SketchSidebar } from './components/SketchSidebar';
 import { ExportModal } from './components/ExportModal';
 import { ProjectBrowserModal } from './components/ProjectBrowserModal';
 import { SaveProjectModal } from './components/SaveProjectModal';
@@ -23,9 +22,16 @@ import {
   assemblySnapshotToConfig,
   faceConfigsToFaces,
 } from './engine';
+import { EditorProvider, useEditorKeyboard } from './editor';
 import { AssemblySnapshot, VoidSnapshot } from './engine/types';
 import { ProjectTemplate } from './templates';
 import './App.css';
+
+// Component that sets up editor keyboard shortcuts
+function EditorKeyboardHandler() {
+  useEditorKeyboard();
+  return null;
+}
 
 function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -258,16 +264,14 @@ function App() {
 
   // Determine what to show in the right sidebar based on selection
   const renderRightSidebar = () => {
-    // 2D sketch mode - show sketch-specific sidebar
-    if (viewMode === '2d') {
-      return <SketchSidebar />;
-    }
-
+    // No sidebar in 2D mode - legend/edge status are now overlays in SketchView2D
     // No right sidebar in 3D mode - void operations are handled via toolbar tools
     return null;
   };
 
   return (
+    <EditorProvider>
+      <EditorKeyboardHandler />
     <div className="app">
       <header className="app-header">
         <div className="header-content">
@@ -427,6 +431,7 @@ function App() {
         onClose={handleCloseAbout}
       />
     </div>
+    </EditorProvider>
   );
 }
 

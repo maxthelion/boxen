@@ -1,10 +1,11 @@
 import React, { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 import { PanelPath, PathPoint, EditorTool } from '../types';
-import { useBoxStore, isPanelSelectedIn3DView, getAssemblyIdForPanel } from '../store/useBoxStore';
+import { useBoxStore, isPanelSelectedIn3DView, getAssemblyIdFromPanel } from '../store/useBoxStore';
 import { useEnginePanels, useEngineMainPanels, getEngine } from '../engine';
 import { debug, enableDebugTag } from '../utils/debug';
 import { useColors, getColors } from '../hooks/useColors';
+import { getVisibilityKey } from '../utils/visibilityKey';
 
 /**
  * Determine panel eligibility for the active tool.
@@ -489,26 +490,19 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
       {panelCollection.panels.map((panel: PanelPath) => {
         // Check visibility
         if (!panel.visible) return null;
-        // Check hidden by UUID (for dividers) or by face-* format (for faces)
-        if (hiddenFaceIds.has(panel.id)) return null;
-        if (panel.source.type === 'face' && panel.source.faceId) {
-          // Check legacy face-* format used by visibility system
-          const legacyFaceId = panel.source.subAssemblyId
-            ? `subasm-${panel.source.subAssemblyId}-face-${panel.source.faceId}`
-            : `face-${panel.source.faceId}`;
-          if (hiddenFaceIds.has(legacyFaceId)) return null;
-        }
+        // Check hidden by visibility key (property-based, stable across scene clones)
+        if (hiddenFaceIds.has(getVisibilityKey(panel))) return null;
 
         const isDivider = panel.source.type === 'divider';
         const isSubAssemblyPanel = !!panel.source.subAssemblyId;
 
         // Get this panel's parent assembly (using centralized helper)
-        const panelAssemblyId = getAssemblyIdForPanel(panel.id);
+        const panelAssemblyId = getAssemblyIdFromPanel(panel);
 
         // Check if this panel should appear selected in 3D view
         // In 3D, we show cascade: selected assemblies highlight all their panels
         // Also highlight if the panel has selected edges (for inset tool)
-        const isSelectedByPanelOrAssembly = isPanelSelectedIn3DView(panel.id, {
+        const isSelectedByPanelOrAssembly = isPanelSelectedIn3DView(panel, {
           selectedPanelIds,
           selectedAssemblyId,
           selectedSubAssemblyIds,

@@ -1,4 +1,4 @@
-import { Void, Bounds, Subdivision } from '../../types';
+import { Void, Bounds, Subdivision, PanelPath, PanelSource } from '../../types';
 
 // =============================================================================
 // Selection Manager
@@ -14,20 +14,45 @@ import { Void, Bounds, Subdivision } from '../../types';
 // =============================================================================
 
 /**
- * Get the assembly ID that a panel belongs to.
+ * Get the assembly ID that a panel belongs to from its source properties.
  * - Face panels of main assembly: 'main'
- * - Face panels of sub-assembly: the sub-assembly ID (extracted from panel ID)
+ * - Face panels of sub-assembly: the sub-assembly ID
  * - Divider panels: 'main' (all dividers belong to main assembly currently)
  */
-export const getAssemblyIdForPanel = (panelId: string): string => {
-  // Sub-assembly face panel: subasm-{subAssemblyId}-face-{faceId}
-  const subAsmMatch = panelId.match(/^subasm-(.+)-face-(front|back|left|right|top|bottom)$/);
-  if (subAsmMatch) {
-    return subAsmMatch[1];
+export const getAssemblyIdFromSource = (source: PanelSource): string => {
+  return source.subAssemblyId ?? 'main';
+};
+
+/**
+ * Get the assembly ID that a panel belongs to.
+ * Uses the panel's source properties (not string parsing).
+ */
+export const getAssemblyIdFromPanel = (panel: PanelPath): string => {
+  return getAssemblyIdFromSource(panel.source);
+};
+
+/**
+ * Get the assembly ID for a panel ID.
+ * Requires a panel lookup to find the panel by ID.
+ * Returns 'main' if panel is not found.
+ *
+ * @deprecated Prefer getAssemblyIdFromPanel when you have the panel object
+ */
+export const getAssemblyIdForPanel = (
+  panelId: string,
+  panels?: PanelPath[]
+): string => {
+  if (!panels) {
+    // Fallback: try to parse legacy semantic IDs (for backwards compatibility)
+    const subAsmMatch = panelId.match(/^subasm-(.+)-face-(front|back|left|right|top|bottom)$/);
+    if (subAsmMatch) {
+      return subAsmMatch[1];
+    }
+    return 'main';
   }
 
-  // Main assembly face panel (face-{faceId}) or divider panel (divider-...)
-  return 'main';
+  const panel = panels.find(p => p.id === panelId);
+  return panel ? getAssemblyIdFromPanel(panel) : 'main';
 };
 
 /**
@@ -47,12 +72,12 @@ export interface ActualSelection {
  * - All panels belonging to selected assemblies/sub-assemblies
  *
  * @param selection - The actual selection state from the store
- * @param allPanelIds - All panel IDs currently in the scene
+ * @param panels - All panels currently in the scene
  * @returns Set of panel IDs that should appear visually selected
  */
 export const computeVisuallySelectedPanelIds = (
   selection: ActualSelection,
-  allPanelIds: string[]
+  panels: PanelPath[]
 ): Set<string> => {
   const visuallySelected = new Set<string>();
 
@@ -63,18 +88,18 @@ export const computeVisuallySelectedPanelIds = (
 
   // If an assembly is selected, add all its panels
   if (selection.selectedAssemblyId) {
-    for (const panelId of allPanelIds) {
-      if (getAssemblyIdForPanel(panelId) === selection.selectedAssemblyId) {
-        visuallySelected.add(panelId);
+    for (const panel of panels) {
+      if (getAssemblyIdFromPanel(panel) === selection.selectedAssemblyId) {
+        visuallySelected.add(panel.id);
       }
     }
   }
 
   // Add panels from selected sub-assemblies
   for (const subAsmId of selection.selectedSubAssemblyIds) {
-    for (const panelId of allPanelIds) {
-      if (getAssemblyIdForPanel(panelId) === subAsmId) {
-        visuallySelected.add(panelId);
+    for (const panel of panels) {
+      if (getAssemblyIdFromPanel(panel) === subAsmId) {
+        visuallySelected.add(panel.id);
       }
     }
   }
@@ -89,18 +114,28 @@ export const computeVisuallySelectedPanelIds = (
  * all its component panels appear selected to show what the assembly contains.
  *
  * The tree view should NOT use this - it shows actual selection only.
+ *
+ * @param panel - The panel to check (or just panelId if panels array not provided)
+ * @param selection - The actual selection state
+ * @param panels - Optional: all panels for assembly lookup (required for UUID panel IDs)
  */
 export const isPanelSelectedIn3DView = (
-  panelId: string,
-  selection: ActualSelection
+  panelOrId: PanelPath | string,
+  selection: ActualSelection,
+  panels?: PanelPath[]
 ): boolean => {
+  const panelId = typeof panelOrId === 'string' ? panelOrId : panelOrId.id;
+  const panel = typeof panelOrId === 'string'
+    ? panels?.find(p => p.id === panelOrId)
+    : panelOrId;
+
   // Direct panel selection
   if (selection.selectedPanelIds.has(panelId)) {
     return true;
   }
 
   // Assembly cascade - panel appears selected if its assembly is selected
-  const panelAssemblyId = getAssemblyIdForPanel(panelId);
+  const panelAssemblyId = panel ? getAssemblyIdFromPanel(panel) : 'main';
 
   if (selection.selectedAssemblyId === panelAssemblyId) {
     return true;

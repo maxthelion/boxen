@@ -9,7 +9,7 @@ import { EditorToolbar, EditorTool } from './EditorToolbar';
 import { FloatingPalette, PaletteSliderInput, PaletteToggleGroup, PaletteButtonRow, PaletteButton, PaletteCheckbox, PaletteCheckboxGroup, PaletteNumberInput } from './FloatingPalette';
 import { getColors } from '../config/colors';
 import { SafeSpaceRegion, isRectInSafeSpace, isCircleInSafeSpace, isPointInSafeSpace, analyzePath, getEdgeMarginsForFace, rectToEdgePath, circleToEdgePath } from '../engine/safeSpace';
-import { createRectPolygon, createCirclePolygon } from '../utils/polygonBoolean';
+import { createRectPolygon, createCirclePolygon, classifyPolygon } from '../utils/polygonBoolean';
 import { FaceConfig } from '../types';
 import { debug, enableDebugTag } from '../utils/debug';
 
@@ -207,6 +207,54 @@ const constrainAngle = (
     x: fromPoint.x + distance * Math.cos(snapAngle),
     y: fromPoint.y + distance * Math.sin(snapAngle),
   };
+};
+
+/**
+ * Get the offset of the current edge path at a given t position.
+ * If no custom path exists for this edge, returns 0 (original boundary).
+ * If a custom path exists, interpolates between points to find the offset.
+ */
+const getEdgePathOffsetAtT = (
+  customEdgePaths: Array<{ edge: string; points: Array<{ t: number; offset: number }> }>,
+  edge: EdgePosition,
+  t: number
+): number => {
+  // Find the custom path for this edge
+  const edgePath = customEdgePaths.find(p => p.edge === edge);
+  if (!edgePath || edgePath.points.length === 0) {
+    return 0; // No custom path, use original boundary
+  }
+
+  const points = edgePath.points;
+
+  // Sort points by t value
+  const sorted = [...points].sort((a, b) => a.t - b.t);
+
+  // If t is before first point, use first point's offset
+  if (t <= sorted[0].t) {
+    return sorted[0].offset;
+  }
+
+  // If t is after last point, use last point's offset
+  if (t >= sorted[sorted.length - 1].t) {
+    return sorted[sorted.length - 1].offset;
+  }
+
+  // Find the two points that bracket t and interpolate
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (t >= sorted[i].t && t <= sorted[i + 1].t) {
+      const t0 = sorted[i].t;
+      const t1 = sorted[i + 1].t;
+      const o0 = sorted[i].offset;
+      const o1 = sorted[i + 1].offset;
+
+      // Linear interpolation
+      const ratio = (t - t0) / (t1 - t0);
+      return o0 + ratio * (o1 - o0);
+    }
+  }
+
+  return 0; // Fallback
 };
 
 // Get the conceptual boundary lines for the panel (where edges would be without joints)
@@ -415,11 +463,14 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   // Path tool state
   const [pathPalettePosition, setPathPalettePosition] = useState({ x: 200, y: 100 });
   const [isShiftHeld, setIsShiftHeld] = useState(false);
+  const [polygonMode, setPolygonMode] = useState<'additive' | 'subtractive'>('subtractive');
+  const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
   const isPathDraftActive = editorMode === 'draft' && (draftType === 'edge-path' || draftType === 'freeform-polygon');
   const isEdgePathDraft = editorMode === 'draft' && draftType === 'edge-path';
   const isPolygonDraft = editorMode === 'draft' && draftType === 'freeform-polygon';
 
   // Pending polygon for boolean operation selection (after polygon is closed)
+  // Note: This is now only used for legacy support - new flow applies directly
   const [pendingPolygon, setPendingPolygon] = useState<{
     points: PathPoint[];
     mode: 'additive' | 'subtractive';
@@ -1381,7 +1432,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       return null;
     }
 
-    const hitDistance = Math.max(8, viewBox.width / 25); // Scale hit area with zoom, larger for easier edge selection
+    const hitDistance = Math.max(4, viewBox.width / 50); // D2 fix: smaller hit area to avoid false edge detection
     debug('path-tool', `findEdgeAtPoint: hitDistance=${hitDistance.toFixed(1)}, viewBox.width=${viewBox.width.toFixed(1)}`);
 
     for (const edge of ['top', 'bottom', 'left', 'right'] as EdgePosition[]) {
@@ -1469,11 +1520,15 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           // If clicking back on the boundary (and we have at least 2 points), this is a merge
           if (distToBoundary < hitThreshold && draftPoints.length >= 2) {
             debug('path-tool', 'Merge detected! Adding final point on boundary');
-            // Add the merge point (on the boundary, so offset = 0)
-            const edgeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, edge);
-            if (edgeCoords) {
-              // Force offset to 0 since we're merging back to the boundary
-              addDraftPoint({ x: edgeCoords.t, y: 0 });
+            // Add the merge point - snap to the current edge path value at this t position
+            const mergeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, edge);
+            if (mergeCoords && panel) {
+              const currentOffset = getEdgePathOffsetAtT(
+                panel.customEdgePaths ?? [],
+                edge,
+                mergeCoords.t
+              );
+              addDraftPoint({ x: mergeCoords.t, y: currentOffset });
             }
             // Path is now ready to apply - user can click Apply button
             return;
@@ -1493,14 +1548,70 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
               (svgPos.x - startPoint.x) ** 2 + (svgPos.y - startPoint.y) ** 2
             );
             if (distToStart < hitThreshold) {
-              // Close the polygon - show boolean operation palette
-              debug('path-tool', 'Closing polygon - showing boolean palette');
-              setPendingPolygon({
-                points: [...draftPoints],
-                mode: 'subtractive', // Default to cut mode
-              });
-              setPolygonPalettePosition({ x: e.clientX + 20, y: e.clientY - 50 });
-              cancelDraft(); // Clear the draft state
+              // Close the polygon and apply the operation directly
+              debug('path-tool', 'Closing polygon - applying operation');
+              const engine = getEngine();
+              if (engine && panel) {
+                const points = [...draftPoints];
+                const halfW = panel.width / 2;
+                const halfH = panel.height / 2;
+                const panelOutline = createRectPolygon(-halfW, -halfH, halfW, halfH);
+                const classification = classifyPolygon(points, panelOutline, 1.0);
+
+                let success = false;
+
+                if (classification === 'interior') {
+                  if (polygonMode === 'subtractive') {
+                    const centerX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+                    const centerY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+                    const relativePoints = points.map(p => ({
+                      x: p.x - centerX,
+                      y: p.y - centerY,
+                    }));
+
+                    success = engine.dispatch({
+                      type: 'ADD_CUTOUT',
+                      targetId: 'main-assembly',
+                      payload: {
+                        panelId: panel.id,
+                        cutout: {
+                          id: crypto.randomUUID(),
+                          type: 'path',
+                          center: { x: centerX, y: centerY },
+                          points: relativePoints,
+                        },
+                      },
+                    });
+                  }
+                } else if (classification === 'boundary') {
+                  const operation = polygonMode === 'additive' ? 'union' : 'difference';
+                  success = engine.dispatch({
+                    type: 'APPLY_EDGE_OPERATION',
+                    targetId: 'main-assembly',
+                    payload: {
+                      panelId: panel.id,
+                      operation,
+                      shape: points,
+                    },
+                  });
+                } else if (classification === 'exterior' && polygonMode === 'additive') {
+                  success = engine.dispatch({
+                    type: 'APPLY_EDGE_OPERATION',
+                    targetId: 'main-assembly',
+                    payload: {
+                      panelId: panel.id,
+                      operation: 'union',
+                      shape: points,
+                    },
+                  });
+                }
+
+                if (success) {
+                  notifyEngineStateChanged();
+                }
+              }
+              cancelDraft();
+              setActiveTool('select');
               return;
             }
           }
@@ -1540,9 +1651,15 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             forkStart: { x: svgPos.x, y: svgPos.y },
           });
           // Add first point in edge-relative coordinates
+          // Snap offset to the current edge path value at this t position
           const edgeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, edge);
           if (edgeCoords) {
-            addDraftPoint({ x: edgeCoords.t, y: edgeCoords.offset });
+            const currentOffset = getEdgePathOffsetAtT(
+              panel.customEdgePaths ?? [],
+              edge,
+              edgeCoords.t
+            );
+            addDraftPoint({ x: edgeCoords.t, y: currentOffset });
           }
           setPathPalettePosition({ x: e.clientX + 20, y: e.clientY - 50 });
         }
@@ -1618,7 +1735,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     // Default: start panning
     setIsPanning(true);
     setPanStart({ x: e.clientX, y: e.clientY });
-  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel, activeTool, findCornerAtPoint, handleCornerClick, isInsetOperationActive, startOperation, updateParams, isPathDraftActive, draftTarget, draftPoints, svgToEdgeCoords, addDraftPoint, startDraft, safeSpace, edgeSegments, isEdgePathDraft, isPolygonDraft, isShiftHeld, cancelDraft, commitDraft]);
+  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel, activeTool, findCornerAtPoint, handleCornerClick, isInsetOperationActive, startOperation, updateParams, isPathDraftActive, draftTarget, draftPoints, svgToEdgeCoords, addDraftPoint, startDraft, safeSpace, edgeSegments, isEdgePathDraft, isPolygonDraft, isShiftHeld, cancelDraft, commitDraft, polygonMode, setActiveTool]);
 
   // Handle mouse move
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -1687,6 +1804,13 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       } else {
         setHoveredCornerId(null);
       }
+
+      // Track cursor position for ghost line when path tool is active
+      if (isPathDraftActive) {
+        setCursorPosition(svgPos);
+      } else {
+        setCursorPosition(null);
+      }
     }
   }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, config.materialThickness, activeTool, findCornerAtPoint, isInsetOperationActive, updateParams, isPathDraftActive, isEdgeEditable, isDrawingRect, isDrawingCircle, circleCenter]);
 
@@ -1741,15 +1865,71 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         }
       }
 
-      // Enter key closes polygon path
-      if (e.key === 'Enter' && isPolygonDraft && draftPoints.length >= 3) {
-        // Close the polygon - show boolean operation palette
-        setPendingPolygon({
-          points: [...draftPoints],
-          mode: 'subtractive', // Default to cut mode
-        });
-        setPolygonPalettePosition({ x: 200, y: 100 });
-        cancelDraft(); // Clear the draft state
+      // Enter key closes polygon path and applies operation
+      if (e.key === 'Enter' && isPolygonDraft && draftPoints.length >= 3 && panel) {
+        debug('path-tool', 'Enter pressed - applying polygon operation');
+        const engine = getEngine();
+        if (engine) {
+          const points = [...draftPoints];
+          const halfW = panel.width / 2;
+          const halfH = panel.height / 2;
+          const panelOutline = createRectPolygon(-halfW, -halfH, halfW, halfH);
+          const classification = classifyPolygon(points, panelOutline, 1.0);
+
+          let success = false;
+
+          if (classification === 'interior') {
+            if (polygonMode === 'subtractive') {
+              const centerX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+              const centerY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+              const relativePoints = points.map(p => ({
+                x: p.x - centerX,
+                y: p.y - centerY,
+              }));
+
+              success = engine.dispatch({
+                type: 'ADD_CUTOUT',
+                targetId: 'main-assembly',
+                payload: {
+                  panelId: panel.id,
+                  cutout: {
+                    id: crypto.randomUUID(),
+                    type: 'path',
+                    center: { x: centerX, y: centerY },
+                    points: relativePoints,
+                  },
+                },
+              });
+            }
+          } else if (classification === 'boundary') {
+            const operation = polygonMode === 'additive' ? 'union' : 'difference';
+            success = engine.dispatch({
+              type: 'APPLY_EDGE_OPERATION',
+              targetId: 'main-assembly',
+              payload: {
+                panelId: panel.id,
+                operation,
+                shape: points,
+              },
+            });
+          } else if (classification === 'exterior' && polygonMode === 'additive') {
+            success = engine.dispatch({
+              type: 'APPLY_EDGE_OPERATION',
+              targetId: 'main-assembly',
+              payload: {
+                panelId: panel.id,
+                operation: 'union',
+                shape: points,
+              },
+            });
+          }
+
+          if (success) {
+            notifyEngineStateChanged();
+          }
+        }
+        cancelDraft();
+        setActiveTool('select');
       }
     };
 
@@ -1765,7 +1945,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [exitSketchView, isPolygonDraft, draftPoints, cancelDraft, pendingPolygon]);
+  }, [exitSketchView, isPolygonDraft, draftPoints, cancelDraft, pendingPolygon, polygonMode, panel, setActiveTool]);
 
   // Fit view to panel
   const handleFitView = useCallback(() => {
@@ -1829,10 +2009,10 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       }
     }
 
-    // Path tool: crosshair when in draft, pointer when hovering edge
+    // Path tool: crosshair when selected, pointer when hovering edge
     if (activeTool === 'path') {
-      if (isPathDraftActive) return 'crosshair';
       if (hoveredEdge && isEdgeEditable(hoveredEdge)) return 'pointer';
+      return 'crosshair';  // D1 fix: show crosshair when path tool is selected
     }
 
     // Chamfer tool: pointer cursor for corners
@@ -2263,8 +2443,21 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
               isValid = !analysis.touchesClosedEdge && (analysis.whollyInSafeSpace || analysis.spansOpenEdge || analysis.borderedEdges.length > 0);
             }
 
-            const strokeColor = isValid ? colors.operation.positive.base : colors.operation.negative.base;
-            const fillColor = isValid ? colors.operation.positive.base : colors.operation.negative.base;
+            // For polygon mode, use colors based on the boolean mode (additive=green, subtractive=red)
+            // For edge path mode, always use positive (green)
+            // When invalid, use a dimmed/gray color
+            let strokeColor: string;
+            let fillColor: string;
+            if (!isValid) {
+              strokeColor = '#888';
+              fillColor = '#888';
+            } else if (isPolygonDraft) {
+              strokeColor = polygonMode === 'additive' ? colors.operation.positive.base : colors.operation.negative.base;
+              fillColor = polygonMode === 'additive' ? colors.operation.positive.base : colors.operation.negative.base;
+            } else {
+              strokeColor = colors.operation.positive.base;
+              fillColor = colors.operation.positive.base;
+            }
 
             const pathD = previewPoints
               .map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`))
@@ -2337,6 +2530,49 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                   </text>
                 )}
               </g>
+            );
+          })()}
+
+          {/* Ghost line from last point to cursor */}
+          {isPathDraftActive && draftPoints.length > 0 && cursorPosition && (() => {
+            let lastPoint: { x: number; y: number };
+
+            if (isEdgePathDraft && draftTarget?.edge) {
+              // Edge-path mode: convert last point from edge-relative coordinates
+              const converted = edgeCoordsToSvg(
+                draftPoints[draftPoints.length - 1].x,
+                draftPoints[draftPoints.length - 1].y,
+                draftTarget.edge
+              );
+              if (!converted) return null;
+              lastPoint = converted;
+            } else {
+              // Polygon mode: points are already in SVG coordinates
+              lastPoint = draftPoints[draftPoints.length - 1];
+            }
+
+            // Apply angle constraint if Shift is held
+            let targetPoint = cursorPosition;
+            if (isShiftHeld) {
+              targetPoint = constrainAngle(lastPoint, cursorPosition);
+            }
+
+            // Use appropriate color based on mode
+            const strokeColor = isPolygonDraft
+              ? (polygonMode === 'additive' ? colors.operation.positive.base : colors.operation.negative.base)
+              : colors.operation.positive.base;
+
+            return (
+              <line
+                x1={lastPoint.x}
+                y1={lastPoint.y}
+                x2={targetPoint.x}
+                y2={targetPoint.y}
+                stroke={strokeColor}
+                strokeWidth={outlineStrokeWidth}
+                strokeDasharray={`${3 * strokeScale} ${2 * strokeScale}`}
+                opacity={0.6}
+              />
             );
           })()}
 
@@ -2812,10 +3048,15 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             </>
           ) : (
             <>
-              <div style={{ fontSize: '12px', marginBottom: '8px', opacity: 0.8 }}>
-                Click to add points. Close the shape by clicking near the start point or pressing Enter.
-              </div>
-              <div style={{ fontSize: '12px', marginBottom: '4px' }}>
+              <PaletteToggleGroup
+                options={[
+                  { value: 'subtractive', label: 'Cut notch' },
+                  { value: 'additive', label: 'Extend' },
+                ]}
+                value={polygonMode}
+                onChange={(v) => setPolygonMode(v as 'additive' | 'subtractive')}
+              />
+              <div style={{ fontSize: '12px', marginTop: '8px', marginBottom: '4px' }}>
                 Points: <strong>{draftPoints.length}</strong>
                 {draftPoints.length >= 3 && ' (click start to close)'}
               </div>
@@ -2826,19 +3067,83 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                 <PaletteButton
                   variant="primary"
                   onClick={() => {
-                    if (draftPoints.length >= 3) {
-                      // Close polygon and show boolean palette
-                      setPendingPolygon({
-                        points: [...draftPoints],
-                        mode: 'subtractive',
-                      });
-                      setPolygonPalettePosition({ x: pathPalettePosition.x, y: pathPalettePosition.y });
+                    if (draftPoints.length >= 3 && panel) {
+                      // Apply the boolean operation directly
+                      const engine = getEngine();
+                      if (!engine) return;
+
+                      const points = [...draftPoints];
+                      const halfW = panel.width / 2;
+                      const halfH = panel.height / 2;
+                      const panelOutline = createRectPolygon(-halfW, -halfH, halfW, halfH);
+                      const classification = classifyPolygon(points, panelOutline, 1.0);
+
+                      let success = false;
+
+                      if (classification === 'interior') {
+                        if (polygonMode === 'subtractive') {
+                          // Interior + cut = ADD_CUTOUT
+                          const centerX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+                          const centerY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+                          const relativePoints = points.map(p => ({
+                            x: p.x - centerX,
+                            y: p.y - centerY,
+                          }));
+
+                          success = engine.dispatch({
+                            type: 'ADD_CUTOUT',
+                            targetId: 'main-assembly',
+                            payload: {
+                              panelId: panel.id,
+                              cutout: {
+                                id: crypto.randomUUID(),
+                                type: 'path',
+                                center: { x: centerX, y: centerY },
+                                points: relativePoints,
+                              },
+                            },
+                          });
+                        } else {
+                          console.warn('Cannot add material inside the panel');
+                        }
+                      } else if (classification === 'boundary') {
+                        const operation = polygonMode === 'additive' ? 'union' : 'difference';
+                        success = engine.dispatch({
+                          type: 'APPLY_EDGE_OPERATION',
+                          targetId: 'main-assembly',
+                          payload: {
+                            panelId: panel.id,
+                            operation,
+                            shape: points,
+                          },
+                        });
+                      } else if (classification === 'exterior') {
+                        if (polygonMode === 'additive') {
+                          success = engine.dispatch({
+                            type: 'APPLY_EDGE_OPERATION',
+                            targetId: 'main-assembly',
+                            payload: {
+                              panelId: panel.id,
+                              operation: 'union',
+                              shape: points,
+                            },
+                          });
+                        } else {
+                          console.warn('Cannot cut hole outside the panel');
+                        }
+                      }
+
+                      if (success) {
+                        notifyEngineStateChanged();
+                      }
+
                       cancelDraft();
+                      setActiveTool('select');
                     }
                   }}
                   disabled={draftPoints.length < 3}
                 >
-                  Close Path
+                  Apply
                 </PaletteButton>
                 <PaletteButton
                   variant="secondary"
@@ -2910,8 +3215,8 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           </div>
           <PaletteToggleGroup
             options={[
-              { value: 'subtractive', label: 'Cut hole' },
-              { value: 'additive', label: 'Add material' },
+              { value: 'subtractive', label: 'Cut notch' },
+              { value: 'additive', label: 'Extend' },
             ]}
             value={pendingPolygon.mode}
             onChange={(v) => setPendingPolygon(prev => prev ? { ...prev, mode: v as 'additive' | 'subtractive' } : null)}
@@ -2924,49 +3229,83 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                 const engine = getEngine();
                 if (!engine) return;
 
+                // Create panel outline for classification (simple rectangle in CENTERED coordinates)
+                // The user's polygon points are in centered coordinates, so the panel outline must match
+                const halfW = panel.width / 2;
+                const halfH = panel.height / 2;
+                const panelOutline = createRectPolygon(-halfW, -halfH, halfW, halfH);
+
+                // Classify the polygon relative to the panel
+                const classification = classifyPolygon(pendingPolygon.points, panelOutline, 1.0);
+                console.log(`Polygon classification: ${classification}`);
+
                 let success = false;
 
-                if (pendingPolygon.mode === 'subtractive') {
-                  // Use ADD_CUTOUT with PathCutout for subtractive (cutting holes)
-                  // Calculate center of the polygon
-                  const centerX = pendingPolygon.points.reduce((sum, p) => sum + p.x, 0) / pendingPolygon.points.length;
-                  const centerY = pendingPolygon.points.reduce((sum, p) => sum + p.y, 0) / pendingPolygon.points.length;
+                if (classification === 'interior') {
+                  // Polygon is entirely inside the panel
+                  if (pendingPolygon.mode === 'subtractive') {
+                    // Interior + cut = ADD_CUTOUT (THREE.js hole)
+                    const centerX = pendingPolygon.points.reduce((sum, p) => sum + p.x, 0) / pendingPolygon.points.length;
+                    const centerY = pendingPolygon.points.reduce((sum, p) => sum + p.y, 0) / pendingPolygon.points.length;
+                    const relativePoints = pendingPolygon.points.map(p => ({
+                      x: p.x - centerX,
+                      y: p.y - centerY,
+                    }));
 
-                  // Convert points to be relative to center
-                  const relativePoints = pendingPolygon.points.map(p => ({
-                    x: p.x - centerX,
-                    y: p.y - centerY,
-                  }));
-
-                  success = engine.dispatch({
-                    type: 'ADD_CUTOUT',
-                    targetId: 'main-assembly',
-                    payload: {
-                      panelId: panel.id,
-                      cutout: {
-                        id: crypto.randomUUID(),
-                        type: 'path',
-                        center: { x: centerX, y: centerY },
-                        points: relativePoints,
+                    success = engine.dispatch({
+                      type: 'ADD_CUTOUT',
+                      targetId: 'main-assembly',
+                      payload: {
+                        panelId: panel.id,
+                        cutout: {
+                          id: crypto.randomUUID(),
+                          type: 'path',
+                          center: { x: centerX, y: centerY },
+                          points: relativePoints,
+                        },
                       },
-                    },
-                  });
-                } else {
-                  // For additive (union), use the edge operation approach
+                    });
+                  } else {
+                    // Interior + add = Invalid (can't add material inside panel)
+                    console.warn('Cannot add material inside the panel - polygon must cross boundary');
+                  }
+                } else if (classification === 'boundary') {
+                  // Polygon crosses the panel boundary - use boolean edge operation
+                  // This extracts affected edges and stores as customEdgePaths
+                  const operation = pendingPolygon.mode === 'additive' ? 'union' : 'difference';
                   success = engine.dispatch({
                     type: 'APPLY_EDGE_OPERATION',
                     targetId: 'main-assembly',
                     payload: {
                       panelId: panel.id,
-                      operation: 'union',
+                      operation,
                       shape: pendingPolygon.points,
                     },
                   });
+                } else if (classification === 'exterior') {
+                  // Polygon is entirely outside the panel
+                  if (pendingPolygon.mode === 'additive') {
+                    // Exterior + add = use boolean union (extends panel)
+                    success = engine.dispatch({
+                      type: 'APPLY_EDGE_OPERATION',
+                      targetId: 'main-assembly',
+                      payload: {
+                        panelId: panel.id,
+                        operation: 'union',
+                        shape: pendingPolygon.points,
+                      },
+                    });
+                  } else {
+                    // Exterior + cut = Invalid (nothing to cut)
+                    console.warn('Cannot cut hole outside the panel');
+                  }
+                } else {
+                  console.warn('Could not classify polygon location');
                 }
 
                 if (success) {
-                  console.log(`Applied ${pendingPolygon.mode} polygon operation`);
-                } else {
+                  console.log(`Applied ${pendingPolygon.mode} polygon operation (${classification})`);
+                } else if (classification !== 'invalid') {
                   console.warn('Polygon operation failed');
                 }
                 notifyEngineStateChanged();

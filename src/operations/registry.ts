@@ -428,6 +428,45 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     availableIn: ['2d'],
     description: 'Add chamfers or fillets to corners',
     shortcut: 'c',
+    createPreviewAction: (params) => {
+      const { corners, radius, type } = params as {
+        corners?: string[];  // Corner IDs like "corner-tl", "corner-br"
+        radius?: number;
+        type?: 'chamfer' | 'fillet';
+      };
+
+      if (!corners?.length || radius === undefined || radius <= 0) return null;
+
+      // For 2D view, we use the same fillet batch action
+      // Panel ID comes from the sketch context (single panel being edited)
+      const { panelId } = params as { panelId?: string };
+      if (!panelId) return null;
+
+      // Convert 2D corner IDs to fillet objects
+      // Corner IDs are like "corner-tl" -> need to map to "left:top" format
+      const cornerMap: Record<string, 'bottom:left' | 'bottom:right' | 'left:top' | 'right:top'> = {
+        'corner-tl': 'left:top',
+        'corner-tr': 'right:top',
+        'corner-bl': 'bottom:left',
+        'corner-br': 'bottom:right',
+      };
+
+      const fillets = corners
+        .map(cornerId => {
+          const corner = cornerMap[cornerId];
+          if (!corner) return null;
+          return { panelId, corner, radius };
+        })
+        .filter((f): f is { panelId: string; corner: 'bottom:left' | 'bottom:right' | 'left:top' | 'right:top'; radius: number } => f !== null);
+
+      if (fillets.length === 0) return null;
+
+      return {
+        type: 'SET_CORNER_FILLETS_BATCH',
+        targetId: 'main-assembly',
+        payload: { fillets },
+      };
+    },
   },
 
   'corner-fillet': {
@@ -471,7 +510,7 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     selectionType: 'edge',
     minSelection: 1,
     maxSelection: Infinity,
-    availableIn: ['3d'],
+    availableIn: ['2d', '3d'],
     description: 'Extend or retract panel edges',
     shortcut: 'i',
     createPreviewAction: (params) => {

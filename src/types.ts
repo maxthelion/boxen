@@ -515,6 +515,9 @@ export interface PanelPath {
 
   // Safe space for custom geometry (cutouts, edge modifications)
   safeSpace?: import('./engine/safeSpace').SafeSpaceRegion;
+
+  // Custom edge paths for edge modifications (derived from engine)
+  customEdgePaths?: import('./engine/types').CustomEdgePath[];
 }
 
 // Augmentation types that can be added to panels

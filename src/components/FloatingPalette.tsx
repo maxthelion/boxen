@@ -312,6 +312,7 @@ export const PaletteSliderInput: React.FC<SliderInputProps> = ({
 interface ToggleOption {
   value: string;
   label: string;
+  disabled?: boolean;  // Per-option disabled state
 }
 
 interface ToggleGroupProps {
@@ -319,7 +320,7 @@ interface ToggleGroupProps {
   options: ToggleOption[];
   value: string;
   onChange: (value: string) => void;
-  disabled?: boolean;
+  disabled?: boolean;  // Disables entire group
 }
 
 export const PaletteToggleGroup: React.FC<ToggleGroupProps> = ({
@@ -333,16 +334,19 @@ export const PaletteToggleGroup: React.FC<ToggleGroupProps> = ({
     <div className={`palette-toggle-group ${disabled ? 'disabled' : ''}`}>
       {label && <label className="palette-label">{label}</label>}
       <div className="palette-toggle-buttons">
-        {options.map((option) => (
-          <button
-            key={option.value}
-            className={`palette-toggle-btn ${value === option.value ? 'active' : ''}`}
-            onClick={() => !disabled && onChange(option.value)}
-            disabled={disabled}
-          >
-            {option.label}
-          </button>
-        ))}
+        {options.map((option) => {
+          const isDisabled = disabled || option.disabled;
+          return (
+            <button
+              key={option.value}
+              className={`palette-toggle-btn ${value === option.value ? 'active' : ''} ${isDisabled ? 'option-disabled' : ''}`}
+              onClick={() => !isDisabled && onChange(option.value)}
+              disabled={isDisabled}
+            >
+              {option.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

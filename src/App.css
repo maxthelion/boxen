@@ -2839,6 +2839,16 @@ body {
   background: #3a3a6a;
 }
 
+.palette-toggle-btn.option-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.palette-toggle-btn.option-disabled:hover {
+  color: #888;
+  background: transparent;
+}
+
 /* Action buttons */
 
 .palette-button-row {
@@ -3315,6 +3325,111 @@ body {
   height: 10px;
   border-radius: 50%;
   background: #00d9ff;
+}
+
+/* Bottom-right overlay for Edge Status + Legend (in 2D view) */
+.sketch-overlay-bottom-right {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+  pointer-events: auto;
+}
+
+.sketch-overlay-section {
+  background: rgba(20, 20, 35, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 180px;
+}
+
+.sketch-overlay-section h4 {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 8px 0;
+}
+
+/* Edge Status Grid in overlay */
+.sketch-overlay-section .edge-status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.sketch-overlay-section .edge-status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(40, 40, 60, 0.6);
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.sketch-overlay-section .edge-status-item .edge-name {
+  text-transform: capitalize;
+  color: #aaa;
+  flex: 1;
+}
+
+.sketch-overlay-section .edge-status-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.sketch-overlay-section .edge-extension {
+  font-size: 0.65rem;
+  color: #2ecc71;
+  font-weight: 500;
+}
+
+.sketch-overlay-section .edge-status-summary {
+  font-size: 0.65rem;
+  color: #666;
+  text-align: center;
+  margin-top: 4px;
+}
+
+/* Legend in overlay */
+.sketch-overlay-section .sketch-legend-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sketch-overlay-section .legend-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: #999;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sketch-overlay-section .legend-row:hover,
+.sketch-overlay-section .legend-row.highlighted {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.sketch-overlay-section .legend-swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
 }
 
 /* Sketch Help Items */

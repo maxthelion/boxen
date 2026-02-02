@@ -25,7 +25,10 @@ import {
 import { PanelCollection } from '../types';
 import { generatePanelsFromEngine } from './panelBridge';
 import { appendDebug } from '../utils/debug';
-import { unionPolygons, differencePolygons } from '../utils/polygonBoolean';
+import {
+  unionPolygons,
+  differencePolygons,
+} from '../utils/polygonBoolean';
 
 export class Engine {
   private _scene: SceneNode;
@@ -986,7 +989,9 @@ export class Engine {
 
   /**
    * Apply a boolean operation (union or difference) to modify a panel's outline.
-   * This is the core of the boolean-based edge modification system.
+   *
+   * APPROACH: Compute boolean against the actual panel outline (with finger joints),
+   * then store the result directly. This preserves finger joints in unmodified areas.
    *
    * @param assembly - The assembly containing the panel
    * @param panelId - The panel to modify
@@ -1000,7 +1005,7 @@ export class Engine {
     operation: 'union' | 'difference',
     shape: { x: number; y: number }[]
   ): boolean {
-    // Find the panel to get its outline
+    // Find the panel to get its current outline
     const panels = assembly.getPanels();
     const panel = panels.find(p => p.id === panelId);
     if (!panel) {
@@ -1008,22 +1013,21 @@ export class Engine {
       return false;
     }
 
-    // Get the current polygon (either modified or the panel's full outline with fingers)
-    let currentPolygon = assembly.getModifiedSafeArea(panelId);
-
-    if (!currentPolygon) {
-      // No modified area yet - start with the panel's actual outline
-      // This INCLUDES finger joints, so they'll be preserved after the boolean operation
-      currentPolygon = panel.derived.outline.points.map(p => ({ x: p.x, y: p.y }));
+    // Get the current panel outline (WITH finger joints)
+    // If there's already a modified outline, use that; otherwise use the derived outline
+    let currentOutline = assembly.getModifiedSafeArea(panelId);
+    if (!currentOutline) {
+      // Use the actual panel outline with finger joints
+      currentOutline = panel.derived.outline.points.map(p => ({ x: p.x, y: p.y }));
     }
 
-    // Apply the boolean operation
+    // Apply the boolean operation to the current outline
     let resultPolygon: { x: number; y: number }[] | null;
 
     if (operation === 'union') {
-      resultPolygon = unionPolygons(currentPolygon, shape);
+      resultPolygon = unionPolygons(currentOutline, shape);
     } else {
-      resultPolygon = differencePolygons(currentPolygon, shape);
+      resultPolygon = differencePolygons(currentOutline, shape);
     }
 
     if (!resultPolygon || resultPolygon.length < 3) {
@@ -1031,8 +1035,28 @@ export class Engine {
       return false;
     }
 
-    // Store the modified area
+    // Verify the operation actually changed something
+    if (resultPolygon.length === currentOutline.length) {
+      // Check if points are actually different
+      let anyDifferent = false;
+      for (let i = 0; i < resultPolygon.length; i++) {
+        const r = resultPolygon[i];
+        const c = currentOutline[i];
+        if (Math.abs(r.x - c.x) > 0.01 || Math.abs(r.y - c.y) > 0.01) {
+          anyDifferent = true;
+          break;
+        }
+      }
+      if (!anyDifferent) {
+        console.warn('Boolean operation did not change the outline');
+        return false;
+      }
+    }
+
+    // Store the modified outline directly
+    // This preserves finger joints in unmodified areas
     assembly.setModifiedSafeArea(panelId, resultPolygon);
+    console.log(`Applied ${operation} boolean operation to panel (${resultPolygon.length} points)`);
 
     return true;
   }

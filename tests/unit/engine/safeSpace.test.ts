@@ -11,7 +11,12 @@ import {
   isPointInSafeSpace,
   isRectInSafeSpace,
   getReservedReason,
+  analyzePath,
+  getEdgeMarginsForFace,
+  rectToEdgePath,
+  circleToEdgePath,
   SafeSpaceRegion,
+  PathAnalysis,
 } from '../../../src/engine/safeSpace';
 import { PanelPath, BoxConfig, FaceConfig, defaultAssemblyConfig } from '../../../src/types';
 
@@ -619,5 +624,322 @@ describe('Safe Space Calculation', () => {
       const reason = getReservedReason(0, 0, safeSpace);
       expect(reason).toBe(null);
     });
+  });
+
+  describe('Path Analysis', () => {
+    it('detects path wholly in safe space as cutout candidate', () => {
+      const config = createBasicConfig();
+      const faces = createAllSolidFaces();
+      const mt = config.materialThickness;
+
+      const panel = createMockPanel('front', config.depth, config.height);
+      const safeSpace = calculateSafeSpace(panel, faces, config);
+      const edgeMargins = getEdgeMarginsForFace('front', faces, mt);
+
+      // Small rectangle in center of panel - wholly in safe space
+      const points = [
+        { x: -5, y: -5 },
+        { x: 5, y: -5 },
+        { x: 5, y: 5 },
+        { x: -5, y: 5 },
+      ];
+
+      const analysis = analyzePath(points, safeSpace, edgeMargins, panel.width, panel.height);
+
+      expect(analysis.whollyInSafeSpace).toBe(true);
+      expect(analysis.touchesSafeSpaceBorder).toBe(false);
+      expect(analysis.borderedEdges).toEqual([]);
+      expect(analysis.spansOpenEdge).toBe(false);
+    });
+
+    it('detects path touching jointed edge border as edge path candidate', () => {
+      const config = createBasicConfig();
+      const faces = createAllSolidFaces();
+      const mt = config.materialThickness;
+      const halfH = config.height / 2;
+
+      const panel = createMockPanel('front', config.depth, config.height);
+      const safeSpace = calculateSafeSpace(panel, faces, config);
+      const edgeMargins = getEdgeMarginsForFace('front', faces, mt);
+
+      // Path that exactly touches the top safe space border (inner edge of joint margin)
+      // With 2×MT margin, the safe border is at halfH - 2*mt
+      const safeBorderY = halfH - 2 * mt;
+      const points = [
+        { x: -10, y: safeBorderY },
+        { x: 0, y: safeBorderY - 5 },  // Notch going inward
+        { x: 10, y: safeBorderY },
+      ];
+
+      const analysis = analyzePath(points, safeSpace, edgeMargins, panel.width, panel.height);
+
+      expect(analysis.touchesSafeSpaceBorder).toBe(true);
+      expect(analysis.borderedEdges).toContain('top');
+    });
+
+    it('detects path spanning open edge as additive candidate', () => {
+      const config = createBasicConfig();
+      // Open bottom face - front panel bottom edge has no joints
+      const faces: FaceConfig[] = [
+        { id: 'front', solid: true },
+        { id: 'back', solid: true },
+        { id: 'left', solid: true },
+        { id: 'right', solid: true },
+        { id: 'top', solid: true },
+        { id: 'bottom', solid: false },
+      ];
+      const mt = config.materialThickness;
+      const halfH = config.height / 2;
+
+      const panel = createMockPanel('front', config.depth, config.height);
+      const safeSpace = calculateSafeSpace(panel, faces, config);
+      const edgeMargins = getEdgeMarginsForFace('front', faces, mt);
+
+      // Path that goes beyond the panel body on the open bottom edge
+      const points = [
+        { x: -10, y: -halfH },      // At body edge
+        { x: -10, y: -halfH - 10 }, // Beyond body edge
+        { x: 10, y: -halfH - 10 },  // Beyond body edge
+        { x: 10, y: -halfH },       // At body edge
+      ];
+
+      const analysis = analyzePath(points, safeSpace, edgeMargins, panel.width, panel.height);
+
+      expect(analysis.spansOpenEdge).toBe(true);
+      expect(analysis.openEdgesSpanned).toContain('bottom');
+      expect(analysis.whollyInSafeSpace).toBe(false); // Extends beyond
+    });
+
+    it('detects path on closed face (joints on all sides) cannot be edge path', () => {
+      const config = createBasicConfig();
+      const faces = createAllSolidFaces();
+      const mt = config.materialThickness;
+      const halfH = config.height / 2;
+
+      const panel = createMockPanel('front', config.depth, config.height);
+      const safeSpace = calculateSafeSpace(panel, faces, config);
+      const edgeMargins = getEdgeMarginsForFace('front', faces, mt);
+
+      // Path in the joint margin region (which is "closed" - has joints)
+      const points = [
+        { x: -10, y: halfH - mt },      // In joint margin
+        { x: 10, y: halfH - mt },
+        { x: 10, y: halfH - mt - 5 },
+        { x: -10, y: halfH - mt - 5 },
+      ];
+
+      const analysis = analyzePath(points, safeSpace, edgeMargins, panel.width, panel.height);
+
+      expect(analysis.touchesClosedEdge).toBe(true);
+    });
+
+    it('detects path touching body edge on open edge', () => {
+      const config = createBasicConfig();
+      // Open left face
+      const faces: FaceConfig[] = [
+        { id: 'front', solid: true },
+        { id: 'back', solid: true },
+        { id: 'left', solid: false },  // Open
+        { id: 'right', solid: true },
+        { id: 'top', solid: true },
+        { id: 'bottom', solid: true },
+      ];
+      const mt = config.materialThickness;
+      const halfW = config.depth / 2;
+
+      const panel = createMockPanel('front', config.depth, config.height);
+      const safeSpace = calculateSafeSpace(panel, faces, config);
+      const edgeMargins = getEdgeMarginsForFace('front', faces, mt);
+
+      // Path that touches the left body edge (which is open)
+      const points = [
+        { x: -halfW, y: 10 },    // Exactly at left body edge
+        { x: -halfW + 5, y: 0 }, // Inside panel
+        { x: -halfW, y: -10 },   // Exactly at left body edge
+      ];
+
+      const analysis = analyzePath(points, safeSpace, edgeMargins, panel.width, panel.height);
+
+      expect(analysis.borderedEdges).toContain('left');
+      expect(analysis.openEdgesSpanned).toContain('left');
+      // Not touching a closed edge because left is open
+      expect(analysis.touchesClosedEdge).toBe(false);
+    });
+
+    it('detects path touching multiple edges', () => {
+      const config = createBasicConfig();
+      const faces = createAllSolidFaces();
+      const mt = config.materialThickness;
+      const halfW = config.depth / 2;
+      const halfH = config.height / 2;
+
+      const panel = createMockPanel('front', config.depth, config.height);
+      const safeSpace = calculateSafeSpace(panel, faces, config);
+      const edgeMargins = getEdgeMarginsForFace('front', faces, mt);
+
+      // Path that touches both top and right safe borders (corner modification)
+      const safeBorderTop = halfH - 2 * mt;
+      const safeBorderRight = halfW - 2 * mt;
+      const points = [
+        { x: safeBorderRight - 10, y: safeBorderTop },  // At top border
+        { x: safeBorderRight, y: safeBorderTop },       // At corner
+        { x: safeBorderRight, y: safeBorderTop - 10 },  // At right border
+      ];
+
+      const analysis = analyzePath(points, safeSpace, edgeMargins, panel.width, panel.height);
+
+      expect(analysis.touchesSafeSpaceBorder).toBe(true);
+      expect(analysis.borderedEdges).toContain('top');
+      expect(analysis.borderedEdges).toContain('right');
+      expect(analysis.borderedEdges.length).toBe(2);
+    });
+  });
+});
+
+// =============================================================================
+// Edge Path Conversion Tests
+// =============================================================================
+
+describe('rectToEdgePath', () => {
+  const panelWidth = 100;
+  const panelHeight = 80;
+  const halfW = panelWidth / 2;
+  const halfH = panelHeight / 2;
+
+  it('creates edge path for rectangle touching top edge', () => {
+    // Rectangle from x=-20 to x=20, y=30 to y=40 (panel edge is y=40)
+    const result = rectToEdgePath(-20, 20, 30, 40, 'top', panelWidth, panelHeight);
+
+    expect(result).not.toBeNull();
+    expect(result!.edge).toBe('top');
+    expect(result!.mirrored).toBe(false);
+
+    // Check t values: (-20 + 50) / 100 = 0.3, (20 + 50) / 100 = 0.7
+    const points = result!.points;
+    expect(points.length).toBe(6);
+    expect(points[0]).toEqual({ t: 0, offset: 0 });
+    expect(points[1]).toEqual({ t: 0.3, offset: 0 });
+    expect(points[2].t).toBeCloseTo(0.3);
+    expect(points[2].offset).toBeCloseTo(-10); // 30 - 40 = -10
+    expect(points[3].t).toBeCloseTo(0.7);
+    expect(points[3].offset).toBeCloseTo(-10);
+    expect(points[4]).toEqual({ t: 0.7, offset: 0 });
+    expect(points[5]).toEqual({ t: 1, offset: 0 });
+  });
+
+  it('creates edge path for rectangle touching bottom edge', () => {
+    // Rectangle from x=0 to x=30, y=-40 to y=-25 (panel edge is y=-40)
+    const result = rectToEdgePath(0, 30, -40, -25, 'bottom', panelWidth, panelHeight);
+
+    expect(result).not.toBeNull();
+    expect(result!.edge).toBe('bottom');
+
+    // Check t values: (0 + 50) / 100 = 0.5, (30 + 50) / 100 = 0.8
+    const points = result!.points;
+    expect(points[1].t).toBeCloseTo(0.5);
+    expect(points[2].t).toBeCloseTo(0.5);
+    expect(points[2].offset).toBeCloseTo(-15); // -(-25 - (-40)) = -15
+  });
+
+  it('creates edge path for rectangle touching left edge', () => {
+    // Rectangle from x=-50 to x=-35, y=-10 to y=10 (panel edge is x=-50)
+    const result = rectToEdgePath(-50, -35, -10, 10, 'left', panelWidth, panelHeight);
+
+    expect(result).not.toBeNull();
+    expect(result!.edge).toBe('left');
+
+    // Check t values: (-10 + 40) / 80 = 0.375, (10 + 40) / 80 = 0.625
+    const points = result!.points;
+    expect(points[1].t).toBeCloseTo(0.375);
+    expect(points[2].t).toBeCloseTo(0.375);
+    expect(points[2].offset).toBeCloseTo(-15); // -(-35 - (-50)) = -15
+  });
+
+  it('creates edge path for rectangle touching right edge', () => {
+    // Rectangle from x=35 to x=50, y=0 to y=20 (panel edge is x=50)
+    const result = rectToEdgePath(35, 50, 0, 20, 'right', panelWidth, panelHeight);
+
+    expect(result).not.toBeNull();
+    expect(result!.edge).toBe('right');
+
+    // Check offset: 35 - 50 = -15
+    const points = result!.points;
+    expect(points[2].offset).toBeCloseTo(-15);
+  });
+
+  it('clamps rectangle to panel bounds', () => {
+    // Rectangle extends past panel on left side
+    const result = rectToEdgePath(-60, -30, 30, 40, 'top', panelWidth, panelHeight);
+
+    expect(result).not.toBeNull();
+    // t_start should be clamped to 0 (left edge of panel)
+    const points = result!.points;
+    expect(points[1].t).toBeCloseTo(0); // (-50 + 50) / 100 = 0
+  });
+
+  it('returns null for invalid rectangle', () => {
+    // Rectangle entirely outside panel
+    const result = rectToEdgePath(60, 70, 30, 40, 'top', panelWidth, panelHeight);
+
+    expect(result).toBeNull();
+  });
+});
+
+describe('circleToEdgePath', () => {
+  const panelWidth = 100;
+  const panelHeight = 80;
+
+  it('creates edge path for circle crossing top edge', () => {
+    // Circle centered at (0, 35) with radius 8, crossing y=40 (top edge)
+    // dy = 40 - 35 = 5, discrim = 64 - 25 = 39 > 0
+    const result = circleToEdgePath(0, 35, 8, 'top', panelWidth, panelHeight, 4);
+
+    expect(result).not.toBeNull();
+    expect(result!.edge).toBe('top');
+    expect(result!.mirrored).toBe(false);
+
+    // Should have arc points for the notch
+    const points = result!.points;
+    expect(points.length).toBeGreaterThan(4);
+
+    // First and last points should be at edge level
+    expect(points[0]).toEqual({ t: 0, offset: 0 });
+    expect(points[points.length - 1]).toEqual({ t: 1, offset: 0 });
+
+    // Middle points should have negative offset (notch going down)
+    const midIdx = Math.floor(points.length / 2);
+    expect(points[midIdx].offset).toBeLessThan(0);
+  });
+
+  it('creates edge path for circle crossing bottom edge', () => {
+    // Circle at (0, -35) with radius 8 crosses bottom edge at y=-40
+    // dy = -40 - (-35) = -5, discrim = 64 - 25 = 39 > 0
+    const result = circleToEdgePath(0, -35, 8, 'bottom', panelWidth, panelHeight, 4);
+
+    expect(result).not.toBeNull();
+    expect(result!.edge).toBe('bottom');
+
+    // Middle points should have negative offset
+    const points = result!.points;
+    const midIdx = Math.floor(points.length / 2);
+    expect(points[midIdx].offset).toBeLessThan(0);
+  });
+
+  it('creates edge path for circle crossing left edge', () => {
+    // Circle at (-45, 0) with radius 8 crosses left edge at x=-50
+    // dx = -50 - (-45) = -5, discrim = 64 - 25 = 39 > 0
+    const result = circleToEdgePath(-45, 0, 8, 'left', panelWidth, panelHeight, 4);
+
+    expect(result).not.toBeNull();
+    expect(result!.edge).toBe('left');
+  });
+
+  it('creates edge path for circle crossing right edge', () => {
+    // Circle at (45, 0) with radius 8 crosses right edge at x=50
+    // dx = 50 - 45 = 5, discrim = 64 - 25 = 39 > 0
+    const result = circleToEdgePath(45, 0, 8, 'right', panelWidth, panelHeight, 4);
+
+    expect(result).not.toBeNull();
+    expect(result!.edge).toBe('right');
   });
 });

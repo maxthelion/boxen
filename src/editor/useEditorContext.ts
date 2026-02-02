@@ -134,27 +134,86 @@ export function useEditorContext(): EditorContextValue {
         }));
 
         if (rawPoints.length >= 2) {
-          // Sort points by t value to ensure proper ordering
-          const sortedPoints = [...rawPoints].sort((a, b) => a.t - b.t);
+          // Find the t-range of the new path (without sorting - preserve click order)
+          const tValues = rawPoints.map(p => p.t);
+          const firstT = Math.min(...tValues);
+          const lastT = Math.max(...tValues);
 
-          // Build complete edge path with anchor points at t=0 and t=1
-          // This preserves the original edge before the fork start and after the merge
-          const edgePathPoints = [];
+          // Get existing edge path for this edge (to merge with)
+          const panelId = state.draft.target.panelId;
+          const edge = state.draft.target.edge;
+          const snapshot = engine.getSnapshot();
+          const assembly = snapshot.children[0];
+          let existingPath: { t: number; offset: number }[] = [];
 
-          // Add anchor at t=0 if the path doesn't start there
-          const firstT = sortedPoints[0].t;
-          if (firstT > 0.001) {
-            edgePathPoints.push({ t: 0, offset: 0 });
+          if (assembly && 'derived' in assembly) {
+            const panels = assembly.derived.panels || [];
+            const panel = panels.find((p: { id: string }) => p.id === panelId);
+            if (panel && 'props' in panel) {
+              const customEdgePaths = (panel.props as { customEdgePaths?: Array<{ edge: string; points: Array<{ t: number; offset: number }> }> }).customEdgePaths || [];
+              const existingEdgePath = customEdgePaths.find(p => p.edge === edge);
+              if (existingEdgePath) {
+                existingPath = existingEdgePath.points;
+              }
+            }
           }
 
-          // Add all the custom path points
-          edgePathPoints.push(...sortedPoints);
+          // Merge: keep existing points outside the new path's t-range
+          const mergedPoints: { t: number; offset: number }[] = [];
 
-          // Add anchor at t=1 if the path doesn't end there
-          const lastT = sortedPoints[sortedPoints.length - 1].t;
-          if (lastT < 0.999) {
-            edgePathPoints.push({ t: 1, offset: 0 });
+          // Add existing points BEFORE the new path starts
+          for (const p of existingPath) {
+            if (p.t < firstT - 0.001) {
+              mergedPoints.push(p);
+            }
           }
+
+          // If there's a gap between existing points and new path, add anchor
+          if (mergedPoints.length === 0 && firstT > 0.001) {
+            // No existing points before - preserve existing path's start offset if available
+            if (existingPath.length > 0) {
+              const sorted = [...existingPath].sort((a, b) => a.t - b.t);
+              // Add anchor at t=0 preserving existing path's start
+              if (sorted[0].t < 0.001) {
+                mergedPoints.push({ t: 0, offset: sorted[0].offset });
+              } else {
+                mergedPoints.push({ t: 0, offset: 0 });
+              }
+            } else {
+              mergedPoints.push({ t: 0, offset: 0 });
+            }
+          }
+
+          // Add all the new custom path points (preserve click order)
+          mergedPoints.push(...rawPoints);
+
+          // Add existing points AFTER the new path ends
+          for (const p of existingPath) {
+            if (p.t > lastT + 0.001) {
+              mergedPoints.push(p);
+            }
+          }
+
+          // If there's a gap after new path, add anchor at t=1
+          const hasPointsAfter = mergedPoints.some(p => p.t > lastT + 0.001);
+          if (!hasPointsAfter && lastT < 0.999) {
+            // Check if existing path had points after that we should preserve
+            if (existingPath.length > 0) {
+              const sorted = [...existingPath].sort((a, b) => a.t - b.t);
+              if (sorted[sorted.length - 1].t > 0.999) {
+                mergedPoints.push({ t: 1, offset: sorted[sorted.length - 1].offset });
+              } else {
+                mergedPoints.push({ t: 1, offset: 0 });
+              }
+            } else {
+              mergedPoints.push({ t: 1, offset: 0 });
+            }
+          }
+
+          // Note: We do NOT sort the final merged points by t.
+          // The user's points are kept in click order, which preserves
+          // their intended path shape (e.g., peaks, zigzags).
+          // Existing points before/after are already in order.
 
           engine.dispatch({
             type: 'SET_EDGE_PATH',
@@ -164,7 +223,7 @@ export function useEditorContext(): EditorContextValue {
               path: {
                 edge: state.draft.target.edge,
                 baseOffset: 0, // Default: no offset from joint face
-                points: edgePathPoints,
+                points: mergedPoints,
                 mirrored: false, // For now, don't auto-mirror
               },
             },

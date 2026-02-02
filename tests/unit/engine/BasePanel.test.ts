@@ -332,4 +332,116 @@ describe('BasePanel finger joint generation', () => {
     expect(subFront!.width).toBeLessThan(mainFront!.width);
     expect(subFront!.height).toBeLessThan(mainFront!.height);
   });
+
+  it('applies custom edge paths to panel outline', () => {
+    // Create a simple box
+    const customEngine = createEngine();
+    customEngine.createAssembly(100, 80, 60, {
+      thickness: 3,
+      fingerWidth: 12.8,
+      fingerGap: 1.5,
+    });
+
+    // First, extend the top edge so we have room for a custom path
+    customEngine.dispatch({
+      type: 'SET_EDGE_EXTENSION',
+      targetId: 'main-assembly',
+      payload: {
+        panelId: customEngine.assembly!.getFacePanel('front')!.id,
+        edge: 'top',
+        value: 10,  // 10mm extension
+      },
+    });
+
+    // Get the panel ID before setting custom path
+    const panelId = customEngine.assembly!.getFacePanel('front')!.id;
+
+    // Set a custom edge path on the top edge (a simple triangular notch)
+    customEngine.dispatch({
+      type: 'SET_EDGE_PATH',
+      targetId: 'main-assembly',
+      payload: {
+        panelId,
+        path: {
+          edge: 'top',
+          mirrored: true, // Only define half, mirror for symmetry
+          points: [
+            { t: 0, offset: 0 },      // Start at corner
+            { t: 0.25, offset: 0 },   // Along edge
+            { t: 0.25, offset: -5 },  // Notch inward
+            { t: 0.5, offset: -5 },   // Center of notch
+          ],
+        },
+      },
+    });
+
+    // Generate panels
+    const collection = customEngine.generatePanelsFromNodes();
+
+    // Find front panel
+    const frontPanel = collection.panels.find(p => p.source.faceId === 'front');
+    expect(frontPanel).toBeDefined();
+
+    // Custom path should have modified the outline
+    // The notch should create inward points
+    const points = frontPanel!.outline.points;
+
+    // Find points on the top edge (positive Y)
+    const topEdgePoints = points.filter(p => p.y > 30); // Above center
+    console.log('Custom edge path: top edge points count:', topEdgePoints.length);
+
+    // With the custom path, we should see points at different Y values
+    // (not all at the same max Y)
+    const topYValues = [...new Set(topEdgePoints.map(p => Math.round(p.y * 10) / 10))];
+    console.log('Custom edge path: unique Y values on top edge:', topYValues);
+
+    // Should have at least 2 different Y values due to the notch
+    expect(topYValues.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('stores and clears custom edge paths correctly', () => {
+    const pathEngine = createEngine();
+    pathEngine.createAssembly(100, 80, 60, {
+      thickness: 3,
+      fingerWidth: 12.8,
+      fingerGap: 1.5,
+    });
+
+    const panelId = pathEngine.assembly!.getFacePanel('front')!.id;
+
+    // Set a custom path
+    pathEngine.dispatch({
+      type: 'SET_EDGE_PATH',
+      targetId: 'main-assembly',
+      payload: {
+        panelId,
+        path: {
+          edge: 'bottom',
+          baseOffset: 0,
+          mirrored: false,
+          points: [
+            { t: 0, offset: 0 },
+            { t: 0.5, offset: -3 },
+            { t: 1, offset: 0 },
+          ],
+        },
+      },
+    });
+
+    // Verify path is stored
+    let customPaths = pathEngine.assembly!.getPanelCustomEdgePaths(panelId);
+    expect(customPaths.length).toBe(1);
+    expect(customPaths[0].edge).toBe('bottom');
+
+    // Clear the path
+    pathEngine.dispatch({
+      type: 'CLEAR_EDGE_PATH',
+      targetId: 'main-assembly',
+      payload: { panelId, edge: 'bottom' },
+    });
+
+    // Verify path is cleared
+    customPaths = pathEngine.assembly!.getPanelCustomEdgePaths(panelId);
+    expect(customPaths.length).toBe(0);
+  });
 });

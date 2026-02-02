@@ -83,6 +83,8 @@ export {
 // Selection helpers
 export {
   getAssemblyIdForPanel,
+  getAssemblyIdFromPanel,
+  getAssemblyIdFromSource,
   computeVisuallySelectedPanelIds,
   isPanelSelectedIn3DView,
   getAllSubdivisions,

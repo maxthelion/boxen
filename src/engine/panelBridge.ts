@@ -273,12 +273,14 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
   // Convert engine PanelHole[] to store PanelHole[]
   const holes: StorePanelHole[] = derived.outline.holes.map(hole => {
     // Map engine source type to store HoleType
-    const holeType = hole.source.type === 'custom' ? 'custom' : 'slot';
+    const holeType = (hole.source.type === 'custom' || hole.source.type === 'cutout') ? 'custom' : 'slot';
 
     // Map engine source type to store source type
     const sourceTypeMap: Record<string, 'divider-slot' | 'lid-slot' | 'extension-slot' | 'decorative' | 'functional'> = {
       'divider-slot': 'divider-slot',
       'sub-assembly-slot': 'divider-slot', // Sub-assembly slots are similar to divider slots
+      'extension-slot': 'extension-slot',
+      'cutout': 'decorative',  // User cutouts are decorative holes
       'custom': 'decorative',
     };
 
@@ -323,6 +325,7 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
     edgeExtensions: props.edgeExtensions,
     edgeStatuses,
     cornerEligibility,
+    customEdgePaths: props.customEdgePaths,
   };
 }
 
