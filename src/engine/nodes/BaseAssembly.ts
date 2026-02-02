@@ -37,10 +37,13 @@ import {
   Subdivision,
   CornerKey,
   CornerFillet,
+  CustomEdgePath,
+  Cutout,
 } from '../types';
 import { VoidNode } from './VoidNode';
 import { FacePanelNode } from './FacePanelNode';
 import { DividerPanelNode } from './DividerPanelNode';
+import { BasePanel } from './BasePanel';
 import { calculateSubAssemblyFingerPoints } from '../../utils/fingerPoints';
 import {
   startAlignmentDebug,
@@ -54,6 +57,7 @@ import {
   getMatingEdge,
   getJointAxis,
 } from '../../utils/faceGeometry';
+import { mergeEdgePaths } from '../safeSpace';
 
 const DEFAULT_LID_CONFIG: LidConfig = {
   tabDirection: 'tabs-out',
@@ -100,6 +104,17 @@ export abstract class BaseAssembly extends BaseNode {
 
   // Stored corner fillets for panels (keyed by panel ID)
   protected _panelCornerFillets: Map<string, Map<CornerKey, number>> = new Map();
+
+  // Stored custom edge paths for panels (keyed by panel ID, then by edge)
+  protected _panelCustomEdgePaths: Map<string, Map<EdgePosition, CustomEdgePath>> = new Map();
+
+  // Stored cutouts for panels (keyed by panel ID, then by cutout ID)
+  protected _panelCutouts: Map<string, Map<string, Cutout>> = new Map();
+
+  // Stored modified safe areas for panels (keyed by panel ID)
+  // This is the result of boolean operations (union/difference) on the safe area
+  // Used for edge path generation instead of the old merge-based custom edge paths
+  protected _panelModifiedSafeAreas: Map<string, { x: number; y: number }[]> = new Map();
 
   // Cached finger point data (computed from dimensions + material)
   protected _cachedFingerData: AssemblyFingerData | null = null;
@@ -449,7 +464,46 @@ export abstract class BaseAssembly extends BaseNode {
       }
     }
 
+    // Apply stored custom edge paths
+    const storedPaths = this._panelCustomEdgePaths.get(panelNode.id)
+      || this._panelCustomEdgePaths.get(`face-${faceId}`);
+    if (storedPaths) {
+      for (const path of storedPaths.values()) {
+        panelNode.setCustomEdgePath(path);
+      }
+    }
+
+    // Apply edge paths from modified safe area (takes precedence - boolean operations)
+    const modifiedSafeArea = this._panelModifiedSafeAreas.get(panelNode.id)
+      || this._panelModifiedSafeAreas.get(`face-${faceId}`);
+    if (modifiedSafeArea) {
+      this.applyModifiedSafeAreaToPanel(panelNode, modifiedSafeArea);
+    }
+
+    // Apply stored cutouts
+    const storedCutouts = this._panelCutouts.get(panelNode.id)
+      || this._panelCutouts.get(`face-${faceId}`);
+    if (storedCutouts) {
+      for (const cutout of storedCutouts.values()) {
+        panelNode.addCutout(cutout);
+      }
+    }
+
     return panelNode;
+  }
+
+  /**
+   * Apply a modified safe area polygon directly to a panel.
+   * The polygon is used as the panel outline, bypassing edge path computation.
+   * This provides clean rectangular shapes from boolean operations without
+   * the diagonal interpolation issues of edge path extraction.
+   */
+  protected applyModifiedSafeAreaToPanel(
+    panelNode: BasePanel,
+    modifiedSafeArea: { x: number; y: number }[]
+  ): void {
+    // Set the polygon directly on the panel - it will be used in computeOutline()
+    panelNode.setModifiedOutlinePolygon(modifiedSafeArea);
   }
 
   // ==========================================================================
@@ -517,6 +571,168 @@ export abstract class BaseAssembly extends BaseNode {
       this._panelCornerFillets.delete(panelId);
     }
     this.markDirty();
+  }
+
+  // ==========================================================================
+  // Custom Edge Path Management
+  // ==========================================================================
+
+  /**
+   * Get custom edge paths for a panel
+   */
+  getPanelCustomEdgePaths(panelId: string): CustomEdgePath[] {
+    const pathMap = this._panelCustomEdgePaths.get(panelId);
+    if (!pathMap) return [];
+    return Array.from(pathMap.values());
+  }
+
+  /**
+   * Get custom edge path for a specific edge
+   */
+  getPanelCustomEdgePath(panelId: string, edge: EdgePosition): CustomEdgePath | null {
+    const pathMap = this._panelCustomEdgePaths.get(panelId);
+    return pathMap?.get(edge) ?? null;
+  }
+
+  /**
+   * Set custom edge path for a panel edge.
+   * If a path already exists for this edge, the new path is merged with it.
+   * New modifications take precedence over existing ones in overlapping regions.
+   */
+  setPanelCustomEdgePath(panelId: string, path: CustomEdgePath): void {
+    let pathMap = this._panelCustomEdgePaths.get(panelId);
+    if (!pathMap) {
+      pathMap = new Map();
+      this._panelCustomEdgePaths.set(panelId, pathMap);
+    }
+
+    // Check if there's an existing path for this edge
+    const existing = pathMap.get(path.edge);
+    if (existing) {
+      // Merge the paths - new modifications take precedence
+      const merged = mergeEdgePaths(existing, path);
+      pathMap.set(path.edge, merged);
+    } else {
+      pathMap.set(path.edge, path);
+    }
+
+    this.markDirty();
+  }
+
+  /**
+   * Clear custom edge path for a panel edge
+   */
+  clearPanelCustomEdgePath(panelId: string, edge: EdgePosition): void {
+    const pathMap = this._panelCustomEdgePaths.get(panelId);
+    if (pathMap?.has(edge)) {
+      pathMap.delete(edge);
+      // Clean up empty map
+      if (pathMap.size === 0) {
+        this._panelCustomEdgePaths.delete(panelId);
+      }
+      this.markDirty();
+    }
+  }
+
+  // ==========================================================================
+  // Cutouts
+  // ==========================================================================
+
+  /**
+   * Get all cutouts for a panel
+   */
+  getPanelCutouts(panelId: string): Cutout[] {
+    const cutoutMap = this._panelCutouts.get(panelId);
+    if (!cutoutMap) return [];
+    return Array.from(cutoutMap.values());
+  }
+
+  /**
+   * Get a specific cutout by ID
+   */
+  getPanelCutout(panelId: string, cutoutId: string): Cutout | null {
+    const cutoutMap = this._panelCutouts.get(panelId);
+    return cutoutMap?.get(cutoutId) ?? null;
+  }
+
+  /**
+   * Add a cutout to a panel
+   */
+  addPanelCutout(panelId: string, cutout: Cutout): void {
+    let cutoutMap = this._panelCutouts.get(panelId);
+    if (!cutoutMap) {
+      cutoutMap = new Map();
+      this._panelCutouts.set(panelId, cutoutMap);
+    }
+    cutoutMap.set(cutout.id, cutout);
+    this.markDirty();
+  }
+
+  /**
+   * Update a cutout on a panel
+   */
+  updatePanelCutout(panelId: string, cutoutId: string, updates: Partial<Omit<Cutout, 'id' | 'type'>>): void {
+    const cutoutMap = this._panelCutouts.get(panelId);
+    const existing = cutoutMap?.get(cutoutId);
+    if (existing) {
+      // Merge updates into the existing cutout
+      const updated = { ...existing, ...updates } as Cutout;
+      cutoutMap!.set(cutoutId, updated);
+      this.markDirty();
+    }
+  }
+
+  /**
+   * Delete a cutout from a panel
+   */
+  deletePanelCutout(panelId: string, cutoutId: string): void {
+    const cutoutMap = this._panelCutouts.get(panelId);
+    if (cutoutMap?.has(cutoutId)) {
+      cutoutMap.delete(cutoutId);
+      // Clean up empty map
+      if (cutoutMap.size === 0) {
+        this._panelCutouts.delete(panelId);
+      }
+      this.markDirty();
+    }
+  }
+
+  // ==========================================================================
+  // Modified Safe Area Management (Boolean-based edge operations)
+  // ==========================================================================
+
+  /**
+   * Get the modified safe area for a panel (if any).
+   * Returns null if no boolean operations have been applied.
+   */
+  getModifiedSafeArea(panelId: string): { x: number; y: number }[] | null {
+    return this._panelModifiedSafeAreas.get(panelId) ?? null;
+  }
+
+  /**
+   * Set the modified safe area for a panel.
+   * This replaces any previous modified safe area.
+   */
+  setModifiedSafeArea(panelId: string, polygon: { x: number; y: number }[]): void {
+    this._panelModifiedSafeAreas.set(panelId, polygon.map(p => ({ x: p.x, y: p.y })));
+    this.markDirty();
+  }
+
+  /**
+   * Clear the modified safe area for a panel (revert to default).
+   */
+  clearModifiedSafeArea(panelId: string): void {
+    if (this._panelModifiedSafeAreas.has(panelId)) {
+      this._panelModifiedSafeAreas.delete(panelId);
+      this.markDirty();
+    }
+  }
+
+  /**
+   * Check if a panel has a modified safe area.
+   */
+  hasModifiedSafeArea(panelId: string): boolean {
+    return this._panelModifiedSafeAreas.has(panelId);
   }
 
   // ==========================================================================
@@ -857,6 +1073,31 @@ export abstract class BaseAssembly extends BaseNode {
           }
         }
 
+        // Apply stored custom edge paths
+        const storedPaths = this._panelCustomEdgePaths.get(panelNode.id)
+          || this._panelCustomEdgePaths.get(`face-${faceId}`);
+        if (storedPaths) {
+          for (const path of storedPaths.values()) {
+            panelNode.setCustomEdgePath(path);
+          }
+        }
+
+        // Apply edge paths from modified safe area (takes precedence - boolean operations)
+        const modifiedSafeArea = this._panelModifiedSafeAreas.get(panelNode.id)
+          || this._panelModifiedSafeAreas.get(`face-${faceId}`);
+        if (modifiedSafeArea) {
+          this.applyModifiedSafeAreaToPanel(panelNode, modifiedSafeArea);
+        }
+
+        // Apply stored cutouts
+        const storedCutouts = this._panelCutouts.get(panelNode.id)
+          || this._panelCutouts.get(`face-${faceId}`);
+        if (storedCutouts) {
+          for (const cutout of storedCutouts.values()) {
+            panelNode.addCutout(cutout);
+          }
+        }
+
         panels.push(panelNode.serialize());
       }
     }
@@ -991,6 +1232,20 @@ export abstract class BaseAssembly extends BaseNode {
   }
 
   // ==========================================================================
+  // Dirty Tracking Override
+  // ==========================================================================
+
+  /**
+   * Override markDirty to also invalidate panel cache.
+   * This ensures panels are recomputed when edge extensions change.
+   */
+  override markDirty(): void {
+    super.markDirty();
+    // Invalidate panel cache so getPanels() recomputes with new values
+    this._cachedPanels = null;
+  }
+
+  // ==========================================================================
   // Recomputation
   // ==========================================================================
 
@@ -1078,6 +1333,24 @@ export abstract class BaseAssembly extends BaseNode {
     target._panelCornerFillets = new Map();
     for (const [panelId, filletMap] of this._panelCornerFillets) {
       target._panelCornerFillets.set(panelId, new Map(filletMap));
+    }
+
+    // Copy custom edge paths
+    target._panelCustomEdgePaths = new Map();
+    for (const [panelId, pathMap] of this._panelCustomEdgePaths) {
+      target._panelCustomEdgePaths.set(panelId, new Map(pathMap));
+    }
+
+    // Copy cutouts
+    target._panelCutouts = new Map();
+    for (const [panelId, cutoutMap] of this._panelCutouts) {
+      target._panelCutouts.set(panelId, new Map(cutoutMap));
+    }
+
+    // Copy modified safe areas
+    target._panelModifiedSafeAreas = new Map();
+    for (const [panelId, polygon] of this._panelModifiedSafeAreas) {
+      target._panelModifiedSafeAreas.set(panelId, polygon.map(p => ({ x: p.x, y: p.y })));
     }
 
     // Copy face panel IDs (preserve UUIDs across clones)

@@ -25,6 +25,7 @@ import {
 import { PanelCollection } from '../types';
 import { generatePanelsFromEngine } from './panelBridge';
 import { appendDebug } from '../utils/debug';
+import { unionPolygons, differencePolygons } from '../utils/polygonBoolean';
 
 export class Engine {
   private _scene: SceneNode;
@@ -761,6 +762,74 @@ export class Engine {
         break;
       }
 
+      case 'SET_EDGE_PATH': {
+        // Custom edge paths are stored at the assembly level
+        if (assembly) {
+          assembly.setPanelCustomEdgePath(action.payload.panelId, action.payload.path);
+          return true;
+        }
+        break;
+      }
+
+      case 'CLEAR_EDGE_PATH': {
+        // Clear a custom edge path
+        if (assembly) {
+          assembly.clearPanelCustomEdgePath(action.payload.panelId, action.payload.edge);
+          return true;
+        }
+        break;
+      }
+
+      case 'ADD_CUTOUT': {
+        // Add a cutout to a panel
+        if (assembly) {
+          assembly.addPanelCutout(action.payload.panelId, action.payload.cutout);
+          return true;
+        }
+        break;
+      }
+
+      case 'UPDATE_CUTOUT': {
+        // Update an existing cutout
+        if (assembly) {
+          assembly.updatePanelCutout(
+            action.payload.panelId,
+            action.payload.cutoutId,
+            action.payload.updates
+          );
+          return true;
+        }
+        break;
+      }
+
+      case 'DELETE_CUTOUT': {
+        // Delete a cutout from a panel
+        if (assembly) {
+          assembly.deletePanelCutout(action.payload.panelId, action.payload.cutoutId);
+          return true;
+        }
+        break;
+      }
+
+      case 'APPLY_EDGE_OPERATION': {
+        // Apply boolean operation (union/difference) to panel safe area
+        if (assembly) {
+          const { panelId, operation, shape } = action.payload;
+          const success = this.applyEdgeOperation(assembly, panelId, operation, shape);
+          return success;
+        }
+        break;
+      }
+
+      case 'CLEAR_MODIFIED_SAFE_AREA': {
+        // Clear modified safe area for a panel (revert to default)
+        if (assembly) {
+          assembly.clearModifiedSafeArea(action.payload.panelId);
+          return true;
+        }
+        break;
+      }
+
       case 'CREATE_SUB_ASSEMBLY': {
         const voidNodeRaw = findInScene(action.payload.voidId);
         const voidNode = voidNodeRaw instanceof VoidNode ? voidNodeRaw : null;
@@ -909,6 +978,63 @@ export class Engine {
     }
 
     return false;
+  }
+
+  // ==========================================================================
+  // Boolean Edge Operations
+  // ==========================================================================
+
+  /**
+   * Apply a boolean operation (union or difference) to modify a panel's outline.
+   * This is the core of the boolean-based edge modification system.
+   *
+   * @param assembly - The assembly containing the panel
+   * @param panelId - The panel to modify
+   * @param operation - 'union' to add material, 'difference' to remove material
+   * @param shape - The polygon shape to apply (in panel coordinates)
+   * @returns true if operation was applied successfully
+   */
+  private applyEdgeOperation(
+    assembly: BaseAssembly,
+    panelId: string,
+    operation: 'union' | 'difference',
+    shape: { x: number; y: number }[]
+  ): boolean {
+    // Find the panel to get its outline
+    const panels = assembly.getPanels();
+    const panel = panels.find(p => p.id === panelId);
+    if (!panel) {
+      console.warn(`Panel ${panelId} not found`);
+      return false;
+    }
+
+    // Get the current polygon (either modified or the panel's full outline with fingers)
+    let currentPolygon = assembly.getModifiedSafeArea(panelId);
+
+    if (!currentPolygon) {
+      // No modified area yet - start with the panel's actual outline
+      // This INCLUDES finger joints, so they'll be preserved after the boolean operation
+      currentPolygon = panel.derived.outline.points.map(p => ({ x: p.x, y: p.y }));
+    }
+
+    // Apply the boolean operation
+    let resultPolygon: { x: number; y: number }[] | null;
+
+    if (operation === 'union') {
+      resultPolygon = unionPolygons(currentPolygon, shape);
+    } else {
+      resultPolygon = differencePolygons(currentPolygon, shape);
+    }
+
+    if (!resultPolygon || resultPolygon.length < 3) {
+      console.warn('Boolean operation resulted in invalid polygon');
+      return false;
+    }
+
+    // Store the modified area
+    assembly.setModifiedSafeArea(panelId, resultPolygon);
+
+    return true;
   }
 }
 

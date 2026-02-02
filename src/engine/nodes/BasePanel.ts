@@ -35,6 +35,12 @@ import {
   CornerEligibility,
   ALL_CORNERS,
   getCornerEdges,
+  CustomEdgePath,
+  EdgePathPoint,  // Used in applyCustomEdgePathToOutline for path point mapping
+  Cutout,
+  RectCutout,
+  CircleCutout,
+  PathCutout,
 } from '../types';
 import { generateFingerJointPathV2, Point } from '../../utils/fingerJoints';
 
@@ -66,7 +72,11 @@ export abstract class BasePanel extends BaseNode {
   // Input properties
   protected _edgeExtensions: EdgeExtensions = { top: 0, bottom: 0, left: 0, right: 0 };
   protected _cornerFillets: Map<CornerKey, number> = new Map();  // corner -> radius
+  protected _customEdgePaths: Map<EdgePosition, CustomEdgePath> = new Map();  // edge -> custom path
+  protected _cutouts: Map<string, Cutout> = new Map();  // cutoutId -> cutout
   protected _visible: boolean = true;
+  // Modified outline polygon (from boolean operations) - used directly instead of edge paths
+  protected _modifiedOutlinePolygon: Point2D[] | null = null;
 
   // Cached derived values (recomputed when dirty)
   protected _cachedDimensions: PanelDimensions | null = null;
@@ -146,6 +156,79 @@ export abstract class BasePanel extends BaseNode {
       }
     }
     if (changed) {
+      this.markDirty();
+    }
+  }
+
+  // Custom edge path accessors
+  get customEdgePaths(): CustomEdgePath[] {
+    return Array.from(this._customEdgePaths.values());
+  }
+
+  getCustomEdgePath(edge: EdgePosition): CustomEdgePath | null {
+    return this._customEdgePaths.get(edge) ?? null;
+  }
+
+  setCustomEdgePath(path: CustomEdgePath): void {
+    const currentPath = this._customEdgePaths.get(path.edge);
+    // Check if path actually changed (simple reference check, could be deeper)
+    if (currentPath !== path) {
+      this._customEdgePaths.set(path.edge, path);
+      this.markDirty();
+    }
+  }
+
+  clearCustomEdgePath(edge: EdgePosition): void {
+    if (this._customEdgePaths.has(edge)) {
+      this._customEdgePaths.delete(edge);
+      this.markDirty();
+    }
+  }
+
+  /**
+   * Set a modified outline polygon (from boolean operations).
+   * When set, this polygon is used directly as the panel outline,
+   * bypassing edge path computation for edges that have modifications.
+   */
+  setModifiedOutlinePolygon(polygon: Point2D[] | null): void {
+    this._modifiedOutlinePolygon = polygon;
+    this.markDirty();
+  }
+
+  /**
+   * Get the modified outline polygon if set.
+   */
+  getModifiedOutlinePolygon(): Point2D[] | null {
+    return this._modifiedOutlinePolygon;
+  }
+
+  // Cutout accessors
+  get cutouts(): Cutout[] {
+    return Array.from(this._cutouts.values());
+  }
+
+  getCutout(cutoutId: string): Cutout | null {
+    return this._cutouts.get(cutoutId) ?? null;
+  }
+
+  addCutout(cutout: Cutout): void {
+    this._cutouts.set(cutout.id, cutout);
+    this.markDirty();
+  }
+
+  removeCutout(cutoutId: string): void {
+    if (this._cutouts.has(cutoutId)) {
+      this._cutouts.delete(cutoutId);
+      this.markDirty();
+    }
+  }
+
+  updateCutout(cutoutId: string, updates: Partial<Omit<Cutout, 'id' | 'type'>>): void {
+    const existing = this._cutouts.get(cutoutId);
+    if (existing) {
+      // Merge updates into the existing cutout
+      const updated = { ...existing, ...updates } as Cutout;
+      this._cutouts.set(cutoutId, updated);
       this.markDirty();
     }
   }
@@ -379,6 +462,28 @@ export abstract class BasePanel extends BaseNode {
    * Uses edge configs to determine which edges have tabs/slots
    */
   protected computeOutline(): PanelOutline {
+    // If a modified outline polygon is set (from boolean operations),
+    // use it directly as the outline points
+    if (this._modifiedOutlinePolygon && this._modifiedOutlinePolygon.length >= 3) {
+      const holes = this.computeHoles();
+      const allHoles = [...holes];
+
+      // Add cutouts as holes
+      if (this._cutouts.size > 0) {
+        for (const cutout of this._cutouts.values()) {
+          const cutoutHole = this.cutoutToHole(cutout);
+          if (cutoutHole) {
+            allHoles.push(cutoutHole);
+          }
+        }
+      }
+
+      return {
+        points: this._modifiedOutlinePolygon.map(p => ({ x: p.x, y: p.y })),
+        holes: allHoles,
+      };
+    }
+
     const dims = this.getDimensions();
     const edgeConfigs = this.computeEdgeConfigs();
     const material = this.getMaterial();
@@ -567,14 +672,136 @@ export abstract class BasePanel extends BaseNode {
       this.applyFeetToOutline(points, fingerCorners, mt, feetConfig.params);
     }
 
+    // Apply custom edge paths
+    if (this._customEdgePaths.size > 0) {
+      for (const [edge, customPath] of this._customEdgePaths) {
+        this.applyCustomEdgePathToOutline(points, edge, customPath, fingerCorners, extendedCorners, extensions);
+      }
+    }
+
     // Apply corner fillets as final post-processing
     if (this._cornerFillets.size > 0) {
       this.applyFilletsToOutline(points, extendedCorners);
     }
 
+    // Add cutouts as holes
+    const allHoles = [...holes];
+    if (this._cutouts.size > 0) {
+      for (const cutout of this._cutouts.values()) {
+        const cutoutHole = this.cutoutToHole(cutout);
+        if (cutoutHole) {
+          allHoles.push(cutoutHole);
+        }
+      }
+    }
+
     return {
       points,
-      holes,
+      holes: allHoles,
+    };
+  }
+
+  /**
+   * Convert a cutout to hole for rendering.
+   * Returns null if the cutout produces invalid geometry.
+   */
+  protected cutoutToHole(cutout: Cutout): PanelHole | null {
+    switch (cutout.type) {
+      case 'rect':
+        return this.rectCutoutToHole(cutout);
+      case 'circle':
+        return this.circleCutoutToHole(cutout);
+      case 'path':
+        return this.pathCutoutToHole(cutout);
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Convert a rectangle cutout to a hole.
+   * Optionally generates rounded corners if cornerRadius is set.
+   */
+  protected rectCutoutToHole(cutout: RectCutout): PanelHole {
+    const { id, center, width, height, cornerRadius } = cutout;
+    const halfW = width / 2;
+    const halfH = height / 2;
+
+    if (!cornerRadius || cornerRadius <= 0) {
+      // Simple rectangle - 4 corners, counter-clockwise for hole
+      return {
+        id,
+        path: [
+          { x: center.x - halfW, y: center.y - halfH },
+          { x: center.x - halfW, y: center.y + halfH },
+          { x: center.x + halfW, y: center.y + halfH },
+          { x: center.x + halfW, y: center.y - halfH },
+        ],
+        source: { type: 'cutout', sourceId: id },
+      };
+    }
+
+    // Rounded rectangle - generate corner arcs
+    const r = Math.min(cornerRadius, halfW, halfH);
+    const path: Point2D[] = [];
+    const segments = 8; // Segments per corner arc
+
+    // Corner centers
+    const corners = [
+      { cx: center.x - halfW + r, cy: center.y - halfH + r, startAngle: Math.PI, endAngle: 1.5 * Math.PI },     // BL
+      { cx: center.x - halfW + r, cy: center.y + halfH - r, startAngle: 0.5 * Math.PI, endAngle: Math.PI },    // TL
+      { cx: center.x + halfW - r, cy: center.y + halfH - r, startAngle: 0, endAngle: 0.5 * Math.PI },          // TR
+      { cx: center.x + halfW - r, cy: center.y - halfH + r, startAngle: 1.5 * Math.PI, endAngle: 2 * Math.PI }, // BR
+    ];
+
+    for (const corner of corners) {
+      for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        const angle = corner.startAngle + (corner.endAngle - corner.startAngle) * t;
+        path.push({
+          x: corner.cx + r * Math.cos(angle),
+          y: corner.cy + r * Math.sin(angle),
+        });
+      }
+    }
+
+    return { id, path, source: { type: 'cutout', sourceId: id } };
+  }
+
+  /**
+   * Convert a circle cutout to a hole.
+   * Approximates the circle with a polygon.
+   */
+  protected circleCutoutToHole(cutout: CircleCutout): PanelHole {
+    const { id, center, radius } = cutout;
+    const segments = Math.max(16, Math.ceil(radius * 2)); // More segments for larger circles
+    const path: Point2D[] = [];
+
+    // Generate points counter-clockwise for hole winding
+    for (let i = 0; i < segments; i++) {
+      const angle = (i / segments) * 2 * Math.PI;
+      path.push({
+        x: center.x + radius * Math.cos(angle),
+        y: center.y + radius * Math.sin(angle),
+      });
+    }
+
+    return { id, path, source: { type: 'cutout', sourceId: id } };
+  }
+
+  /**
+   * Convert a path cutout to a hole.
+   * The path points define the hole boundary directly.
+   */
+  protected pathCutoutToHole(cutout: PathCutout): PanelHole | null {
+    if (cutout.points.length < 3) {
+      return null; // Need at least 3 points for a valid hole
+    }
+
+    return {
+      id: cutout.id,
+      path: cutout.points.map(p => ({ x: p.x, y: p.y })),
+      source: { type: 'cutout', sourceId: cutout.id },
     };
   }
 
@@ -723,6 +950,172 @@ export abstract class BasePanel extends BaseNode {
     }
 
     return arcPoints;
+  }
+
+  /**
+   * Apply a custom edge path to the outline.
+   * Replaces the edge segment with a user-defined path.
+   *
+   * The custom path uses normalized coordinates:
+   * - t: 0-1 position along edge (0 = start corner, 1 = end corner)
+   * - offset: perpendicular distance from edge (positive = outward, negative = inward)
+   *
+   * For mirrored paths, only t=0 to t=0.5 is defined, and the path is mirrored.
+   */
+  protected applyCustomEdgePathToOutline(
+    points: Point2D[],
+    edge: EdgePosition,
+    customPath: CustomEdgePath,
+    fingerCorners: { topLeft: Point2D; topRight: Point2D; bottomRight: Point2D; bottomLeft: Point2D },
+    extendedCorners: { topLeft: Point2D; topRight: Point2D; bottomRight: Point2D; bottomLeft: Point2D },
+    extensions: { top: number; right: number; bottom: number; left: number }
+  ): void {
+    if (customPath.points.length === 0) return;
+
+    // Determine edge corners (start and end of the edge in path traversal order)
+    // Use fingerCorners for finding the segment in the outline (since outline is built from fingerCorners)
+    // Use extendedCorners for edge length calculation ONLY if there are actual extensions on that axis
+    let startCorner: Point2D, endCorner: Point2D;
+    let searchStartCorner: Point2D, searchEndCorner: Point2D;
+    let outwardDirection: { x: number; y: number };
+
+    // Helper to compute corner for edge path endpoints
+    // Use extendedCorners only when there are actual extensions on the relevant axes
+    // Otherwise use fingerCorners to respect joint corner ownership rules
+    const computeCorner = (
+      ext: Point2D,
+      finger: Point2D,
+      xExtension: number, // extension that affects x coordinate
+      yExtension: number // extension that affects y coordinate
+    ): Point2D => {
+      return {
+        x: xExtension > 0.001 ? ext.x : finger.x,
+        y: yExtension > 0.001 ? ext.y : finger.y,
+      };
+    };
+
+    switch (edge) {
+      case 'top':
+        searchStartCorner = fingerCorners.topLeft;
+        searchEndCorner = fingerCorners.topRight;
+        // topLeft: x affected by left extension, y affected by top extension
+        startCorner = computeCorner(extendedCorners.topLeft, fingerCorners.topLeft, extensions.left, extensions.top);
+        // topRight: x affected by right extension, y affected by top extension
+        endCorner = computeCorner(extendedCorners.topRight, fingerCorners.topRight, extensions.right, extensions.top);
+        outwardDirection = { x: 0, y: 1 };
+        break;
+      case 'right':
+        searchStartCorner = fingerCorners.topRight;
+        searchEndCorner = fingerCorners.bottomRight;
+        // topRight: x affected by right extension, y affected by top extension
+        startCorner = computeCorner(extendedCorners.topRight, fingerCorners.topRight, extensions.right, extensions.top);
+        // bottomRight: x affected by right extension, y affected by bottom extension
+        endCorner = computeCorner(extendedCorners.bottomRight, fingerCorners.bottomRight, extensions.right, extensions.bottom);
+        outwardDirection = { x: 1, y: 0 };
+        break;
+      case 'bottom':
+        searchStartCorner = fingerCorners.bottomRight;
+        searchEndCorner = fingerCorners.bottomLeft;
+        // bottomRight: x affected by right extension, y affected by bottom extension
+        startCorner = computeCorner(extendedCorners.bottomRight, fingerCorners.bottomRight, extensions.right, extensions.bottom);
+        // bottomLeft: x affected by left extension, y affected by bottom extension
+        endCorner = computeCorner(extendedCorners.bottomLeft, fingerCorners.bottomLeft, extensions.left, extensions.bottom);
+        outwardDirection = { x: 0, y: -1 };
+        break;
+      case 'left':
+        searchStartCorner = fingerCorners.bottomLeft;
+        searchEndCorner = fingerCorners.topLeft;
+        // bottomLeft: x affected by left extension, y affected by bottom extension
+        startCorner = computeCorner(extendedCorners.bottomLeft, fingerCorners.bottomLeft, extensions.left, extensions.bottom);
+        // topLeft: x affected by left extension, y affected by top extension
+        endCorner = computeCorner(extendedCorners.topLeft, fingerCorners.topLeft, extensions.left, extensions.top);
+        outwardDirection = { x: -1, y: 0 };
+        break;
+    }
+
+    // Calculate edge vector
+    const edgeVector = {
+      x: endCorner.x - startCorner.x,
+      y: endCorner.y - startCorner.y,
+    };
+    const edgeLength = Math.sqrt(edgeVector.x * edgeVector.x + edgeVector.y * edgeVector.y);
+    if (edgeLength < 0.001) return;
+
+    // Generate the path points from the custom path definition
+    let pathPoints = customPath.points;
+
+    // Handle mirrored paths: expand from half to full path
+    if (customPath.mirrored && pathPoints.length > 0) {
+      const expandedPoints: EdgePathPoint[] = [...pathPoints];
+
+      // Mirror points from t=0.5 back to t=0, excluding the center point if t=0.5 is exact
+      for (let i = pathPoints.length - 1; i >= 0; i--) {
+        const pt = pathPoints[i];
+        // Skip if this is already at t=0.5 (don't duplicate center)
+        if (Math.abs(pt.t - 0.5) < 0.001) continue;
+        // Mirror: t becomes (1 - t)
+        expandedPoints.push({
+          t: 1 - pt.t,
+          offset: pt.offset,
+        });
+      }
+      pathPoints = expandedPoints;
+    }
+
+    // Convert normalized path points to actual coordinates
+    const convertedPoints: Point2D[] = pathPoints.map((pt) => {
+      // Position along edge
+      const alongEdge = {
+        x: startCorner.x + edgeVector.x * pt.t,
+        y: startCorner.y + edgeVector.y * pt.t,
+      };
+      // Add perpendicular offset
+      return {
+        x: alongEdge.x + outwardDirection.x * pt.offset,
+        y: alongEdge.y + outwardDirection.y * pt.offset,
+      };
+    });
+
+    if (convertedPoints.length === 0) return;
+
+    // Find the edge segment in the outline to replace
+    // Use searchStartCorner/searchEndCorner which match the fingerCorners used to build the outline
+    const tolerance = 1.0; // mm tolerance for matching
+    let startIdx = -1;
+    let endIdx = -1;
+
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      if (startIdx === -1 && Math.abs(p.x - searchStartCorner.x) < tolerance && Math.abs(p.y - searchStartCorner.y) < tolerance) {
+        startIdx = i;
+      }
+      if (Math.abs(p.x - searchEndCorner.x) < tolerance && Math.abs(p.y - searchEndCorner.y) < tolerance) {
+        endIdx = i;
+      }
+    }
+
+    // If we found both corners, replace the segment between them
+    if (startIdx !== -1 && endIdx !== -1) {
+      if (startIdx < endIdx) {
+        // Normal case: start comes before end in array
+        const before = points.slice(0, startIdx);
+        const after = points.slice(endIdx + 1);
+        points.length = 0;
+        points.push(...before, ...convertedPoints, ...after);
+      } else if (startIdx > endIdx) {
+        // Wrap-around case: start is after end in array (e.g., left edge)
+        // The segment to replace wraps around: [startIdx] -> end of array -> [0] -> [endIdx]
+        // Keep the middle segment: [endIdx+1] to [startIdx-1] (top, right, bottom edges)
+        const middle = points.slice(endIdx + 1, startIdx);
+        points.length = 0;
+        // Reconstruct: converted points (new left edge), then middle (other edges)
+        points.push(...convertedPoints);
+        points.push(...middle);
+      }
+    } else {
+      // Debug: corners not found
+      console.warn(`applyCustomEdgePathToOutline: Could not find corners for ${edge} edge. startIdx=${startIdx}, endIdx=${endIdx}`);
+    }
   }
 
   /**
@@ -1395,6 +1788,8 @@ export abstract class BasePanel extends BaseNode {
       props: {
         edgeExtensions: this.edgeExtensions,
         cornerFillets: this.cornerFillets,
+        customEdgePaths: this.customEdgePaths,
+        cutouts: this.cutouts,
         visible: this._visible,
       },
       derived: {
