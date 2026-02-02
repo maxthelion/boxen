@@ -798,9 +798,12 @@ export abstract class BasePanel extends BaseNode {
       return null; // Need at least 3 points for a valid hole
     }
 
+    // Points are stored relative to center, so add center offset
+    const { center, points } = cutout;
+
     return {
       id: cutout.id,
-      path: cutout.points.map(p => ({ x: p.x, y: p.y })),
+      path: points.map(p => ({ x: center.x + p.x, y: center.y + p.y })),
       source: { type: 'cutout', sourceId: cutout.id },
     };
   }

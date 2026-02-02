@@ -30,11 +30,22 @@ export interface OperationState {
 // Draft Mode Types
 // =============================================================================
 
-export type DraftType = 'polyline' | 'polygon' | 'rectangle' | 'circle' | 'edge-path';
+export type DraftType = 'polyline' | 'polygon' | 'rectangle' | 'circle' | 'edge-path' | 'freeform-polygon';
+
+/**
+ * Path drawing mode for the path tool.
+ * - 'forked': Started on boundary line, will modify edge when merged back
+ * - 'polygon': Started in open/safe space, creates a closed shape for boolean ops
+ */
+export type PathDrawMode = 'forked' | 'polygon';
 
 export interface DraftTarget {
   panelId: string;
   edge?: EdgePosition;
+  /** For path tool: which mode the draft is in */
+  pathMode?: PathDrawMode;
+  /** For forked mode: the fork start point on the boundary (SVG coordinates) */
+  forkStart?: { x: number; y: number };
 }
 
 export interface DraftState {

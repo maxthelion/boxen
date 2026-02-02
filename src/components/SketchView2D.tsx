@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { useBoxStore, getAllSubdivisions } from '../store/useBoxStore';
-import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels } from '../engine';
+import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels, getEngine, notifyEngineStateChanged } from '../engine';
 import { useEditor } from '../editor';
 import { PathPoint, FaceId, Face } from '../types';
 import { getFaceEdgeStatuses, getDividerEdgeStatuses, EdgeStatusInfo } from '../utils/panelGenerator';
@@ -8,12 +8,14 @@ import { DetectedCorner } from '../utils/cornerFinish';
 import { EditorToolbar, EditorTool } from './EditorToolbar';
 import { FloatingPalette, PaletteSliderInput, PaletteToggleGroup, PaletteButtonRow, PaletteButton, PaletteCheckbox, PaletteCheckboxGroup, PaletteNumberInput } from './FloatingPalette';
 import { getColors } from '../config/colors';
-import { SafeSpaceRegion } from '../engine/safeSpace';
+import { SafeSpaceRegion, isRectInSafeSpace, isCircleInSafeSpace, isPointInSafeSpace, analyzePath, getEdgeMarginsForFace, rectToEdgePath, circleToEdgePath } from '../engine/safeSpace';
+import { createRectPolygon, createCirclePolygon } from '../utils/polygonBoolean';
+import { FaceConfig } from '../types';
 import { debug, enableDebugTag } from '../utils/debug';
 
 // Ensure safe-space tag is active for this component
 enableDebugTag('safe-space');
-// enableDebugTag('path-tool'); // Uncomment to debug path tool edge detection
+enableDebugTag('path-tool'); // Enable to debug path tool
 // enableDebugTag('corner-click'); // Uncomment to debug corner hit detection
 
 interface SketchView2DProps {
@@ -108,6 +110,103 @@ const distanceToSegment = (
   const nearY = y1 + t * dy;
 
   return Math.sqrt((px - nearX) ** 2 + (py - nearY) ** 2);
+};
+
+/**
+ * Classify where a click occurred relative to the panel.
+ * Used by the path tool to determine whether to start forked mode or polygon mode.
+ */
+type ClickLocation =
+  | { type: 'boundary'; edge: EdgePosition }  // On panel outline - forked mode
+  | { type: 'safe-space' }                     // Inside safe space - polygon mode
+  | { type: 'open-space' }                     // Outside panel - polygon mode
+  | { type: 'restricted' };                    // In joint margin - invalid
+
+/**
+ * Determine what kind of space a point is in.
+ *
+ * Priority: boundary > open-space > safe-space > restricted
+ *
+ * Note: Boundary detection must happen FIRST because finger joint tabs extend
+ * beyond the panel body bounds. A click on a tab would be "outside bounds"
+ * but should still be detected as a boundary click.
+ */
+const classifyClickLocation = (
+  svgX: number,
+  svgY: number,
+  panelWidth: number,
+  panelHeight: number,
+  safeSpace: SafeSpaceRegion | null,
+  edgeSegments: Record<EdgePosition, { start: PathPoint; end: PathPoint }[]> | null,
+  hitThreshold: number
+): ClickLocation => {
+  const halfW = panelWidth / 2;
+  const halfH = panelHeight / 2;
+
+  // Calculate distances to conceptual panel edges
+  const distToTop = Math.abs(svgY - halfH);
+  const distToBottom = Math.abs(svgY + halfH);
+  const distToLeft = Math.abs(svgX + halfW);
+  const distToRight = Math.abs(svgX - halfW);
+
+  // Check BOUNDARY FIRST - important because finger joints extend beyond panel body
+  // A generous threshold allows clicking on finger joint tabs
+  const boundaryThreshold = hitThreshold * 2;
+
+  // Check if near any conceptual edge and within X bounds (for top/bottom) or Y bounds (for left/right)
+  // Top edge: y ≈ halfH, x within [-halfW, halfW] (with some tolerance for corners)
+  if (distToTop < boundaryThreshold && svgX >= -halfW - boundaryThreshold && svgX <= halfW + boundaryThreshold) {
+    return { type: 'boundary', edge: 'top' };
+  }
+  if (distToBottom < boundaryThreshold && svgX >= -halfW - boundaryThreshold && svgX <= halfW + boundaryThreshold) {
+    return { type: 'boundary', edge: 'bottom' };
+  }
+  if (distToLeft < boundaryThreshold && svgY >= -halfH - boundaryThreshold && svgY <= halfH + boundaryThreshold) {
+    return { type: 'boundary', edge: 'left' };
+  }
+  if (distToRight < boundaryThreshold && svgY >= -halfH - boundaryThreshold && svgY <= halfH + boundaryThreshold) {
+    return { type: 'boundary', edge: 'right' };
+  }
+
+  // Check if outside panel body (open space)
+  const inPanelBounds = svgX >= -halfW && svgX <= halfW && svgY >= -halfH && svgY <= halfH;
+  if (!inPanelBounds) {
+    return { type: 'open-space' };
+  }
+
+  // Check if in safe space (interior area that can be modified)
+  if (safeSpace && isPointInSafeSpace(svgX, svgY, safeSpace)) {
+    return { type: 'safe-space' };
+  }
+
+  // Otherwise it's in restricted space (joint margins)
+  return { type: 'restricted' };
+};
+
+/**
+ * Constrain a point to 90° or 45° angles from a reference point.
+ * Used when Shift is held during path drawing.
+ */
+const constrainAngle = (
+  fromPoint: PathPoint,
+  toPoint: { x: number; y: number }
+): PathPoint => {
+  const dx = toPoint.x - fromPoint.x;
+  const dy = toPoint.y - fromPoint.y;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  if (distance < 0.001) return { x: fromPoint.x, y: fromPoint.y };
+
+  // Get angle in radians
+  const angle = Math.atan2(dy, dx);
+
+  // Snap to nearest 45° increment (0, 45, 90, 135, 180, -135, -90, -45)
+  const snapAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+
+  return {
+    x: fromPoint.x + distance * Math.cos(snapAngle),
+    y: fromPoint.y + distance * Math.sin(snapAngle),
+  };
 };
 
 // Get the conceptual boundary lines for the panel (where edges would be without joints)
@@ -315,7 +414,37 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
   // Path tool state
   const [pathPalettePosition, setPathPalettePosition] = useState({ x: 200, y: 100 });
-  const isPathDraftActive = editorMode === 'draft' && draftType === 'edge-path';
+  const [isShiftHeld, setIsShiftHeld] = useState(false);
+  const isPathDraftActive = editorMode === 'draft' && (draftType === 'edge-path' || draftType === 'freeform-polygon');
+  const isEdgePathDraft = editorMode === 'draft' && draftType === 'edge-path';
+  const isPolygonDraft = editorMode === 'draft' && draftType === 'freeform-polygon';
+
+  // Pending polygon for boolean operation selection (after polygon is closed)
+  const [pendingPolygon, setPendingPolygon] = useState<{
+    points: PathPoint[];
+    mode: 'additive' | 'subtractive';
+  } | null>(null);
+  const [polygonPalettePosition, setPolygonPalettePosition] = useState({ x: 200, y: 100 });
+
+  // Rectangle cutout tool state
+  const [isDrawingRect, setIsDrawingRect] = useState(false);
+  const [rectStart, setRectStart] = useState<{ x: number; y: number } | null>(null);
+  const [rectCurrent, setRectCurrent] = useState<{ x: number; y: number } | null>(null);
+
+  // Circle cutout tool state
+  const [isDrawingCircle, setIsDrawingCircle] = useState(false);
+  const [circleCenter, setCircleCenter] = useState<{ x: number; y: number } | null>(null);
+  const [circleRadius, setCircleRadius] = useState<number>(0);
+
+  // Additive/subtractive mode selection state
+  // When a shape spans an open edge, we show a palette to let user choose mode and preview
+  const [pendingAdditiveShape, setPendingAdditiveShape] = useState<{
+    type: 'rect' | 'circle';
+    data: { center: { x: number; y: number }; width?: number; height?: number; radius?: number };
+    openEdges: EdgePosition[];
+    mode: 'additive' | 'subtractive';
+  } | null>(null);
+  const [additiveModePosition, setAdditiveModePosition] = useState({ x: 200, y: 100 });
 
   // Extract inset operation params from editor context
   const isInsetOperationActive = operationId === 'inset-outset';
@@ -420,6 +549,21 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     }
     return ss;
   }, [panel]);
+
+  // Compute edge margins for path analysis (which edges have joints)
+  const edgeMargins = useMemo((): Record<EdgePosition, number> | null => {
+    if (!panel) return null;
+
+    if (panel.source.type === 'face' && panel.source.faceId) {
+      // Convert faces (Face[]) to FaceConfig[] for the function
+      const faceConfigs: FaceConfig[] = faces.map(f => ({ id: f.id, solid: f.solid }));
+      return getEdgeMarginsForFace(panel.source.faceId, faceConfigs, config.materialThickness);
+    }
+
+    // Divider panels have joints on all edges
+    const margin = config.materialThickness * 2;
+    return { top: margin, bottom: margin, left: margin, right: margin };
+  }, [panel, faces, config.materialThickness]);
 
   // Detect corners for potential finishing
   // Use panel body dimensions + extensions to place corners at actual panel corners
@@ -827,6 +971,362 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     });
   }, [isInsetOperationActive, selectedEdges.size, panel, insetParams.edges, updateParams]);
 
+  // Create a rectangle cutout or edge path from the drawn rectangle
+  const handleCreateRectCutout = useCallback(() => {
+    if (!rectStart || !rectCurrent || !panel) return;
+
+    const engine = getEngine();
+    if (!engine) return;
+
+    // Calculate rectangle bounds
+    const minX = Math.min(rectStart.x, rectCurrent.x);
+    const maxX = Math.max(rectStart.x, rectCurrent.x);
+    const minY = Math.min(rectStart.y, rectCurrent.y);
+    const maxY = Math.max(rectStart.y, rectCurrent.y);
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+
+    // Don't create tiny shapes
+    if (width < 1 || height < 1) return;
+
+    const center = {
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2,
+    };
+
+    // Convert rectangle to path points for analysis
+    const rectPoints: PathPoint[] = [
+      { x: minX, y: maxY },  // top-left
+      { x: maxX, y: maxY },  // top-right
+      { x: maxX, y: minY },  // bottom-right
+      { x: minX, y: minY },  // bottom-left
+    ];
+
+    // Analyze the path to determine how to handle it
+    if (safeSpace && edgeMargins) {
+      const analysis = analyzePath(rectPoints, safeSpace, edgeMargins, panel.width, panel.height);
+
+      // Check if shape touches an open edge (body edge of an edge without joints)
+      const touchesOpenEdge = analysis.borderedEdges.some(e =>
+        edgeMargins[e] === 0 && analysis.openEdgesSpanned.includes(e)
+      );
+
+      // Edge path candidates:
+      // 1. Touches safe space border (inner edge of joint margin on closed edge)
+      // 2. Touches body edge of open edge but doesn't extend beyond (subtractive notch)
+      const isEdgePathCandidate =
+        (analysis.touchesSafeSpaceBorder && analysis.borderedEdges.length > 0 && !analysis.touchesClosedEdge) ||
+        (touchesOpenEdge && !analysis.spansOpenEdge && !analysis.touchesClosedEdge);
+
+      if (isEdgePathCandidate) {
+        // Find the bordered edge to use (prefer open edges for clarity)
+        const borderedEdge = analysis.borderedEdges.find(e => edgeMargins[e] === 0) || analysis.borderedEdges[0];
+        const edgePath = rectToEdgePath(
+          minX, maxX, minY, maxY,
+          borderedEdge,
+          panel.width,
+          panel.height
+        );
+
+        if (edgePath) {
+          engine.dispatch({
+            type: 'SET_EDGE_PATH',
+            targetId: 'main-assembly',
+            payload: {
+              panelId: panel.id,
+              path: edgePath,
+            },
+          });
+          notifyEngineStateChanged();
+          console.log('Created edge path for', borderedEdge, 'edge');
+        }
+
+        setIsDrawingRect(false);
+        setRectStart(null);
+        setRectCurrent(null);
+        return;
+      }
+
+      // If wholly in safe space, create as cutout
+      if (analysis.whollyInSafeSpace) {
+        // Validate against safe space (redundant but explicit)
+        if (!isRectInSafeSpace(center.x, center.y, width, height, safeSpace)) {
+          console.warn('Cutout rejected: rectangle is outside safe space');
+          setIsDrawingRect(false);
+          setRectStart(null);
+          setRectCurrent(null);
+          return;
+        }
+      } else if (!analysis.spansOpenEdge) {
+        // Not wholly in safe space and not spanning open edge - reject
+        console.warn('Cutout rejected: rectangle extends into joint region');
+        setIsDrawingRect(false);
+        setRectStart(null);
+        setRectCurrent(null);
+        return;
+      }
+
+      // If spans open edge, show additive/subtractive mode palette with preview
+      if (analysis.spansOpenEdge) {
+        console.log('Rectangle spans open edge - showing mode palette for:', analysis.openEdgesSpanned);
+        setPendingAdditiveShape({
+          type: 'rect',
+          data: { center, width, height },
+          openEdges: analysis.openEdgesSpanned,
+          mode: 'subtractive', // Default to subtractive
+        });
+        // Reset drawing state but keep pending shape for preview
+        setIsDrawingRect(false);
+        setRectStart(null);
+        setRectCurrent(null);
+        return;
+      }
+    } else {
+      // Fallback: validate against safe space directly
+      if (safeSpace && !isRectInSafeSpace(center.x, center.y, width, height, safeSpace)) {
+        console.warn('Cutout rejected: rectangle is outside safe space');
+        setIsDrawingRect(false);
+        setRectStart(null);
+        setRectCurrent(null);
+        return;
+      }
+    }
+
+    // Create cutout
+    const cutout = {
+      id: crypto.randomUUID(),
+      type: 'rect' as const,
+      center,
+      width,
+      height,
+    };
+
+    engine.dispatch({
+      type: 'ADD_CUTOUT',
+      targetId: 'main-assembly',
+      payload: {
+        panelId: panel.id,
+        cutout,
+      },
+    });
+
+    // Notify React about the state change
+    notifyEngineStateChanged();
+
+    // Reset drawing state
+    setIsDrawingRect(false);
+    setRectStart(null);
+    setRectCurrent(null);
+  }, [rectStart, rectCurrent, panel, safeSpace, edgeMargins]);
+
+  // Create a circle cutout or edge path from the drawn circle
+  const handleCreateCircleCutout = useCallback(() => {
+    if (!circleCenter || circleRadius < 1 || !panel) return;
+
+    const engine = getEngine();
+    if (!engine) return;
+
+    // Convert circle to path points for analysis (sample 16 points around perimeter)
+    const numSamples = 16;
+    const circlePoints: PathPoint[] = [];
+    for (let i = 0; i < numSamples; i++) {
+      const angle = (i / numSamples) * Math.PI * 2;
+      circlePoints.push({
+        x: circleCenter.x + circleRadius * Math.cos(angle),
+        y: circleCenter.y + circleRadius * Math.sin(angle),
+      });
+    }
+
+    // Analyze the path to determine how to handle it
+    if (safeSpace && edgeMargins) {
+      const analysis = analyzePath(circlePoints, safeSpace, edgeMargins, panel.width, panel.height);
+
+      // Check if shape touches an open edge (body edge of an edge without joints)
+      const touchesOpenEdge = analysis.borderedEdges.some(e =>
+        edgeMargins[e] === 0 && analysis.openEdgesSpanned.includes(e)
+      );
+
+      // Edge path candidates:
+      // 1. Touches safe space border (inner edge of joint margin on closed edge)
+      // 2. Touches body edge of open edge but doesn't extend beyond (subtractive notch)
+      const isEdgePathCandidate =
+        (analysis.touchesSafeSpaceBorder && analysis.borderedEdges.length > 0 && !analysis.touchesClosedEdge) ||
+        (touchesOpenEdge && !analysis.spansOpenEdge && !analysis.touchesClosedEdge);
+
+      if (isEdgePathCandidate) {
+        // Find the bordered edge to use (prefer open edges for clarity)
+        const borderedEdge = analysis.borderedEdges.find(e => edgeMargins[e] === 0) || analysis.borderedEdges[0];
+        const edgePath = circleToEdgePath(
+          circleCenter.x,
+          circleCenter.y,
+          circleRadius,
+          borderedEdge,
+          panel.width,
+          panel.height
+        );
+
+        if (edgePath) {
+          engine.dispatch({
+            type: 'SET_EDGE_PATH',
+            targetId: 'main-assembly',
+            payload: {
+              panelId: panel.id,
+              path: edgePath,
+            },
+          });
+          notifyEngineStateChanged();
+          console.log('Created edge path for', borderedEdge, 'edge');
+        }
+
+        setIsDrawingCircle(false);
+        setCircleCenter(null);
+        setCircleRadius(0);
+        return;
+      }
+
+      // If wholly in safe space, create as cutout
+      if (analysis.whollyInSafeSpace) {
+        // Validate against safe space (redundant but explicit)
+        if (!isCircleInSafeSpace(circleCenter.x, circleCenter.y, circleRadius, safeSpace)) {
+          console.warn('Cutout rejected: circle is outside safe space');
+          setIsDrawingCircle(false);
+          setCircleCenter(null);
+          setCircleRadius(0);
+          return;
+        }
+      } else if (!analysis.spansOpenEdge) {
+        // Not wholly in safe space and not spanning open edge - reject
+        console.warn('Cutout rejected: circle extends into joint region');
+        setIsDrawingCircle(false);
+        setCircleCenter(null);
+        setCircleRadius(0);
+        return;
+      }
+
+      // If spans open edge, show additive/subtractive mode palette with preview
+      if (analysis.spansOpenEdge) {
+        console.log('Circle spans open edge - showing mode palette for:', analysis.openEdgesSpanned);
+        setPendingAdditiveShape({
+          type: 'circle',
+          data: { center: circleCenter, radius: circleRadius },
+          openEdges: analysis.openEdgesSpanned,
+          mode: 'subtractive', // Default to subtractive
+        });
+        // Reset drawing state but keep pending shape for preview
+        setIsDrawingCircle(false);
+        setCircleCenter(null);
+        setCircleRadius(0);
+        return;
+      }
+    } else {
+      // Fallback: validate against safe space directly
+      if (safeSpace && !isCircleInSafeSpace(circleCenter.x, circleCenter.y, circleRadius, safeSpace)) {
+        console.warn('Cutout rejected: circle is outside safe space');
+        setIsDrawingCircle(false);
+        setCircleCenter(null);
+        setCircleRadius(0);
+        return;
+      }
+    }
+
+    // Create cutout
+    const cutout = {
+      id: crypto.randomUUID(),
+      type: 'circle' as const,
+      center: circleCenter,
+      radius: circleRadius,
+    };
+
+    engine.dispatch({
+      type: 'ADD_CUTOUT',
+      targetId: 'main-assembly',
+      payload: {
+        panelId: panel.id,
+        cutout,
+      },
+    });
+
+    // Notify React about the state change
+    notifyEngineStateChanged();
+
+    // Reset drawing state
+    setIsDrawingCircle(false);
+    setCircleCenter(null);
+    setCircleRadius(0);
+  }, [circleCenter, circleRadius, panel, safeSpace, edgeMargins]);
+
+  // Toggle the mode for the pending additive shape
+  const handleAdditiveModeToggle = useCallback((mode: 'additive' | 'subtractive') => {
+    if (!pendingAdditiveShape) return;
+    setPendingAdditiveShape({
+      ...pendingAdditiveShape,
+      mode,
+    });
+  }, [pendingAdditiveShape]);
+
+  // Apply the pending additive shape with the selected mode
+  // Uses boolean polygon operations (union/difference) for robust edge modification
+  const handleAdditiveModeApply = useCallback(() => {
+    if (!pendingAdditiveShape || !panel) {
+      setPendingAdditiveShape(null);
+      return;
+    }
+
+    const engine = getEngine();
+    if (!engine) {
+      setPendingAdditiveShape(null);
+      return;
+    }
+
+    const { type, data, mode } = pendingAdditiveShape;
+
+    // Convert shape to polygon for boolean operation
+    let shapePolygon: { x: number; y: number }[] | null = null;
+
+    if (type === 'rect' && data.width !== undefined && data.height !== undefined) {
+      // Calculate rect bounds
+      const minX = data.center.x - data.width / 2;
+      const maxX = data.center.x + data.width / 2;
+      const minY = data.center.y - data.height / 2;
+      const maxY = data.center.y + data.height / 2;
+
+      shapePolygon = createRectPolygon(minX, minY, maxX, maxY);
+    } else if (type === 'circle' && data.radius !== undefined) {
+      // Approximate circle as polygon (32 segments)
+      shapePolygon = createCirclePolygon(data.center.x, data.center.y, data.radius, 32);
+    }
+
+    if (shapePolygon) {
+      // Use boolean operation: union for additive, difference for subtractive
+      const operation = mode === 'additive' ? 'union' : 'difference';
+
+      const success = engine.dispatch({
+        type: 'APPLY_EDGE_OPERATION',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: panel.id,
+          operation,
+          shape: shapePolygon,
+        },
+      });
+
+      if (success) {
+        console.log(`Applied ${mode} boolean operation to panel edge`);
+      } else {
+        console.warn(`Could not apply ${mode} operation - boolean operation failed`);
+      }
+    }
+
+    notifyEngineStateChanged();
+    setPendingAdditiveShape(null);
+  }, [pendingAdditiveShape, panel]);
+
+  // Cancel pending additive shape
+  const handleAdditiveModeCancel = useCallback(() => {
+    setPendingAdditiveShape(null);
+  }, []);
+
   // Convert screen coordinates to SVG coordinates
   // Accounts for preserveAspectRatio="xMidYMid meet" (the default) which centers content
   const screenToSvg = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
@@ -951,33 +1451,119 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
     // Path tool: add points or start new draft
     if (activeTool === 'path' && panel) {
+      const hitThreshold = Math.max(8, viewBox.width / 25);
+      const halfW = panel.width / 2;
+      const halfH = panel.height / 2;
       debug('path-tool', `Path tool click at SVG(${svgPos.x.toFixed(1)}, ${svgPos.y.toFixed(1)})`);
-      if (isPathDraftActive && draftTarget?.edge) {
-        // Already in a draft - add a point
-        const edgeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, draftTarget.edge);
-        debug('path-tool', `Adding point to existing draft: ${JSON.stringify(edgeCoords)}`);
-        if (edgeCoords) {
-          // Store t as x, offset as y in the PathPoint structure
-          addDraftPoint({ x: edgeCoords.t, y: edgeCoords.offset });
+
+      // Already in a draft - add a point
+      if (isPathDraftActive) {
+        if (isEdgePathDraft && draftTarget?.edge) {
+          // Edge path mode: check if clicking back on the boundary to merge
+          const edge = draftTarget.edge;
+          const distToBoundary = edge === 'top' ? Math.abs(svgPos.y - halfH) :
+                                 edge === 'bottom' ? Math.abs(svgPos.y + halfH) :
+                                 edge === 'left' ? Math.abs(svgPos.x + halfW) :
+                                 Math.abs(svgPos.x - halfW);
+
+          // If clicking back on the boundary (and we have at least 2 points), this is a merge
+          if (distToBoundary < hitThreshold && draftPoints.length >= 2) {
+            debug('path-tool', 'Merge detected! Adding final point on boundary');
+            // Add the merge point (on the boundary, so offset = 0)
+            const edgeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, edge);
+            if (edgeCoords) {
+              // Force offset to 0 since we're merging back to the boundary
+              addDraftPoint({ x: edgeCoords.t, y: 0 });
+            }
+            // Path is now ready to apply - user can click Apply button
+            return;
+          }
+
+          // Normal point addition - convert to edge-relative coordinates
+          const edgeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, edge);
+          debug('path-tool', `Adding edge point: ${JSON.stringify(edgeCoords)}`);
+          if (edgeCoords) {
+            addDraftPoint({ x: edgeCoords.t, y: edgeCoords.offset });
+          }
+        } else if (isPolygonDraft) {
+          // Polygon mode: check if clicking near start point to close
+          if (draftPoints.length >= 3) {
+            const startPoint = draftPoints[0];
+            const distToStart = Math.sqrt(
+              (svgPos.x - startPoint.x) ** 2 + (svgPos.y - startPoint.y) ** 2
+            );
+            if (distToStart < hitThreshold) {
+              // Close the polygon - show boolean operation palette
+              debug('path-tool', 'Closing polygon - showing boolean palette');
+              setPendingPolygon({
+                points: [...draftPoints],
+                mode: 'subtractive', // Default to cut mode
+              });
+              setPolygonPalettePosition({ x: e.clientX + 20, y: e.clientY - 50 });
+              cancelDraft(); // Clear the draft state
+              return;
+            }
+          }
+
+          // Apply angle constraint if Shift is held
+          let newPoint = { x: svgPos.x, y: svgPos.y };
+          if (isShiftHeld && draftPoints.length > 0) {
+            const lastPoint = draftPoints[draftPoints.length - 1];
+            newPoint = constrainAngle(lastPoint, svgPos);
+          }
+
+          debug('path-tool', `Adding polygon point: ${JSON.stringify(newPoint)}`);
+          addDraftPoint(newPoint);
         }
         return;
-      } else {
-        // Not in a draft - check if clicking near an editable edge to start one
-        const edge = findEdgeAtPoint(svgPos.x, svgPos.y);
-        debug('path-tool', `Found edge: ${edge}, isEditable: ${edge ? isEdgeEditable(edge) : 'N/A'}`);
-        if (edge && isEdgeEditable(edge)) {
-          debug('path-tool', `Starting new draft on edge: ${edge}`);
-          // Start a new edge path draft
-          startDraft('edge-path', { panelId: panel.id, edge });
-          // Add the first point
+      }
+
+      // Not in a draft - determine mode based on click location
+      const clickLocation = classifyClickLocation(
+        svgPos.x, svgPos.y,
+        panel.width, panel.height,
+        safeSpace, edgeSegments,
+        hitThreshold
+      );
+      debug('path-tool', `Click location: ${JSON.stringify(clickLocation)}`);
+
+      if (clickLocation.type === 'boundary') {
+        // Forked mode: click on panel boundary
+        const edge = clickLocation.edge;
+        const editable = isEdgeEditable(edge);
+        if (editable) {
+          debug('path-tool', `Starting forked mode on edge: ${edge}`);
+          startDraft('edge-path', {
+            panelId: panel.id,
+            edge,
+            pathMode: 'forked',
+            forkStart: { x: svgPos.x, y: svgPos.y },
+          });
+          // Add first point in edge-relative coordinates
           const edgeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, edge);
           if (edgeCoords) {
             addDraftPoint({ x: edgeCoords.t, y: edgeCoords.offset });
           }
-          // Position palette near click
           setPathPalettePosition({ x: e.clientX + 20, y: e.clientY - 50 });
-          return;
         }
+        return;
+      }
+
+      if (clickLocation.type === 'safe-space' || clickLocation.type === 'open-space') {
+        // Polygon mode: click in safe space or open space
+        debug('path-tool', `Starting polygon mode in ${clickLocation.type}`);
+        startDraft('freeform-polygon', {
+          panelId: panel.id,
+          pathMode: 'polygon',
+        });
+        addDraftPoint({ x: svgPos.x, y: svgPos.y });
+        setPathPalettePosition({ x: e.clientX + 20, y: e.clientY - 50 });
+        return;
+      }
+
+      // Restricted space - invalid click, do nothing
+      if (clickLocation.type === 'restricted') {
+        debug('path-tool', 'Click in restricted space - ignoring');
       }
     }
 
@@ -1013,10 +1599,26 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       }
     }
 
+    // Rectangle cutout tool: start drawing rectangle
+    if (activeTool === 'rectangle' && panel) {
+      setIsDrawingRect(true);
+      setRectStart(svgPos);
+      setRectCurrent(svgPos);
+      return;
+    }
+
+    // Circle cutout tool: start drawing circle
+    if (activeTool === 'circle' && panel) {
+      setIsDrawingCircle(true);
+      setCircleCenter(svgPos);
+      setCircleRadius(0);
+      return;
+    }
+
     // Default: start panning
     setIsPanning(true);
     setPanStart({ x: e.clientX, y: e.clientY });
-  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel, activeTool, findCornerAtPoint, handleCornerClick, isInsetOperationActive, startOperation, updateParams, isPathDraftActive, draftTarget, svgToEdgeCoords, addDraftPoint, startDraft]);
+  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel, activeTool, findCornerAtPoint, handleCornerClick, isInsetOperationActive, startOperation, updateParams, isPathDraftActive, draftTarget, draftPoints, svgToEdgeCoords, addDraftPoint, startDraft, safeSpace, edgeSegments, isEdgePathDraft, isPolygonDraft, isShiftHeld, cancelDraft, commitDraft]);
 
   // Handle mouse move
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -1042,6 +1644,14 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       updateParams({
         offset: clampedOffset,
       });
+    } else if (isDrawingRect && svgPos) {
+      // Update rectangle preview
+      setRectCurrent(svgPos);
+    } else if (isDrawingCircle && circleCenter && svgPos) {
+      // Update circle radius based on distance from center
+      const dx = svgPos.x - circleCenter.x;
+      const dy = svgPos.y - circleCenter.y;
+      setCircleRadius(Math.sqrt(dx * dx + dy * dy));
     } else if (isPanning) {
       const svg = svgRef.current;
       if (!svg) return;
@@ -1078,25 +1688,84 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         setHoveredCornerId(null);
       }
     }
-  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, config.materialThickness, activeTool, findCornerAtPoint, isInsetOperationActive, updateParams, isPathDraftActive, isEdgeEditable]);
+  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, config.materialThickness, activeTool, findCornerAtPoint, isInsetOperationActive, updateParams, isPathDraftActive, isEdgeEditable, isDrawingRect, isDrawingCircle, circleCenter]);
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
+    // Finalize rectangle cutout
+    if (isDrawingRect && rectStart && rectCurrent) {
+      const width = Math.abs(rectCurrent.x - rectStart.x);
+      const height = Math.abs(rectCurrent.y - rectStart.y);
+      // Only create if there's meaningful size
+      if (width >= 1 && height >= 1) {
+        handleCreateRectCutout();
+      } else {
+        // Cancel drawing
+        setIsDrawingRect(false);
+        setRectStart(null);
+        setRectCurrent(null);
+      }
+    }
+
+    // Finalize circle cutout
+    if (isDrawingCircle && circleCenter && circleRadius >= 1) {
+      handleCreateCircleCutout();
+    } else if (isDrawingCircle) {
+      // Cancel drawing
+      setIsDrawingCircle(false);
+      setCircleCenter(null);
+      setCircleRadius(0);
+    }
+
     setIsPanning(false);
     setIsDraggingEdge(false);
     setDragEdge(null);
-  }, []);
+  }, [isDrawingRect, rectStart, rectCurrent, handleCreateRectCutout, isDrawingCircle, circleCenter, circleRadius, handleCreateCircleCutout]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Track Shift key for angle constraints
+      if (e.key === 'Shift') {
+        setIsShiftHeld(true);
+      }
+
       if (e.key === 'Escape') {
-        exitSketchView();
+        // Cancel polygon draft or exit sketch view
+        if (isPolygonDraft) {
+          cancelDraft();
+        } else if (pendingPolygon) {
+          setPendingPolygon(null);
+        } else {
+          exitSketchView();
+        }
+      }
+
+      // Enter key closes polygon path
+      if (e.key === 'Enter' && isPolygonDraft && draftPoints.length >= 3) {
+        // Close the polygon - show boolean operation palette
+        setPendingPolygon({
+          points: [...draftPoints],
+          mode: 'subtractive', // Default to cut mode
+        });
+        setPolygonPalettePosition({ x: 200, y: 100 });
+        cancelDraft(); // Clear the draft state
       }
     };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setIsShiftHeld(false);
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [exitSketchView]);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [exitSketchView, isPolygonDraft, draftPoints, cancelDraft, pendingPolygon]);
 
   // Fit view to panel
   const handleFitView = useCallback(() => {
@@ -1169,6 +1838,11 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     // Chamfer tool: pointer cursor for corners
     if (activeTool === 'chamfer' && hoveredCornerId) {
       return 'pointer';
+    }
+
+    // Rectangle and circle tools: crosshair cursor
+    if (activeTool === 'rectangle' || activeTool === 'circle') {
+      return 'crosshair';
     }
 
     return 'grab';
@@ -1563,26 +2237,63 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             />
           ))}
 
-          {/* Path draft preview - shows when drawing a custom edge path */}
-          {isPathDraftActive && draftTarget?.edge && draftPoints.length > 0 && (() => {
-            // Convert draft points (stored as {x: t, y: offset}) to SVG coordinates
-            const previewPoints = draftPoints
-              .map(p => edgeCoordsToSvg(p.x, p.y, draftTarget.edge!))
-              .filter((p): p is { x: number; y: number } => p !== null);
+          {/* Path draft preview - shows when drawing a custom edge path or polygon */}
+          {isPathDraftActive && draftPoints.length > 0 && (() => {
+            let previewPoints: { x: number; y: number }[];
+
+            if (isEdgePathDraft && draftTarget?.edge) {
+              // Edge-path mode: convert from edge-relative coordinates
+              previewPoints = draftPoints
+                .map(p => edgeCoordsToSvg(p.x, p.y, draftTarget.edge!))
+                .filter((p): p is { x: number; y: number } => p !== null);
+            } else if (isPolygonDraft) {
+              // Polygon mode: points are already in SVG coordinates
+              previewPoints = draftPoints.map(p => ({ x: p.x, y: p.y }));
+            } else {
+              return null;
+            }
 
             if (previewPoints.length === 0) return null;
 
+            // Validate the path
+            let isValid = true;
+            if (safeSpace && edgeMargins && isPolygonDraft && previewPoints.length >= 3) {
+              const analysis = analyzePath(previewPoints, safeSpace, edgeMargins, panel.width, panel.height);
+              // Invalid if entirely in open space (no overlap with panel) or touches restricted areas
+              isValid = !analysis.touchesClosedEdge && (analysis.whollyInSafeSpace || analysis.spansOpenEdge || analysis.borderedEdges.length > 0);
+            }
+
+            const strokeColor = isValid ? colors.operation.positive.base : colors.operation.negative.base;
+            const fillColor = isValid ? colors.operation.positive.base : colors.operation.negative.base;
+
             const pathD = previewPoints
               .map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`))
-              .join(' ');
+              .join(' ') + (isPolygonDraft && previewPoints.length >= 3 ? ' Z' : '');
+
+            // Check if near start point to show close indicator
+            const lastPoint = previewPoints[previewPoints.length - 1];
+            const firstPoint = previewPoints[0];
+            const distToStart = previewPoints.length >= 3 ?
+              Math.sqrt((lastPoint.x - firstPoint.x) ** 2 + (lastPoint.y - firstPoint.y) ** 2) : Infinity;
+            const closeThreshold = Math.max(8, viewBox.width / 25);
+            const nearStart = distToStart < closeThreshold;
 
             return (
               <g>
+                {/* Polygon fill preview (for polygon mode only) */}
+                {isPolygonDraft && previewPoints.length >= 3 && (
+                  <polygon
+                    points={previewPoints.map(p => `${p.x},${p.y}`).join(' ')}
+                    fill={fillColor}
+                    fillOpacity={0.15}
+                    stroke="none"
+                  />
+                )}
                 {/* Path line preview */}
                 <path
                   d={pathD}
                   fill="none"
-                  stroke={colors.operation.positive.base}
+                  stroke={strokeColor}
                   strokeWidth={outlineStrokeWidth * 2}
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -1595,12 +2306,144 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                     cx={p.x}
                     cy={p.y}
                     r={Math.max(1, strokeScale * 2)}
-                    fill={i === previewPoints.length - 1 ? colors.operation.positive.hover : colors.operation.positive.base}
-                    stroke="white"
-                    strokeWidth={strokeScale * 0.5}
+                    fill={i === 0 && nearStart && isPolygonDraft ? '#fff' : (i === previewPoints.length - 1 ? strokeColor : strokeColor)}
+                    stroke={i === 0 && nearStart && isPolygonDraft ? strokeColor : 'white'}
+                    strokeWidth={i === 0 && nearStart && isPolygonDraft ? strokeScale * 1.5 : strokeScale * 0.5}
                   />
                 ))}
+                {/* Close indicator when near start */}
+                {isPolygonDraft && nearStart && previewPoints.length >= 3 && (
+                  <circle
+                    cx={firstPoint.x}
+                    cy={firstPoint.y}
+                    r={Math.max(3, strokeScale * 4)}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={strokeScale}
+                    strokeDasharray={`${2 * strokeScale} ${1 * strokeScale}`}
+                  />
+                )}
+                {/* Angle constraint indicator when Shift is held */}
+                {isShiftHeld && previewPoints.length >= 1 && (
+                  <text
+                    x={lastPoint.x + 5}
+                    y={-lastPoint.y - 5}
+                    fill={strokeColor}
+                    fontSize={Math.max(3, strokeScale * 3)}
+                    transform="scale(1, -1)"
+                    opacity={0.7}
+                  >
+                    45°
+                  </text>
+                )}
               </g>
+            );
+          })()}
+
+          {/* Rectangle cutout preview - shows when drawing a rectangle */}
+          {isDrawingRect && rectStart && rectCurrent && (() => {
+            const minX = Math.min(rectStart.x, rectCurrent.x);
+            const maxX = Math.max(rectStart.x, rectCurrent.x);
+            const minY = Math.min(rectStart.y, rectCurrent.y);
+            const maxY = Math.max(rectStart.y, rectCurrent.y);
+            const width = maxX - minX;
+            const height = maxY - minY;
+
+            if (width < 0.1 || height < 0.1) return null;
+
+            // Check if rectangle is within safe space
+            const centerX = (minX + maxX) / 2;
+            const centerY = (minY + maxY) / 2;
+            const isValid = safeSpace ? isRectInSafeSpace(centerX, centerY, width, height, safeSpace) : true;
+            const strokeColor = isValid ? colors.operation.positive.base : colors.operation.negative.base;
+            const fillColor = isValid ? colors.operation.positive.base : colors.operation.negative.base;
+
+            return (
+              <rect
+                x={minX}
+                y={minY}
+                width={width}
+                height={height}
+                fill={fillColor}
+                fillOpacity={0.2}
+                stroke={strokeColor}
+                strokeWidth={outlineStrokeWidth * 2}
+                strokeDasharray={`${4 * strokeScale} ${2 * strokeScale}`}
+              />
+            );
+          })()}
+
+          {/* Circle cutout preview - shows when drawing a circle */}
+          {isDrawingCircle && circleCenter && circleRadius > 0.1 && (() => {
+            // Check if circle is within safe space
+            const isValid = safeSpace ? isCircleInSafeSpace(circleCenter.x, circleCenter.y, circleRadius, safeSpace) : true;
+            const strokeColor = isValid ? colors.operation.positive.base : colors.operation.negative.base;
+            const fillColor = isValid ? colors.operation.positive.base : colors.operation.negative.base;
+
+            return (
+              <circle
+                cx={circleCenter.x}
+                cy={circleCenter.y}
+                r={circleRadius}
+                fill={fillColor}
+                fillOpacity={0.2}
+                stroke={strokeColor}
+                strokeWidth={outlineStrokeWidth * 2}
+                strokeDasharray={`${4 * strokeScale} ${2 * strokeScale}`}
+              />
+            );
+          })()}
+
+          {/* Pending additive shape preview - shows while mode selection palette is open */}
+          {pendingAdditiveShape && (() => {
+            const { type, data, mode } = pendingAdditiveShape;
+            // Use different colors based on mode
+            const strokeColor = mode === 'additive' ? colors.operation.positive.base : colors.operation.negative.base;
+            const fillColor = mode === 'additive' ? colors.operation.positive.base : colors.operation.negative.base;
+
+            if (type === 'rect' && data.width !== undefined && data.height !== undefined) {
+              return (
+                <rect
+                  x={data.center.x - data.width / 2}
+                  y={data.center.y - data.height / 2}
+                  width={data.width}
+                  height={data.height}
+                  fill={fillColor}
+                  fillOpacity={0.3}
+                  stroke={strokeColor}
+                  strokeWidth={outlineStrokeWidth * 2}
+                />
+              );
+            } else if (type === 'circle' && data.radius !== undefined) {
+              return (
+                <circle
+                  cx={data.center.x}
+                  cy={data.center.y}
+                  r={data.radius}
+                  fill={fillColor}
+                  fillOpacity={0.3}
+                  stroke={strokeColor}
+                  strokeWidth={outlineStrokeWidth * 2}
+                />
+              );
+            }
+            return null;
+          })()}
+
+          {/* Pending polygon preview - shows while mode selection palette is open */}
+          {pendingPolygon && pendingPolygon.points.length >= 3 && (() => {
+            const { points, mode } = pendingPolygon;
+            const strokeColor = mode === 'additive' ? colors.operation.positive.base : colors.operation.negative.base;
+            const fillColor = mode === 'additive' ? colors.operation.positive.base : colors.operation.negative.base;
+
+            return (
+              <polygon
+                points={points.map(p => `${p.x},${p.y}`).join(' ')}
+                fill={fillColor}
+                fillOpacity={0.3}
+                stroke={strokeColor}
+                strokeWidth={outlineStrokeWidth * 2}
+              />
             );
           })()}
 
@@ -1922,11 +2765,11 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         </FloatingPalette>
       )}
 
-      {/* Floating palette for path tool - shows when drawing a custom edge path */}
-      {activeTool === 'path' && isPathDraftActive && panel && draftTarget?.edge && (
+      {/* Floating palette for path tool - shows when drawing */}
+      {activeTool === 'path' && isPathDraftActive && panel && (
         <FloatingPalette
           position={pathPalettePosition}
-          title={`Edge Path: ${draftTarget.edge}`}
+          title={isEdgePathDraft ? `Edge Path: ${draftTarget?.edge}` : 'Freeform Path'}
           onClose={() => {
             cancelDraft();
             setActiveTool('select');
@@ -1935,31 +2778,206 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           minWidth={200}
           containerRef={containerRef}
         >
-          <div style={{ fontSize: '12px', marginBottom: '8px', opacity: 0.8 }}>
-            Click to add points along the edge. Points will define a custom outline.
-          </div>
+          {isEdgePathDraft ? (
+            <>
+              <div style={{ fontSize: '12px', marginBottom: '8px', opacity: 0.8 }}>
+                Click to add points along the edge. Points will define a custom outline.
+              </div>
+              <div style={{ fontSize: '12px', marginBottom: '12px' }}>
+                Points: <strong>{draftPoints.length}</strong>
+              </div>
+              <PaletteButtonRow>
+                <PaletteButton
+                  variant="primary"
+                  onClick={() => {
+                    if (draftPoints.length >= 2) {
+                      commitDraft();
+                      setActiveTool('select');
+                    }
+                  }}
+                  disabled={draftPoints.length < 2}
+                >
+                  Apply
+                </PaletteButton>
+                <PaletteButton
+                  variant="secondary"
+                  onClick={() => {
+                    cancelDraft();
+                    setActiveTool('select');
+                  }}
+                >
+                  Cancel
+                </PaletteButton>
+              </PaletteButtonRow>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: '12px', marginBottom: '8px', opacity: 0.8 }}>
+                Click to add points. Close the shape by clicking near the start point or pressing Enter.
+              </div>
+              <div style={{ fontSize: '12px', marginBottom: '4px' }}>
+                Points: <strong>{draftPoints.length}</strong>
+                {draftPoints.length >= 3 && ' (click start to close)'}
+              </div>
+              <div style={{ fontSize: '11px', marginBottom: '12px', opacity: 0.6 }}>
+                Hold Shift for 45°/90° angles
+              </div>
+              <PaletteButtonRow>
+                <PaletteButton
+                  variant="primary"
+                  onClick={() => {
+                    if (draftPoints.length >= 3) {
+                      // Close polygon and show boolean palette
+                      setPendingPolygon({
+                        points: [...draftPoints],
+                        mode: 'subtractive',
+                      });
+                      setPolygonPalettePosition({ x: pathPalettePosition.x, y: pathPalettePosition.y });
+                      cancelDraft();
+                    }
+                  }}
+                  disabled={draftPoints.length < 3}
+                >
+                  Close Path
+                </PaletteButton>
+                <PaletteButton
+                  variant="secondary"
+                  onClick={() => {
+                    cancelDraft();
+                    setActiveTool('select');
+                  }}
+                >
+                  Cancel
+                </PaletteButton>
+              </PaletteButtonRow>
+            </>
+          )}
+        </FloatingPalette>
+      )}
+
+      {/* Floating palette for additive/subtractive mode selection */}
+      {pendingAdditiveShape && panel && (
+        <FloatingPalette
+          position={additiveModePosition}
+          title="Shape Mode"
+          onClose={handleAdditiveModeCancel}
+          onPositionChange={setAdditiveModePosition}
+          minWidth={220}
+          containerRef={containerRef}
+        >
           <div style={{ fontSize: '12px', marginBottom: '12px' }}>
-            Points: <strong>{draftPoints.length}</strong>
+            This shape extends beyond the panel on the{' '}
+            <strong>{pendingAdditiveShape.openEdges.join(', ')}</strong> edge
+            {pendingAdditiveShape.openEdges.length > 1 ? 's' : ''}.
           </div>
+          <PaletteToggleGroup
+            options={[
+              { value: 'subtractive', label: 'Cut notch' },
+              { value: 'additive', label: 'Extend' },
+            ]}
+            value={pendingAdditiveShape.mode}
+            onChange={(v) => handleAdditiveModeToggle(v as 'additive' | 'subtractive')}
+          />
           <PaletteButtonRow>
             <PaletteButton
               variant="primary"
-              onClick={() => {
-                if (draftPoints.length >= 2) {
-                  commitDraft();
-                  setActiveTool('select');
-                }
-              }}
-              disabled={draftPoints.length < 2}
+              onClick={handleAdditiveModeApply}
             >
               Apply
             </PaletteButton>
             <PaletteButton
               variant="secondary"
+              onClick={handleAdditiveModeCancel}
+            >
+              Cancel
+            </PaletteButton>
+          </PaletteButtonRow>
+        </FloatingPalette>
+      )}
+
+      {/* Floating palette for polygon boolean operation selection */}
+      {pendingPolygon && panel && (
+        <FloatingPalette
+          position={polygonPalettePosition}
+          title="Polygon Operation"
+          onClose={() => setPendingPolygon(null)}
+          onPositionChange={setPolygonPalettePosition}
+          minWidth={220}
+          containerRef={containerRef}
+        >
+          <div style={{ fontSize: '12px', marginBottom: '12px' }}>
+            Apply this {pendingPolygon.points.length}-point polygon to the panel.
+          </div>
+          <PaletteToggleGroup
+            options={[
+              { value: 'subtractive', label: 'Cut hole' },
+              { value: 'additive', label: 'Add material' },
+            ]}
+            value={pendingPolygon.mode}
+            onChange={(v) => setPendingPolygon(prev => prev ? { ...prev, mode: v as 'additive' | 'subtractive' } : null)}
+          />
+          <PaletteButtonRow>
+            <PaletteButton
+              variant="primary"
               onClick={() => {
-                cancelDraft();
-                setActiveTool('select');
+                if (!pendingPolygon || !panel) return;
+                const engine = getEngine();
+                if (!engine) return;
+
+                let success = false;
+
+                if (pendingPolygon.mode === 'subtractive') {
+                  // Use ADD_CUTOUT with PathCutout for subtractive (cutting holes)
+                  // Calculate center of the polygon
+                  const centerX = pendingPolygon.points.reduce((sum, p) => sum + p.x, 0) / pendingPolygon.points.length;
+                  const centerY = pendingPolygon.points.reduce((sum, p) => sum + p.y, 0) / pendingPolygon.points.length;
+
+                  // Convert points to be relative to center
+                  const relativePoints = pendingPolygon.points.map(p => ({
+                    x: p.x - centerX,
+                    y: p.y - centerY,
+                  }));
+
+                  success = engine.dispatch({
+                    type: 'ADD_CUTOUT',
+                    targetId: 'main-assembly',
+                    payload: {
+                      panelId: panel.id,
+                      cutout: {
+                        id: crypto.randomUUID(),
+                        type: 'path',
+                        center: { x: centerX, y: centerY },
+                        points: relativePoints,
+                      },
+                    },
+                  });
+                } else {
+                  // For additive (union), use the edge operation approach
+                  success = engine.dispatch({
+                    type: 'APPLY_EDGE_OPERATION',
+                    targetId: 'main-assembly',
+                    payload: {
+                      panelId: panel.id,
+                      operation: 'union',
+                      shape: pendingPolygon.points,
+                    },
+                  });
+                }
+
+                if (success) {
+                  console.log(`Applied ${pendingPolygon.mode} polygon operation`);
+                } else {
+                  console.warn('Polygon operation failed');
+                }
+                notifyEngineStateChanged();
+                setPendingPolygon(null);
               }}
+            >
+              Apply
+            </PaletteButton>
+            <PaletteButton
+              variant="secondary"
+              onClick={() => setPendingPolygon(null)}
             >
               Cancel
             </PaletteButton>

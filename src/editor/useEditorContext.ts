@@ -128,20 +128,42 @@ export function useEditorContext(): EditorContextValue {
       // Create operation from draft based on draft type
       if (state.draft.type === 'edge-path' && state.draft.target.edge) {
         // Convert draft points to EdgePathPoints and dispatch SET_EDGE_PATH
-        const edgePathPoints = state.draft.points.map(p => ({
+        const rawPoints = state.draft.points.map(p => ({
           t: p.x,      // x stores the t value (0-1 along edge)
           offset: p.y, // y stores the offset (perpendicular distance)
         }));
 
-        if (edgePathPoints.length >= 2) {
+        if (rawPoints.length >= 2) {
+          // Sort points by t value to ensure proper ordering
+          const sortedPoints = [...rawPoints].sort((a, b) => a.t - b.t);
+
+          // Build complete edge path with anchor points at t=0 and t=1
+          // This preserves the original edge before the fork start and after the merge
+          const edgePathPoints = [];
+
+          // Add anchor at t=0 if the path doesn't start there
+          const firstT = sortedPoints[0].t;
+          if (firstT > 0.001) {
+            edgePathPoints.push({ t: 0, offset: 0 });
+          }
+
+          // Add all the custom path points
+          edgePathPoints.push(...sortedPoints);
+
+          // Add anchor at t=1 if the path doesn't end there
+          const lastT = sortedPoints[sortedPoints.length - 1].t;
+          if (lastT < 0.999) {
+            edgePathPoints.push({ t: 1, offset: 0 });
+          }
+
           engine.dispatch({
             type: 'SET_EDGE_PATH',
             targetId: 'main-assembly',
             payload: {
               panelId: state.draft.target.panelId,
-              edge: state.draft.target.edge,
               path: {
                 edge: state.draft.target.edge,
+                baseOffset: 0, // Default: no offset from joint face
                 points: edgePathPoints,
                 mirrored: false, // For now, don't auto-mirror
               },
