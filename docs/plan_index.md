@@ -21,11 +21,12 @@
 | [panel-eligibility-coloring-plan.md](panel-eligibility-coloring-plan.md) | draft | Tool-specific panel eligibility coloring (green/pink). Depends on: color-system-plan |
 | [plan-reorganization.md](plan-reorganization.md) | complete | Documentation reorganization |
 | [playwright-visual-testing-plan.md](playwright-visual-testing-plan.md) | draft | Visual regression testing with Playwright |
-| [second-operations-plan.md](second-operations-plan.md) | in-progress | Second operation behavior (delta vs absolute modes) |
+| [second-operations-plan.md](second-operations-plan.md) | complete | Second operation behavior (delta vs absolute modes) |
 | [selection-sync-fix-plan.md](selection-sync-fix-plan.md) | complete | Fix selection synchronization between 3D view and tree view |
-| [visibility-system-migration-plan.md](visibility-system-migration-plan.md) | draft | Migrate visibility system from semantic IDs to visibility keys |
 | [subassembly-operations-plan.md](subassembly-operations-plan.md) | draft | Sub-assembly operation compatibility, constraints, and validation |
 | [subdivide-edit-mode-plan.md](subdivide-edit-mode-plan.md) | complete | Subdivision editing workflow |
 | [template-edge-extensions-plan.md](template-edge-extensions-plan.md) | draft | Template-based edge extensions |
 | [test-organization-plan.md](test-organization-plan.md) | complete | Test file organization and operation test template |
+| [typescript-linting-plan.md](typescript-linting-plan.md) | draft | Fix 165 TypeScript errors in phases |
+| [visibility-system-migration-plan.md](visibility-system-migration-plan.md) | draft | Migrate visibility system from semantic IDs to visibility keys |
 | [uuid-migration-plan.md](uuid-migration-plan.md) | complete | Migration from deterministic IDs to UUIDs |
