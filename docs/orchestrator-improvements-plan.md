@@ -15,7 +15,7 @@ Poll very frequently (seconds), but first do a trivial check for work. If nothin
 
 | Agent | Pre-Check | Interval |
 |-------|-----------|----------|
-| Inbox Poller | `ls project-management/inbox/` empty? | 10 seconds |
+| Inbox Poller | `ls project-management/agent-inbox/` empty? | 10 seconds |
 | PM/Curator | New proposals in active/? | 30 seconds |
 | Implementer | Tasks in incoming/? | 30 seconds |
 
@@ -37,7 +37,7 @@ Work is inherently expensive (reads lots of files, analyzes). Longer intervals.
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  USER DROPS STUFF                                                        │
-│  Raw notes, images, ideas → project-management/inbox/ (at project root)                    │
+│  Raw notes, images, ideas → project-management/agent-inbox/ (at project root)                    │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -45,7 +45,7 @@ Work is inherently expensive (reads lots of files, analyzes). Longer intervals.
 │  INBOX POLLER (frequent, every 10 seconds)                              │
 │  - Classifies items: architectural? feature? bug?                       │
 │  - Routes to project-management/classified/ buckets                                        │
-│  - Questions → project-management/outbox/ → relayed to user                                │
+│  - Questions → project-management/human-inbox/ → relayed to user                                │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
           ┌─────────────────────────┼─────────────────────────┐
@@ -61,7 +61,7 @@ Work is inherently expensive (reads lots of files, analyzes). Longer intervals.
 │  - Reads project-management/classified/, docs/issues/, docs/plans/                         │
 │  - References current-priorities.md                                     │
 │  - Breaks down into parallel-safe, dependency-mapped proposals          │
-│  - Questions → project-management/outbox/                                                  │
+│  - Questions → project-management/human-inbox/                                                  │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -173,7 +173,7 @@ The skill parses the priority statement and updates current-priorities.md with:
 
 ```
 # At project root (easy access)
-project-management/inbox/              # YOU DROP STUFF HERE
+project-management/agent-inbox/              # YOU DROP STUFF HERE
 ├── (raw files, notes, images)
 
 project-management/classified/         # POLLER SORTS INTO HERE
@@ -183,7 +183,7 @@ project-management/classified/         # POLLER SORTS INTO HERE
 ├── bugs/           # Bug reports, issues
 └── other/          # Uncategorized
 
-project-management/outbox/             # AGENTS PUT QUESTIONS HERE
+project-management/human-inbox/             # AGENTS PUT QUESTIONS HERE
 ├── (questions for you)
 
 project-management/processed/          # Archive of handled items
@@ -211,10 +211,10 @@ Create `.orchestrator/prompts/inbox-poller.md`:
 You quickly classify and route items from the inbox.
 
 ## Your Job
-1. Check `.orchestrator/shared/project-management/inbox/` for new items
+1. Check `.orchestrator/shared/project-management/agent-inbox/` for new items
 2. For each item, determine what kind of input it is
 3. Move it to the appropriate project-management/classified/ bucket
-4. If you have questions, put them in project-management/outbox/
+4. If you have questions, put them in project-management/human-inbox/
 
 ## Classification Rules
 
@@ -252,13 +252,13 @@ You quickly classify and route items from the inbox.
 ## When Uncertain
 If you can't classify confidently:
 1. Put item in `other/`
-2. Create a question in `project-management/outbox/` asking for clarification
+2. Create a question in `project-management/human-inbox/` asking for clarification
 
-## Question Format (for project-management/outbox/)
+## Question Format (for project-management/human-inbox/)
 ```markdown
 # Question: [Brief title]
 
-**Source:** project-management/inbox/[filename]
+**Source:** project-management/agent-inbox/[filename]
 **Created:** [timestamp]
 
 ## Context
@@ -284,7 +284,7 @@ If you can't classify confidently:
 The **outbox** collects questions from all agents that need human input.
 
 An **interactive agent** (or the user's Claude session) should:
-1. Poll `.orchestrator/shared/project-management/outbox/`
+1. Poll `.orchestrator/shared/project-management/human-inbox/`
 2. Relay questions to the product designer
 3. Write answers back (or move answered items to project-management/processed/)
 
@@ -296,7 +296,7 @@ This could be:
 ```markdown
 ## Outbox Convention
 
-Files in project-management/outbox/ are questions awaiting human response.
+Files in project-management/human-inbox/ are questions awaiting human response.
 
 Format:
 - `YYYY-MM-DD-HH-MM-[short-title].md`
@@ -331,7 +331,7 @@ You process the user's documentation into actionable work items, optimizing for 
 ## Your Inputs
 1. `docs/plan_index.md` - All plans and their status
 2. `docs/issues/index.md` - Tracked issues
-3. `.orchestrator/shared/project-management/inbox/` - Raw ideas and notes
+3. `.orchestrator/shared/project-management/agent-inbox/` - Raw ideas and notes
 4. `.orchestrator/current-priorities.md` - What's important now
 
 ## Your Outputs
@@ -382,7 +382,7 @@ Read `current-priorities.md` to understand what matters now.
 Look for:
 - Open issues in docs/issues/ (high priority)
 - In-progress plans that need next steps
-- Items in project-management/inbox/ that align with priorities
+- Items in project-management/agent-inbox/ that align with priorities
 
 ### 3. For Each Item
 a. **Check if already done** - Search codebase, check completed plans
@@ -452,7 +452,7 @@ Update `.orchestrator/prompts/curator.md` to reference priorities:
   role: proposer
   focus: inbox_triage
   interval_seconds: 10        # Poll frequently
-  pre_check: "ls .orchestrator/shared/project-management/inbox/ | head -1"  # Cheap check
+  pre_check: "ls .orchestrator/shared/project-management/agent-inbox/ | head -1"  # Cheap check
   pre_check_trigger: "non_empty"  # Spawn if output is non-empty
 
 - name: backlog-groomer
@@ -516,9 +516,9 @@ Add `rejected/` state to task queue with documented reasoning.
 ## Implementation Plan
 
 ### Phase 1: Boxen Directory Structure & Priorities
-- [ ] Create `.orchestrator/shared/project-management/inbox/`
+- [ ] Create `.orchestrator/shared/project-management/agent-inbox/`
 - [ ] Create `.orchestrator/shared/project-management/classified/{priorities,architectural,features,bugs,other}/`
-- [ ] Create `.orchestrator/shared/project-management/outbox/`
+- [ ] Create `.orchestrator/shared/project-management/human-inbox/`
 - [ ] Create `.orchestrator/shared/project-management/processed/`
 - [ ] Create `.orchestrator/current-priorities.md` with actual priorities
 - [ ] Create `/set-priorities` skill (`.claude/commands/set-priorities.md`)

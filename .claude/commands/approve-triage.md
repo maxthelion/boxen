@@ -1,6 +1,6 @@
 # Approve Inbox Triage
 
-Process an approved triage proposal from the outbox.
+Process an approved triage proposal from the human-inbox.
 
 ## Usage
 
@@ -8,11 +8,11 @@ Process an approved triage proposal from the outbox.
 /approve-triage [proposal-file]
 ```
 
-If no file specified, uses the most recent triage proposal in `project-management/outbox/`.
+If no file specified, uses the most recent triage proposal in `project-management/human-inbox/`.
 
 ## What This Does
 
-1. Reads the triage proposal from `project-management/outbox/`
+1. Reads the triage proposal from `project-management/human-inbox/`
 2. For each item in the proposal:
    - Creates the summary files in `project-management/classified/` as specified
    - Archives original files to `project-management/processed/`
@@ -21,7 +21,7 @@ If no file specified, uses the most recent triage proposal in `project-managemen
 
 ## Instructions
 
-Read the specified triage proposal (or find the most recent `*-inbox-triage.md` in `project-management/outbox/`).
+Read the specified triage proposal (or find the most recent `*-inbox-triage.md` in `project-management/human-inbox/`).
 
 For each proposed action:
 
@@ -46,7 +46,7 @@ For each proposed action:
 ## Example
 
 ```
-/approve-triage project-management/outbox/2026-02-03-1906-inbox-triage.md
+/approve-triage project-management/human-inbox/2026-02-03-1906-inbox-triage.md
 ```
 
 Creates all proposed files and archives originals.

@@ -46,7 +46,7 @@ agents:
     role: proposer
     focus: inbox_triage
     interval_seconds: 10  # Very frequent
-    pre_check: "ls -A project-management/inbox/ 2>/dev/null | grep -v .gitkeep | head -1"
+    pre_check: "ls -A project-management/agent-inbox/ 2>/dev/null | grep -v .gitkeep | head -1"
     pre_check_trigger: non_empty
 
   # Curator - evaluates proposals, queues tasks
@@ -63,7 +63,7 @@ agents:
     interval_seconds: 30  # Frequent
     pre_check: "ls -A .orchestrator/shared/queue/incoming/ 2>/dev/null | grep -v .gitkeep | head -1"
     pre_check_trigger: non_empty
-    paused: true
+    # paused: true  # Unpaused to pick up fillet task
 
   # ============================================
   # SLOW POLL (expensive work, no pre-check)
@@ -86,8 +86,8 @@ agents:
   - name: architect
     role: proposer
     focus: code_structure
-    interval_seconds: 86400  # Daily
-    paused: true
+    interval_seconds: 300  # Every 5 minutes (for testing)
+    # paused: true  # Unpaused to propose refactoring after impl completes
 
   - name: plan-reader
     role: proposer

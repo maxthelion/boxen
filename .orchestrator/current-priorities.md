@@ -1,49 +1,73 @@
 # Current Priorities
 
 **Last Updated:** 2026-02-03
-**Focus Period:** Quality of Life & Polish
+**Focus Period:** 2D Editor Enhancements
 
 ## Primary Focus
-1. **Quality of Life Improvements** - Rendering and interaction polish
-2. Complete 2D panel editing tools (cutouts, edge paths)
-3. Fix tracked issues in docs/issues/
 
-## Work Categories (in priority order)
-1. **Bugs/Issues** - Tracked issues take precedence
-2. **QoL/Polish** - Rendering glitches, UI improvements
-3. **In-Progress Plans** - Complete what's started before starting new
-4. **New Features** - Only if aligned with primary focus
+Enhance the 2D panel editing experience with better tooling, snapping, and workflow improvements.
 
-## Quality of Life Items (from user notes)
+## Priority Features
+
+### Ready to Implement
+
+| # | Feature | Spec |
+|---|---------|------|
+| 1 | **Batch Fillet All Corners** | `project-management/awaiting-clarification/batch-fillet-corners.md` |
+
+### Awaiting Clarification
+
+| # | Feature | Questions At |
+|---|---------|--------------|
+| 2 | 2D View Legend & Polish | `project-management/awaiting-clarification/2d-view-legend-polish.md` |
+| 3 | 2D View Snapping | `project-management/awaiting-clarification/2d-view-snapping.md` |
+| 4 | Edge Mirroring | `project-management/awaiting-clarification/edge-mirroring.md` |
+| 5 | Cutout Preview Movement | `project-management/awaiting-clarification/cutout-preview-movement.md` |
+| 6 | Feature Copy/Paste | `project-management/awaiting-clarification/feature-copy-paste.md` |
+| 7 | Clip Mask System | `project-management/awaiting-clarification/clip-mask-system.md` |
+
+**Note:** Batch Fillet extends the existing fillet system to handle ANY corner (cutouts, custom paths, outer corners) - unified approach.
+
+## Work Order
+
+1. **Answer clarifying questions** - Review `awaiting-clarification/` files and answer the questions
+2. **Implement clarified features** - As questions are answered, move to implementation
+
+## Feature Summaries
+
+Detailed summaries of each feature from user notes:
+- `project-management/classified/features/2026-02-03-2d-view-improvements.md`
+- `project-management/classified/features/2026-02-03-shape-drawing-and-clipboard.md`
+
+## Background: Quality of Life Items
+
+These were previously the focus. Defer until 2D editor features are complete:
+
 ### Rendering
 - Rendering glitches - edges too close (z-fighting)
 - Voids rendering strangely
 
 ### UI/UX
-- Toggle face buttons not showing (functionality issue)
-- Axis running through assembly - should be an arrow instead
-- Feet being operations on panels (unclear if bug or feature request)
-- Easier to change tab direction on lids
-- Edge selection neater in 3D view
-- Move tool on edges (feature question)
-- Inset tool - consider name change?
-- Push-pull tool awkward to use
+- Toggle face buttons not showing
+- Axis indicator improvements
+- Edge selection in 3D view
+- Push-pull tool awkwardness
 
 ## Not Now
-- New operation types (wait for core stability)
-- Performance optimization (premature)
+
+- New operation types
+- Performance optimization
 - Additional export formats
 - Sub-assembly advanced features
 
 ## Groomer Guidance
-- Prioritize QoL items from the list above
-- Prioritize items from docs/issues/ index
-- Break down in-progress plans into single-task proposals
-- Look for work that can be parallelized without conflicts
-- Flag items that need user clarification → outbox
+
+- **Batch Fillet** is ready - can create implementation tasks
+- Continue clarifying remaining 6 features in `awaiting-clarification/`
+- Once a feature is clarified, create implementation tasks
 
 ## PM Guidance
-- Prefer completing in-progress work over starting new
-- Balance: 40% bugs/QoL, 40% in-progress plans, 20% new aligned work
-- Don't queue more than 3 tasks at a time
-- Consider dependency graph for parallel execution
+
+- Focus on getting clarification for blocked features
+- Don't start implementation until questions are answered
+- Route clarification requests to outbox for user review

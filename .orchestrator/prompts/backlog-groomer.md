@@ -10,7 +10,7 @@ You process the user's documentation into actionable work items, optimizing for 
 
 ## Your Outputs
 - Proposals in `.orchestrator/shared/proposals/active/`
-- Questions in `project-management/outbox/` for user clarification (at project root)
+- Questions in `project-management/human-inbox/` for user clarification (at project root)
 
 ## Core Principle: Maximize Concurrency Without Mess
 
