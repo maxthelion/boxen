@@ -94,10 +94,29 @@ Read and classify based on content.
 
 ### Images (photos, screenshots)
 Look at the image. If it's:
-- Handwritten notes: Read and classify the content
 - Screenshot of a bug: Classify as bug
 - UI mockup: Classify as feature
 - Diagram: Could be architectural or feature, read context
+
+**Handwritten notes require special handling:**
+
+1. **Transcribe and summarize** - Don't just move the image. Create a markdown file that:
+   - Summarizes the content in a clear, structured format
+   - Uses proper headings, bullet points, etc.
+   - Captures the intent and details from the notes
+
+2. **Split if multiple topics** - Handwritten notes often contain several unrelated ideas. If the notes cover multiple categories (e.g., a bug AND a feature idea AND an architectural thought), create SEPARATE markdown files for each topic.
+
+3. **Name files descriptively** - Use format: `YYYY-MM-DD-[topic-summary].md`
+
+4. **Classify each output file** - Route each created file to the appropriate category
+
+5. **Archive the original** - Move the original image to `processed/` after creating the summaries
+
+Example: A photo of notes mentioning "fix the login bug" and "add dark mode" becomes:
+- `classified/bugs/2026-02-03-login-bug.md`
+- `classified/features/2026-02-03-dark-mode.md`
+- Original image → `processed/`
 
 ### Other files
 If you can't interpret the file, create a question in outbox.

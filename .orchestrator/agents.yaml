@@ -2,7 +2,7 @@
 # Using proposal-driven model (v2)
 
 model: proposal
-paused: true  # System-wide pause - no agents will be spawned
+# paused: true  # System-wide pause - uncomment to stop all agents
 
 # Proposal backpressure (per proposer type)
 proposal_limits:
@@ -55,6 +55,7 @@ agents:
     interval_seconds: 30  # Frequent
     pre_check: "ls -A .orchestrator/shared/proposals/active/ 2>/dev/null | grep -v .gitkeep | head -1"
     pre_check_trigger: non_empty
+    paused: true
 
   # Implementer - executes tasks
   - name: impl-agent-1
@@ -62,6 +63,7 @@ agents:
     interval_seconds: 30  # Frequent
     pre_check: "ls -A .orchestrator/shared/queue/incoming/ 2>/dev/null | grep -v .gitkeep | head -1"
     pre_check_trigger: non_empty
+    paused: true
 
   # ============================================
   # SLOW POLL (expensive work, no pre-check)
@@ -72,22 +74,26 @@ agents:
     role: proposer
     focus: backlog_grooming
     interval_seconds: 86400  # Daily
+    paused: true
 
   # Proposers - explore codebase, suggest work
   - name: test-checker
     role: proposer
     focus: test_quality
     interval_seconds: 86400  # Daily
+    paused: true
 
   - name: architect
     role: proposer
     focus: code_structure
     interval_seconds: 86400  # Daily
+    paused: true
 
   - name: plan-reader
     role: proposer
     focus: project_plans
     interval_seconds: 86400  # Daily
+    paused: true
 
   # ============================================
   # ADDITIONAL AGENTS (uncomment to enable)
