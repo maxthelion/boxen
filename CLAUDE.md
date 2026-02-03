@@ -5,6 +5,12 @@
 - **After completing a feature**: When the user approves a feature, ask if they want to commit it to git.
 - **Planning documents**: Keep plans in the project repo at `docs/` (e.g., `docs/2d-sketch-plan.md`), not in Claude's default plan location (`~/.claude/plans/`). This ensures plans are version-controlled and accessible to everyone.
 
+## Agent Instructions
+
+If `.agent-instructions.md` exists in this directory, read and follow those instructions.
+
+Check `.orchestrator/messages/` for any agent messages and inform the user of warnings or questions.
+
 ## Issue Tracking
 
 Known geometry and functionality issues are tracked in `docs/issues/`. This provides a way to document bugs that are detected but not yet fixed.

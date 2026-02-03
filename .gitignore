@@ -27,3 +27,11 @@ npm-debug.log*
 .claude/instructions/
 .claude/plans/
 .claude/settings.local.json
+# Orchestrator
+# Orchestrator runtime files
+.orchestrator/agents/
+.orchestrator/messages/
+.orchestrator/shared/queue/claimed/
+.orchestrator/shared/queue/failed/
+.orchestrator/scheduler.lock
+.agent-instructions.md
