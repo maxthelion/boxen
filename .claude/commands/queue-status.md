@@ -14,11 +14,12 @@ Display the current state of the task queue.
 ```
 Queue Status
 ============
-Incoming:  5 tasks
-Claimed:   2 tasks
-Done:      12 tasks
-Failed:    1 task
-Open PRs:  3
+Incoming:         5 tasks
+Claimed:          2 tasks
+Needs Continuation: 1 task
+Done:             12 tasks
+Failed:           1 task
+Open PRs:         3
 ```
 
 ### Queue Limits
@@ -45,10 +46,18 @@ Claimed Tasks
 -------------
 TASK-jkl012 | Implement auth | impl-agent-1 | claimed 10m ago
 
+Needs Continuation
+------------------
+TASK-xyz987 | Implement fillet | uncommitted_changes | branch: agent/xyz987-... | 2h ago
+
 Failed Tasks
 ------------
 TASK-mno345 | Add logging | Error: Test failures | failed 3h ago
 ```
+
+### Needs Continuation Queue
+
+Tasks in this queue were started but not fully completed (e.g., agent hit max turns with uncommitted changes). When an implementer agent starts, it will automatically check for and resume these tasks before claiming new ones.
 
 ## Implementation
 
