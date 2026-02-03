@@ -162,12 +162,35 @@ Consider using a different process management approach:
 
 ---
 
+## Issue 4: Wrong module path in scheduler
+
+**Severity:** Blocker (after PYTHONPATH fix)
+
+### Description
+
+In `scheduler.py:347`, the role module path is wrong:
+
+```python
+role_module = f"orchestrator.orchestrator.roles.{role}"  # Wrong
+```
+
+Should be:
+
+```python
+role_module = f"orchestrator.roles.{role}"  # Correct
+```
+
+The package structure is `orchestrator/orchestrator/` but the installed package is just `orchestrator`, so the import path is `orchestrator.roles.proposer` not `orchestrator.orchestrator.roles.proposer`.
+
+---
+
 ## Summary
 
 | Issue | Severity | Status |
 |-------|----------|--------|
-| PYTHONPATH not set | Blocker | Open |
-| Skill requires unavailable imports | Blocker | Open |
-| Exit code not captured | Minor | Open |
+| PYTHONPATH not set | Blocker | Fixed (68be67c) |
+| Skill requires unavailable imports | Blocker | Fixed (68be67c) |
+| Exit code not captured | Minor | Fixed (78332d8) |
+| Wrong module path in scheduler | Blocker | Fixed (4954bc2) |
 
-The first two issues prevent the proposal model from working. Issue 1 + Option A for Issue 2 would be the minimal fix.
+All issues resolved.
