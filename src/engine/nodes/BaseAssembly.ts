@@ -37,6 +37,8 @@ import {
   Subdivision,
   CornerKey,
   CornerFillet,
+  AllCornerId,
+  AllCornerFillet,
   CustomEdgePath,
   Cutout,
 } from '../types';

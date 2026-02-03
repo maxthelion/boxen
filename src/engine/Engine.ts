@@ -765,6 +765,30 @@ export class Engine {
         break;
       }
 
+      case 'SET_ALL_CORNER_FILLET': {
+        // All-corner fillets (any corner in geometry)
+        if (assembly) {
+          assembly.setPanelAllCornerFillet(
+            action.payload.panelId,
+            action.payload.cornerId,
+            action.payload.radius
+          );
+          return true;
+        }
+        break;
+      }
+
+      case 'SET_ALL_CORNER_FILLETS_BATCH': {
+        // Batch all-corner fillets - atomic operation for undo/redo
+        if (assembly) {
+          for (const fillet of action.payload.fillets) {
+            assembly.setPanelAllCornerFillet(fillet.panelId, fillet.cornerId, fillet.radius);
+          }
+          return true;
+        }
+        break;
+      }
+
       case 'SET_EDGE_PATH': {
         // Custom edge paths are stored at the assembly level
         if (assembly) {
