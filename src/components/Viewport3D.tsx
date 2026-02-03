@@ -24,6 +24,7 @@ import { ConfigurePalette } from './ConfigurePalette';
 import { ScalePalette } from './ScalePalette';
 import { InsetPalette, PanelEdgeGroup } from './InsetPalette';
 import { FilletPalette, PanelCornerGroup } from './FilletPalette';
+import { FilletAllCornersPalette, PanelAllCornerGroup } from './FilletAllCornersPalette';
 import { IneligibilityTooltip } from './IneligibilityTooltip';
 import { useBoxStore } from '../store/useBoxStore';
 import { EdgePosition, EdgeStatus } from '../types';
@@ -95,6 +96,15 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const [filletRadius, setFilletRadius] = useState(5);
   const selectedCornerIds = useBoxStore((state) => state.selectedCornerIds);
   const selectCorner = useBoxStore((state) => state.selectCorner);
+
+  // Fillet All Corners palette state (local UI state only)
+  const [filletAllPalettePosition, setFilletAllPalettePosition] = useState({ x: 20, y: 150 });
+  const [filletAllRadius, setFilletAllRadius] = useState(5);
+  const selectedAllCornerIds = useBoxStore((state) => state.selectedAllCornerIds);
+  const selectAllCorner = useBoxStore((state) => state.selectAllCorner);
+  const selectAllCorners = useBoxStore((state) => state.selectAllCorners);
+  const clearAllCornerSelection = useBoxStore((state) => state.clearAllCornerSelection);
+  const selectPanelAllCorners = useBoxStore((state) => state.selectPanelAllCorners);
 
   // Ineligibility tooltip
   const tooltipMessage = useIneligibilityTooltip();
