@@ -2,6 +2,7 @@
 # Using proposal-driven model (v2)
 
 model: proposal
+paused: true  # System-wide pause - no agents will be spawned
 
 # Proposal backpressure (per proposer type)
 proposal_limits:
