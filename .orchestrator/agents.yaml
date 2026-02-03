@@ -1,21 +1,59 @@
 # Orchestrator Agent Configuration
-# See orchestrator/README.md for documentation
+# Using proposal-driven model (v2)
 
-# Queue limits for backpressure control
+model: proposal
+
+# Proposal backpressure (per proposer type)
+proposal_limits:
+  test-checker:
+    max_active: 5
+    max_per_run: 2
+  architect:
+    max_active: 3
+    max_per_run: 1
+  plan-reader:
+    max_active: 10
+    max_per_run: 3
+
+# Voice weights - how much each proposer's voice matters
+voice_weights:
+  plan-reader: 1.5      # Executing documented plans is priority
+  architect: 1.2        # Complexity reduction multiplies velocity
+  test-checker: 1.0     # Important but often not urgent
+
+# Task queue limits
 queue_limits:
-  max_incoming: 20   # Max tasks in incoming + claimed
-  max_claimed: 5     # Max tasks being worked on simultaneously
-  max_open_prs: 10   # Max open pull requests
+  max_incoming: 20
+  max_claimed: 5
+  max_open_prs: 10
 
 # Agent definitions
 agents:
-  - name: pm-agent
-    role: product_manager
-    interval_seconds: 600  # 10 minutes
+  # Proposers - run daily, suggest work
+  - name: test-checker
+    role: proposer
+    focus: test_quality
+    interval_seconds: 86400  # Daily
 
+  - name: architect
+    role: proposer
+    focus: code_structure
+    interval_seconds: 86400  # Daily
+
+  - name: plan-reader
+    role: proposer
+    focus: project_plans
+    interval_seconds: 86400  # Daily
+
+  # Curator - runs frequently, evaluates proposals
+  - name: curator
+    role: curator
+    interval_seconds: 600  # Every 10 minutes
+
+  # Executors - implement approved tasks
   - name: impl-agent-1
     role: implementer
-    interval_seconds: 180  # 3 minutes
+    interval_seconds: 180  # Every 3 minutes
 
   # Uncomment to add more agents:
   # - name: impl-agent-2
