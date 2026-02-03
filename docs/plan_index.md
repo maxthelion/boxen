@@ -17,6 +17,7 @@
 | [modification-pattern-plan.md](modification-pattern-plan.md) | complete | Operation system architecture |
 | [move-operation-plan.md](move-operation-plan.md) | draft | Move tool for edges/panels |
 | [orchestrator-enhancements-plan.md](orchestrator-enhancements-plan.md) | draft | Proposal-driven multi-agent system with specialized proposers |
+| [orchestrator-improvements-plan.md](orchestrator-improvements-plan.md) | draft | Fix duplicate proposals, add priorities doc, existence checks, inbox system |
 | [panel-2d-editing-plan.md](panel-2d-editing-plan.md) | in-progress | Outstanding 2D editing work: cutout editing, unified path drawing, advanced tools |
 | [panel-2d-editing-plan-completed.md](panel-2d-editing-plan-completed.md) | complete | Completed 2D editing work: safe space, editor context, edge paths, basic cutouts |
 | [panel-corner-fillet-plan.md](panel-corner-fillet-plan.md) | complete | Corner fillet tool |

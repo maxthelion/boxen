@@ -15,9 +15,16 @@ proposal_limits:
   plan-reader:
     max_active: 10
     max_per_run: 3
+  backlog-groomer:
+    max_active: 10
+    max_per_run: 5
+  inbox-poller:
+    max_active: 1  # Only one item type at a time
+    max_per_run: 10  # Process many items per run
 
 # Voice weights - how much each proposer's voice matters
 voice_weights:
+  backlog-groomer: 1.5  # Processes user's direct input
   plan-reader: 1.5      # Executing documented plans is priority
   architect: 1.2        # Complexity reduction multiplies velocity
   test-checker: 1.0     # Important but often not urgent
@@ -30,7 +37,43 @@ queue_limits:
 
 # Agent definitions
 agents:
-  # Proposers - run daily, suggest work
+  # ============================================
+  # FAST POLL + PRE-CHECK (respond quickly to new work)
+  # ============================================
+
+  # Inbox Poller - classifies and routes inbox items
+  - name: inbox-poller
+    role: proposer
+    focus: inbox_triage
+    interval_seconds: 10  # Very frequent
+    pre_check: "ls -A .orchestrator/shared/inbox/ 2>/dev/null | grep -v .gitkeep | head -1"
+    pre_check_trigger: non_empty
+
+  # Curator - evaluates proposals, queues tasks
+  - name: curator
+    role: curator
+    interval_seconds: 30  # Frequent
+    pre_check: "ls -A .orchestrator/shared/proposals/active/ 2>/dev/null | grep -v .gitkeep | head -1"
+    pre_check_trigger: non_empty
+
+  # Implementer - executes tasks
+  - name: impl-agent-1
+    role: implementer
+    interval_seconds: 30  # Frequent
+    pre_check: "ls -A .orchestrator/shared/queue/incoming/ 2>/dev/null | grep -v .gitkeep | head -1"
+    pre_check_trigger: non_empty
+
+  # ============================================
+  # SLOW POLL (expensive work, no pre-check)
+  # ============================================
+
+  # Backlog Groomer - processes docs into proposals
+  - name: backlog-groomer
+    role: proposer
+    focus: backlog_grooming
+    interval_seconds: 86400  # Daily
+
+  # Proposers - explore codebase, suggest work
   - name: test-checker
     role: proposer
     focus: test_quality
@@ -46,20 +89,15 @@ agents:
     focus: project_plans
     interval_seconds: 86400  # Daily
 
-  # Curator - runs frequently, evaluates proposals
-  - name: curator
-    role: curator
-    interval_seconds: 600  # Every 10 minutes
+  # ============================================
+  # ADDITIONAL AGENTS (uncomment to enable)
+  # ============================================
 
-  # Executors - implement approved tasks
-  - name: impl-agent-1
-    role: implementer
-    interval_seconds: 180  # Every 3 minutes
-
-  # Uncomment to add more agents:
   # - name: impl-agent-2
   #   role: implementer
-  #   interval_seconds: 180
+  #   interval_seconds: 30
+  #   pre_check: "ls -A .orchestrator/shared/queue/incoming/ 2>/dev/null | grep -v .gitkeep | head -1"
+  #   pre_check_trigger: non_empty
 
   # - name: test-agent
   #   role: tester
