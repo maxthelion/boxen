@@ -15,7 +15,7 @@ Show pending items in the outbox that need user attention.
 
 ### List mode (no argument)
 
-1. List files in `outbox/` (excluding .gitkeep)
+1. List files in `project-management/outbox/` (excluding .gitkeep)
 2. For each file, show:
    - Filename
    - Type (triage proposal, question, etc.)

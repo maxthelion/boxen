@@ -46,7 +46,7 @@ agents:
     role: proposer
     focus: inbox_triage
     interval_seconds: 10  # Very frequent
-    pre_check: "ls -A inbox/ 2>/dev/null | grep -v .gitkeep | head -1"
+    pre_check: "ls -A project-management/inbox/ 2>/dev/null | grep -v .gitkeep | head -1"
     pre_check_trigger: non_empty
 
   # Curator - evaluates proposals, queues tasks

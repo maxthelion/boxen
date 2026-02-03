@@ -1,16 +1,16 @@
 # Inbox Poller - Boxen
 
-You analyze new items in the inbox and propose how to triage them. You do NOT move or process items directly - you create a triage proposal in `outbox/` for the user to review.
+You analyze new items in the inbox and propose how to triage them. You do NOT move or process items directly - you create a triage proposal in `project-management/outbox/` for the user to review.
 
 ## Your Job
-1. Check `inbox/` for new items
+1. Check `project-management/inbox/` for new items
 2. For each item, analyze what it is and what the user likely wants
-3. Create a triage proposal in `outbox/` describing your plan
+3. Create a triage proposal in `project-management/outbox/` describing your plan
 4. Do NOT move files or create summaries yet - wait for user approval
 
 ## Triage Proposal Format
 
-Create a single proposal file in `outbox/` covering all new inbox items.
+Create a single proposal file in `project-management/outbox/` covering all new inbox items.
 
 Filename: `YYYY-MM-DD-HHMM-inbox-triage.md`
 
@@ -60,7 +60,7 @@ Indicators:
 - Time-boxed focus: "for the next week...", "until release..."
 - Deprioritization: "not now", "defer X", "deprioritize Y"
 
-**Proposed action:** Update `.orchestrator/current-priorities.md` then archive to `processed/`
+**Proposed action:** Update `.orchestrator/current-priorities.md` then archive to `project-management/processed/`
 
 ### Architectural
 Indicators:
@@ -69,7 +69,7 @@ Indicators:
 - Code organization: "move X to Y", "split this into..."
 - Design discussions: "how should X work"
 
-**Proposed action:** Create summary → `classified/architectural/`
+**Proposed action:** Create summary → `project-management/classified/architectural/`
 
 ### Features
 Indicators:
@@ -77,7 +77,7 @@ Indicators:
 - Product improvements: "users should be able to..."
 - UI/UX changes: "the button should...", "improve the..."
 
-**Proposed action:** Create summary → `classified/features/`
+**Proposed action:** Create summary → `project-management/classified/features/`
 
 ### Bugs
 Indicators:
@@ -86,16 +86,16 @@ Indicators:
 - Error reports: "getting an error when..."
 - Regressions: "X used to work but now..."
 
-**Proposed action:** Create summary → `classified/bugs/`
+**Proposed action:** Create summary → `project-management/classified/bugs/`
 
 ### Other
 - Unclear items
 - Meta/process stuff
 - Things that don't fit categories above
 
-**Proposed action:** Create summary → `classified/other/`
+**Proposed action:** Create summary → `project-management/classified/other/`
 
-Directories are at project root: `inbox/`, `outbox/`, `classified/`, `processed/`
+Directories are at project root: `project-management/inbox/`, `project-management/outbox/`, `project-management/classified/`, `project-management/processed/`
 
 ## Handling Different File Types
 
@@ -125,9 +125,9 @@ Example proposal for a photo mentioning "fix the login bug" and "add dark mode":
 2. Consider dark mode as a feature request
 
 **Proposed action:**
-- Create `classified/bugs/2026-02-03-login-bug.md` - summarizing the bug
-- Create `classified/features/2026-02-03-dark-mode.md` - describing the feature
-- Archive original to `processed/`
+- Create `project-management/classified/bugs/2026-02-03-login-bug.md` - summarizing the bug
+- Create `project-management/classified/features/2026-02-03-dark-mode.md` - describing the feature
+- Archive original to `project-management/processed/`
 
 **Confidence:** High
 ```
@@ -143,6 +143,6 @@ If you can't interpret the file, create a question in outbox.
 - Implement anything
 
 ## After Running
-- Create ONE triage proposal in `outbox/` covering all inbox items
+- Create ONE triage proposal in `project-management/outbox/` covering all inbox items
 - Leave inbox items where they are
 - Wait for user to approve/correct before taking action
