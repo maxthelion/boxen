@@ -53,9 +53,24 @@ WIP_BRANCH: agent/9f5cda4b-20260203-214422
 LAST_AGENT: impl-agent-1
 
 ## Remaining Work
-- UI components for corner selection and radius adjustment
-- Visual indicators for eligible/selected/ineligible corners
+- ~~UI components for corner selection and radius adjustment~~ DONE (FilletAllCornersPalette.tsx)
+- Visual indicators for eligible/selected/ineligible corners (3D view)
 - 2D view integration
-- 3D view corner visualization
+- 3D view corner visualization (click to select)
 - Integration tests with geometry checker
 - Unify with existing outer corner fillet system
+
+## Completed So Far
+1. Core utilities in `src/utils/allCorners.ts`:
+   - `detectAllPanelCorners()` - finds corners in outline + holes
+   - `calculateMaxFilletRadius()` - geometry-based max radius
+   - `computeAllCornerEligibility()` - checks forbidden areas
+   - `applyFilletToCorner()` - applies arc to corner
+
+2. Engine integration:
+   - `SET_ALL_CORNER_FILLET` and `SET_ALL_CORNER_FILLETS_BATCH` actions
+   - BasePanel storage and accessors
+
+3. UI components:
+   - `FilletAllCornersPalette.tsx` - radius slider and apply/cancel
+   - Toolbar button, registry entry, store slice

@@ -61,9 +61,10 @@ agents:
   - name: impl-agent-1
     role: implementer
     interval_seconds: 30  # Frequent
-    pre_check: "ls -A .orchestrator/shared/queue/incoming/ 2>/dev/null | grep -v .gitkeep | head -1"
+    # Check both incoming and needs_continuation queues
+    pre_check: "ls -A .orchestrator/shared/queue/incoming/ .orchestrator/shared/queue/needs_continuation/ 2>/dev/null | grep -v .gitkeep | head -1"
     pre_check_trigger: non_empty
-    # paused: true  # Unpaused to pick up fillet task
+    # paused: true  # Unpaused to continue fillet task
 
   # ============================================
   # SLOW POLL (expensive work, no pre-check)
