@@ -14,7 +14,7 @@
  * Full corner key format (including panel): "panelId:outline:index" or "panelId:hole:holeId:index"
  */
 
-import { PathPoint, Point2D } from '../types';
+import { Point2D } from '../engine/types';
 
 /**
  * Types of corners based on their geometric location

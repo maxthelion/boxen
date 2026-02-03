@@ -12,7 +12,7 @@ import {
   PaletteButton,
   PaletteButtonRow,
 } from './FloatingPalette';
-import { AllCornerId, AllCornerEligibility } from '../engine/types';
+import { AllCornerId } from '../engine/types';
 import { getColors } from '../config/colors';
 
 // Corner info for display
