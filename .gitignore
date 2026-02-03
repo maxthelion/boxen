@@ -32,9 +32,21 @@ npm-debug.log*
 .orchestrator/messages/
 .orchestrator/shared/queue/claimed/
 .orchestrator/shared/queue/failed/
+.orchestrator/shared/queue/rejected/
 .orchestrator/shared/proposals/active/
 .orchestrator/shared/proposals/promoted/
 .orchestrator/shared/proposals/deferred/
 .orchestrator/shared/proposals/rejected/
 .orchestrator/scheduler.lock
+.orchestrator/logs/
 .agent-instructions.md
+
+# Inbox/Outbox working directories (at project root)
+inbox/*
+!inbox/.gitkeep
+outbox/*
+!outbox/.gitkeep
+classified/**/*
+!classified/**/.gitkeep
+processed/*
+!processed/.gitkeep

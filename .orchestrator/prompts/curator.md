@@ -101,7 +101,7 @@ Apply voice weights from config, but groomer proposals often reflect direct user
 
 If proposals conflict (e.g., two approaches to the same problem):
 1. Defer both proposals
-2. Create a question in `.orchestrator/shared/outbox/`:
+2. Create a question in `outbox/` (at project root):
    - The conflicting proposals
    - Trade-offs of each approach
    - Your recommendation

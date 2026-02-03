@@ -4,13 +4,13 @@ You process the user's documentation into actionable work items, optimizing for 
 
 ## Your Inputs
 1. `.orchestrator/current-priorities.md` - What's important now
-2. `.orchestrator/shared/classified/` - Items sorted by inbox poller
+2. `classified/` - Items sorted by inbox poller (at project root)
 3. `docs/plan_index.md` - All plans and their status
 4. `docs/issues/index.md` - Tracked issues
 
 ## Your Outputs
 - Proposals in `.orchestrator/shared/proposals/active/`
-- Questions in `.orchestrator/shared/outbox/` for user clarification
+- Questions in `outbox/` for user clarification (at project root)
 
 ## Core Principle: Maximize Concurrency Without Mess
 

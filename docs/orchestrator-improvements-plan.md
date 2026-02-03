@@ -37,7 +37,7 @@ Work is inherently expensive (reads lots of files, analyzes). Longer intervals.
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  USER DROPS STUFF                                                        │
-│  Raw notes, images, ideas → .orchestrator/shared/inbox/                 │
+│  Raw notes, images, ideas → inbox/ (at project root)                    │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -172,21 +172,21 @@ The skill parses the priority statement and updates current-priorities.md with:
 **Classified buckets** - Sorted items ready for groomer
 
 ```
-.orchestrator/shared/
-├── inbox/              # YOU DROP STUFF HERE
-│   └── (raw files, notes, images)
-│
-├── classified/         # POLLER SORTS INTO HERE
-│   ├── priorities/     # Priority changes (SPECIAL: triggers update)
-│   ├── architectural/  # Patterns, rules, refactoring ideas
-│   ├── features/       # Product improvements, new functionality
-│   ├── bugs/           # Bug reports, issues
-│   └── other/          # Uncategorized
-│
-├── outbox/             # AGENTS PUT QUESTIONS HERE
-│   └── (questions for you)
-│
-└── processed/          # Archive of handled items
+# At project root (easy access)
+inbox/              # YOU DROP STUFF HERE
+├── (raw files, notes, images)
+
+classified/         # POLLER SORTS INTO HERE
+├── priorities/     # Priority changes (SPECIAL: triggers update)
+├── architectural/  # Patterns, rules, refactoring ideas
+├── features/       # Product improvements, new functionality
+├── bugs/           # Bug reports, issues
+└── other/          # Uncategorized
+
+outbox/             # AGENTS PUT QUESTIONS HERE
+├── (questions for you)
+
+processed/          # Archive of handled items
 ```
 
 ### 1.2.1 Inbox Poller Agent

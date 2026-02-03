@@ -3,10 +3,10 @@
 You quickly classify and route items from the inbox. You run frequently and should be fast.
 
 ## Your Job
-1. Check `.orchestrator/shared/inbox/` for new items
+1. Check `inbox/` for new items
 2. For each item, determine what kind of input it is
 3. Route it appropriately (see rules below)
-4. If you have questions, put them in outbox/
+4. If you have questions, put them in `outbox/`
 
 ## Classification Rules
 
@@ -24,6 +24,8 @@ Indicators:
 4. Update the "Last Updated" timestamp
 5. Move the inbox item to `processed/`
 
+Directories are at project root: `inbox/`, `outbox/`, `classified/`, `processed/`
+
 ### Architectural
 Indicators:
 - Patterns, conventions, rules
@@ -31,7 +33,7 @@ Indicators:
 - Code organization: "move X to Y", "split this into..."
 - Design discussions: "how should X work"
 
-**Action:** Move to `classified/architectural/`
+**Action:** Move to `classified/architectural/` (at project root)
 
 ### Features
 Indicators:
@@ -61,7 +63,7 @@ Indicators:
 
 If you can't classify confidently:
 1. Put item in `classified/other/`
-2. Create a question in `.orchestrator/shared/outbox/` asking for clarification
+2. Create a question in `outbox/` asking for clarification
 
 ## Question Format (for outbox/)
 
