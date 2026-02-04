@@ -39,10 +39,10 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectedEdges, selectedCornerIds, selectPanel, selectAssembly, selectPanelEdges, selectPanelCorners, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
 
   // Compute visually selected panels (includes cascade from assembly selection)
-  const allPanelIds = panelCollection?.panels.map(p => p.id) ?? [];
+  const allPanels = panelCollection?.panels ?? [];
   const visuallySelectedPanelIds = computeVisuallySelectedPanelIds(
     { selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds },
-    allPanelIds
+    allPanels
   );
 
   // Get the set of visually selected face IDs
@@ -120,7 +120,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
       </lineSegments>
 
       {/* Assembly axis indicator - shows when main assembly is selected or configure tool is active */}
-      {(selectedAssemblyId === 'main' || activeTool === 'configure-assembly') && config.assembly?.assemblyAxis && (
+      {(selectedAssemblyId === 'main' || activeTool === 'configure') && config.assembly?.assemblyAxis && (
         <>
           <AssemblyAxisIndicator
             axis={config.assembly.assemblyAxis}
@@ -136,7 +136,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
       )}
 
       {/* Panel toggle buttons - show when any face panels are visually selected or configure tool is active */}
-      {(hasFacePanelsSelected || activeTool === 'configure-assembly') &&
+      {(hasFacePanelsSelected || activeTool === 'configure') &&
         faces && (
           <PanelToggleOverlay
             faces={faces}
@@ -144,7 +144,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
             thickness={scaledThickness}
             onToggle={toggleFace}
             visible={true}
-            selectedFaceIds={activeTool === 'configure-assembly' ? undefined : selectedFaceIds}
+            selectedFaceIds={activeTool === 'configure' ? undefined : selectedFaceIds}
           />
         )}
 

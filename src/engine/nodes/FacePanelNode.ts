@@ -29,7 +29,7 @@ import {
   getAdjacentFace,
 } from '../../utils/faceGeometry';
 import { getEdgeGender } from '../../utils/genderRules';
-import { getEdgeAxis, Face as StoreFace, AssemblyConfig as StoreAssemblyConfig } from '../../types';
+import { getEdgeAxis, Face as StoreFace, AssemblyConfig as StoreAssemblyConfig, getLidFaceId } from '../../types';
 import { debug, enableDebugTag } from '../../utils/debug';
 
 enableDebugTag('face-cross-lap');
@@ -372,14 +372,19 @@ export class FacePanelNode extends BasePanel {
     }));
 
     const engineLids = this._assembly.assemblyConfig.lids;
+    // Get the lid faces to determine enabled status
+    const positiveLidFace = getLidFaceId(assemblyAxis, 'positive');
+    const negativeLidFace = getLidFaceId(assemblyAxis, 'negative');
     const storeAssembly: StoreAssemblyConfig = {
       assemblyAxis,
       lids: {
         positive: {
+          enabled: this._assembly.isFaceSolid(positiveLidFace),
           tabDirection: engineLids.positive.tabDirection,
           inset: engineLids.positive.inset,
         },
         negative: {
+          enabled: this._assembly.isFaceSolid(negativeLidFace),
           tabDirection: engineLids.negative.tabDirection,
           inset: engineLids.negative.inset,
         },
