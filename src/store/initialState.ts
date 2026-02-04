@@ -62,6 +62,10 @@ export const initialState: Omit<BoxState, keyof BoxActions> = {
   // Tool state
   activeTool: 'select' as EditorTool,
   selectedCornerIds: new Set<string>(),
+  hoveredCorner: null as string | null,
+  // All-corners fillet state (any corner in panel geometry)
+  selectedAllCornerIds: new Set<string>(),
+  hoveredAllCorner: null as string | null,
   // Edge selection state (for inset/outset tool)
   selectedEdges: new Set<string>(),
   hoveredEdge: null as string | null,

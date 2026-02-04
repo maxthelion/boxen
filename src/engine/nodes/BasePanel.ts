@@ -41,7 +41,17 @@ import {
   RectCutout,
   CircleCutout,
   PathCutout,
+  AllCornerId,
+  AllCornerFillet,
+  AllCornerEligibility,
 } from '../types';
+import {
+  detectAllPanelCorners,
+  computeAllCornerEligibility,
+  ForbiddenArea,
+  CornerDetectionConfig,
+  applyFilletToCorner,
+} from '../../utils/allCorners';
 import { generateFingerJointPathV2, Point } from '../../utils/fingerJoints';
 
 export interface PanelDimensions {
@@ -71,7 +81,8 @@ export interface EdgeConfig {
 export abstract class BasePanel extends BaseNode {
   // Input properties
   protected _edgeExtensions: EdgeExtensions = { top: 0, bottom: 0, left: 0, right: 0 };
-  protected _cornerFillets: Map<CornerKey, number> = new Map();  // corner -> radius
+  protected _cornerFillets: Map<CornerKey, number> = new Map();  // corner -> radius (4 outer corners)
+  protected _allCornerFillets: Map<AllCornerId, number> = new Map();  // all corners -> radius
   protected _customEdgePaths: Map<EdgePosition, CustomEdgePath> = new Map();  // edge -> custom path
   protected _cutouts: Map<string, Cutout> = new Map();  // cutoutId -> cutout
   protected _visible: boolean = true;
@@ -85,6 +96,7 @@ export abstract class BasePanel extends BaseNode {
   protected _cachedTransform: Transform3D | null = null;
   protected _cachedEdgeAnchors: EdgeAnchor[] | null = null;
   protected _cachedCornerEligibility: CornerEligibility[] | null = null;
+  protected _cachedAllCornerEligibility: AllCornerEligibility[] | null = null;
 
   constructor(id?: string) {
     super(id);
@@ -151,6 +163,48 @@ export abstract class BasePanel extends BaseNode {
           this._cornerFillets.delete(corner);
         } else {
           this._cornerFillets.set(corner, radius);
+        }
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.markDirty();
+    }
+  }
+
+  // All corner fillet accessors (any corner in geometry)
+  get allCornerFillets(): AllCornerFillet[] {
+    return Array.from(this._allCornerFillets.entries()).map(([cornerId, radius]) => ({
+      cornerId,
+      radius,
+    }));
+  }
+
+  getAllCornerFillet(cornerId: AllCornerId): number {
+    return this._allCornerFillets.get(cornerId) ?? 0;
+  }
+
+  setAllCornerFillet(cornerId: AllCornerId, radius: number): void {
+    const currentRadius = this._allCornerFillets.get(cornerId) ?? 0;
+    if (currentRadius !== radius) {
+      if (radius <= 0) {
+        this._allCornerFillets.delete(cornerId);
+      } else {
+        this._allCornerFillets.set(cornerId, radius);
+      }
+      this.markDirty();
+    }
+  }
+
+  setAllCornerFillets(fillets: AllCornerFillet[]): void {
+    let changed = false;
+    for (const { cornerId, radius } of fillets) {
+      const currentRadius = this._allCornerFillets.get(cornerId) ?? 0;
+      if (currentRadius !== radius) {
+        if (radius <= 0) {
+          this._allCornerFillets.delete(cornerId);
+        } else {
+          this._allCornerFillets.set(cornerId, radius);
         }
         changed = true;
       }
@@ -396,6 +450,113 @@ export abstract class BasePanel extends BaseNode {
         freeLength2,
       };
     });
+  }
+
+  /**
+   * Get all corner eligibility for batch fillet operations (cached)
+   * This includes any corner in the panel geometry (outline + holes)
+   */
+  getAllCornerEligibility(): AllCornerEligibility[] {
+    if (!this._cachedAllCornerEligibility) {
+      this._cachedAllCornerEligibility = this.computeAllCornerEligibility();
+    }
+    return this._cachedAllCornerEligibility;
+  }
+
+  /**
+   * Compute eligibility for all corners in the panel geometry.
+   * This analyzes the outline and all holes to find eligible corners.
+   */
+  protected computeAllCornerEligibility(): AllCornerEligibility[] {
+    const outline = this.getOutline();
+    const material = this.getMaterial();
+
+    // Create corner detection config
+    const config: CornerDetectionConfig = {
+      materialThickness: material.thickness,
+      minEdgeLength: material.thickness * 0.5,
+      straightAngleThreshold: Math.PI * 0.1,  // ~18 degrees from straight
+    };
+
+    // Build holes array from outline
+    const holes = outline.holes.map(hole => ({
+      id: hole.id,
+      path: hole.path,
+    }));
+
+    // Detect all corners
+    const corners = detectAllPanelCorners(outline.points, holes, config);
+
+    // Build forbidden areas
+    const forbiddenAreas = this.computeForbiddenAreas();
+
+    // Compute eligibility
+    return computeAllCornerEligibility(corners, forbiddenAreas, config);
+  }
+
+  /**
+   * Compute forbidden areas where corners cannot be filleted.
+   * This includes finger joint regions, slot boundaries, and joint margins.
+   */
+  protected computeForbiddenAreas(): ForbiddenArea[] {
+    const areas: ForbiddenArea[] = [];
+    const dims = this.getDimensions();
+    const material = this.getMaterial();
+    const mt = material.thickness;
+    const halfW = dims.width / 2;
+    const halfH = dims.height / 2;
+
+    // Get edge configs to identify finger joint regions
+    const edgeConfigs = this.computeEdgeConfigs();
+
+    // Add forbidden areas for edges with finger joints (male or female)
+    for (const edge of edgeConfigs) {
+      if (edge.gender) {
+        // This edge has finger joints - corners at this edge are forbidden
+        let bounds: { minX: number; maxX: number; minY: number; maxY: number };
+
+        switch (edge.position) {
+          case 'top':
+            bounds = { minX: -halfW, maxX: halfW, minY: halfH - mt, maxY: halfH };
+            break;
+          case 'bottom':
+            bounds = { minX: -halfW, maxX: halfW, minY: -halfH, maxY: -halfH + mt };
+            break;
+          case 'left':
+            bounds = { minX: -halfW, maxX: -halfW + mt, minY: -halfH, maxY: halfH };
+            break;
+          case 'right':
+            bounds = { minX: halfW - mt, maxX: halfW, minY: -halfH, maxY: halfH };
+            break;
+        }
+
+        areas.push({ type: 'finger-joint', bounds });
+      }
+    }
+
+    // Add forbidden areas for slot holes
+    const outline = this.getOutline();
+    for (const hole of outline.holes) {
+      if (hole.source?.type === 'divider-slot' ||
+          hole.source?.type === 'sub-assembly-slot' ||
+          hole.source?.type === 'extension-slot') {
+        // Calculate bounds of the slot
+        const path = hole.path;
+        if (path.length > 0) {
+          const xs = path.map(p => p.x);
+          const ys = path.map(p => p.y);
+          const bounds = {
+            minX: Math.min(...xs),
+            maxX: Math.max(...xs),
+            minY: Math.min(...ys),
+            maxY: Math.max(...ys),
+          };
+          areas.push({ type: 'slot', bounds });
+        }
+      }
+    }
+
+    return areas;
   }
 
   /**
@@ -1725,6 +1886,7 @@ export abstract class BasePanel extends BaseNode {
     this._cachedTransform = null;
     this._cachedEdgeAnchors = null;
     this._cachedCornerEligibility = null;
+    this._cachedAllCornerEligibility = null;
   }
 
   // ==========================================================================
@@ -1791,6 +1953,7 @@ export abstract class BasePanel extends BaseNode {
       props: {
         edgeExtensions: this.edgeExtensions,
         cornerFillets: this.cornerFillets,
+        allCornerFillets: this.allCornerFillets,
         customEdgePaths: this.customEdgePaths,
         cutouts: this.cutouts,
         visible: this._visible,
@@ -1805,6 +1968,7 @@ export abstract class BasePanel extends BaseNode {
         edgeAnchors: this.getEdgeAnchors(),
         edgeStatuses: this.computeEdgeStatuses(),
         cornerEligibility: this.getCornerEligibility(),
+        allCornerEligibility: this.getAllCornerEligibility(),
       },
     };
   }
