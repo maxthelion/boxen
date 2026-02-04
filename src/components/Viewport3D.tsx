@@ -53,7 +53,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const insetFace = useBoxStore((state) => state.insetFace);
   const selectEdge = useBoxStore((state) => state.selectEdge);
   const selectPanelEdges = useBoxStore((state) => state.selectPanelEdges);
-  const selectPanelCorners = useBoxStore((state) => state.selectPanelCorners);
 
   // Operation system from store
   const operationState = useBoxStore((state) => state.operationState);
@@ -96,6 +95,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const selectedCornerIds = useBoxStore((state) => state.selectedCornerIds);
   const selectedAllCornerIds = useBoxStore((state) => state.selectedAllCornerIds);
   const selectAllCorner = useBoxStore((state) => state.selectAllCorner);
+  const selectPanelAllCorners = useBoxStore((state) => state.selectPanelAllCorners);
   const clearAllCornerSelection = useBoxStore((state) => state.clearAllCornerSelection);
 
   // Ineligibility tooltip
@@ -558,8 +558,8 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // Auto-expand selected panels to corners when fillet tool is activated
   useEffect(() => {
-    if (activeTool === 'fillet' && selectedPanelIds.size > 0 && selectedCornerIds.size === 0 && panelCollection) {
-      // Expand each selected panel to all its corners
+    if (activeTool === 'fillet' && selectedPanelIds.size > 0 && selectedAllCornerIds.size === 0 && panelCollection) {
+      // Expand each selected panel to all its corners (using allCornerEligibility for dynamic corners)
       for (const selectedId of selectedPanelIds) {
         // The selected ID might be in 'face-front' format (from BoxTree) or UUID format
         // Try to find panel by ID first, then by source.faceId
@@ -573,13 +573,13 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
           );
         }
 
-        if (panel?.cornerEligibility) {
+        if (panel?.allCornerEligibility) {
           // Use the actual panel UUID for corner selection (additive to accumulate all)
-          selectPanelCorners(panel.id, panel.cornerEligibility, true);
+          selectPanelAllCorners(panel.id, panel.allCornerEligibility, true);
         }
       }
     }
-  }, [activeTool, selectedPanelIds, selectedCornerIds.size, panelCollection, selectPanelCorners]);
+  }, [activeTool, selectedPanelIds, selectedAllCornerIds.size, panelCollection, selectPanelAllCorners]);
 
   // Start fillet operation when entering fillet mode with corners selected
   useEffect(() => {
