@@ -542,10 +542,12 @@ export function computeResultPaths(
   panelWidth: number,
   panelHeight: number,
   edgeExtensions?: Record<EdgePosition, number>,
-  materialThickness?: number
+  materialThickness?: number,
+  edgeMargins?: Record<EdgePosition, number>
 ): PathPoint[][] {
   const extensions = edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
   const mt = materialThickness ?? 3;  // Default to 3mm if not provided
+  const margins = edgeMargins ?? { top: mt * 2, bottom: mt * 2, left: mt * 2, right: mt * 2 };
 
   debug('safe-space', `computeResultPaths: panelWidth=${panelWidth}, panelHeight=${panelHeight}, exclusions=${exclusions.length}, mt=${mt}`);
 
@@ -635,71 +637,91 @@ export function computeResultPaths(
   interface Region { minX: number; maxX: number; minY: number; maxY: number }
   const safeRegions: Region[] = [];
 
+  // For extensions on OPEN edges (margin === 0), the body safe region extends
+  // directly into the extension (contiguous, no gap).
+  // For extensions on JOINTED edges (margin > 0), they remain separate regions
+  // with MT gap between body and extension.
+
+  // First, extend body bounds for open edges with extensions
+  if (extensions.top > 0 && margins.top === 0) {
+    // Open top edge: extend body directly into extension
+    bodyMaxY = halfH + extensions.top;
+    debug('safe-space', `  Extended body maxY to ${bodyMaxY} (open top edge)`);
+  }
+
+  if (extensions.bottom > 0 && margins.bottom === 0) {
+    // Open bottom edge: extend body directly into extension
+    bodyMinY = -halfH - extensions.bottom;
+    debug('safe-space', `  Extended body minY to ${bodyMinY} (open bottom edge)`);
+  }
+
+  if (extensions.left > 0 && margins.left === 0) {
+    // Open left edge: extend body directly into extension
+    bodyMinX = -halfW - extensions.left;
+    debug('safe-space', `  Extended body minX to ${bodyMinX} (open left edge)`);
+  }
+
+  if (extensions.right > 0 && margins.right === 0) {
+    // Open right edge: extend body directly into extension
+    bodyMaxX = halfW + extensions.right;
+    debug('safe-space', `  Extended body maxX to ${bodyMaxX} (open right edge)`);
+  }
+
   // Add body safe region if valid
   if (bodyMaxX > bodyMinX && bodyMaxY > bodyMinY) {
     safeRegions.push({ minX: bodyMinX, maxX: bodyMaxX, minY: bodyMinY, maxY: bodyMaxY });
   }
 
-  // Add extension safe regions
-  // Extensions span the FULL panel dimension (not constrained by perpendicular edge margins)
-  // because they sit beyond the body edge where finger joints are located.
-  // However, extensions need MT margin from their outer edge for structural integrity.
-  // So: extension safe height = extension - MT (only if extension > MT)
+  // Now add SEPARATE extension safe regions for JOINTED edges
+  // These edges have joints at the body boundary, so extensions need MT gap
+  // from the joint region.
 
-  // Get MT from the function context - we need to pass it or compute it
-  // For now, we can infer it from the body margins (they are 2×MT, so margin/2 = MT)
-  // But safer to just check if the usable space is positive
-
-  // Extension safe regions need MT margin from the BODY edge (where joints are),
-  // but go all the way to the outer edge (which is open/free).
-  // Safe dimension = extension - MT, only add if this is positive (extension > MT)
-
-  if (extensions.top > 0 && extensions.top > mt) {
-    // Top extension: starts MT above body edge, goes to outer edge
+  if (extensions.top > 0 && margins.top > 0 && extensions.top > mt) {
+    // Jointed top edge: extension starts MT above body edge, goes to outer edge
     safeRegions.push({
       minX: -halfW,
       maxX: halfW,
       minY: halfH + mt,  // Body edge + MT margin (away from joint)
       maxY: halfH + extensions.top,  // Outer edge (no margin needed)
     });
-    debug('safe-space', `  Added top extension region: x[${-halfW},${halfW}] y[${halfH + mt},${halfH + extensions.top}]`);
-  } else if (extensions.top > 0) {
+    debug('safe-space', `  Added top extension region (jointed): x[${-halfW},${halfW}] y[${halfH + mt},${halfH + extensions.top}]`);
+  } else if (extensions.top > 0 && margins.top > 0) {
     debug('safe-space', `  Skipped top extension region: extension ${extensions.top} <= mt ${mt}`);
   }
 
-  if (extensions.bottom > 0 && extensions.bottom > mt) {
+  if (extensions.bottom > 0 && margins.bottom > 0 && extensions.bottom > mt) {
     safeRegions.push({
       minX: -halfW,
       maxX: halfW,
       minY: -halfH - extensions.bottom,  // Outer edge (no margin needed)
       maxY: -halfH - mt,  // Body edge - MT margin (away from joint)
     });
-    debug('safe-space', `  Added bottom extension region: x[${-halfW},${halfW}] y[${-halfH - extensions.bottom},${-halfH - mt}]`);
-  } else if (extensions.bottom > 0) {
+    debug('safe-space', `  Added bottom extension region (jointed): x[${-halfW},${halfW}] y[${-halfH - extensions.bottom},${-halfH - mt}]`);
+  } else if (extensions.bottom > 0 && margins.bottom > 0) {
     debug('safe-space', `  Skipped bottom extension region: extension ${extensions.bottom} <= mt ${mt}`);
   }
 
-  if (extensions.left > 0 && extensions.left > mt) {
+  if (extensions.left > 0 && margins.left > 0 && extensions.left > mt) {
     safeRegions.push({
       minX: -halfW - extensions.left,  // Outer edge (no margin needed)
       maxX: -halfW - mt,  // Body edge - MT margin (away from joint)
       minY: -halfH,
       maxY: halfH,
     });
-    debug('safe-space', `  Added left extension region: x[${-halfW - extensions.left},${-halfW - mt}] y[${-halfH},${halfH}]`);
-  } else if (extensions.left > 0) {
+    debug('safe-space', `  Added left extension region (jointed): x[${-halfW - extensions.left},${-halfW - mt}] y[${-halfH},${halfH}]`);
+  } else if (extensions.left > 0 && margins.left > 0) {
     debug('safe-space', `  Skipped left extension region: extension ${extensions.left} <= mt ${mt}`);
   }
 
-  if (extensions.right > 0 && extensions.right > mt) {
+  if (extensions.right > 0 && margins.right > 0 && extensions.right > mt) {
     safeRegions.push({
       minX: halfW + mt,  // Body edge + MT margin (away from joint)
       maxX: halfW + extensions.right,  // Outer edge (no margin needed)
       minY: -halfH,
       maxY: halfH,
     });
-    debug('safe-space', `  Added right extension region: x[${halfW + mt},${halfW + extensions.right}] y[${-halfH},${halfH}]`);
-  } else if (extensions.right > 0) {
+    debug('safe-space', `  Added right extension region (jointed): x[${halfW + mt},${halfW + extensions.right}] y[${-halfH},${halfH}]`);
+  } else if (extensions.right > 0 && margins.right > 0) {
     debug('safe-space', `  Skipped right extension region: extension ${extensions.right} <= mt ${mt}`);
   }
 
@@ -918,7 +940,7 @@ export function calculateSafeSpace(
   const reserved = [...edgeReserved, ...slotReserved];
 
   // Compute the actual safe area result paths
-  const resultPaths = computeResultPaths(outline, exclusions, panel.width, panel.height, edgeExtensions, materialThickness);
+  const resultPaths = computeResultPaths(outline, exclusions, panel.width, panel.height, edgeExtensions, materialThickness, edgeMargins);
 
   debug('safe-space', `Result paths: ${resultPaths.length} safe rectangles`);
 
