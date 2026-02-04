@@ -76,7 +76,7 @@ export function makeCornerKey(edge1: EdgePosition, edge2: EdgePosition): CornerK
 export interface CornerEligibility {
   corner: CornerKey;
   eligible: boolean;
-  reason?: 'no-free-length' | 'below-minimum';
+  reason?: 'has-joints' | 'no-free-length' | 'below-minimum';
   maxRadius: number;  // 0 if not eligible
   freeLength1: number;  // Free length on first edge
   freeLength2: number;  // Free length on second edge
