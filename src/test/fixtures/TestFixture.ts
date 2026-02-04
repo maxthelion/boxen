@@ -27,6 +27,7 @@ import { Engine, createEngineWithAssembly } from '../../engine/Engine';
 import type { FaceId } from '../../types';
 import type { MaterialConfig, EngineAction } from '../../engine/types';
 import type { FixtureResult, QueuedOperation } from './types';
+import { PanelBuilder } from './PanelBuilder';
 
 /** Default material configuration for test fixtures */
 const defaultMaterial: MaterialConfig = {
@@ -271,40 +272,5 @@ export class TestFixture {
   }
 }
 
-// =============================================================================
-// PanelBuilder (Stub for Task 1.2)
-// =============================================================================
-
-/**
- * Builder for panel-specific operations.
- *
- * This is a minimal stub that will be expanded in Task 1.2.
- * Currently only supports build() to return to TestFixture.
- */
-export class PanelBuilder {
-  // faceId stored for Task 1.2 when panel-specific operations are added
-  private faceId: FaceId;
-
-  constructor(
-    private fixture: TestFixture,
-    faceId: FaceId
-  ) {
-    this.faceId = faceId;
-  }
-
-  /** Get the selected face ID (for future panel operations) */
-  getFaceId(): FaceId {
-    return this.faceId;
-  }
-
-  /**
-   * Build the fixture and return the result.
-   *
-   * Delegates to TestFixture.build().
-   *
-   * @returns FixtureResult from the parent fixture
-   */
-  build(): FixtureResult {
-    return this.fixture.build();
-  }
-}
+// Re-export PanelBuilder for convenience
+export { PanelBuilder } from './PanelBuilder';
