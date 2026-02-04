@@ -216,7 +216,12 @@ export const PanelCornerRenderer: React.FC<PanelCornerRendererProps> = ({ scale 
         // This includes corners from outline AND all holes
         const allCornerEligibility = panel.allCornerEligibility ?? [];
 
-        return allCornerEligibility.map((eligibility: AllCornerEligibility) => {
+        // Only render ELIGIBLE corners - ineligible corners (e.g., from finger joints)
+        // are not shown to reduce visual clutter. This follows the design principle
+        // that "anything in a forbidden area cannot be filleted" and shouldn't appear.
+        return allCornerEligibility
+          .filter((eligibility: AllCornerEligibility) => eligibility.eligible)
+          .map((eligibility: AllCornerEligibility) => {
           const cornerKey = `${panel.id}:${eligibility.id}`;
           const isSelected = selectedCornerIds.has(cornerKey);
           const isHovered = hoveredCorner === cornerKey;
