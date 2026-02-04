@@ -34,6 +34,9 @@ import {
   CornerFillet,
   CornerEligibility,
   ALL_CORNERS,
+  AllCornerFillet,
+  AllCornerId,
+  AllCornerEligibility,
   getCornerEdges,
   CustomEdgePath,
   EdgePathPoint,  // Used in applyCustomEdgePathToOutline for path point mapping
@@ -42,6 +45,12 @@ import {
   CircleCutout,
   PathCutout,
 } from '../types';
+import {
+  detectAllPanelCorners,
+  computeAllCornerEligibility,
+  ForbiddenArea,
+  CornerDetectionConfig,
+} from '../../utils/allCorners';
 import { generateFingerJointPathV2, Point } from '../../utils/fingerJoints';
 
 export interface PanelDimensions {
@@ -72,6 +81,7 @@ export abstract class BasePanel extends BaseNode {
   // Input properties
   protected _edgeExtensions: EdgeExtensions = { top: 0, bottom: 0, left: 0, right: 0 };
   protected _cornerFillets: Map<CornerKey, number> = new Map();  // corner -> radius
+  protected _allCornerFillets: Map<AllCornerId, number> = new Map();  // all-corner -> radius
   protected _customEdgePaths: Map<EdgePosition, CustomEdgePath> = new Map();  // edge -> custom path
   protected _cutouts: Map<string, Cutout> = new Map();  // cutoutId -> cutout
   protected _visible: boolean = true;
@@ -151,6 +161,48 @@ export abstract class BasePanel extends BaseNode {
           this._cornerFillets.delete(corner);
         } else {
           this._cornerFillets.set(corner, radius);
+        }
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.markDirty();
+    }
+  }
+
+  // All-corner fillet accessors (for any corner in panel geometry)
+  get allCornerFillets(): AllCornerFillet[] {
+    return Array.from(this._allCornerFillets.entries()).map(([cornerId, radius]) => ({
+      cornerId,
+      radius,
+    }));
+  }
+
+  getAllCornerFillet(cornerId: AllCornerId): number {
+    return this._allCornerFillets.get(cornerId) ?? 0;
+  }
+
+  setAllCornerFillet(cornerId: AllCornerId, radius: number): void {
+    const currentRadius = this._allCornerFillets.get(cornerId) ?? 0;
+    if (currentRadius !== radius) {
+      if (radius <= 0) {
+        this._allCornerFillets.delete(cornerId);
+      } else {
+        this._allCornerFillets.set(cornerId, radius);
+      }
+      this.markDirty();
+    }
+  }
+
+  setAllCornerFillets(fillets: AllCornerFillet[]): void {
+    let changed = false;
+    for (const { cornerId, radius } of fillets) {
+      const currentRadius = this._allCornerFillets.get(cornerId) ?? 0;
+      if (currentRadius !== radius) {
+        if (radius <= 0) {
+          this._allCornerFillets.delete(cornerId);
+        } else {
+          this._allCornerFillets.set(cornerId, radius);
         }
         changed = true;
       }
@@ -332,6 +384,67 @@ export abstract class BasePanel extends BaseNode {
       this._cachedCornerEligibility = this.computeCornerEligibility();
     }
     return this._cachedCornerEligibility;
+  }
+
+  /**
+   * Get all-corner eligibility for any corner in panel geometry.
+   * This includes outline corners and hole corners.
+   */
+  getAllCornerEligibility(): AllCornerEligibility[] {
+    const outline = this.getOutline();
+    const material = this.getMaterial();
+    const dims = this.getDimensions();
+
+    // Detect all corners in the panel geometry
+    const config: CornerDetectionConfig = {
+      materialThickness: material.thickness,
+      minEdgeLength: 2, // Minimum edge length to consider
+    };
+
+    const corners = detectAllPanelCorners(
+      outline.points,
+      [], // No holes for now
+      config
+    );
+
+    // Build forbidden areas from joint regions
+    // For now, we compute forbidden areas based on the edge statuses
+    const edgeStatuses = this.computeEdgeStatuses();
+    const forbiddenAreas: ForbiddenArea[] = [];
+
+    for (const status of edgeStatuses) {
+      if (status.status === 'locked') {
+        // Locked edges have finger joints - mark the entire edge region as forbidden
+        // Convert edge position to bounds
+        let bounds: { minX: number; maxX: number; minY: number; maxY: number };
+        const w = dims.width / 2;
+        const h = dims.height / 2;
+        const mt = material.thickness;
+
+        switch (status.position) {
+          case 'top':
+            bounds = { minX: -w, maxX: w, minY: h - mt, maxY: h };
+            break;
+          case 'bottom':
+            bounds = { minX: -w, maxX: w, minY: -h, maxY: -h + mt };
+            break;
+          case 'left':
+            bounds = { minX: -w, maxX: -w + mt, minY: -h, maxY: h };
+            break;
+          case 'right':
+            bounds = { minX: w - mt, maxX: w, minY: -h, maxY: h };
+            break;
+        }
+
+        forbiddenAreas.push({
+          type: 'finger-joint',
+          bounds,
+        });
+      }
+    }
+
+    // Compute eligibility for each corner
+    return computeAllCornerEligibility(corners, forbiddenAreas, config);
   }
 
   /**
@@ -1860,6 +1973,7 @@ export abstract class BasePanel extends BaseNode {
       props: {
         edgeExtensions: this.edgeExtensions,
         cornerFillets: this.cornerFillets,
+        allCornerFillets: this.allCornerFillets,
         customEdgePaths: this.customEdgePaths,
         cutouts: this.cutouts,
         visible: this._visible,
@@ -1874,6 +1988,7 @@ export abstract class BasePanel extends BaseNode {
         edgeAnchors: this.getEdgeAnchors(),
         edgeStatuses: this.computeEdgeStatuses(),
         cornerEligibility: this.getCornerEligibility(),
+        allCornerEligibility: this.getAllCornerEligibility(),
       },
     };
   }

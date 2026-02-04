@@ -1,6 +1,6 @@
 import { StateCreator } from 'zustand';
 import { EditorTool } from '../../types';
-import { CornerEligibility } from '../../engine/types';
+import { CornerEligibility, AllCornerEligibility, AllCornerId } from '../../engine/types';
 
 // =============================================================================
 // Tool Slice - Editor tool selection and corner selection for 2D/3D editing
@@ -11,6 +11,9 @@ export interface ToolSlice {
   activeTool: EditorTool;
   selectedCornerIds: Set<string>;  // Format: "panelId:corner" e.g. "uuid:left:top"
   hoveredCorner: string | null;    // Format: "panelId:corner"
+  // All-corner state (any corner in panel geometry)
+  selectedAllCornerIds: Set<string>;  // Format: "panelId:outline:index" or "panelId:hole:holeId:index"
+  hoveredAllCorner: string | null;
 
   // Actions
   setActiveTool: (tool: EditorTool) => void;
@@ -19,6 +22,12 @@ export interface ToolSlice {
   clearCornerSelection: () => void;
   selectPanelCorners: (panelId: string, cornerEligibility: CornerEligibility[], additive?: boolean) => void;
   setHoveredCorner: (cornerId: string | null) => void;
+  // All-corner actions
+  selectAllCorner: (panelId: string, cornerId: AllCornerId, addToSelection?: boolean) => void;
+  selectAllCorners: (cornerIds: string[]) => void;
+  clearAllCornerSelection: () => void;
+  selectPanelAllCorners: (panelId: string, allCornerEligibility: AllCornerEligibility[], additive?: boolean) => void;
+  setHoveredAllCorner: (cornerId: string | null) => void;
 }
 
 export const createToolSlice: StateCreator<ToolSlice, [], [], ToolSlice> = (set) => ({
@@ -26,6 +35,8 @@ export const createToolSlice: StateCreator<ToolSlice, [], [], ToolSlice> = (set)
   activeTool: 'select',
   selectedCornerIds: new Set<string>(),
   hoveredCorner: null,
+  selectedAllCornerIds: new Set<string>(),
+  hoveredAllCorner: null,
 
   // Actions
   setActiveTool: (tool) =>
@@ -34,6 +45,8 @@ export const createToolSlice: StateCreator<ToolSlice, [], [], ToolSlice> = (set)
       // Clear corner selection when switching tools
       selectedCornerIds: new Set<string>(),
       hoveredCorner: null,
+      selectedAllCornerIds: new Set<string>(),
+      hoveredAllCorner: null,
     }),
 
   selectCorner: (cornerId, addToSelection = false) =>
@@ -87,4 +100,57 @@ export const createToolSlice: StateCreator<ToolSlice, [], [], ToolSlice> = (set)
 
   setHoveredCorner: (cornerId: string | null) =>
     set({ hoveredCorner: cornerId }),
+
+  // All-corner actions
+  selectAllCorner: (panelId: string, cornerId: AllCornerId, addToSelection = false) =>
+    set((state) => {
+      const cornerKey = `${panelId}:${cornerId}`;
+      if (addToSelection) {
+        const newSet = new Set(state.selectedAllCornerIds);
+        if (newSet.has(cornerKey)) {
+          newSet.delete(cornerKey);
+        } else {
+          newSet.add(cornerKey);
+        }
+        return { selectedAllCornerIds: newSet };
+      } else {
+        return { selectedAllCornerIds: new Set([cornerKey]) };
+      }
+    }),
+
+  selectAllCorners: (cornerIds: string[]) =>
+    set({ selectedAllCornerIds: new Set(cornerIds) }),
+
+  clearAllCornerSelection: () =>
+    set({ selectedAllCornerIds: new Set<string>() }),
+
+  selectPanelAllCorners: (panelId: string, allCornerEligibility: AllCornerEligibility[], additive = false) =>
+    set((state) => {
+      // Only add eligible corners to the selection
+      const eligibleCornerKeys = allCornerEligibility
+        .filter(e => e.eligible)
+        .map(e => `${panelId}:${e.id}`);
+
+      if (additive) {
+        // Shift-click: Check if this panel's corners are already selected - if so, deselect them
+        const panelCornersSelected = eligibleCornerKeys.every(key => state.selectedAllCornerIds.has(key));
+        if (panelCornersSelected && eligibleCornerKeys.length > 0) {
+          // Toggle off - remove this panel's corners
+          const newSet = new Set(state.selectedAllCornerIds);
+          for (const key of eligibleCornerKeys) {
+            newSet.delete(key);
+          }
+          return { selectedAllCornerIds: newSet };
+        }
+        // Add to existing selection
+        const newSet = new Set([...state.selectedAllCornerIds, ...eligibleCornerKeys]);
+        return { selectedAllCornerIds: newSet };
+      }
+
+      // Non-additive: Replace selection with this panel's corners
+      return { selectedAllCornerIds: new Set(eligibleCornerKeys) };
+    }),
+
+  setHoveredAllCorner: (cornerId: string | null) =>
+    set({ hoveredAllCorner: cornerId }),
 });

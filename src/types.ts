@@ -274,6 +274,9 @@ export interface BoxState {
   activeTool: EditorTool;
   selectedCornerIds: Set<string>;  // Selected corners for chamfer/fillet tool. Format: "panelId:corner"
   hoveredCorner: string | null;  // Format: "panelId:corner" e.g. "uuid:left:top"
+  // All-corners selection state (for any corner in panel geometry)
+  selectedAllCornerIds: Set<string>;  // Format: "panelId:outline:index" or "panelId:hole:holeId:index"
+  hoveredAllCorner: string | null;  // Same format as selectedAllCornerIds
   // Edge selection state (for inset/outset tool)
   selectedEdges: Set<string>;  // Format: "panelId:edge" e.g. "uuid:top"
   hoveredEdge: string | null;  // Format: "panelId:edge"
@@ -357,6 +360,12 @@ export interface BoxActions {
   clearCornerSelection: () => void;
   setHoveredCorner: (cornerId: string | null) => void;
   selectPanelCorners: (panelId: string, cornerEligibility: import('./engine/types').CornerEligibility[], additive?: boolean) => void;
+  // All-corner selection actions (for any corner in panel geometry)
+  selectAllCorner: (panelId: string, cornerId: import('./engine/types').AllCornerId, addToSelection?: boolean) => void;
+  selectAllCorners: (cornerIds: string[]) => void;
+  clearAllCornerSelection: () => void;
+  setHoveredAllCorner: (cornerId: string | null) => void;
+  selectPanelAllCorners: (panelId: string, cornerEligibility: import('./engine/types').AllCornerEligibility[], additive?: boolean) => void;
   // Edge selection actions (for inset/outset tool)
   selectEdge: (panelId: string, edge: EdgePosition, additive?: boolean) => void;
   deselectEdge: (panelId: string, edge: EdgePosition) => void;
@@ -509,6 +518,9 @@ export interface PanelPath {
 
   // Corner eligibility for fillet tool (derived from engine)
   cornerEligibility?: import('./engine/types').CornerEligibility[];
+
+  // All-corner eligibility for any corner in panel geometry (derived from engine)
+  allCornerEligibility?: import('./engine/types').AllCornerEligibility[];
 
   // Corner finishes (chamfers, fillets)
   cornerFinishes?: CornerFinish[];
