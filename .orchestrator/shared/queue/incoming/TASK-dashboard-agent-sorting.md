@@ -63,8 +63,7 @@ status_style = "bright_green" if status == "RUNNING" else ...
 Or use Rich's color syntax:
 ```python
 status_style = "bold green" if status == "RUNNING" else ...
-# or
-status_style = "#00ff00" if status == "RUNNING" else ...  # Bright green hex
+status_style = "#00ff00" if status == "RUNNING" else ...  # alternative  # Bright green hex
 ```
 
 ## Acceptance Criteria
