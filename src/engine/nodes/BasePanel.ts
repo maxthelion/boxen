@@ -401,9 +401,15 @@ export abstract class BasePanel extends BaseNode {
       minEdgeLength: 2, // Minimum edge length to consider
     };
 
+    // Convert panel holes to the format expected by detectAllPanelCorners
+    const holes = outline.holes.map(hole => ({
+      id: hole.id,
+      path: hole.path,
+    }));
+
     const corners = detectAllPanelCorners(
       outline.points,
-      [], // No holes for now
+      holes,
       config
     );
 
@@ -413,8 +419,10 @@ export abstract class BasePanel extends BaseNode {
     const forbiddenAreas: ForbiddenArea[] = [];
 
     for (const status of edgeStatuses) {
-      if (status.status === 'locked') {
-        // Locked edges have finger joints - mark the entire edge region as forbidden
+      // Both locked (male joints) and outward-only (female joints) edges have finger joints
+      // These edges should be marked as forbidden for corner filleting
+      if (status.status === 'locked' || status.status === 'outward-only') {
+        // Mark the entire edge region as forbidden
         // Convert edge position to bounds
         let bounds: { minX: number; maxX: number; minY: number; maxY: number };
         const w = dims.width / 2;
