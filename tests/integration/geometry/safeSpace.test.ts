@@ -545,4 +545,183 @@ describe('Safe Space Computation', () => {
       expect(allMaxY).toBeGreaterThan(halfH); // Should extend beyond body
     });
   });
+
+  // ===========================================================================
+  // Safe Area Contiguity on Extended Edges (Bug Tests)
+  // ===========================================================================
+
+  describe('Safe Area Contiguity on Extended Edges', () => {
+    /**
+     * These tests verify the correct behavior for safe areas on extended edges:
+     *
+     * Expected behavior (per user clarification):
+     * 1. Safe area goes all the way to the extended outer edge with NO margin
+     *    (it's open, nothing to protect)
+     * 2. Safe area is CONTIGUOUS from body interior through extension (no gap)
+     * 3. Only edges with joints have margins
+     *
+     * Current bug: The safe area calculation creates a gap at the original panel
+     * boundary and may add an unnecessary margin at the extended outer edge.
+     */
+
+    beforeEach(() => {
+      engine.createAssembly(100, 100, 60, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Remove top face so front panel top edge is open (no joint)
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+
+      // Get the front panel ID and extend the top edge
+      const snapshot = engine.getSnapshot();
+      const assembly = snapshot.children[0] as AssemblySnapshot;
+      const frontPanel = assembly.derived.panels.find(
+        p => p.kind === 'face-panel' && (p as FacePanelSnapshot).props.faceId === 'front'
+      );
+
+      if (frontPanel) {
+        engine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: {
+            panelId: frontPanel.id,
+            edge: 'top',
+            value: 20, // 20mm extension
+          },
+        });
+      }
+    });
+
+    it('should have safe area extend all the way to extended outer edge with NO margin', () => {
+      const panel = getFacePanel(engine, 'front');
+      expect(panel).toBeDefined();
+
+      const safeSpace = panel!.safeSpace!;
+      const halfH = panel!.height / 2; // Body half-height = 50
+      const extensionAmount = 20;
+      const panelOuterEdge = halfH + extensionAmount; // 50 + 20 = 70
+
+      // The safe area maxY should equal the panel outline maxY
+      // (no margin at the extended edge because it's open)
+      const safeMaxY = Math.max(...safeSpace.resultPaths.flatMap(p => p.map(pt => pt.y)));
+      const outlineMaxY = Math.max(...safeSpace.outline.map(p => p.y));
+
+      // Safe area should reach the outer edge of the extension
+      expect(safeMaxY).toBeCloseTo(outlineMaxY, 0.1);
+      expect(safeMaxY).toBeCloseTo(panelOuterEdge, 0.1);
+    });
+
+    it('should have ONE contiguous safe region from body through extension (no gap)', () => {
+      const panel = getFacePanel(engine, 'front');
+      expect(panel).toBeDefined();
+
+      const safeSpace = panel!.safeSpace!;
+      const halfH = panel!.height / 2; // Body half-height = 50
+
+      // With only the top edge extended and open, there should be exactly ONE
+      // contiguous safe region that spans from the body interior through the extension.
+      // The current bug creates TWO separate regions with a gap at the body edge.
+      expect(safeSpace.resultPaths).toHaveLength(1);
+
+      // The single safe region should extend from the body interior (with margins
+      // on jointed edges) all the way to the extended outer edge
+      const safeRegion = safeSpace.resultPaths[0];
+      const safeMinY = Math.min(...safeRegion.map(p => p.y));
+      const safeMaxY = Math.max(...safeRegion.map(p => p.y));
+
+      // Should extend from bottom margin (jointed edge) to top outer edge (open)
+      const mt = 3; // material thickness
+      const expectedMinY = -halfH + 2 * mt; // 2×MT margin from bottom (jointed)
+      const expectedMaxY = halfH + 20; // Extended outer edge (no margin)
+
+      expect(safeMinY).toBeCloseTo(expectedMinY, 0.1);
+      expect(safeMaxY).toBeCloseTo(expectedMaxY, 0.1);
+    });
+
+    it('should only have margins on edges with joints (body region check)', () => {
+      const panel = getFacePanel(engine, 'front');
+      expect(panel).toBeDefined();
+
+      const safeSpace = panel!.safeSpace!;
+      const mt = 3; // material thickness
+      const halfW = panel!.width / 2;
+      const halfH = panel!.height / 2;
+
+      // Find the body region (the one that contains points at both positive and negative Y)
+      // With the bug, we have two regions - one for body, one for extension
+      const bodyRegion = safeSpace.resultPaths.find(path => {
+        const ys = path.map(p => p.y);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        // Body region contains the center of the panel (Y=0)
+        return minY < 0 && maxY > 0;
+      });
+
+      expect(bodyRegion).toBeDefined();
+
+      if (bodyRegion) {
+        const bodyMinX = Math.min(...bodyRegion.map(p => p.x));
+        const bodyMaxX = Math.max(...bodyRegion.map(p => p.x));
+        const bodyMinY = Math.min(...bodyRegion.map(p => p.y));
+        const bodyMaxY = Math.max(...bodyRegion.map(p => p.y));
+
+        // Left edge (jointed) - should have 2×MT margin
+        expect(bodyMinX).toBeCloseTo(-halfW + 2 * mt, 0.1);
+
+        // Right edge (jointed) - should have 2×MT margin
+        expect(bodyMaxX).toBeCloseTo(halfW - 2 * mt, 0.1);
+
+        // Bottom edge (jointed) - should have 2×MT margin
+        expect(bodyMinY).toBeCloseTo(-halfH + 2 * mt, 0.1);
+
+        // Top edge of body region:
+        // BUG: Currently stops at body edge (halfH = 50) but should extend
+        // all the way through to the extension outer edge (halfH + 20 = 70)
+        // since the top edge is open (no joint).
+        //
+        // This test documents the current buggy behavior where the body region
+        // stops at the original panel edge, creating a gap.
+        expect(bodyMaxY).toBeCloseTo(halfH, 0.1); // BUG: Stops at body edge
+      }
+    });
+
+    it('should NOT have gap between body and extension (extension starts at body edge)', () => {
+      const panel = getFacePanel(engine, 'front');
+      expect(panel).toBeDefined();
+
+      const safeSpace = panel!.safeSpace!;
+      const mt = 3; // material thickness
+      const halfH = panel!.height / 2;
+
+      // With the bug, we have TWO regions with a gap between them.
+      // The extension region starts at (halfH + mt) instead of halfH.
+      // This creates an unusable gap from halfH to (halfH + mt).
+
+      // Find the extension region (the one entirely above halfH)
+      const extensionRegion = safeSpace.resultPaths.find(path => {
+        const minY = Math.min(...path.map(p => p.y));
+        return minY >= halfH;
+      });
+
+      if (extensionRegion) {
+        // If an extension region exists as a separate region, it should start
+        // at the body edge (halfH) with NO gap. Currently it starts at halfH + mt.
+        const extensionMinY = Math.min(...extensionRegion.map(p => p.y));
+
+        // BUG: The gap - extension starts at halfH + mt instead of halfH
+        // This should fail, documenting the bug.
+        expect(extensionMinY).toBeCloseTo(halfH, 0.1);
+      } else {
+        // If no separate extension region, we should have ONE contiguous region
+        // This is the correct behavior - fail if we don't have it.
+        expect(safeSpace.resultPaths).toHaveLength(1);
+      }
+    });
+  });
 });
