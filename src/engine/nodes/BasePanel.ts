@@ -50,7 +50,6 @@ import {
   computeAllCornerEligibility,
   ForbiddenArea,
   CornerDetectionConfig,
-  applyFilletToCorner,
 } from '../../utils/allCorners';
 import { generateFingerJointPathV2, Point } from '../../utils/fingerJoints';
 
