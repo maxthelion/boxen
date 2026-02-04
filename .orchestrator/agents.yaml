@@ -100,16 +100,27 @@ agents:
   # ADDITIONAL AGENTS (uncomment to enable)
   # ============================================
 
-  # - name: impl-agent-2
-  #   role: implementer
-  #   interval_seconds: 30
-  #   pre_check: "ls -A .orchestrator/shared/queue/incoming/ 2>/dev/null | grep -v .gitkeep | head -1"
-  #   pre_check_trigger: non_empty
+  - name: impl-agent-2
+    role: implementer
+    interval_seconds: 30
+    # Check both incoming and needs_continuation queues
+    pre_check: "ls -A .orchestrator/shared/queue/incoming/ .orchestrator/shared/queue/needs_continuation/ 2>/dev/null | grep -v .gitkeep | head -1"
+    pre_check_trigger: non_empty
 
   # - name: test-agent
   #   role: tester
   #   interval_seconds: 120
 
-  # - name: review-agent
-  #   role: reviewer
-  #   interval_seconds: 300
+  - name: review-agent
+    role: reviewer
+    interval_seconds: 60
+    pre_check: "gh pr list --state open --json number --jq 'length'"
+    pre_check_trigger: non_empty
+
+  # PR Coordinator - watches for new PRs and creates review tasks
+  - name: pr-coordinator
+    role: pr_coordinator
+    interval_seconds: 120  # Check every 2 minutes
+    pre_check: "gh pr list --state open --json number --jq 'length'"
+    pre_check_trigger: non_empty
+    paused: true  # Paused by default - enable when ready
