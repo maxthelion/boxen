@@ -401,9 +401,16 @@ export abstract class BasePanel extends BaseNode {
       minEdgeLength: 2, // Minimum edge length to consider
     };
 
+    // Extract holes from the outline to pass to corner detection
+    // Each hole contributes corners that may be eligible for filleting
+    const holes = (outline.holes ?? []).map((hole, index) => ({
+      id: hole.id ?? `hole-${index}`,
+      path: hole.path,
+    }));
+
     const corners = detectAllPanelCorners(
       outline.points,
-      [], // No holes for now
+      holes,
       config
     );
 
