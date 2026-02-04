@@ -28,7 +28,7 @@ import { IneligibilityTooltip } from './IneligibilityTooltip';
 import { useBoxStore } from '../store/useBoxStore';
 import { EdgePosition, EdgeStatus } from '../types';
 import { useEnginePanels, getEngine } from '../engine';
-import { CornerKey, AllCornerId } from '../engine/types';
+import { AllCornerId } from '../engine/types';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
 import { useIneligibilityTooltip } from '../hooks/useIneligibilityTooltip';
@@ -92,7 +92,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Fillet palette state (local UI state only)
   const [filletPalettePosition, setFilletPalettePosition] = useState({ x: 20, y: 150 });
   const [filletRadius, setFilletRadius] = useState(5);
-  const selectedCornerIds = useBoxStore((state) => state.selectedCornerIds);
   const selectedAllCornerIds = useBoxStore((state) => state.selectedAllCornerIds);
   const selectAllCorner = useBoxStore((state) => state.selectAllCorner);
   const selectPanelAllCorners = useBoxStore((state) => state.selectPanelAllCorners);
@@ -331,14 +330,14 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
     const radii: Record<string, number> = {};
     for (const cornerKey of corners) {
-      // Corner key format: "panelId:corner" where corner is like "left:top"
-      const parts = cornerKey.split(':');
-      if (parts.length >= 3) {
-        const panelId = parts.slice(0, -2).join(':');
-        const corner = `${parts[parts.length - 2]}:${parts[parts.length - 1]}` as CornerKey;
-        const radius = assembly.getPanelCornerFillet(panelId, corner);
-        radii[cornerKey] = radius;
-      }
+      // Corner key format: "panelId:cornerId" where cornerId is "outline:index" or "hole:holeId:index"
+      const firstColonIndex = cornerKey.indexOf(':');
+      if (firstColonIndex === -1) continue;
+
+      const panelId = cornerKey.slice(0, firstColonIndex);
+      const cornerId = cornerKey.slice(firstColonIndex + 1);
+      const radius = assembly.getPanelAllCornerFillet(panelId, cornerId);
+      radii[cornerKey] = radius;
     }
     return radii;
   }, []);
@@ -442,7 +441,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Fillet operation handlers
   // =========================================================================
 
-  const selectedCornersArray = useMemo(() => Array.from(selectedCornerIds), [selectedCornerIds]);
+  const selectedCornersArray = useMemo(() => Array.from(selectedAllCornerIds), [selectedAllCornerIds]);
 
   // Build panel all-corner groups for the FilletAllCornersPalette
   // This uses allCornerEligibility which includes all corners in outline + holes
