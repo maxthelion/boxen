@@ -680,14 +680,10 @@ describe('Safe Space Computation', () => {
         // Bottom edge (jointed) - should have 2×MT margin
         expect(bodyMinY).toBeCloseTo(-halfH + 2 * mt, 0.1);
 
-        // Top edge of body region:
-        // BUG: Currently stops at body edge (halfH = 50) but should extend
-        // all the way through to the extension outer edge (halfH + 20 = 70)
-        // since the top edge is open (no joint).
-        //
-        // This test documents the current buggy behavior where the body region
-        // stops at the original panel edge, creating a gap.
-        expect(bodyMaxY).toBeCloseTo(halfH, 0.1); // BUG: Stops at body edge
+        // Top edge (open, with extension) - should extend to outer edge (no margin)
+        // The extension is on an open edge, so the safe region is contiguous
+        // from body interior all the way to the extended outer edge.
+        expect(bodyMaxY).toBeCloseTo(halfH + 20, 0.1); // Extends to outer edge
       }
     });
 
