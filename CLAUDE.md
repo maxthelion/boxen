@@ -11,6 +11,109 @@ If `.agent-instructions.md` exists in this directory, read and follow those inst
 
 Check `.orchestrator/messages/` for any agent messages and inform the user of warnings or questions.
 
+## Orchestrator Task System
+
+The project uses an automated orchestrator to manage background agents that implement features, run tests, and review code.
+
+### Architecture
+
+```
+.orchestrator/
+├── agents.yaml              # Agent configuration (roles, intervals)
+├── agents/                  # Per-agent runtime state
+│   └── {agent-name}/
+│       ├── state.json       # Running/idle status, PID, run counts
+│       ├── status.json      # Current task progress (for dashboard)
+│       ├── worktree/        # Git worktree for isolated work
+│       └── stderr.log       # Agent output logs
+├── shared/
+│   └── queue/               # Task queue
+│       ├── incoming/        # Tasks waiting to be claimed
+│       ├── claimed/         # Tasks being worked on
+│       ├── done/            # Completed tasks
+│       └── failed/          # Failed tasks
+└── logs/                    # Scheduler and agent logs
+```
+
+### Task Flow
+
+1. **Create task** → `incoming/TASK-{id}.md`
+2. **Agent claims** → moves to `claimed/`
+3. **Agent works** → creates branch, implements, creates PR
+4. **Complete** → moves to `done/` or `failed/`
+
+### Task File Format
+
+```markdown
+# [TASK-abc123] Task Title
+
+ROLE: implement          # implement | test | review
+PRIORITY: P2             # P0 (critical) → P3 (low)
+BRANCH: main             # Base branch
+CREATED: 2026-02-04T...
+CREATED_BY: human
+EXPEDITE: false          # true = jump the queue
+SKIP_PR: false           # true = merge directly, no PR
+
+## Context
+[Background and motivation]
+
+## Acceptance Criteria
+- [ ] Requirement 1
+- [ ] Requirement 2
+```
+
+### Scheduler Control (launchd)
+
+The scheduler runs every 5 seconds via launchd:
+
+```bash
+# Check status
+launchctl list | grep boxen
+
+# Stop scheduler
+launchctl stop com.boxen.orchestrator
+
+# Start scheduler
+launchctl start com.boxen.orchestrator
+
+# Disable entirely (persists across reboots)
+launchctl unload ~/Library/LaunchAgents/com.boxen.orchestrator.plist
+
+# Re-enable
+launchctl load ~/Library/LaunchAgents/com.boxen.orchestrator.plist
+```
+
+### Useful Commands
+
+```bash
+# View scheduler activity
+tail -f .orchestrator/logs/launchd-stdout.log
+
+# View specific agent logs
+tail -f .orchestrator/agents/impl-agent-1/stderr.log
+
+# Check queue status
+ls .orchestrator/shared/queue/incoming/
+ls .orchestrator/shared/queue/claimed/
+
+# Kill a stuck agent
+kill $(cat .orchestrator/agents/impl-agent-1/state.json | jq -r .pid)
+```
+
+### Slash Commands
+
+- `/queue-status` - Show task queue state
+- `/agent-status` - Show agent states
+- `/enqueue` - Create a new task
+- `/pause-agent` - Pause/resume an agent
+- `/pause-system` - Pause/resume entire orchestrator
+- `/retry-failed` - Retry failed tasks
+
+### Project Management Integration
+
+See `project-management/README.md` for the workflow from raw input (inbox) through triage to task creation.
+
 ## Issue Tracking
 
 Known geometry and functionality issues are tracked in `docs/issues/`. This provides a way to document bugs that are detected but not yet fixed.
