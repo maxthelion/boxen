@@ -498,6 +498,91 @@ function boundsToPath(bounds: { minX: number; maxX: number; minY: number; maxY: 
 }
 
 /**
+ * Check if two axis-aligned rectangles are adjacent (touching at an edge)
+ * and can be merged into one rectangle.
+ * They must share a full edge (one dimension matches, other touches).
+ */
+function canMergeRectangles(
+  r1: { minX: number; maxX: number; minY: number; maxY: number },
+  r2: { minX: number; maxX: number; minY: number; maxY: number },
+  tolerance: number = 0.001
+): 'horizontal' | 'vertical' | false {
+  // Check if they share the same X range and are vertically adjacent
+  const sameXRange = Math.abs(r1.minX - r2.minX) < tolerance &&
+                     Math.abs(r1.maxX - r2.maxX) < tolerance;
+  const verticallyAdjacent = Math.abs(r1.maxY - r2.minY) < tolerance ||
+                             Math.abs(r2.maxY - r1.minY) < tolerance;
+
+  if (sameXRange && verticallyAdjacent) {
+    return 'vertical';
+  }
+
+  // Check if they share the same Y range and are horizontally adjacent
+  const sameYRange = Math.abs(r1.minY - r2.minY) < tolerance &&
+                     Math.abs(r1.maxY - r2.maxY) < tolerance;
+  const horizontallyAdjacent = Math.abs(r1.maxX - r2.minX) < tolerance ||
+                               Math.abs(r2.maxX - r1.minX) < tolerance;
+
+  if (sameYRange && horizontallyAdjacent) {
+    return 'horizontal';
+  }
+
+  return false;
+}
+
+/**
+ * Merge two adjacent rectangles into one
+ */
+function mergeRectangles(
+  r1: { minX: number; maxX: number; minY: number; maxY: number },
+  r2: { minX: number; maxX: number; minY: number; maxY: number }
+): { minX: number; maxX: number; minY: number; maxY: number } {
+  return {
+    minX: Math.min(r1.minX, r2.minX),
+    maxX: Math.max(r1.maxX, r2.maxX),
+    minY: Math.min(r1.minY, r2.minY),
+    maxY: Math.max(r1.maxY, r2.maxY),
+  };
+}
+
+/**
+ * Merge all adjacent rectangular regions into larger rectangles
+ * where possible. Iterates until no more merges are possible.
+ */
+function mergeAdjacentRegions(
+  regions: { minX: number; maxX: number; minY: number; maxY: number }[],
+  tolerance: number = 0.001
+): { minX: number; maxX: number; minY: number; maxY: number }[] {
+  if (regions.length <= 1) return regions;
+
+  let merged = [...regions];
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+
+    for (let i = 0; i < merged.length; i++) {
+      for (let j = i + 1; j < merged.length; j++) {
+        const mergeType = canMergeRectangles(merged[i], merged[j], tolerance);
+        if (mergeType) {
+          // Merge the two regions
+          const newRegion = mergeRectangles(merged[i], merged[j]);
+          // Remove old regions and add merged one
+          merged.splice(j, 1);  // Remove j first (higher index)
+          merged.splice(i, 1);  // Then remove i
+          merged.push(newRegion);
+          changed = true;
+          break;
+        }
+      }
+      if (changed) break;
+    }
+  }
+
+  return merged;
+}
+
+/**
  * Check if an exclusion spans the full width or height of the outline
  * (i.e., it "splits" the safe space into separate regions)
  */
@@ -654,53 +739,50 @@ export function computeResultPaths(
   // but go all the way to the outer edge (which is open/free).
   // Safe dimension = extension - MT, only add if this is positive (extension > MT)
 
-  if (extensions.top > 0 && extensions.top > mt) {
-    // Top extension: starts MT above body edge, goes to outer edge
+  if (extensions.top > 0) {
+    // Top extension: starts at body edge (no margin needed - extension is on OPEN edge)
+    // The extension edge has no joints, so the safe area extends from the body boundary
+    // all the way to the outer edge without any margins.
     safeRegions.push({
       minX: -halfW,
       maxX: halfW,
-      minY: halfH + mt,  // Body edge + MT margin (away from joint)
+      minY: halfH,  // Body edge (no margin - extension is on open/jointless edge)
       maxY: halfH + extensions.top,  // Outer edge (no margin needed)
     });
-    debug('safe-space', `  Added top extension region: x[${-halfW},${halfW}] y[${halfH + mt},${halfH + extensions.top}]`);
-  } else if (extensions.top > 0) {
-    debug('safe-space', `  Skipped top extension region: extension ${extensions.top} <= mt ${mt}`);
+    debug('safe-space', `  Added top extension region: x[${-halfW},${halfW}] y[${halfH},${halfH + extensions.top}]`);
   }
 
-  if (extensions.bottom > 0 && extensions.bottom > mt) {
+  if (extensions.bottom > 0) {
+    // Bottom extension: starts at body edge (no margin - extension is on open edge)
     safeRegions.push({
       minX: -halfW,
       maxX: halfW,
       minY: -halfH - extensions.bottom,  // Outer edge (no margin needed)
-      maxY: -halfH - mt,  // Body edge - MT margin (away from joint)
+      maxY: -halfH,  // Body edge (no margin - extension is on open/jointless edge)
     });
-    debug('safe-space', `  Added bottom extension region: x[${-halfW},${halfW}] y[${-halfH - extensions.bottom},${-halfH - mt}]`);
-  } else if (extensions.bottom > 0) {
-    debug('safe-space', `  Skipped bottom extension region: extension ${extensions.bottom} <= mt ${mt}`);
+    debug('safe-space', `  Added bottom extension region: x[${-halfW},${halfW}] y[${-halfH - extensions.bottom},${-halfH}]`);
   }
 
-  if (extensions.left > 0 && extensions.left > mt) {
+  if (extensions.left > 0) {
+    // Left extension: starts at body edge (no margin - extension is on open edge)
     safeRegions.push({
       minX: -halfW - extensions.left,  // Outer edge (no margin needed)
-      maxX: -halfW - mt,  // Body edge - MT margin (away from joint)
+      maxX: -halfW,  // Body edge (no margin - extension is on open/jointless edge)
       minY: -halfH,
       maxY: halfH,
     });
-    debug('safe-space', `  Added left extension region: x[${-halfW - extensions.left},${-halfW - mt}] y[${-halfH},${halfH}]`);
-  } else if (extensions.left > 0) {
-    debug('safe-space', `  Skipped left extension region: extension ${extensions.left} <= mt ${mt}`);
+    debug('safe-space', `  Added left extension region: x[${-halfW - extensions.left},${-halfW}] y[${-halfH},${halfH}]`);
   }
 
-  if (extensions.right > 0 && extensions.right > mt) {
+  if (extensions.right > 0) {
+    // Right extension: starts at body edge (no margin - extension is on open edge)
     safeRegions.push({
-      minX: halfW + mt,  // Body edge + MT margin (away from joint)
+      minX: halfW,  // Body edge (no margin - extension is on open/jointless edge)
       maxX: halfW + extensions.right,  // Outer edge (no margin needed)
       minY: -halfH,
       maxY: halfH,
     });
-    debug('safe-space', `  Added right extension region: x[${halfW + mt},${halfW + extensions.right}] y[${-halfH},${halfH}]`);
-  } else if (extensions.right > 0) {
-    debug('safe-space', `  Skipped right extension region: extension ${extensions.right} <= mt ${mt}`);
+    debug('safe-space', `  Added right extension region: x[${halfW},${halfW + extensions.right}] y[${-halfH},${halfH}]`);
   }
 
   debug('safe-space', `  Total safe regions before slot processing: ${safeRegions.length}`);
@@ -711,10 +793,11 @@ export function computeResultPaths(
     return [];
   }
 
-  // If no internal exclusions, return the safe regions as-is
+  // If no internal exclusions, merge adjacent regions and return
   if (internalExclusions.length === 0) {
-    debug('safe-space', `  No internal exclusions, returning ${safeRegions.length} regions`);
-    return safeRegions.map(boundsToPath);
+    const mergedRegions = mergeAdjacentRegions(safeRegions, tolerance);
+    debug('safe-space', `  No internal exclusions, merged ${safeRegions.length} regions into ${mergedRegions.length}`);
+    return mergedRegions.map(boundsToPath);
   }
 
   // Now handle internal exclusions (slots) that might split safe regions
