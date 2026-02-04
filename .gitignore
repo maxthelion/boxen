@@ -31,8 +31,12 @@ npm-debug.log*
 .orchestrator/agents/
 .orchestrator/messages/
 .orchestrator/shared/queue/claimed/
+.orchestrator/shared/queue/done/
+.orchestrator/shared/queue/completed/
 .orchestrator/shared/queue/failed/
 .orchestrator/shared/queue/rejected/
+.orchestrator/shared/queue/needs_continuation/TASK-*.md
+.orchestrator/shared/queue/.claim.lock
 .orchestrator/shared/proposals/active/
 .orchestrator/shared/proposals/promoted/
 .orchestrator/shared/proposals/deferred/
