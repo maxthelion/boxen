@@ -494,10 +494,10 @@ describe('Corner Fillet Operation', () => {
       const eligibility = frontPanel.cornerEligibility;
       expect(eligibility).toBeDefined();
 
-      // Check that all corners are ineligible (no free length without extensions)
+      // Check that all corners are ineligible (edges have joints)
       eligibility!.forEach(corner => {
         expect(corner.eligible).toBe(false);
-        expect(corner.reason).toBe('no-free-length');
+        expect(corner.reason).toBe('has-joints');
       });
     });
 
@@ -564,9 +564,9 @@ describe('Corner Fillet Operation', () => {
       expect(topRightCorner?.eligible).toBe(false);
     });
 
-    it('should mark corners as eligible when edges have sufficient extension', () => {
-      // Even with joint edges, if BOTH edges have extensions that provide free length,
-      // the corner becomes eligible
+    it('should remain ineligible even with extensions when edges have joints', () => {
+      // Corners where edges have joints (locked or outward-only) remain ineligible
+      // even if both edges have extensions - the joint makes the corner ineligible
       const frontPanel = getFacePanel('front');
       if (!frontPanel) throw new Error('Front panel not found');
 
@@ -588,10 +588,10 @@ describe('Corner Fillet Operation', () => {
       const eligibility = updatedPanel.cornerEligibility;
       expect(eligibility).toBeDefined();
 
-      // The bottom:left corner should now be eligible because both edges have extensions
+      // The bottom:left corner should STILL be ineligible because both edges have joints
       const bottomLeftCorner = eligibility!.find(c => c.corner === 'bottom:left');
-      expect(bottomLeftCorner?.eligible).toBe(true);
-      expect(bottomLeftCorner?.maxRadius).toBeGreaterThan(0);
+      expect(bottomLeftCorner?.eligible).toBe(false);
+      expect(bottomLeftCorner?.reason).toBe('has-joints');
     });
 
     it('should remain ineligible when only ONE edge has extension', () => {
