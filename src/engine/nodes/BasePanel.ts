@@ -390,13 +390,63 @@ export abstract class BasePanel extends BaseNode {
 
   /**
    * Compute corner eligibility for fillet operations.
-   * A corner is eligible if both adjacent edges have "free length" > 0.
-   * Free length = this panel's extension - adjacent panel's extension (if any).
+   *
+   * A corner is eligible for filleting only if BOTH adjacent edges are "safe"
+   * (no finger joints at that corner location).
+   *
+   * Edge types and safety:
+   * - Joint edge (male or female): NOT safe - has finger joints
+   * - Open edge (adjacent face disabled): safe - no joints, straight edge
+   * - Extended edge: safe in the extension region (beyond finger joint area)
+   *
+   * A joint edge can still contribute to an eligible corner IF the panel has
+   * enough extension on that edge to create "free length" beyond the joint.
    */
   protected computeCornerEligibility(): CornerEligibility[] {
     const edgeStatuses = this.computeEdgeStatuses();
     const extensions = this._edgeExtensions;
     const MIN_FILLET_RADIUS = 1; // mm
+
+    // Get panel dimensions for calculating max fillet radius on open edges
+    const dims = this.getDimensions();
+
+    /**
+     * Check if an edge is "safe" for filleting at this corner.
+     * An edge is safe if:
+     * 1. It has no finger joints (status === 'unlocked'), OR
+     * 2. It has extension that provides free length beyond the joint area
+     */
+    const isEdgeSafe = (
+      edgeStatus: EdgeStatusInfo | undefined,
+      thisExtension: number,
+      adjacentExtension: number,
+      edgePosition: EdgePosition
+    ): { safe: boolean; freeLength: number } => {
+      // If edge has no joints (open face), it's safe
+      if (edgeStatus?.status === 'unlocked') {
+        // For unlocked edges (open faces), the corner is safe regardless of extension
+        // If the edge has an extension, use that as the free length
+        // Otherwise, use a portion of the edge length as the free length
+        if (thisExtension > 0) {
+          // Use the extension amount as the free length
+          return { safe: true, freeLength: thisExtension };
+        }
+        // No extension - use a conservative estimate based on panel dimensions
+        const edgeLength = edgePosition === 'top' || edgePosition === 'bottom'
+          ? dims.width
+          : dims.height;
+        const freeLength = edgeLength / 3;
+        return { safe: true, freeLength };
+      }
+
+      // Edge has finger joints (either 'locked' = male, or 'outward-only' = female)
+      // It can only be safe if there's enough extension to create free length
+      // Free length = this extension - adjacent panel's extension
+      const freeLength = Math.max(0, thisExtension - adjacentExtension);
+
+      // For joint edges, we need positive free length to be safe at this corner
+      return { safe: freeLength > 0, freeLength };
+    };
 
     return ALL_CORNERS.map((corner): CornerEligibility => {
       const [edge1, edge2] = getCornerEdges(corner);
@@ -405,29 +455,32 @@ export abstract class BasePanel extends BaseNode {
       const status1 = edgeStatuses.find(s => s.position === edge1);
       const status2 = edgeStatuses.find(s => s.position === edge2);
 
-      // Locked edges (male joints) cannot have filleted corners
-      if (status1?.status === 'locked' || status2?.status === 'locked') {
-        return {
-          corner,
-          eligible: false,
-          reason: 'no-free-length',
-          maxRadius: 0,
-          freeLength1: 0,
-          freeLength2: 0,
-        };
-      }
-
-      // Calculate free length for each edge at this corner
-      // Free length = this extension - adjacent panel's extension
+      // Get extensions
       const thisExt1 = extensions[edge1];
       const thisExt2 = extensions[edge2];
       const adjExt1 = this.getAdjacentPanelExtension(edge1);
       const adjExt2 = this.getAdjacentPanelExtension(edge2);
 
-      const freeLength1 = Math.max(0, thisExt1 - adjExt1);
-      const freeLength2 = Math.max(0, thisExt2 - adjExt2);
+      // Check if each edge is safe for filleting
+      const edge1Safety = isEdgeSafe(status1, thisExt1, adjExt1, edge1);
+      const edge2Safety = isEdgeSafe(status2, thisExt2, adjExt2, edge2);
 
-      // Max radius is the minimum of the two free lengths
+      const freeLength1 = edge1Safety.freeLength;
+      const freeLength2 = edge2Safety.freeLength;
+
+      // Corner is only eligible if BOTH edges are safe
+      if (!edge1Safety.safe || !edge2Safety.safe) {
+        return {
+          corner,
+          eligible: false,
+          reason: 'no-free-length',
+          maxRadius: 0,
+          freeLength1,
+          freeLength2,
+        };
+      }
+
+      // Both edges are safe - max radius is minimum of free lengths
       const maxRadius = Math.min(freeLength1, freeLength2);
 
       // Corner is eligible if max radius >= minimum fillet radius

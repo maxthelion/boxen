@@ -465,4 +465,164 @@ describe('Corner Fillet Operation', () => {
       expect(result.valid).toBe(true);
     });
   });
+
+  // =========================================================================
+  // Corner Eligibility Rules Tests
+  // =========================================================================
+  describe('Corner Eligibility Rules', () => {
+    /**
+     * These tests verify the corner eligibility rules:
+     * - A corner is eligible ONLY if BOTH adjacent edges are "safe" (no finger joints)
+     * - Joint edge (male or female): NOT safe
+     * - Open edge (adjacent face disabled): safe
+     * - Extended edge with free length: safe in the extension region
+     */
+
+    it('should mark corners with joint edges as ineligible (standard box)', () => {
+      // In a standard box with all 6 faces enabled, all corners have joint edges
+      // The front panel has:
+      // - top edge: meets top face (joint)
+      // - bottom edge: meets bottom face (joint)
+      // - left edge: meets left face (joint)
+      // - right edge: meets right face (joint)
+      // All corners meet at two joint edges, so none should be eligible
+      const frontPanel = getFacePanel('front');
+      if (!frontPanel) throw new Error('Front panel not found');
+
+      // In a fully closed box, all face panel corners should be ineligible
+      // because they all have finger joints at both edges
+      const eligibility = frontPanel.cornerEligibility;
+      expect(eligibility).toBeDefined();
+
+      // Check that all corners are ineligible (no free length without extensions)
+      eligibility!.forEach(corner => {
+        expect(corner.eligible).toBe(false);
+        expect(corner.reason).toBe('no-free-length');
+      });
+    });
+
+    it('should mark corners as eligible when adjacent face is disabled (open edge)', () => {
+      // Disable the top face - this makes the top edge of front panel "open"
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+
+      const frontPanel = getFacePanel('front');
+      if (!frontPanel) throw new Error('Front panel not found');
+
+      const eligibility = frontPanel.cornerEligibility;
+      expect(eligibility).toBeDefined();
+
+      // Check top corners (left:top and right:top)
+      // These have one open edge (top) but the other edge (left/right) still has joints
+      // So they should still be ineligible because only ONE edge is safe
+      const topLeftCorner = eligibility!.find(c => c.corner === 'left:top');
+      const topRightCorner = eligibility!.find(c => c.corner === 'right:top');
+
+      // Both corners at the top edge still have joints on their other edge
+      expect(topLeftCorner?.eligible).toBe(false);
+      expect(topRightCorner?.eligible).toBe(false);
+    });
+
+    it('should mark corner as eligible when BOTH adjacent faces are disabled', () => {
+      // Disable both top and left faces - this makes the left:top corner have two open edges
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'left' },
+      });
+
+      const frontPanel = getFacePanel('front');
+      if (!frontPanel) throw new Error('Front panel not found');
+
+      const eligibility = frontPanel.cornerEligibility;
+      expect(eligibility).toBeDefined();
+
+      // The left:top corner now has BOTH edges open (no joints)
+      // So it should be eligible
+      const topLeftCorner = eligibility!.find(c => c.corner === 'left:top');
+      expect(topLeftCorner?.eligible).toBe(true);
+      expect(topLeftCorner?.maxRadius).toBeGreaterThan(0);
+
+      // The other corners should still be ineligible
+      const bottomLeftCorner = eligibility!.find(c => c.corner === 'bottom:left');
+      const bottomRightCorner = eligibility!.find(c => c.corner === 'bottom:right');
+      const topRightCorner = eligibility!.find(c => c.corner === 'right:top');
+
+      // bottom:left has bottom (joint) + left (open) → ineligible
+      expect(bottomLeftCorner?.eligible).toBe(false);
+      // bottom:right has bottom (joint) + right (joint) → ineligible
+      expect(bottomRightCorner?.eligible).toBe(false);
+      // right:top has top (open) + right (joint) → ineligible
+      expect(topRightCorner?.eligible).toBe(false);
+    });
+
+    it('should mark corners as eligible when edges have sufficient extension', () => {
+      // Even with joint edges, if BOTH edges have extensions that provide free length,
+      // the corner becomes eligible
+      const frontPanel = getFacePanel('front');
+      if (!frontPanel) throw new Error('Front panel not found');
+
+      // Extend both bottom and left edges
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSIONS_BATCH',
+        targetId: 'main-assembly',
+        payload: {
+          extensions: [
+            { panelId: frontPanel.id, edge: 'bottom', value: 10 },
+            { panelId: frontPanel.id, edge: 'left', value: 10 },
+          ],
+        },
+      });
+
+      const updatedPanel = getFacePanel('front');
+      if (!updatedPanel) throw new Error('Updated panel not found');
+
+      const eligibility = updatedPanel.cornerEligibility;
+      expect(eligibility).toBeDefined();
+
+      // The bottom:left corner should now be eligible because both edges have extensions
+      const bottomLeftCorner = eligibility!.find(c => c.corner === 'bottom:left');
+      expect(bottomLeftCorner?.eligible).toBe(true);
+      expect(bottomLeftCorner?.maxRadius).toBeGreaterThan(0);
+    });
+
+    it('should remain ineligible when only ONE edge has extension', () => {
+      // If only one edge has extension, corner should still be ineligible
+      const frontPanel = getFacePanel('front');
+      if (!frontPanel) throw new Error('Front panel not found');
+
+      // Extend only the bottom edge
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel.id,
+          edge: 'bottom',
+          value: 10,
+        },
+      });
+
+      const updatedPanel = getFacePanel('front');
+      if (!updatedPanel) throw new Error('Updated panel not found');
+
+      const eligibility = updatedPanel.cornerEligibility;
+      expect(eligibility).toBeDefined();
+
+      // bottom:left has bottom (extended) but left (joint, no extension) → ineligible
+      const bottomLeftCorner = eligibility!.find(c => c.corner === 'bottom:left');
+      expect(bottomLeftCorner?.eligible).toBe(false);
+
+      // bottom:right has bottom (extended) but right (joint, no extension) → ineligible
+      const bottomRightCorner = eligibility!.find(c => c.corner === 'bottom:right');
+      expect(bottomRightCorner?.eligible).toBe(false);
+    });
+  });
 });
