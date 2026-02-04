@@ -420,8 +420,10 @@ export abstract class BasePanel extends BaseNode {
     const forbiddenAreas: ForbiddenArea[] = [];
 
     for (const status of edgeStatuses) {
-      if (status.status === 'locked') {
-        // Locked edges have finger joints - mark the entire edge region as forbidden
+      // Both 'locked' (male joints/tabs) and 'outward-only' (female joints/slots) edges have finger joints
+      // Corners at edges with any type of finger joints cannot be filleted
+      if (status.status === 'locked' || status.status === 'outward-only') {
+        // Edges with finger joints - mark the entire edge region as forbidden
         // Convert edge position to bounds
         let bounds: { minX: number; maxX: number; minY: number; maxY: number };
         const w = dims.width / 2;
