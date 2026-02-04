@@ -385,6 +385,119 @@ describe('Fillet All Corners', () => {
   });
 
   // ===========================================================================
+  // Finger Joint Corner Filtering Tests
+  // ===========================================================================
+
+  describe('Finger Joint Corner Filtering', () => {
+    it('should NOT show finger joint corners as eligible on closed box panels', () => {
+      // A closed box has finger joints on all face panel edges
+      // Corners created by finger joint patterns should be ineligible
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      expect(frontPanel).toBeDefined();
+
+      // Get all corner eligibility for the front panel
+      const allCornerElig = frontPanel.derived.allCornerEligibility;
+      expect(allCornerElig).toBeDefined();
+
+      // Log corner count for debugging
+      console.log('Total corners detected:', allCornerElig.length);
+      console.log('Outline points count:', frontPanel.derived.outline.points.length);
+
+      // With finger joints, a panel has many small corners from the joint pattern
+      // ALL of these should be ineligible because they're in the finger joint region
+      const eligibleCorners = allCornerElig.filter((c: any) => c.eligible);
+
+      // In a closed box with finger joints on all edges, there should be NO eligible corners
+      // because all edges have finger joints (forbidden areas)
+      console.log('Eligible corners:', eligibleCorners.length);
+      if (eligibleCorners.length > 0) {
+        console.log('Eligible corner positions:', eligibleCorners.slice(0, 5).map((c: any) => ({
+          id: c.id,
+          position: c.position,
+          type: c.type,
+        })));
+      }
+
+      // Verify no finger joint corners are shown as eligible
+      expect(eligibleCorners.length).toBe(0);
+    });
+
+    it('should show corners as eligible when panel has open edges', () => {
+      // Disable two adjacent faces to create an open corner
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'left' },
+      });
+
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      expect(frontPanel).toBeDefined();
+
+      const allCornerElig = frontPanel.derived.allCornerEligibility;
+
+      // With top and left faces disabled, the top-left corner should be eligible
+      // because BOTH adjacent edges are now open (no finger joints)
+      const eligibleCorners = allCornerElig.filter((c: any) => c.eligible);
+
+      console.log('Eligible corners with open edges:', eligibleCorners.length);
+
+      // Should have at least one eligible corner (the open corner)
+      expect(eligibleCorners.length).toBeGreaterThan(0);
+    });
+
+    it('should show cutout corners as eligible when not in forbidden area', () => {
+      const snapshot = engine.getSnapshot();
+      const panels = snapshot.children[0].derived.panels;
+      const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      expect(frontPanel).toBeDefined();
+
+      // Add a cutout in the center of the panel (away from edges)
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel.id,
+          cutout: {
+            id: 'test-cutout',
+            type: 'rect' as const,
+            center: { x: 0, y: 0 },  // Center of panel
+            width: 20,
+            height: 20,
+          },
+        },
+      });
+
+      const updatedSnapshot = engine.getSnapshot();
+      const updatedPanels = updatedSnapshot.children[0].derived.panels;
+      const updatedFront = updatedPanels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      const allCornerElig = updatedFront.derived.allCornerEligibility;
+
+      // Cutout corners in the center should be eligible (not in forbidden area)
+      const holeCorners = allCornerElig.filter((c: any) => c.location === 'hole');
+      const eligibleHoleCorners = holeCorners.filter((c: any) => c.eligible);
+
+      console.log('Hole corners:', holeCorners.length);
+      console.log('Eligible hole corners:', eligibleHoleCorners.length);
+
+      // Interior cutout corners should be eligible (away from finger joints)
+      expect(eligibleHoleCorners.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ===========================================================================
   // Realistic Scenario Tests
   // ===========================================================================
 
