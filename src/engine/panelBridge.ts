@@ -307,7 +307,6 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
 
   // Pass through corner eligibility from engine
   const cornerEligibility = derived.cornerEligibility;
-  const allCornerEligibility = derived.allCornerEligibility;
 
   return {
     id,
@@ -326,7 +325,6 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
     edgeExtensions: props.edgeExtensions,
     edgeStatuses,
     cornerEligibility,
-    allCornerEligibility,
     customEdgePaths: props.customEdgePaths,
   };
 }

@@ -91,69 +91,6 @@ export interface CornerFillet {
 }
 
 // =============================================================================
-// All Corners Types - For batch fillet on ANY corner in geometry
-// =============================================================================
-
-/**
- * Location type for corners - outline or hole
- */
-export type AllCornerLocation = 'outline' | 'hole';
-
-/**
- * Corner type based on angle
- */
-export type AllCornerType = 'convex' | 'concave';
-
-/**
- * All-corner ID format (within a panel):
- * - Outline corners: "outline:index" (e.g., "outline:5")
- * - Hole corners: "hole:holeId:index" (e.g., "hole:cutout-1:2")
- */
-export type AllCornerId = string;
-
-/**
- * Full corner key including panel ID
- * Format: "panelId:outline:index" or "panelId:hole:holeId:index"
- */
-export type AllCornerKey = string;
-
-/**
- * Eligibility info for any corner in panel geometry
- */
-export interface AllCornerEligibility {
-  /** Corner ID within the panel */
-  id: AllCornerId;
-  /** Location type */
-  location: AllCornerLocation;
-  /** For holes, the hole ID */
-  holeId?: string;
-  /** Index in the path points array */
-  pathIndex: number;
-  /** 2D position */
-  position: Point2D;
-  /** Interior angle in radians */
-  angle: number;
-  /** Corner type */
-  type: AllCornerType;
-  /** Whether eligible for filleting */
-  eligible: boolean;
-  /** Reason for ineligibility */
-  reason?: 'forbidden-area' | 'mechanical-joint' | 'too-small' | 'near-other-fillet';
-  /** Maximum fillet radius */
-  maxRadius: number;
-}
-
-/**
- * All-corner fillet configuration
- */
-export interface AllCornerFillet {
-  /** Corner ID (outline:index or hole:holeId:index) */
-  cornerId: AllCornerId;
-  /** Fillet radius in mm */
-  radius: number;
-}
-
-// =============================================================================
 // Geometry Types
 // =============================================================================
 
@@ -630,8 +567,7 @@ export interface BasePanelSnapshot extends BaseSnapshot {
   // Input properties
   props: {
     edgeExtensions: EdgeExtensions;
-    cornerFillets: CornerFillet[];  // Corner fillet configurations (4 outer corners)
-    allCornerFillets: AllCornerFillet[];  // All corner fillets (any corner in geometry)
+    cornerFillets: CornerFillet[];  // Corner fillet configurations
     customEdgePaths: CustomEdgePath[];  // User-defined edge geometry
     cutouts: Cutout[];  // Interior cutout shapes (holes)
     visible: boolean;
@@ -659,13 +595,9 @@ export interface BasePanelSnapshot extends BaseSnapshot {
     // Determines which edges can be modified
     edgeStatuses: EdgeStatusInfo[];
 
-    // Corner eligibility for fillet tool (4 outer corners only)
+    // Corner eligibility for fillet tool
     // Determines which corners can be filleted and max radius
     cornerEligibility: CornerEligibility[];
-
-    // All corner eligibility (any corner in geometry - outline + holes)
-    // For batch fillet tool that supports all corners
-    allCornerEligibility: AllCornerEligibility[];
   };
 }
 
@@ -768,9 +700,6 @@ export type EngineAction =
     }}
   | { type: 'SET_CORNER_FILLET'; targetId: string; payload: { panelId: string; corner: CornerKey; radius: number } }
   | { type: 'SET_CORNER_FILLETS_BATCH'; targetId: string; payload: { fillets: Array<{ panelId: string; corner: CornerKey; radius: number }> } }
-  // All-corners fillet actions (for any corner in geometry - outline + holes)
-  | { type: 'SET_ALL_CORNER_FILLET'; targetId: string; payload: { panelId: string; cornerId: AllCornerId; radius: number } }
-  | { type: 'SET_ALL_CORNER_FILLETS_BATCH'; targetId: string; payload: { fillets: Array<{ panelId: string; cornerId: AllCornerId; radius: number }> } }
   // Custom edge path actions (edge is embedded in path.edge)
   | { type: 'SET_EDGE_PATH'; targetId: string; payload: { panelId: string; path: CustomEdgePath } }
   | { type: 'CLEAR_EDGE_PATH'; targetId: string; payload: { panelId: string; edge: EdgePosition } }

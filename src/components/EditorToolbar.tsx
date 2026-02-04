@@ -15,7 +15,6 @@ export type EditorTool =
   | 'inset'
   | 'chamfer'
   | 'fillet'
-  | 'fillet-all'
   | 'push-pull'
   | 'subdivide'
   | 'move'
@@ -90,15 +89,8 @@ const tools: ToolButton[] = [
     id: 'fillet',
     icon: '◠',
     label: 'Fillet',
-    tooltip: 'Round panel corners (F)',
+    tooltip: 'Round corners (F)',
     modes: ['3d'],
-  },
-  {
-    id: 'fillet-all',
-    icon: '◎',
-    label: 'All Corners',
-    tooltip: 'Batch fillet any corner (A)',
-    modes: ['2d', '3d'],
   },
   {
     id: 'push-pull',

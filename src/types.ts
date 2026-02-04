@@ -274,9 +274,6 @@ export interface BoxState {
   activeTool: EditorTool;
   selectedCornerIds: Set<string>;  // Selected corners for chamfer/fillet tool. Format: "panelId:corner"
   hoveredCorner: string | null;  // Format: "panelId:corner" e.g. "uuid:left:top"
-  // All-corners fillet state (any corner in panel geometry - outline + holes)
-  selectedAllCornerIds: Set<string>;  // Format: "panelId:cornerId" e.g. "uuid:outline:5"
-  hoveredAllCorner: string | null;  // Format: "panelId:cornerId"
   // Edge selection state (for inset/outset tool)
   selectedEdges: Set<string>;  // Format: "panelId:edge" e.g. "uuid:top"
   hoveredEdge: string | null;  // Format: "panelId:edge"
@@ -285,7 +282,7 @@ export interface BoxState {
 }
 
 // Editor tools available in 2D/3D views
-export type EditorTool = 'select' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer' | 'fillet' | 'fillet-all' | 'push-pull' | 'subdivide' | 'move' | 'create-sub-assembly' | 'configure' | 'scale';
+export type EditorTool = 'select' | 'rectangle' | 'circle' | 'path' | 'inset' | 'chamfer' | 'fillet' | 'push-pull' | 'subdivide' | 'move' | 'create-sub-assembly' | 'configure' | 'scale';
 
 export interface BoxActions {
   setConfig: (config: Partial<BoxConfig>) => void;
@@ -360,12 +357,6 @@ export interface BoxActions {
   clearCornerSelection: () => void;
   setHoveredCorner: (cornerId: string | null) => void;
   selectPanelCorners: (panelId: string, cornerEligibility: import('./engine/types').CornerEligibility[], additive?: boolean) => void;
-  // All-corners fillet actions (any corner in panel geometry)
-  selectAllCorner: (panelId: string, cornerId: string, addToSelection?: boolean) => void;
-  selectAllCorners: (cornerKeys: string[]) => void;
-  clearAllCornerSelection: () => void;
-  selectPanelAllCorners: (panelId: string, allCornerEligibility: import('./engine/types').AllCornerEligibility[], additive?: boolean) => void;
-  setHoveredAllCorner: (cornerKey: string | null) => void;
   // Edge selection actions (for inset/outset tool)
   selectEdge: (panelId: string, edge: EdgePosition, additive?: boolean) => void;
   deselectEdge: (panelId: string, edge: EdgePosition) => void;
@@ -518,9 +509,6 @@ export interface PanelPath {
 
   // Corner eligibility for fillet tool (derived from engine)
   cornerEligibility?: import('./engine/types').CornerEligibility[];
-
-  // All corner eligibility for batch fillet tool (any corner in outline or holes)
-  allCornerEligibility?: import('./engine/types').AllCornerEligibility[];
 
   // Corner finishes (chamfers, fillets)
   cornerFinishes?: CornerFinish[];

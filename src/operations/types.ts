@@ -28,7 +28,6 @@ export type OperationId =
   | 'scale'
   | 'chamfer-fillet'
   | 'corner-fillet'
-  | 'fillet-all-corners'
   | 'move'
   | 'inset-outset'
   // Immediate operations (execute instantly)
@@ -151,16 +150,6 @@ export interface CornerFilletParams {
 }
 
 /**
- * Parameters for fillet-all-corners operation (batch fillet on any corner)
- */
-export interface FilletAllCornersParams {
-  /** Selected corners in format "panelId:cornerId" (e.g., "uuid:outline:5" or "uuid:hole:cutout-1:2") */
-  corners: string[];
-  /** Fillet radius in mm */
-  radius: number;
-}
-
-/**
  * Parameters for inset-outset operation
  */
 export interface InsetOutsetParams {
@@ -218,8 +207,6 @@ export type OperationParams =
   | ConfigureAssemblyParams
   | ScaleParams
   | ChamferFilletParams
-  | CornerFilletParams
-  | FilletAllCornersParams
   | InsetOutsetParams
   | ToggleFaceParams
   | RemoveSubdivisionParams

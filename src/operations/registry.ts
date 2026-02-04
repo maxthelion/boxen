@@ -503,47 +503,6 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     },
   },
 
-  'fillet-all-corners': {
-    id: 'fillet-all-corners',
-    name: 'Fillet All Corners',
-    type: 'parameter',
-    selectionType: 'corner',
-    minSelection: 1,
-    maxSelection: Infinity,
-    availableIn: ['2d', '3d'],
-    description: 'Round any corner in panel geometry (outline or holes)',
-    shortcut: 'a',
-    createPreviewAction: (params) => {
-      const { corners, radius } = params as {
-        corners?: string[];  // Format: "panelId:cornerId" e.g., "uuid:outline:5"
-        radius?: number;
-      };
-
-      if (!corners?.length || radius === undefined || radius <= 0) return null;
-
-      // Convert corner keys to fillet objects
-      // Corner key format: "panelId:cornerId" where cornerId is "outline:index" or "hole:holeId:index"
-      const fillets = corners.map(cornerKey => {
-        // Find the first colon to separate panelId from cornerId
-        const firstColonIndex = cornerKey.indexOf(':');
-        if (firstColonIndex === -1) return null;
-
-        const panelId = cornerKey.slice(0, firstColonIndex);
-        const cornerId = cornerKey.slice(firstColonIndex + 1);
-
-        return { panelId, cornerId, radius };
-      }).filter((f): f is { panelId: string; cornerId: string; radius: number } => f !== null);
-
-      if (fillets.length === 0) return null;
-
-      return {
-        type: 'SET_ALL_CORNER_FILLETS_BATCH',
-        targetId: 'main-assembly',
-        payload: { fillets },
-      };
-    },
-  },
-
   'inset-outset': {
     id: 'inset-outset',
     name: 'Inset/Outset',
@@ -729,7 +688,6 @@ const TOOL_TO_OPERATION: Record<string, OperationId | null> = {
   'path': null,
   'inset': 'inset-outset',
   'fillet': 'corner-fillet',
-  'fillet-all': 'fillet-all-corners',
   'push-pull': 'push-pull',
   'subdivide': 'subdivide',
   'move': 'move',
