@@ -1056,7 +1056,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
     // Analyze the path to determine how to handle it
     if (safeSpace && edgeMargins) {
-      const analysis = analyzePath(rectPoints, safeSpace, edgeMargins, panel.width, panel.height);
+      const analysis = analyzePath(rectPoints, safeSpace, edgeMargins, panel.width, panel.height, panel.edgeExtensions);
 
       // Check if shape touches an open edge (body edge of an edge without joints)
       const touchesOpenEdge = analysis.borderedEdges.some(e =>
@@ -1191,7 +1191,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
     // Analyze the path to determine how to handle it
     if (safeSpace && edgeMargins) {
-      const analysis = analyzePath(circlePoints, safeSpace, edgeMargins, panel.width, panel.height);
+      const analysis = analyzePath(circlePoints, safeSpace, edgeMargins, panel.width, panel.height, panel.edgeExtensions);
 
       // Check if shape touches an open edge (body edge of an edge without joints)
       const touchesOpenEdge = analysis.borderedEdges.some(e =>
@@ -2438,7 +2438,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             // Validate the path
             let isValid = true;
             if (safeSpace && edgeMargins && isPolygonDraft && previewPoints.length >= 3) {
-              const analysis = analyzePath(previewPoints, safeSpace, edgeMargins, panel.width, panel.height);
+              const analysis = analyzePath(previewPoints, safeSpace, edgeMargins, panel.width, panel.height, panel.edgeExtensions);
               // Invalid if entirely in open space (no overlap with panel) or touches restricted areas
               isValid = !analysis.touchesClosedEdge && (analysis.whollyInSafeSpace || analysis.spansOpenEdge || analysis.borderedEdges.length > 0);
             }

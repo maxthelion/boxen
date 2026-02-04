@@ -10,7 +10,7 @@
  * - Slot holes (divider intersections) with MT margin
  */
 
-import { PanelPath, FaceConfig, BoxConfig, PathPoint } from '../types';
+import { PanelPath, FaceConfig, BoxConfig, PathPoint, EdgeExtensions } from '../types';
 import { debug, setDebugTags, disableDebugTag } from '../utils/debug';
 
 // Enable only safe-space debug tag, disable noisy ones
@@ -1045,6 +1045,7 @@ export function isCircleInSafeSpace(
  * @param edgeMargins - Which edges have joints (margin > 0 means joints)
  * @param panelWidth - Panel body width (excluding extensions)
  * @param panelHeight - Panel body height (excluding extensions)
+ * @param extensions - Optional edge extensions (positive = outward from body)
  * @param tolerance - Tolerance for "touching" detection (default 0.001)
  */
 export function analyzePath(
@@ -1053,6 +1054,7 @@ export function analyzePath(
   edgeMargins: Record<EdgePosition, number>,
   panelWidth: number,
   panelHeight: number,
+  extensions?: EdgeExtensions,
   tolerance: number = 0.001
 ): PathAnalysis {
   const halfW = panelWidth / 2;
@@ -1075,11 +1077,12 @@ export function analyzePath(
   const safeMinY = -halfH + (edgeMargins.bottom > 0 ? edgeMargins.bottom : 0);
   const safeMaxY = halfH - (edgeMargins.top > 0 ? edgeMargins.top : 0);
 
-  // Body boundary (the panel edge before extensions)
-  const bodyMinX = -halfW;
-  const bodyMaxX = halfW;
-  const bodyMinY = -halfH;
-  const bodyMaxY = halfH;
+  // Body boundary (includes extensions - the actual panel edge)
+  // Extensions are positive for outward growth, so we add/subtract accordingly
+  const bodyMinX = -halfW - (extensions?.left ?? 0);
+  const bodyMaxX = halfW + (extensions?.right ?? 0);
+  const bodyMinY = -halfH - (extensions?.bottom ?? 0);
+  const bodyMaxY = halfH + (extensions?.top ?? 0);
 
   const borderedEdges: EdgePosition[] = [];
   const openEdgesSpanned: EdgePosition[] = [];
