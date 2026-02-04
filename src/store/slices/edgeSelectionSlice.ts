@@ -46,14 +46,15 @@ export const createEdgeSelectionSlice: StateCreator<
       } else {
         newSet.add(edgeKey);
       }
-      // When selecting edges, clear other selection types (unless additive)
+      // When selecting edges, keep the panel selected (so Tab to 2D still works)
+      // but clear voids/sub-assemblies/assemblies
       if (additive) {
         return { selectedEdges: newSet };
       }
       return {
         selectedEdges: newSet,
         selectedVoidIds: new Set<string>(),
-        selectedPanelIds: new Set<string>(),
+        selectedPanelIds: new Set<string>([panelId]),  // Keep panel selected
         selectedSubAssemblyIds: new Set<string>(),
         selectedAssemblyId: null,
       };
@@ -94,10 +95,11 @@ export const createEdgeSelectionSlice: StateCreator<
       }
 
       // Non-additive: Replace selection with this panel's edges
+      // Keep the panel selected (so Tab to 2D still works)
       return {
         selectedEdges: new Set(eligibleEdgeKeys),
         selectedVoidIds: new Set<string>(),
-        selectedPanelIds: new Set<string>(),
+        selectedPanelIds: new Set<string>([panelId]),  // Keep panel selected
         selectedSubAssemblyIds: new Set<string>(),
         selectedAssemblyId: null,
       };

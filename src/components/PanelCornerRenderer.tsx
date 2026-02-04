@@ -209,16 +209,19 @@ export const PanelCornerRenderer: React.FC<PanelCornerRendererProps> = ({ scale 
 
   // Handle corner click
   const handleCornerClick = useCallback((panelId: string, corner: CornerKey, event: React.MouseEvent) => {
-    // During an active operation, only shift+click modifies selection
-    const isOperationActive = operationState.activeOperation !== null;
-    if (isOperationActive && !event.shiftKey) {
+    // For corner-fillet operation, always allow clicks to modify selection (for multi-select UX)
+    // For other operations, only shift+click modifies selection
+    const isFilletOperation = operationState.activeOperation === 'corner-fillet';
+    const isOtherOperationActive = operationState.activeOperation !== null && !isFilletOperation;
+    if (isOtherOperationActive && !event.shiftKey) {
       return; // Let camera controls handle this click
     }
 
     // Build corner key: "panelId:corner"
     const cornerKey = `${panelId}:${corner}`;
-    // Use additive mode (toggle) when shift is held
-    const additive = event.shiftKey;
+    // For fillet operation, always toggle (multi-select behavior)
+    // For non-operation clicks, use additive mode when shift is held
+    const additive = isFilletOperation || event.shiftKey;
     selectCorner(cornerKey, additive);
   }, [selectCorner, operationState.activeOperation]);
 

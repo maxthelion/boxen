@@ -618,7 +618,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
   // Detect corners for potential finishing
   // Use panel body dimensions + extensions to place corners at actual panel corners
-  // (not affected by fillet preview, but includes extensions)
+  // Uses engine's cornerEligibility data to determine which corners can be filleted
   const detectedCorners = useMemo((): DetectedCorner[] => {
     if (!panel) return [];
 
@@ -637,50 +637,37 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
     const totalWidth = panel.width + ext.left + ext.right;
     const totalHeight = panel.height + ext.top + ext.bottom;
-    const maxRadius = Math.min(totalWidth, totalHeight) * 0.3;
+    const defaultMaxRadius = Math.min(totalWidth, totalHeight) * 0.3;
 
-    return [
-      {
-        id: 'corner-tl',
-        index: 0,
-        position: { x: leftX, y: topY },
+    // Map engine corner keys to 2D corner IDs
+    // Engine uses: 'left:top', 'right:top', 'bottom:left', 'bottom:right'
+    // 2D view uses: 'corner-tl', 'corner-tr', 'corner-bl', 'corner-br'
+    const cornerMap: Record<string, { id: string; index: number; position: { x: number; y: number }; inLen: number; outLen: number }> = {
+      'left:top': { id: 'corner-tl', index: 0, position: { x: leftX, y: topY }, inLen: totalWidth, outLen: totalHeight },
+      'right:top': { id: 'corner-tr', index: 1, position: { x: rightX, y: topY }, inLen: totalHeight, outLen: totalWidth },
+      'bottom:right': { id: 'corner-br', index: 2, position: { x: rightX, y: bottomY }, inLen: totalWidth, outLen: totalHeight },
+      'bottom:left': { id: 'corner-bl', index: 3, position: { x: leftX, y: bottomY }, inLen: totalHeight, outLen: totalWidth },
+    };
+
+    // Get eligibility from engine's cornerEligibility data
+    const eligibility = panel.cornerEligibility ?? [];
+
+    return Object.entries(cornerMap).map(([engineCorner, info]) => {
+      const engineEligibility = eligibility.find(e => e.corner === engineCorner);
+      const isEligible = engineEligibility?.eligible ?? false;
+      const maxRadius = engineEligibility?.maxRadius ?? (isEligible ? defaultMaxRadius : 0);
+
+      return {
+        id: info.id,
+        index: info.index,
+        position: info.position,
         angle: Math.PI / 2,
-        eligible: true,
+        eligible: isEligible,
         maxRadius,
-        incomingEdgeLength: totalWidth,
-        outgoingEdgeLength: totalHeight,
-      },
-      {
-        id: 'corner-tr',
-        index: 1,
-        position: { x: rightX, y: topY },
-        angle: Math.PI / 2,
-        eligible: true,
-        maxRadius,
-        incomingEdgeLength: totalHeight,
-        outgoingEdgeLength: totalWidth,
-      },
-      {
-        id: 'corner-br',
-        index: 2,
-        position: { x: rightX, y: bottomY },
-        angle: Math.PI / 2,
-        eligible: true,
-        maxRadius,
-        incomingEdgeLength: totalWidth,
-        outgoingEdgeLength: totalHeight,
-      },
-      {
-        id: 'corner-bl',
-        index: 3,
-        position: { x: leftX, y: bottomY },
-        angle: Math.PI / 2,
-        eligible: true,
-        maxRadius,
-        incomingEdgeLength: totalHeight,
-        outgoingEdgeLength: totalWidth,
-      },
-    ];
+        incomingEdgeLength: info.inLen,
+        outgoingEdgeLength: info.outLen,
+      };
+    });
   }, [panel]);
 
   // Calculate adjacent panel side profiles for visualization
