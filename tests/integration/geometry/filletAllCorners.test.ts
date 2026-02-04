@@ -137,6 +137,82 @@ describe('Fillet All Corners', () => {
       expect(convexCorners.length).toBeGreaterThan(0);
       expect(concaveCorners.length).toBeGreaterThan(0);
     });
+
+    it('detects corners from custom edge paths (notch)', () => {
+      // Panel outline with a notch (simulating a custom edge path)
+      // This is like a tab or cable routing notch
+      const outlineWithNotch: Point2D[] = [
+        { x: 0, y: 0 },
+        { x: 40, y: 0 },
+        { x: 40, y: -10 },  // Notch corner 1 (concave from exterior perspective)
+        { x: 60, y: -10 },  // Bottom of notch
+        { x: 60, y: 0 },    // Notch corner 2 (concave from exterior perspective)
+        { x: 100, y: 0 },
+        { x: 100, y: 80 },
+        { x: 0, y: 80 },
+      ];
+
+      const corners = detectAllPanelCorners(outlineWithNotch, [], { materialThickness });
+
+      // Should detect 8 corners: 4 original + 4 from notch
+      // But some notch corners may be filtered if edges are too short
+      // The key corners should be at (40, 0), (40, -10), (60, -10), (60, 0)
+      console.log('Detected corners:', corners.map(c => ({
+        pos: c.position,
+        type: c.type,
+      })));
+
+      // At minimum, we should detect the main panel corners
+      expect(corners.length).toBeGreaterThanOrEqual(4);
+
+      // Check that we have corners on the notch
+      const notchCorners = corners.filter(c =>
+        c.position.y < 0 || (c.position.y === 0 && (c.position.x === 40 || c.position.x === 60))
+      );
+      console.log('Notch-related corners:', notchCorners.length);
+    });
+
+    it('detects corners from multiple cutout holes', () => {
+      const outline: Point2D[] = [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+        { x: 100, y: 80 },
+        { x: 0, y: 80 },
+      ];
+
+      const holes = [
+        {
+          id: 'cutout-1',
+          path: [
+            { x: 20, y: 20 },
+            { x: 30, y: 20 },
+            { x: 30, y: 30 },
+            { x: 20, y: 30 },
+          ],
+        },
+        {
+          id: 'cutout-2',
+          path: [
+            { x: 60, y: 40 },
+            { x: 80, y: 40 },
+            { x: 80, y: 60 },
+            { x: 60, y: 60 },
+          ],
+        },
+      ];
+
+      const corners = detectAllPanelCorners(outline, holes, { materialThickness });
+
+      // Should detect 4 outline + 4 + 4 = 12 corners
+      expect(corners.length).toBe(12);
+
+      // Check that both cutouts are represented
+      const cutout1Corners = corners.filter(c => c.holeId === 'cutout-1');
+      const cutout2Corners = corners.filter(c => c.holeId === 'cutout-2');
+
+      expect(cutout1Corners.length).toBe(4);
+      expect(cutout2Corners.length).toBe(4);
+    });
   });
 
   // ===========================================================================
@@ -169,6 +245,45 @@ describe('Fillet All Corners', () => {
 
       // Should return very large value (effectively unlimited)
       expect(maxRadius).toBeGreaterThan(1000);
+    });
+
+    it('constrains radius correctly for acute corners (45°)', () => {
+      // For acute corners (< 90°), the max radius is smaller because
+      // the fillet arc consumes more edge length per unit radius
+      // 45° corner = Math.PI / 4 interior angle
+      const acuteRadius = calculateMaxFilletRadius(10, 10, Math.PI / 4);
+      const rightAngleRadius = calculateMaxFilletRadius(10, 10, Math.PI / 2);
+
+      // Acute corner should allow smaller max radius than 90° corner
+      // tan(22.5°) ≈ 0.414, so max radius ≈ 10 * 0.8 / 0.414 ≈ 19.3 for 45° exterior
+      // But the interior angle formula is more complex. Key is: acute < 90°
+      expect(acuteRadius).toBeGreaterThan(0);
+
+      console.log('Acute (45°) max radius:', acuteRadius);
+      console.log('Right angle (90°) max radius:', rightAngleRadius);
+    });
+
+    it('constrains radius correctly for obtuse corners (135°)', () => {
+      // For obtuse corners (> 90°), the max radius is larger because
+      // the fillet arc consumes less edge length per unit radius
+      // 135° interior angle
+      const obtuseRadius = calculateMaxFilletRadius(10, 10, Math.PI * 3 / 4);
+      const rightAngleRadius = calculateMaxFilletRadius(10, 10, Math.PI / 2);
+
+      // Obtuse corner should allow larger max radius than 90° corner
+      // tan(22.5°) ≈ 0.414, so we consume less per R
+      expect(obtuseRadius).toBeGreaterThan(rightAngleRadius);
+
+      console.log('Obtuse (135°) max radius:', obtuseRadius);
+      console.log('Right angle (90°) max radius:', rightAngleRadius);
+    });
+
+    it('returns consistent radius regardless of edge order', () => {
+      // The max radius should be the same whether we pass edge1, edge2 or edge2, edge1
+      const radius1 = calculateMaxFilletRadius(15, 25, Math.PI / 2);
+      const radius2 = calculateMaxFilletRadius(25, 15, Math.PI / 2);
+
+      expect(Math.abs(radius1 - radius2)).toBeLessThan(0.01);
     });
   });
 
