@@ -454,6 +454,22 @@ export abstract class BasePanel extends BaseNode {
       const status1 = edgeStatuses.find(s => s.position === edge1);
       const status2 = edgeStatuses.find(s => s.position === edge2);
 
+      // Early exit: if either edge has joints (locked or outward-only), corner is ineligible
+      // Locked = male joints (tabs out), outward-only = female joints (slots)
+      // Corners at edges with finger joints cannot be filleted
+      const edge1HasJoints = status1?.status === 'locked' || status1?.status === 'outward-only';
+      const edge2HasJoints = status2?.status === 'locked' || status2?.status === 'outward-only';
+      if (edge1HasJoints || edge2HasJoints) {
+        return {
+          corner,
+          eligible: false,
+          reason: 'has-joints',
+          maxRadius: 0,
+          freeLength1: 0,
+          freeLength2: 0,
+        };
+      }
+
       // Get extensions
       const thisExt1 = extensions[edge1];
       const thisExt2 = extensions[edge2];
