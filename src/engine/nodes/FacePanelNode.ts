@@ -21,7 +21,6 @@ import {
   AssemblyFingerData,
   Axis,
   Subdivision,
-  Bounds3D,
   EdgeStatusInfo,
 } from '../types';
 import {
@@ -376,10 +375,12 @@ export class FacePanelNode extends BasePanel {
       assemblyAxis,
       lids: {
         positive: {
+          enabled: true,
           tabDirection: engineLids.positive.tabDirection,
           inset: engineLids.positive.inset,
         },
         negative: {
+          enabled: true,
           tabDirection: engineLids.negative.tabDirection,
           inset: engineLids.negative.inset,
         },
