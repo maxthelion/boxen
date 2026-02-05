@@ -282,12 +282,105 @@ ALTER TABLE tasks ADD COLUMN project_id TEXT REFERENCES projects(id);
 3. Automatic PR creation when project completes
 4. Database schema for projects
 
+## Messaging System
+
+### Problem
+
+Current inboxes are "drop boxes" - no addressing, threading, or reply routing:
+- `agent-inbox/` → dump files, agent triages
+- `human-inbox/` → agent outputs, human reviews
+- `.orchestrator/messages/` → warnings/questions, no threading
+
+### Use Cases
+
+1. Human reviews proposal → sends feedback to the proposer
+2. Breakdown agent needs clarification → asks human → reply routes back
+3. Human adds context to a task before agent picks it up
+4. Agent reports blocker → human responds → agent continues
+
+### Proposed: Sendmail-like Abstraction
+
+```bash
+# Human replies to proposal
+orchestrator-send --to breakdown-agent --re PROP-abc123 "Use existing fillet code"
+
+# Agent asks human a question
+orchestrator-send --to human --re TASK-xyz --question "Should this support undo?"
+
+# Human responds
+orchestrator-send --to breakdown-agent --re TASK-xyz "Yes, add to acceptance criteria"
+```
+
+### Message Schema
+
+```sql
+CREATE TABLE messages (
+    id TEXT PRIMARY KEY,
+    from_addr TEXT NOT NULL,      -- 'human' or agent name
+    to_addr TEXT NOT NULL,        -- 'human' or agent name
+    re TEXT,                      -- reference: TASK-xxx, PROP-xxx, PROJ-xxx
+    subject TEXT,
+    body TEXT NOT NULL,
+    message_type TEXT DEFAULT 'info',  -- info | question | feedback | blocker
+    created_at TEXT,
+    read_at TEXT,                 -- NULL if unread
+    parent_id TEXT                -- for threading
+);
+```
+
+### Agent Integration
+
+Agents check for messages at start of run:
+
+```python
+# In agent startup
+messages = get_messages(to=agent_name, unread=True)
+for msg in messages:
+    if msg.re and msg.re.startswith('TASK-'):
+        # Context for a task I might claim
+        attach_context_to_task(msg.re, msg.body)
+    elif msg.message_type == 'feedback':
+        # Feedback on my previous work
+        process_feedback(msg)
+```
+
+### Slash Commands
+
+| Command | Purpose |
+|---------|---------|
+| `/send` | Send message to agent or in response to proposal/task |
+| `/messages` | Show unread messages for human |
+| `/thread <id>` | Show message thread |
+
+### Routing Rules
+
+```
+Message to "human" → human-inbox (file created for visibility)
+Message to specific agent → DB only, agent checks on wake
+Message with --re TASK-xxx → attached as context to task
+Message with --re PROP-xxx → attached to proposal for curator
+```
+
+### Alternative: Local MTA
+
+Could use actual sendmail/postfix:
+- Standard protocols (SMTP)
+- Existing tooling (mail clients, filters)
+- Agents have email addresses: `impl-agent-1@localhost`
+
+**Pros:** Battle-tested, flexible
+**Cons:** Setup complexity, overkill for local use
+
+**Decision:** Start with SQLite-based messaging, consider MTA later if needs grow.
+
 ## Open Questions
 
 1. **Project branch creation**: Automatic on project activation, or manual?
 2. **Breakdown failure**: What if breakdown agent can't decompose? Flag for human?
 3. **Mid-project changes**: How to handle scope changes to active projects?
 4. **Cross-project dependencies**: Tasks in different projects that depend on each other?
+5. **Message persistence**: How long to keep messages? Archive after task/project complete?
+6. **Blocking questions**: Should agent pause and wait for reply, or continue with other work?
 
 ## Success Metrics
 
