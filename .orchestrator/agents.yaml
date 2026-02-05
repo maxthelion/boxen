@@ -88,7 +88,7 @@ agents:
     role: proposer
     focus: code_structure
     interval_seconds: 300  # Every 5 minutes (for testing)
-    # paused: true  # Unpaused to propose refactoring after impl completes
+    paused: true  # Paused to avoid creating tasks while manually managing
 
   - name: plan-reader
     role: proposer
