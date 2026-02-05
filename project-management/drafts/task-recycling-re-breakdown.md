@@ -211,6 +211,72 @@ When a task is recycled, any tasks that were `BLOCKED_BY` the failed task need t
 
 **Implementation:** Add an optional `replaces_task_id` field to the breakdown task. When `approve_breakdown()` creates subtasks, it checks if the breakdown was a replacement. If so, it finds tasks that were blocked by the original and re-wires them to depend on the last new subtask.
 
+## Tests
+
+All tests go in octopoid (`orchestrator/tests/`) — nothing here is domain-specific.
+
+### New fixture: `sample_project_with_tasks`
+
+A project with multiple tasks at various stages, needed by most recycling tests:
+- Project `PROJ-test1` with branch `feature/test1`
+- 3 completed tasks (in `done` queue, with commit counts)
+- 1 burned-out task (in `provisional`, 0 commits, 50 turns)
+- 1 task blocked by the burned-out task
+
+### `test_recycling.py` (new file)
+
+**Detection:**
+
+| Test | Verifies |
+|------|----------|
+| `test_detect_burned_task` | Task with 0 commits + 50 turns classified as burned out |
+| `test_detect_burned_task_low_turns_not_burned` | Task with 0 commits + 10 turns is NOT burned (early error, not too-large) |
+| `test_detect_normal_task_with_commits` | Task with 3 commits + 50 turns is normal |
+
+**`recycle_to_breakdown()`:**
+
+| Test | Verifies |
+|------|----------|
+| `test_recycle_creates_breakdown_task` | Creates a new task in the breakdown queue |
+| `test_recycle_includes_project_context` | Breakdown task content includes project title, branch |
+| `test_recycle_includes_completed_siblings` | Breakdown task lists completed sibling tasks with commit counts |
+| `test_recycle_includes_failed_task_content` | Original failed task description embedded in full |
+| `test_recycle_moves_original_to_recycled` | Original task moves to recycled queue state |
+| `test_recycle_rewires_dependencies` | Tasks blocked by failed task get re-wired to breakdown task |
+| `test_recycle_non_project_task` | Task without `project_id` still recycled but with less context |
+
+**Depth cap:**
+
+| Test | Verifies |
+|------|----------|
+| `test_recycle_depth_cap` | Task with `re_breakdown_depth >= 1` is NOT recycled — flagged for human |
+| `test_recycle_sets_depth_on_new_tasks` | New breakdown task has `re_breakdown_depth = 1` |
+
+### `test_validator.py` (additions)
+
+| Test | Verifies |
+|------|----------|
+| `test_validator_recycles_project_task_after_max_attempts` | 3-strike project task routes to `recycle_to_breakdown()`, not `escalate_to_planning()` |
+| `test_validator_still_escalates_non_project_task` | 3-strike non-project task uses existing planning path |
+
+### `test_accept_all.py` (new file)
+
+| Test | Verifies |
+|------|----------|
+| `test_accept_all_skips_burned_tasks` | Burned tasks stay in provisional, normal tasks accepted |
+| `test_accept_all_force_accepts_everything` | `--force` flag accepts burned tasks too |
+| `test_accept_all_recycle_sends_to_breakdown` | `--recycle` flag calls `recycle_to_breakdown()` for each burned task |
+
+### `test_scheduler.py` (new or additions)
+
+| Test | Verifies |
+|------|----------|
+| `test_scheduler_peeks_breakdown_task_branch` | Scheduler reads BRANCH from next breakdown task |
+| `test_scheduler_creates_worktree_on_feature_branch` | Worktree created on feature branch, not main |
+| `test_scheduler_falls_back_to_main` | No BRANCH field → worktree on main (existing behaviour) |
+
+**Total: ~20 tests across 4 files.**
+
 ## File Changes Summary
 
 | File | Change | Size |
@@ -222,16 +288,38 @@ When a task is recycled, any tasks that were `BLOCKED_BY` the failed task need t
 | `queue_utils.py` | Update `approve_breakdown()` to handle `replaces_task_id` dependency rewiring | S |
 | `config.py` | Add `recycled` to known queue states (if needed) | S |
 | `db.py` | Add `recycled` queue state support (if needed) | S |
+| `tests/conftest.py` | Add `sample_project_with_tasks` fixture | S |
+| `tests/test_recycling.py` | New — detection, recycle_to_breakdown, depth cap tests | M |
+| `tests/test_accept_all.py` | New — accept_all script behaviour tests | S |
+| `tests/test_validator.py` | Add recycle-vs-escalate routing tests | S |
+| `tests/test_scheduler.py` | New or additions — worktree branch selection tests | S |
 
 ## Implementation Order
 
-1. **accept_all.py detection** — Immediate value, just stops us blindly accepting bad tasks
-2. **recycle_to_breakdown()** — The context-building function
-3. **breakdown.py branch checkout** — Gives the breakdown agent the feature branch
-4. **Re-breakdown prompt** — The enriched prompt with completed work + diff
-5. **Dependency rewiring** — Handles the blocked-by chain
+1. **Tests fixture** — `sample_project_with_tasks` in conftest.py
+2. **`test_recycling.py`** — Write detection + recycle tests (they'll fail — functions don't exist yet)
+3. **`recycle_to_breakdown()`** — Implement in queue_utils.py, make tests pass
+4. **`test_accept_all.py`** + **accept_all.py changes** — Detection logic and flags
+5. **`test_validator.py` additions** + **validator.py changes** — Recycle routing for 3-strike project tasks
+6. **`test_scheduler.py`** + **scheduler.py changes** — Worktree branch peeking
+7. **breakdown.py** — Include git diff in exploration prompt
 
-Steps 1-2 can be done independently. Steps 3-4 are closely related. Step 5 can come last.
+Steps 1-3 are the core. Steps 4-5 are the two detection tiers. Steps 6-7 are the branch-aware breakdown.
+
+## Acceptance Criteria
+
+The end-to-end scenario: TASK-9a69e916 (0 commits, 50 turns, part of PROJ-dca27809) should be recyclable into new, smaller tasks that complete successfully.
+
+- [ ] Running `accept_all.py` without flags warns about burned-out tasks instead of accepting them
+- [ ] Running `accept_all.py --recycle` sends burned-out project tasks to the breakdown queue with full project context (completed siblings, failed task description, branch)
+- [ ] Running `accept_all.py --force` accepts everything (escape hatch)
+- [ ] The re-breakdown task content includes the list of completed sibling tasks so the breakdown agent knows what NOT to recreate
+- [ ] The breakdown agent's worktree is on the project's feature branch (set up by the scheduler, not the agent)
+- [ ] The breakdown agent can `git diff main...HEAD` to see actual committed work
+- [ ] New subtasks from re-breakdown are linked to the same project and branch
+- [ ] Tasks that were blocked by the failed task get re-wired to the new subtasks
+- [ ] A re-broken-down subtask that also fails escalates to human, not another re-breakdown
+- [ ] All 20 tests pass in octopoid
 
 ## Decisions
 
