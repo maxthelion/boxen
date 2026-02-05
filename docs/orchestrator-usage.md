@@ -41,6 +41,27 @@ The orchestrator manages background agents that implement features, run tests, a
 └── logs/                    # Scheduler and agent logs
 ```
 
+## Important Rules
+
+### Agent Worktrees Must Not Checkout Main
+
+Agent worktrees should **never** be on the `main` branch. This blocks the main repo from checking out main and violates isolation principles.
+
+**If an agent worktree is on main:**
+```bash
+# Detach it
+cd .orchestrator/agents/{agent-name}/worktree
+git checkout --detach HEAD
+```
+
+**Correct states for agent worktrees:**
+- Detached HEAD (idle)
+- Feature branch for current task (working)
+
+**Never:** Checked out on `main`
+
+See [Issue 003](issues/003-agent-worktree-on-main.md) for details.
+
 ## Task Flow
 
 ### With SQLite Mode (Current)
