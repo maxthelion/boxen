@@ -2284,3 +2284,397 @@ describe('deserializePanelOperations', () => {
     });
   });
 });
+
+// =============================================================================
+// Combined Features Serialization
+// =============================================================================
+// These tests verify that COMBINATIONS of features (subdivisions, edge extensions,
+// panel operations) all survive serialization roundtrips together.
+// =============================================================================
+
+describe('Combined Features Serialization', () => {
+  // Helper to build a subdivided void tree in the store format that
+  // syncVoidNodeFromStoreVoid expects (splitAxis/splitPosition on first child)
+  const createSubdividedRootVoid = (config: BoxConfig): Void => {
+    const mt = config.materialThickness;
+    const splitPosition = config.width / 2;
+    const halfMt = mt / 2;
+
+    return {
+      id: 'root',
+      bounds: {
+        x: mt,
+        y: mt,
+        z: mt,
+        w: config.width - 2 * mt,
+        h: config.height - 2 * mt,
+        d: config.depth - 2 * mt,
+      },
+      children: [
+        {
+          id: 'void-left',
+          bounds: {
+            x: mt,
+            y: mt,
+            z: mt,
+            w: splitPosition - mt - halfMt,
+            h: config.height - 2 * mt,
+            d: config.depth - 2 * mt,
+          },
+          children: [],
+          splitAxis: 'x',
+          splitPosition: splitPosition,
+        },
+        {
+          id: 'void-right',
+          bounds: {
+            x: splitPosition + halfMt,
+            y: mt,
+            z: mt,
+            w: config.width - splitPosition - mt - halfMt,
+            h: config.height - 2 * mt,
+            d: config.depth - 2 * mt,
+          },
+          children: [],
+        },
+      ],
+    };
+  };
+
+  describe('Panel operations + subdivisions', () => {
+    it('should preserve both subdivision structure and cutout after roundtrip', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const subdividedVoid = createSubdividedRootVoid(config);
+
+      // Initialize engine with subdivision
+      syncStoreToEngine(config, createDefaultFaces(), subdividedVoid);
+
+      const engine = getEngine();
+      const assembly = engine.assembly!;
+      expect(assembly.rootVoid.getVoidChildren().length).toBe(2);
+
+      // Add a cutout to the front face panel
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'subdiv-cutout-1',
+            type: 'rect' as const,
+            center: { x: 0, y: 0 },
+            width: 15,
+            height: 10,
+          },
+        },
+      });
+
+      // Verify cutout was added
+      const panelsAfter = engine.generatePanelsFromNodes();
+      const frontAfter = panelsAfter.panels.find((p: any) => p.source?.faceId === 'front');
+      const cutoutHoles = frontAfter?.holes?.filter((h: any) => h.source?.type === 'decorative') ?? [];
+      expect(cutoutHoles.length).toBe(1);
+
+      // Build ProjectState for serialization
+      const snapshot = engine.getSnapshot();
+      const assemblySnap = snapshot.children[0] as AssemblySnapshot;
+      const serializedPanelOps = serializePanelOperations(assemblySnap);
+      const panelOps = deserializePanelOperations(serializedPanelOps);
+
+      const stateToSerialize: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: subdividedVoid,
+        edgeExtensions: {},
+        panelOperations: Object.keys(panelOps).length > 0 ? panelOps : undefined,
+      };
+
+      // Serialize → deserialize
+      const serialized = serializeProject(stateToSerialize);
+      const deserialized = deserializeProject(serialized);
+      expect(deserialized).not.toBeNull();
+
+      // Reload into fresh engine
+      resetEngine();
+      syncStoreToEngine(
+        deserialized!.config,
+        deserialized!.faces,
+        deserialized!.rootVoid,
+        undefined,
+        deserialized!.panelOperations
+      );
+
+      const reloadedEngine = getEngine();
+      const reloadedAssembly = reloadedEngine.assembly!;
+
+      // Verify subdivision structure survived
+      const reloadedVoidChildren = reloadedAssembly.rootVoid.getVoidChildren();
+      expect(reloadedVoidChildren.length, 'Subdivision should survive roundtrip').toBe(2);
+
+      // Verify cutout survived
+      const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
+      const reloadedFront = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'front');
+      const reloadedCutouts = reloadedFront?.holes?.filter((h: any) => h.source?.type === 'decorative') ?? [];
+      expect(reloadedCutouts.length, 'Cutout should survive roundtrip with subdivision').toBe(1);
+
+      // Verify divider panels exist
+      const dividerPanels = reloadedPanels.panels.filter((p: any) => p.source?.type === 'divider');
+      expect(dividerPanels.length, 'Divider panel should exist after roundtrip').toBe(1);
+    });
+  });
+
+  describe('Panel operations + edge extensions', () => {
+    it('should preserve both edge extension and corner fillet after roundtrip', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+
+      // Disable top and left faces to make left:top corner eligible for fillet
+      const faces = createDefaultFaces().map(f =>
+        f.id === 'top' || f.id === 'left' ? { ...f, solid: false } : f
+      );
+
+      syncStoreToEngine(config, faces, createRootVoid(config));
+
+      const engine = getEngine();
+
+      // Step 1: Apply edge extension to the front panel (bottom edge)
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, edge: 'bottom', value: 10 },
+      });
+
+      // Step 2: Apply corner fillet on the eligible corner
+      engine.dispatch({
+        type: 'SET_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, corner: 'left:top', radius: 5 },
+      });
+
+      // Record baseline state (point count after both operations)
+      const panelsAfterBoth = engine.generatePanelsFromNodes();
+      const frontAfterBoth = panelsAfterBoth.panels.find((p: any) => p.source?.faceId === 'front');
+      const pointsAfterBoth = frontAfterBoth!.outline.points.length;
+
+      // Step 3: Build serialization state
+      const snapshot = engine.getSnapshot();
+      const assemblySnap = snapshot.children[0] as AssemblySnapshot;
+      const serializedPanelOps = serializePanelOperations(assemblySnap);
+      const panelOps = deserializePanelOperations(serializedPanelOps);
+
+      // Edge extensions keyed by the same panel key used in serialization
+      const stateToSerialize: ProjectState = {
+        config,
+        faces,
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {
+          'front': { top: 0, bottom: 10, left: 0, right: 0 },
+        },
+        panelOperations: Object.keys(panelOps).length > 0 ? panelOps : undefined,
+      };
+
+      // Step 4: Serialize → deserialize
+      const serialized = serializeProject(stateToSerialize);
+      const deserialized = deserializeProject(serialized);
+      expect(deserialized).not.toBeNull();
+
+      // Verify edge extension survived in deserialized state
+      expect(deserialized!.edgeExtensions['front'], 'Edge extension should survive serialization').toBeDefined();
+      expect(deserialized!.edgeExtensions['front'].bottom).toBeCloseTo(10, 2);
+
+      // Step 5: Reload engine and apply edge extension + panel operations
+      resetEngine();
+      syncStoreToEngine(
+        deserialized!.config,
+        deserialized!.faces,
+        deserialized!.rootVoid,
+        undefined,
+        deserialized!.panelOperations
+      );
+
+      const reloadedEngine = getEngine();
+
+      // Re-apply edge extensions from deserialized state (simulates what loadFromUrl does)
+      const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
+      const reloadedFrontPanel = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(reloadedFrontPanel).toBeDefined();
+
+      // Apply the deserialized edge extension to the reloaded engine
+      reloadedEngine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: reloadedFrontPanel!.id, edge: 'bottom', value: deserialized!.edgeExtensions['front'].bottom },
+      });
+
+      // Regenerate panels to see the effect of both extension and fillet
+      const finalPanels = reloadedEngine.generatePanelsFromNodes();
+      const finalFront = finalPanels.panels.find((p: any) => p.source?.faceId === 'front');
+
+      // Check fillet survived by comparing point counts
+      const reloadedPoints = finalFront!.outline.points.length;
+      expect(
+        reloadedPoints,
+        `Corner fillet + edge extension should survive roundtrip (had ${pointsAfterBoth} points, got ${reloadedPoints})`
+      ).toBe(pointsAfterBoth);
+    });
+  });
+
+  describe('Full combination', () => {
+    it('should preserve subdivision + edge extension + cutout + fillet with valid geometry', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+      const { checkGeometry } = await import('../../../src/engine/geometryChecker');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+
+      // Disable top and left faces to make corners eligible for fillet
+      const faces = createDefaultFaces().map(f =>
+        f.id === 'top' || f.id === 'left' ? { ...f, solid: false } : f
+      );
+
+      // Initialize engine with subdivision already in place
+      const subdividedVoid = createSubdividedRootVoid(config);
+      syncStoreToEngine(config, faces, subdividedVoid);
+
+      const engine = getEngine();
+      const assembly = engine.assembly!;
+      expect(assembly.rootVoid.getVoidChildren().length).toBe(2);
+
+      // Feature 2: Apply edge extension on back panel (bottom edge)
+      const panels = engine.generatePanelsFromNodes();
+      const backPanel = panels.panels.find((p: any) => p.source?.faceId === 'back');
+      expect(backPanel).toBeDefined();
+
+      engine.dispatch({
+        type: 'SET_EDGE_EXTENSION',
+        targetId: 'main-assembly',
+        payload: { panelId: backPanel!.id, edge: 'bottom', value: 8 },
+      });
+
+      // Feature 3: Add cutout to front panel
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'combo-cutout-1',
+            type: 'circle' as const,
+            center: { x: 0, y: 0 },
+            radius: 5,
+          },
+        },
+      });
+
+      // Feature 4: Add corner fillet to front panel (left:top corner eligible since top+left disabled)
+      engine.dispatch({
+        type: 'SET_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, corner: 'left:top', radius: 4 },
+      });
+
+      // Record all features' state before serialization
+      const finalPanels = engine.generatePanelsFromNodes();
+      const finalFront = finalPanels.panels.find((p: any) => p.source?.faceId === 'front');
+      const frontPointCount = finalFront!.outline.points.length;
+      const frontCutouts = finalFront?.holes?.filter((h: any) => h.source?.type === 'decorative') ?? [];
+      const dividerPanelsBefore = finalPanels.panels.filter((p: any) => p.source?.type === 'divider');
+
+      expect(frontCutouts.length, 'Cutout should exist before serialization').toBe(1);
+      expect(dividerPanelsBefore.length, 'Divider should exist before serialization').toBeGreaterThanOrEqual(1);
+
+      // Build serialization state
+      const snapshot = engine.getSnapshot();
+      const assemblySnap = snapshot.children[0] as AssemblySnapshot;
+      const serializedPanelOps = serializePanelOperations(assemblySnap);
+      const panelOps = deserializePanelOperations(serializedPanelOps);
+
+      const stateToSerialize: ProjectState = {
+        config,
+        faces,
+        rootVoid: subdividedVoid,
+        edgeExtensions: {
+          'back': { top: 0, bottom: 8, left: 0, right: 0 },
+        },
+        panelOperations: Object.keys(panelOps).length > 0 ? panelOps : undefined,
+      };
+
+      // Serialize → deserialize
+      const serialized = serializeProject(stateToSerialize);
+      const deserialized = deserializeProject(serialized);
+      expect(deserialized).not.toBeNull();
+
+      // Reload into fresh engine
+      resetEngine();
+      syncStoreToEngine(
+        deserialized!.config,
+        deserialized!.faces,
+        deserialized!.rootVoid,
+        undefined,
+        deserialized!.panelOperations
+      );
+
+      const reloadedEngine = getEngine();
+
+      // Verify Feature 1: Subdivision survived
+      const reloadedAssembly = reloadedEngine.assembly!;
+      const reloadedVoidChildren = reloadedAssembly.rootVoid.getVoidChildren();
+      expect(reloadedVoidChildren.length, 'Subdivision should survive full combination roundtrip').toBe(2);
+
+      // Verify Feature 2: Edge extension survived in deserialized state
+      expect(deserialized!.edgeExtensions['back'], 'Back edge extension should survive').toBeDefined();
+      expect(deserialized!.edgeExtensions['back'].bottom).toBeCloseTo(8, 2);
+
+      // Re-apply edge extension to reloaded engine (simulates what loadFromUrl does)
+      const reloadedPanelsForExt = reloadedEngine.generatePanelsFromNodes();
+      const reloadedBack = reloadedPanelsForExt.panels.find((p: any) => p.source?.faceId === 'back');
+      if (reloadedBack) {
+        reloadedEngine.dispatch({
+          type: 'SET_EDGE_EXTENSION',
+          targetId: 'main-assembly',
+          payload: { panelId: reloadedBack.id, edge: 'bottom', value: 8 },
+        });
+      }
+
+      // Verify Feature 3: Cutout survived
+      const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
+      const reloadedFront = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'front');
+      const reloadedCutouts = reloadedFront?.holes?.filter((h: any) => h.source?.type === 'decorative') ?? [];
+      expect(reloadedCutouts.length, 'Cutout should survive full combination roundtrip').toBe(1);
+
+      // Verify Feature 4: Corner fillet survived (point count should match)
+      const reloadedFrontPoints = reloadedFront!.outline.points.length;
+      expect(
+        reloadedFrontPoints,
+        `Corner fillet should survive full combination (had ${frontPointCount} points, got ${reloadedFrontPoints})`
+      ).toBe(frontPointCount);
+
+      // Verify divider panels exist
+      const reloadedDividers = reloadedPanels.panels.filter((p: any) => p.source?.type === 'divider');
+      expect(reloadedDividers.length, 'Divider panels should survive full combination roundtrip').toBeGreaterThanOrEqual(1);
+
+      // Verify geometry is valid
+      const geometryResult = checkGeometry(reloadedEngine);
+      expect(geometryResult.summary.errors, 'Geometry should have 0 errors after full combination roundtrip').toBe(0);
+    });
+  });
+});
