@@ -72,47 +72,60 @@ except ImportError:
 4. **Fallback mode** - System can work without DB if config disabled
 5. **Schema versioning** - Good for future migrations
 
-## Questions for Octopoid Developers
+## Questions for Octopoid Developers (Answered)
 
 ### Q1: How Do Agents Report Metrics?
 
-The task schema has `commits_count` and `turns_used` fields. How do agents populate these?
-
-Looking at `implementer.py`, I see:
+**Answer:** Agents report via `submit_completion()`:
 ```python
-self.task_info["commits_count"] = get_commit_count(...)
+commits_before = get_commit_count(branch, base_branch)
+# ... Claude runs ...
+commits_after = get_commit_count(branch, base_branch)
+submit_completion(task_path, commits_count=commits_after - commits_before, turns_used=turns_used)
 ```
 
-But where does this get written back to the DB?
+In DB mode, this updates the task record and moves to `provisional` queue.
 
 ### Q2: Validation Workflow
 
-The commit mentions a validation workflow:
-```
-incoming → claimed → provisional → done
-                          ↓
-                     rejected → incoming (retry)
+**Answer:** Requires BOTH DB mode AND a validator agent configured:
+```yaml
+validation:
+  require_commits: true
+  max_attempts_before_planning: 3
+
+agents:
+  - name: validator
+    role: validator
+    lightweight: true
 ```
 
-How do we enable this? Is it automatic with DB mode, or requires validator agent?
+Without validator, tasks stay in `provisional` indefinitely.
+
+**Our approach:** We handle "lying agents" with existing tooling, so we'll manually validate rather than use the automated validator.
 
 ### Q3: Planning/Micro-task Escalation
 
-The commit mentions `escalate_to_planning()` for tasks that fail repeatedly. How does this work?
-- What triggers escalation?
-- What format are micro-tasks in?
-- Is there a planning agent role?
+**Answer:** Validator triggers escalation when `attempt_count >= max_attempts_before_planning`. Creates a `ROLE: plan` task, planner agent outputs micro-tasks with `BLOCKED_BY` relationships.
 
-## Testing Recommendations
+**Our approach:** Not using automated escalation - we decompose tasks manually when needed.
 
-Per our migration checklist, still need to verify:
+## Testing Status
 
-- [ ] Create test task → gets claimed correctly
-- [ ] Complete task with commit → accepted (if validation enabled)
-- [ ] Complete task without commit → rejected (if validation enabled)
-- [ ] BLOCKED_BY dependencies work (blocked task auto-promotes)
-- [ ] SKIP_PR tasks merge directly
-- [ ] Custom agents (inbox-poller, plan-reader) still work
+**Verified working:**
+- [x] Migration imports existing tasks (43 imported)
+- [x] Scheduler starts agents correctly with DB mode
+- [x] DB and file queues stay in sync
+- [x] Custom agents (inbox-poller) still work with pre-check
+
+**Manual validation approach:**
+- Tasks complete → go to `provisional`
+- We manually review/accept using existing tooling
+- Not using automated validator (we have our own "lying agent" detection)
+
+**Still to verify in production use:**
+- [ ] BLOCKED_BY dependencies auto-promote when blocker completes
+- [ ] Full task lifecycle under real agent load
 
 ## Flexibility Assessment
 
@@ -150,7 +163,12 @@ Agent impl-agent-1 started with PID 48749
 
 **Proceed with SQLite mode.** The migration is smooth, and having proper ACID transactions will help with the race conditions we've seen with file-based locking.
 
-Remaining verification:
-- [ ] Watch a full task lifecycle (claim → complete → done)
+**Decision on validation workflow:**
+- NOT using automated validator - we have existing tooling for "lying agent" detection
+- Tasks will go to `provisional` → manually accept/reject as needed
+- Could write a simple accept script: `update_task(task_id, queue='done')`
+
+**Remaining:**
 - [ ] Verify blocked task promotion when blocker completes
 - [ ] Keep file-based queue as backup for first week
+- [ ] Monitor for any sync issues between DB and file queues
