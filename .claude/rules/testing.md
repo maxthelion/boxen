@@ -169,6 +169,12 @@ it('eligibility persists after selection', () => {
 - CSS/visual state
 - Component lifecycle effects
 
+**Multi-view operations:** If an operation is available in both 2D and 3D views, write separate simulated UI tests for each view. The views have different state management:
+- 3D view uses `useBoxStore` for operations
+- 2D view uses `useEditor` (EditorStateMachine)
+
+A test passing for one view does NOT guarantee the other view works.
+
 For higher-fidelity UI testing, consider:
 - **jsdom + React Testing Library** - Renders components in simulated DOM
 - **Playwright/Cypress** - Full browser E2E tests
@@ -387,6 +393,30 @@ it('should produce valid geometry', () => {
 **Cause:** Eligibility calculation doesn't account for all edge cases.
 
 **Prevention:** Permutation tests with various panel states.
+
+### 5. Multi-View Operations Tested in One View Only
+
+**Symptom:** Operation works in 3D view but is broken in 2D view (or vice versa).
+
+**Cause:** Operations available in both 2D and 3D views have different:
+- State management (`useBoxStore` for 3D, `useEditor` for 2D)
+- Component rendering paths
+- Selection/eligibility wiring
+
+A bug fixed in one view may still exist in the other.
+
+**Real Example:** The "eligibility from preview" bug was fixed in 3D view (corners disappear during fillet preview) but the same bug remained in 2D view because they don't share UI infrastructure.
+
+**Prevention:**
+1. Check which views support the operation (see `registry.ts` `availableIn` field)
+2. Write separate UI flow tests for each view
+3. Use shared hooks like `usePanelEligibility()` to prevent duplication
+
+**Operations currently in both views:**
+- `inset-outset` - 3D and 2D
+- `chamfer-fillet` - 2D only (different from `corner-fillet` in 3D)
+
+See `project-management/audits/2026-02-05-operations-test-coverage.md` for the full matrix of operations vs views.
 
 ---
 
