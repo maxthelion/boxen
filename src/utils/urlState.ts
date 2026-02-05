@@ -1,5 +1,6 @@
 import { BoxConfig, Face, Void, AssemblyConfig, defaultAssemblyConfig, EdgeExtensions, SubAssembly, FaceOffsets, defaultFaceOffsets } from '../types';
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
+import type { AssemblySnapshot, Cutout } from '../engine/types';
 
 // Compact serialization format for URL storage
 interface SerializedState {
@@ -37,6 +38,31 @@ interface SerializedSubAssembly {
 interface SerializedGridSubdivision {
   ax: ('x' | 'y' | 'z')[];  // axes
   pos: Partial<Record<'x' | 'y' | 'z', number[]>>;  // positions per axis
+}
+
+// =============================================================================
+// Panel Operations Serialization Types
+// =============================================================================
+
+/**
+ * Serialized cutout shape (compact form)
+ * Type: 'r' = rect, 'c' = circle, 'p' = path
+ */
+type SerializedCutout =
+  | { t: 'r'; id: string; c: [number, number]; w: number; h: number; cr?: number; m?: 'a' | 's' }  // rect: center, width, height, cornerRadius?, mode?
+  | { t: 'c'; id: string; c: [number, number]; r: number; m?: 'a' | 's' }  // circle: center, radius, mode?
+  | { t: 'p'; id: string; c: [number, number]; pts: [number, number][]; m?: 'a' | 's' };  // path: center, points, mode?
+
+/**
+ * Serialized panel operations for a single panel
+ * - cf: cornerFillets as Record<cornerKey, radius>
+ * - acf: allCornerFillets as Record<cornerId, radius>
+ * - co: cutouts as SerializedCutout[]
+ */
+interface SerializedPanelOps {
+  cf?: Record<string, number>;   // cornerFillets: { "left:top": 5, "bottom:right": 3 }
+  acf?: Record<string, number>;  // allCornerFillets: { "outline:5": 2, "hole:cutout-1:0": 3 }
+  co?: SerializedCutout[];       // cutouts
 }
 
 interface SerializedVoid {
@@ -271,6 +297,112 @@ const deserializeExtensions = (
     result[panelId] = { top, bottom, left, right };
   }
   return result;
+};
+
+// =============================================================================
+// Panel Operations Serialization
+// =============================================================================
+
+/**
+ * Serialize a single cutout to compact format
+ */
+const serializeCutout = (cutout: Cutout): SerializedCutout => {
+  const mode = cutout.mode === 'additive' ? 'a' : cutout.mode === 'subtractive' ? 's' : undefined;
+
+  switch (cutout.type) {
+    case 'rect': {
+      const result: SerializedCutout = {
+        t: 'r',
+        id: cutout.id,
+        c: [r(cutout.center.x), r(cutout.center.y)],
+        w: r(cutout.width),
+        h: r(cutout.height),
+      };
+      if (cutout.cornerRadius !== undefined && cutout.cornerRadius !== 0) {
+        result.cr = r(cutout.cornerRadius);
+      }
+      if (mode) {
+        result.m = mode;
+      }
+      return result;
+    }
+    case 'circle': {
+      const result: SerializedCutout = {
+        t: 'c',
+        id: cutout.id,
+        c: [r(cutout.center.x), r(cutout.center.y)],
+        r: r(cutout.radius),
+      };
+      if (mode) {
+        result.m = mode;
+      }
+      return result;
+    }
+    case 'path': {
+      const result: SerializedCutout = {
+        t: 'p',
+        id: cutout.id,
+        c: [r(cutout.center.x), r(cutout.center.y)],
+        pts: cutout.points.map(p => [r(p.x), r(p.y)] as [number, number]),
+      };
+      if (mode) {
+        result.m = mode;
+      }
+      return result;
+    }
+  }
+};
+
+/**
+ * Serialize panel operations from assembly snapshot.
+ * Extracts cornerFillets, allCornerFillets, and cutouts from each panel.
+ *
+ * @param assemblySnapshot - The assembly snapshot containing panels
+ * @returns Record<panelId, SerializedPanelOps> or undefined if no operations
+ */
+export const serializePanelOperations = (
+  assemblySnapshot: AssemblySnapshot
+): Record<string, SerializedPanelOps> | undefined => {
+  const result: Record<string, SerializedPanelOps> = {};
+  let hasAny = false;
+
+  for (const panel of assemblySnapshot.derived.panels) {
+    const ops: SerializedPanelOps = {};
+    let hasOps = false;
+
+    // Serialize corner fillets: CornerFillet[] -> Record<cornerKey, radius>
+    if (panel.props.cornerFillets && panel.props.cornerFillets.length > 0) {
+      const cf: Record<string, number> = {};
+      for (const fillet of panel.props.cornerFillets) {
+        cf[fillet.corner] = r(fillet.radius);
+      }
+      ops.cf = cf;
+      hasOps = true;
+    }
+
+    // Serialize all-corner fillets: AllCornerFillet[] -> Record<cornerId, radius>
+    if (panel.props.allCornerFillets && panel.props.allCornerFillets.length > 0) {
+      const acf: Record<string, number> = {};
+      for (const fillet of panel.props.allCornerFillets) {
+        acf[fillet.cornerId] = r(fillet.radius);
+      }
+      ops.acf = acf;
+      hasOps = true;
+    }
+
+    // Serialize cutouts: Cutout[] -> SerializedCutout[]
+    if (panel.props.cutouts && panel.props.cutouts.length > 0) {
+      ops.co = panel.props.cutouts.map(serializeCutout);
+      hasOps = true;
+    }
+
+    if (hasOps) {
+      result[panel.id] = ops;
+      hasAny = true;
+    }
+  }
+
+  return hasAny ? result : undefined;
 };
 
 // Main serialization function
