@@ -778,3 +778,514 @@ describe('URL Loading Integration', () => {
     expect(dividerPanels.length).toBe(2);
   });
 });
+
+// =============================================================================
+// Panel Operations Serialization
+// =============================================================================
+// These tests verify that panel-level operations (fillets, cutouts) survive
+// serialization roundtrips. Currently, these operations are NOT serialized,
+// so these tests should FAIL initially.
+// =============================================================================
+
+describe('Panel Operations Serialization', () => {
+  /**
+   * These tests apply panel-level operations through the engine,
+   * then serialize the project state and verify the operations are preserved.
+   *
+   * IMPORTANT: These tests are expected to FAIL initially because the
+   * ProjectState type does not include panel operations (corner fillets,
+   * all-corner fillets, cutouts, custom edge paths). When serialization
+   * support is added, these tests should pass.
+   *
+   * We measure the effect of operations by:
+   * - Corner fillets: outline.points.length increases (arc points added)
+   * - Cutouts: holes array has entries with source.type === 'decorative'
+   */
+
+  describe('Corner Fillets', () => {
+    it('should preserve corner fillet after roundtrip', async () => {
+      // Setup: Create engine with assembly and apply a corner fillet
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      // Sync initial state to engine
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+
+      // To get an eligible corner, we need to disable two adjacent faces
+      // (e.g., top and left) so the left:top corner has no joints
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'left' },
+      });
+
+      // Get baseline point count before fillet
+      const panelsBefore = engine.generatePanelsFromNodes();
+      const frontBefore = panelsBefore.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontBefore).toBeDefined();
+      const pointsBeforeFillet = frontBefore!.outline.points.length;
+
+      // Apply corner fillet (left:top corner should be eligible now)
+      const filletSuccess = engine.dispatch({
+        type: 'SET_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontBefore!.id,
+          corner: 'left:top',
+          radius: 5,
+        },
+      });
+      expect(filletSuccess).toBe(true);
+
+      // Verify fillet was applied by checking point count increased
+      const panelsAfterFillet = engine.generatePanelsFromNodes();
+      const frontAfterFillet = panelsAfterFillet.panels.find((p: any) => p.source?.faceId === 'front');
+      const pointsAfterFillet = frontAfterFillet!.outline.points.length;
+      expect(
+        pointsAfterFillet,
+        'Fillet should add arc points to outline'
+      ).toBeGreaterThan(pointsBeforeFillet);
+
+      // Now serialize and deserialize
+      // Note: We need to update original state to reflect face toggles
+      const updatedFaces = original.faces.map(f =>
+        f.id === 'top' || f.id === 'left' ? { ...f, solid: false } : f
+      );
+      const stateToSerialize: ProjectState = {
+        ...original,
+        faces: updatedFaces,
+      };
+
+      const serialized = serializeProject(stateToSerialize);
+      const deserialized = deserializeProject(serialized);
+      expect(deserialized).not.toBeNull();
+
+      // Reload the deserialized state into a fresh engine
+      resetEngine();
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid);
+
+      const reloadedEngine = getEngine();
+      const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
+      const reloadedFrontPanel = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'front');
+      const pointsAfterReload = reloadedFrontPanel!.outline.points.length;
+
+      // This assertion is expected to FAIL: corner fillet should be preserved
+      // Currently, ProjectState does not include cornerFillets, so the
+      // fillet effect (extra arc points) will be lost after reload
+      expect(
+        pointsAfterReload,
+        `Corner fillet should survive serialization (had ${pointsAfterFillet} points, got ${pointsAfterReload})`
+      ).toBe(pointsAfterFillet);
+    });
+  });
+
+  describe('All-Corner Fillets', () => {
+    it('should preserve all-corner fillet after roundtrip', async () => {
+      // Setup: Create engine and apply an all-corner fillet to a cutout corner
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      // Sync initial state to engine
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // First add a cutout (cutout corners can be filleted even in closed box)
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'test-cutout-for-fillet',
+            type: 'rect' as const,
+            center: { x: 0, y: 0 },
+            width: 20,
+            height: 20,
+          },
+        },
+      });
+
+      // Get updated panels after cutout
+      const panelsWithCutout = engine.generatePanelsFromNodes();
+      const frontWithCutout = panelsWithCutout.panels.find((p: any) => p.source?.faceId === 'front');
+
+      // Verify cutout was added
+      const cutoutHolesBefore = frontWithCutout?.holes?.filter(
+        (h: any) => h.source?.type === 'decorative'
+      ) ?? [];
+      expect(cutoutHolesBefore.length).toBe(1);
+
+      // Apply fillet to cutout corner
+      // The all-corner fillet may or may not add arc points depending on implementation
+      // What matters for this test is that the fillet CONFIG is preserved
+      const allCornerFilletSuccess = engine.dispatch({
+        type: 'SET_ALL_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontWithCutout!.id,
+          cornerId: 'hole:test-cutout-for-fillet:0',
+          radius: 3,
+        },
+      });
+      expect(allCornerFilletSuccess).toBe(true);
+
+      // Verify fillet was stored by checking engine snapshot (not PanelPath)
+      const snapshot = engine.getSnapshot();
+      const snapshotPanels = snapshot.children[0].derived.panels;
+      const snapshotFront = snapshotPanels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+      const storedFillets = snapshotFront?.props?.allCornerFillets ?? [];
+      expect(
+        storedFillets.length,
+        'All-corner fillet should be stored in panel props'
+      ).toBeGreaterThan(0);
+
+      // Serialize and deserialize
+      const serialized = serializeProject(original);
+      const deserialized = deserializeProject(serialized);
+      expect(deserialized).not.toBeNull();
+
+      // Reload into fresh engine
+      resetEngine();
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid);
+
+      const reloadedEngine = getEngine();
+
+      // Check engine snapshot after reload for fillet config
+      const reloadedSnapshot = reloadedEngine.getSnapshot();
+      const reloadedSnapshotPanels = reloadedSnapshot.children[0].derived.panels;
+      const reloadedSnapshotFront = reloadedSnapshotPanels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
+
+      // Check cutout exists in PanelPath format
+      const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
+      const reloadedFrontPanel = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'front');
+      const reloadedCutoutHoles = reloadedFrontPanel?.holes?.filter(
+        (h: any) => h.source?.type === 'decorative'
+      ) ?? [];
+
+      // Expected to FAIL: both cutout and all-corner fillet should be preserved
+      // Check cutout exists
+      expect(
+        reloadedCutoutHoles.length,
+        'Cutout should survive serialization roundtrip'
+      ).toBe(1);
+
+      // Check fillet config is preserved (this is the key test)
+      const reloadedFillets = reloadedSnapshotFront?.props?.allCornerFillets ?? [];
+      expect(
+        reloadedFillets.length,
+        `All-corner fillet config should survive serialization (had ${storedFillets.length}, got ${reloadedFillets.length})`
+      ).toBe(storedFillets.length);
+    });
+  });
+
+  describe('Cutouts', () => {
+    it('should preserve rectangular cutout after roundtrip', async () => {
+      // Setup
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // Add a rectangular cutout
+      const cutoutSuccess = engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'rect-cutout-1',
+            type: 'rect' as const,
+            center: { x: 10, y: 10 },
+            width: 15,
+            height: 10,
+          },
+        },
+      });
+      expect(cutoutSuccess).toBe(true);
+
+      // Verify cutout was added (creates a hole with source.type === 'decorative')
+      const panelsAfterCutout = engine.generatePanelsFromNodes();
+      const frontAfterCutout = panelsAfterCutout.panels.find((p: any) => p.source?.faceId === 'front');
+
+      // Count holes that are cutouts (source.type === 'decorative' after bridge conversion)
+      const cutoutHoles = frontAfterCutout?.holes?.filter(
+        (h: any) => h.source?.type === 'decorative'
+      ) ?? [];
+      expect(cutoutHoles.length).toBe(1);
+
+      // Serialize and deserialize
+      const serialized = serializeProject(original);
+      const deserialized = deserializeProject(serialized);
+      expect(deserialized).not.toBeNull();
+
+      // Reload into fresh engine
+      resetEngine();
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid);
+
+      const reloadedEngine = getEngine();
+      const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
+      const reloadedFrontPanel = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'front');
+
+      // Count decorative holes after reload
+      const reloadedCutoutHoles = reloadedFrontPanel?.holes?.filter(
+        (h: any) => h.source?.type === 'decorative'
+      ) ?? [];
+
+      // Expected to FAIL: cutout should be preserved
+      expect(
+        reloadedCutoutHoles.length,
+        'Rectangular cutout should survive serialization roundtrip'
+      ).toBe(1);
+    });
+
+    it('should preserve circular cutout after roundtrip', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // Add a circular cutout
+      const cutoutSuccess = engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'circle-cutout-1',
+            type: 'circle' as const,
+            center: { x: 0, y: 0 },
+            radius: 8,
+          },
+        },
+      });
+      expect(cutoutSuccess).toBe(true);
+
+      // Verify cutout was added
+      const panelsAfterCutout = engine.generatePanelsFromNodes();
+      const frontAfterCutout = panelsAfterCutout.panels.find((p: any) => p.source?.faceId === 'front');
+      const cutoutHoles = frontAfterCutout?.holes?.filter(
+        (h: any) => h.source?.type === 'decorative'
+      ) ?? [];
+      expect(cutoutHoles.length).toBe(1);
+
+      // Serialize and deserialize
+      const serialized = serializeProject(original);
+      const deserialized = deserializeProject(serialized);
+      expect(deserialized).not.toBeNull();
+
+      // Reload into fresh engine
+      resetEngine();
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid);
+
+      const reloadedEngine = getEngine();
+      const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
+      const reloadedFrontPanel = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'front');
+
+      const reloadedCutoutHoles = reloadedFrontPanel?.holes?.filter(
+        (h: any) => h.source?.type === 'decorative'
+      ) ?? [];
+
+      // Expected to FAIL: circular cutout should be preserved
+      expect(
+        reloadedCutoutHoles.length,
+        'Circular cutout should survive serialization roundtrip'
+      ).toBe(1);
+    });
+  });
+
+  describe('Combined Panel Operations', () => {
+    it('should preserve multiple operation types after roundtrip', async () => {
+      /**
+       * This test applies multiple panel operations and verifies they ALL
+       * survive serialization. This is a comprehensive test that will fail
+       * if ANY of the panel operations are not being serialized.
+       */
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+
+      // Operation 1: Disable two faces to make a corner eligible for fillet
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'left' },
+      });
+
+      // Get baseline measurements
+      const panelsBefore = engine.generatePanelsFromNodes();
+      const frontBefore = panelsBefore.panels.find((p: any) => p.source?.faceId === 'front');
+      const pointsBeforeFillet = frontBefore!.outline.points.length;
+
+      // Operation 2: Apply corner fillet to the eligible corner
+      engine.dispatch({
+        type: 'SET_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontBefore!.id,
+          corner: 'left:top',
+          radius: 5,
+        },
+      });
+
+      // Operation 3: Add a rectangular cutout
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontBefore!.id,
+          cutout: {
+            id: 'combined-rect-cutout',
+            type: 'rect' as const,
+            center: { x: -10, y: -10 },
+            width: 12,
+            height: 8,
+          },
+        },
+      });
+
+      // Operation 4: Add a circular cutout
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontBefore!.id,
+          cutout: {
+            id: 'combined-circle-cutout',
+            type: 'circle' as const,
+            center: { x: 15, y: 15 },
+            radius: 5,
+          },
+        },
+      });
+
+      // Verify all operations were applied
+      const panelsWithOps = engine.generatePanelsFromNodes();
+      const frontWithOps = panelsWithOps.panels.find((p: any) => p.source?.faceId === 'front');
+
+      const pointsAfterFillet = frontWithOps!.outline.points.length;
+      const appliedCutouts = frontWithOps?.holes?.filter(
+        (h: any) => h.source?.type === 'decorative'
+      )?.length ?? 0;
+
+      expect(
+        pointsAfterFillet,
+        'Fillet should add arc points'
+      ).toBeGreaterThan(pointsBeforeFillet);
+      expect(appliedCutouts).toBe(2);  // Rect + circle cutouts
+
+      // Update faces in original to reflect toggles
+      const updatedFaces = original.faces.map(f =>
+        f.id === 'top' || f.id === 'left' ? { ...f, solid: false } : f
+      );
+      const stateToSerialize: ProjectState = {
+        ...original,
+        faces: updatedFaces,
+      };
+
+      // Serialize and deserialize
+      const serialized = serializeProject(stateToSerialize);
+      const deserialized = deserializeProject(serialized);
+      expect(deserialized).not.toBeNull();
+
+      // Reload into fresh engine
+      resetEngine();
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid);
+
+      const reloadedEngine = getEngine();
+      const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
+      const reloadedFrontPanel = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'front');
+
+      // Measure preserved operations
+      const pointsAfterReload = reloadedFrontPanel!.outline.points.length;
+      const preservedCutouts = reloadedFrontPanel?.holes?.filter(
+        (h: any) => h.source?.type === 'decorative'
+      )?.length ?? 0;
+
+      // These assertions are expected to FAIL
+      // They clearly show what operations were lost during serialization
+      expect(
+        pointsAfterReload,
+        `Corner fillet should be preserved (had ${pointsAfterFillet} outline points, got ${pointsAfterReload})`
+      ).toBe(pointsAfterFillet);
+
+      expect(
+        preservedCutouts,
+        `Cutouts should be preserved (had ${appliedCutouts}, got ${preservedCutouts})`
+      ).toBe(appliedCutouts);
+    });
+  });
+});
