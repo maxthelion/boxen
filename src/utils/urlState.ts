@@ -16,6 +16,7 @@ interface SerializedState {
   f: number;  // Faces bitmap (6 bits, one per face)
   r: SerializedVoid;  // Root void
   e?: Record<string, [number, number, number, number]>;  // Edge extensions by panel ID [top, bottom, left, right]
+  po?: Record<string, SerializedPanelOps>;  // Panel operations by panel ID (fillets, cutouts)
 }
 
 interface SerializedAssembly {
@@ -37,6 +38,43 @@ interface SerializedSubAssembly {
 interface SerializedGridSubdivision {
   ax: ('x' | 'y' | 'z')[];  // axes
   pos: Partial<Record<'x' | 'y' | 'z', number[]>>;  // positions per axis
+}
+
+// =============================================================================
+// Panel Operations Serialization
+// =============================================================================
+
+/**
+ * Serialized cutout shape with compact field names.
+ * - t: type ('r' = rect, 'c' = circle, 'p' = path)
+ * - cx, cy: center position
+ * - w, h: width, height (rect only)
+ * - cr: corner radius (rect only, optional)
+ * - r: radius (circle only)
+ * - pt: points array (path only)
+ * - m: mode ('a' = additive, 's' = subtractive, default subtractive)
+ */
+interface SerializedCutout {
+  id: string;
+  t: 'r' | 'c' | 'p';  // type: rect, circle, path
+  cx: number;          // center.x
+  cy: number;          // center.y
+  w?: number;          // width (rect)
+  h?: number;          // height (rect)
+  cr?: number;         // cornerRadius (rect, optional)
+  r?: number;          // radius (circle)
+  pt?: [number, number][];  // points (path) as [x, y] tuples
+  m?: 'a' | 's';       // mode: additive, subtractive (default)
+}
+
+/**
+ * Serialized panel operations with compact field names.
+ * Key is panel ID, contains all operations applied to that panel.
+ */
+interface SerializedPanelOps {
+  cf?: Record<string, number>;  // cornerFillets: cornerKey (e.g., 'bottom:left') → radius
+  acf?: Record<string, number>; // allCornerFillets: cornerId (e.g., 'outline:5') → radius
+  co?: SerializedCutout[];      // cutouts array
 }
 
 interface SerializedVoid {
