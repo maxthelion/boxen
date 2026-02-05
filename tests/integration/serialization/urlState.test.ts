@@ -1289,3 +1289,524 @@ describe('Panel Operations Serialization', () => {
     });
   });
 });
+
+// =============================================================================
+// serializePanelOperations Unit Tests
+// =============================================================================
+
+describe('serializePanelOperations', () => {
+  // Import the function under test
+  const getSerializePanelOperations = async () => {
+    const { serializePanelOperations } = await import('../../../src/utils/urlState');
+    return serializePanelOperations;
+  };
+
+  // Helper to get engine functions
+  const getEngineFunctions = async () => {
+    const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+    return { resetEngine, syncStoreToEngine, getEngine };
+  };
+
+  describe('returns undefined when no operations', () => {
+    it('should return undefined for assembly with no panel operations', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await getEngineFunctions();
+      const serializePanelOperations = await getSerializePanelOperations();
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as any;
+
+      const result = serializePanelOperations(assemblySnapshot);
+
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('corner fillets serialization', () => {
+    it('should serialize corner fillets to compact Record<cornerKey, radius>', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await getEngineFunctions();
+      const serializePanelOperations = await getSerializePanelOperations();
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+
+      // Disable top and left faces to make left:top corner eligible
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'left' },
+      });
+
+      // Get panel and apply fillet
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      engine.dispatch({
+        type: 'SET_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          corner: 'left:top',
+          radius: 5.123,
+        },
+      });
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as any;
+
+      const result = serializePanelOperations(assemblySnapshot);
+
+      expect(result).toBeDefined();
+      expect(result![frontPanel!.id]).toBeDefined();
+      expect(result![frontPanel!.id].cf).toBeDefined();
+      expect(result![frontPanel!.id].cf!['left:top']).toBe(5.12); // Rounded to 2 decimal places
+    });
+  });
+
+  describe('all-corner fillets serialization', () => {
+    it('should serialize all-corner fillets to compact Record<cornerId, radius>', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await getEngineFunctions();
+      const serializePanelOperations = await getSerializePanelOperations();
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // Add a cutout first (cutout corners can be filleted)
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'test-cutout',
+            type: 'rect' as const,
+            center: { x: 0, y: 0 },
+            width: 20,
+            height: 20,
+          },
+        },
+      });
+
+      // Apply all-corner fillet to the cutout corner
+      engine.dispatch({
+        type: 'SET_ALL_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cornerId: 'hole:test-cutout:0',
+          radius: 3.567,
+        },
+      });
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as any;
+
+      const result = serializePanelOperations(assemblySnapshot);
+
+      expect(result).toBeDefined();
+      expect(result![frontPanel!.id]).toBeDefined();
+      expect(result![frontPanel!.id].acf).toBeDefined();
+      expect(result![frontPanel!.id].acf!['hole:test-cutout:0']).toBe(3.57); // Rounded
+    });
+  });
+
+  describe('cutouts serialization', () => {
+    it('should serialize rectangular cutout to compact format', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await getEngineFunctions();
+      const serializePanelOperations = await getSerializePanelOperations();
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'rect-1',
+            type: 'rect' as const,
+            center: { x: 10.555, y: 15.333 },
+            width: 20.789,
+            height: 12.456,
+            cornerRadius: 2.5,
+          },
+        },
+      });
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as any;
+
+      const result = serializePanelOperations(assemblySnapshot);
+
+      expect(result).toBeDefined();
+      expect(result![frontPanel!.id]).toBeDefined();
+      expect(result![frontPanel!.id].co).toBeDefined();
+      expect(result![frontPanel!.id].co!.length).toBe(1);
+
+      const cutout = result![frontPanel!.id].co![0];
+      expect(cutout.t).toBe('r'); // rect type
+      expect(cutout.id).toBe('rect-1');
+      expect(cutout.c).toEqual([10.56, 15.33]); // center rounded
+      expect((cutout as any).w).toBe(20.79); // width rounded
+      expect((cutout as any).h).toBe(12.46); // height rounded
+      expect((cutout as any).cr).toBe(2.5); // corner radius
+    });
+
+    it('should serialize circular cutout to compact format', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await getEngineFunctions();
+      const serializePanelOperations = await getSerializePanelOperations();
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'circle-1',
+            type: 'circle' as const,
+            center: { x: -5.5, y: 8.333 },
+            radius: 7.777,
+          },
+        },
+      });
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as any;
+
+      const result = serializePanelOperations(assemblySnapshot);
+
+      expect(result).toBeDefined();
+      expect(result![frontPanel!.id]).toBeDefined();
+      expect(result![frontPanel!.id].co).toBeDefined();
+      expect(result![frontPanel!.id].co!.length).toBe(1);
+
+      const cutout = result![frontPanel!.id].co![0];
+      expect(cutout.t).toBe('c'); // circle type
+      expect(cutout.id).toBe('circle-1');
+      expect(cutout.c).toEqual([-5.5, 8.33]); // center rounded
+      expect((cutout as any).r).toBe(7.78); // radius rounded
+    });
+
+    it('should serialize path cutout to compact format', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await getEngineFunctions();
+      const serializePanelOperations = await getSerializePanelOperations();
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'path-1',
+            type: 'path' as const,
+            center: { x: 0, y: 0 },
+            points: [
+              { x: -5.123, y: -5.456 },
+              { x: 5.789, y: -5.456 },
+              { x: 0, y: 5.111 },
+            ],
+          },
+        },
+      });
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as any;
+
+      const result = serializePanelOperations(assemblySnapshot);
+
+      expect(result).toBeDefined();
+      expect(result![frontPanel!.id]).toBeDefined();
+      expect(result![frontPanel!.id].co).toBeDefined();
+      expect(result![frontPanel!.id].co!.length).toBe(1);
+
+      const cutout = result![frontPanel!.id].co![0];
+      expect(cutout.t).toBe('p'); // path type
+      expect(cutout.id).toBe('path-1');
+      expect(cutout.c).toEqual([0, 0]); // center
+      expect((cutout as any).pts).toEqual([
+        [-5.12, -5.46],
+        [5.79, -5.46],
+        [0, 5.11],
+      ]); // points rounded
+    });
+
+    it('should serialize cutout mode when additive', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await getEngineFunctions();
+      const serializePanelOperations = await getSerializePanelOperations();
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'additive-1',
+            type: 'rect' as const,
+            center: { x: 0, y: 0 },
+            width: 10,
+            height: 10,
+            mode: 'additive',
+          },
+        },
+      });
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as any;
+
+      const result = serializePanelOperations(assemblySnapshot);
+
+      expect(result).toBeDefined();
+      expect(result![frontPanel!.id]).toBeDefined();
+      expect(result![frontPanel!.id].co).toBeDefined();
+
+      const cutout = result![frontPanel!.id].co![0];
+      expect(cutout.m).toBe('a'); // additive mode
+    });
+  });
+
+  describe('combined operations', () => {
+    it('should serialize multiple operation types on the same panel', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await getEngineFunctions();
+      const serializePanelOperations = await getSerializePanelOperations();
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+
+      // Disable faces to enable corner fillet
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'left' },
+      });
+
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // Add corner fillet
+      engine.dispatch({
+        type: 'SET_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          corner: 'left:top',
+          radius: 5,
+        },
+      });
+
+      // Add cutout
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'test-cutout',
+            type: 'rect' as const,
+            center: { x: 10, y: 10 },
+            width: 15,
+            height: 10,
+          },
+        },
+      });
+
+      // Add all-corner fillet on cutout
+      engine.dispatch({
+        type: 'SET_ALL_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cornerId: 'hole:test-cutout:0',
+          radius: 2,
+        },
+      });
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as any;
+
+      const result = serializePanelOperations(assemblySnapshot);
+
+      expect(result).toBeDefined();
+      expect(result![frontPanel!.id]).toBeDefined();
+      expect(result![frontPanel!.id].cf).toBeDefined();
+      expect(result![frontPanel!.id].cf!['left:top']).toBe(5);
+      expect(result![frontPanel!.id].acf).toBeDefined();
+      expect(result![frontPanel!.id].acf!['hole:test-cutout:0']).toBe(2);
+      expect(result![frontPanel!.id].co).toBeDefined();
+      expect(result![frontPanel!.id].co!.length).toBe(1);
+    });
+
+    it('should only include panels with operations in the result', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await getEngineFunctions();
+      const serializePanelOperations = await getSerializePanelOperations();
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // Only add cutout to front panel
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'only-cutout',
+            type: 'circle' as const,
+            center: { x: 0, y: 0 },
+            radius: 5,
+          },
+        },
+      });
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as any;
+
+      const result = serializePanelOperations(assemblySnapshot);
+
+      expect(result).toBeDefined();
+      // Should only contain the front panel
+      const panelIds = Object.keys(result!);
+      expect(panelIds.length).toBe(1);
+      expect(panelIds[0]).toBe(frontPanel!.id);
+    });
+  });
+});
