@@ -1,6 +1,6 @@
 import { BoxConfig, Face, Void, AssemblyConfig, defaultAssemblyConfig, EdgeExtensions, SubAssembly, FaceOffsets, defaultFaceOffsets } from '../types';
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
-import type { AssemblySnapshot, Cutout } from '../engine/types';
+import type { AssemblySnapshot, CornerFillet, CornerKey, AllCornerFillet, AllCornerId, Cutout } from '../engine/types';
 
 // Compact serialization format for URL storage
 interface SerializedState {
@@ -403,6 +403,112 @@ export const serializePanelOperations = (
   }
 
   return hasAny ? result : undefined;
+};
+
+/**
+ * Deserialize a single cutout from compact format back to full Cutout type
+ */
+const deserializeCutout = (sc: SerializedCutout): Cutout => {
+  const mode = sc.m === 'a' ? 'additive' : sc.m === 's' ? 'subtractive' : undefined;
+
+  switch (sc.t) {
+    case 'r': {
+      const result: Cutout = {
+        type: 'rect',
+        id: sc.id,
+        center: { x: sc.c[0], y: sc.c[1] },
+        width: sc.w,
+        height: sc.h,
+      };
+      if (sc.cr !== undefined) {
+        result.cornerRadius = sc.cr;
+      }
+      if (mode) {
+        result.mode = mode;
+      }
+      return result;
+    }
+    case 'c': {
+      const result: Cutout = {
+        type: 'circle',
+        id: sc.id,
+        center: { x: sc.c[0], y: sc.c[1] },
+        radius: sc.r,
+      };
+      if (mode) {
+        result.mode = mode;
+      }
+      return result;
+    }
+    case 'p': {
+      const result: Cutout = {
+        type: 'path',
+        id: sc.id,
+        center: { x: sc.c[0], y: sc.c[1] },
+        points: sc.pts.map(([x, y]) => ({ x, y })),
+      };
+      if (mode) {
+        result.mode = mode;
+      }
+      return result;
+    }
+  }
+};
+
+/**
+ * Output format for deserialized panel operations.
+ * Maps panel IDs to their operations for use in dispatching engine actions.
+ */
+export interface DeserializedPanelOps {
+  cornerFillets: CornerFillet[];
+  allCornerFillets: AllCornerFillet[];
+  cutouts: Cutout[];
+}
+
+/**
+ * Deserialize panel operations from compact format back to full types.
+ * Returns a map of panel IDs to their operations.
+ *
+ * @param spo - Serialized panel operations (from SerializedState.po)
+ * @returns Record<panelId, DeserializedPanelOps> - empty object if input is undefined
+ */
+export const deserializePanelOperations = (
+  spo?: Record<string, SerializedPanelOps>
+): Record<string, DeserializedPanelOps> => {
+  if (!spo) return {};
+
+  const result: Record<string, DeserializedPanelOps> = {};
+
+  for (const [panelId, ops] of Object.entries(spo)) {
+    const cornerFillets: CornerFillet[] = [];
+    const allCornerFillets: AllCornerFillet[] = [];
+    const cutouts: Cutout[] = [];
+
+    // Reconstruct CornerFillet[] from Record<cornerKey, radius>
+    if (ops.cf) {
+      for (const [corner, radius] of Object.entries(ops.cf)) {
+        cornerFillets.push({ corner: corner as CornerKey, radius });
+      }
+    }
+
+    // Reconstruct AllCornerFillet[] from Record<cornerId, radius>
+    if (ops.acf) {
+      for (const [cornerId, radius] of Object.entries(ops.acf)) {
+        allCornerFillets.push({ cornerId: cornerId as AllCornerId, radius });
+      }
+    }
+
+    // Reconstruct Cutout[] from SerializedCutout[]
+    if (ops.co) {
+      for (const sc of ops.co) {
+        cutouts.push(deserializeCutout(sc));
+      }
+    }
+
+    result[panelId] = { cornerFillets, allCornerFillets, cutouts };
+  }
+
+  return result;
 };
 
 // Main serialization function

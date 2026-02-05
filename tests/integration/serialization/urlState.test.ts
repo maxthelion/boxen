@@ -1810,3 +1810,433 @@ describe('serializePanelOperations', () => {
     });
   });
 });
+
+// =============================================================================
+// deserializePanelOperations Unit Tests
+// =============================================================================
+
+describe('deserializePanelOperations', () => {
+  const getDeserializePanelOperations = async () => {
+    const { deserializePanelOperations } = await import('../../../src/utils/urlState');
+    return deserializePanelOperations;
+  };
+
+  describe('returns empty object when input is undefined', () => {
+    it('should return empty object for undefined input', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const result = deserializePanelOperations(undefined);
+
+      expect(result).toEqual({});
+    });
+  });
+
+  describe('corner fillets deserialization', () => {
+    it('should reconstruct CornerFillet[] from compact Record<cornerKey, radius>', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          cf: { 'left:top': 5, 'bottom:right': 3.5 },
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      expect(result['panel-1']).toBeDefined();
+      expect(result['panel-1'].cornerFillets).toHaveLength(2);
+      expect(result['panel-1'].cornerFillets).toContainEqual({ corner: 'left:top', radius: 5 });
+      expect(result['panel-1'].cornerFillets).toContainEqual({ corner: 'bottom:right', radius: 3.5 });
+    });
+
+    it('should return empty cornerFillets when cf is absent', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          co: [{ t: 'c' as const, id: 'c1', c: [0, 0] as [number, number], r: 5 }],
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      expect(result['panel-1'].cornerFillets).toHaveLength(0);
+    });
+  });
+
+  describe('all-corner fillets deserialization', () => {
+    it('should reconstruct AllCornerFillet[] from compact Record<cornerId, radius>', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          acf: { 'outline:5': 2, 'hole:cutout-1:0': 3.5 },
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      expect(result['panel-1']).toBeDefined();
+      expect(result['panel-1'].allCornerFillets).toHaveLength(2);
+      expect(result['panel-1'].allCornerFillets).toContainEqual({ cornerId: 'outline:5', radius: 2 });
+      expect(result['panel-1'].allCornerFillets).toContainEqual({ cornerId: 'hole:cutout-1:0', radius: 3.5 });
+    });
+
+    it('should return empty allCornerFillets when acf is absent', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          cf: { 'left:top': 5 },
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      expect(result['panel-1'].allCornerFillets).toHaveLength(0);
+    });
+  });
+
+  describe('cutouts deserialization', () => {
+    it('should reconstruct rectangular cutout from compact format', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          co: [{
+            t: 'r' as const,
+            id: 'rect-1',
+            c: [10.56, 15.33] as [number, number],
+            w: 20.79,
+            h: 12.46,
+            cr: 2.5,
+          }],
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      expect(result['panel-1'].cutouts).toHaveLength(1);
+      const cutout = result['panel-1'].cutouts[0];
+      expect(cutout.type).toBe('rect');
+      expect(cutout.id).toBe('rect-1');
+      expect(cutout.center).toEqual({ x: 10.56, y: 15.33 });
+      if (cutout.type === 'rect') {
+        expect(cutout.width).toBe(20.79);
+        expect(cutout.height).toBe(12.46);
+        expect(cutout.cornerRadius).toBe(2.5);
+      }
+    });
+
+    it('should reconstruct circular cutout from compact format', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          co: [{
+            t: 'c' as const,
+            id: 'circle-1',
+            c: [-5.5, 8.33] as [number, number],
+            r: 7.78,
+          }],
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      expect(result['panel-1'].cutouts).toHaveLength(1);
+      const cutout = result['panel-1'].cutouts[0];
+      expect(cutout.type).toBe('circle');
+      expect(cutout.id).toBe('circle-1');
+      expect(cutout.center).toEqual({ x: -5.5, y: 8.33 });
+      if (cutout.type === 'circle') {
+        expect(cutout.radius).toBe(7.78);
+      }
+    });
+
+    it('should reconstruct path cutout from compact format', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          co: [{
+            t: 'p' as const,
+            id: 'path-1',
+            c: [0, 0] as [number, number],
+            pts: [[-5.12, -5.46], [5.79, -5.46], [0, 5.11]] as [number, number][],
+          }],
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      expect(result['panel-1'].cutouts).toHaveLength(1);
+      const cutout = result['panel-1'].cutouts[0];
+      expect(cutout.type).toBe('path');
+      expect(cutout.id).toBe('path-1');
+      expect(cutout.center).toEqual({ x: 0, y: 0 });
+      if (cutout.type === 'path') {
+        expect(cutout.points).toEqual([
+          { x: -5.12, y: -5.46 },
+          { x: 5.79, y: -5.46 },
+          { x: 0, y: 5.11 },
+        ]);
+      }
+    });
+
+    it('should reconstruct cutout mode when additive', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          co: [{
+            t: 'r' as const,
+            id: 'add-1',
+            c: [0, 0] as [number, number],
+            w: 10,
+            h: 10,
+            m: 'a' as const,
+          }],
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      const cutout = result['panel-1'].cutouts[0];
+      expect(cutout.mode).toBe('additive');
+    });
+
+    it('should reconstruct cutout mode when subtractive', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          co: [{
+            t: 'c' as const,
+            id: 'sub-1',
+            c: [0, 0] as [number, number],
+            r: 5,
+            m: 's' as const,
+          }],
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      const cutout = result['panel-1'].cutouts[0];
+      expect(cutout.mode).toBe('subtractive');
+    });
+
+    it('should not set mode when absent in serialized data', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          co: [{
+            t: 'r' as const,
+            id: 'no-mode',
+            c: [0, 0] as [number, number],
+            w: 10,
+            h: 10,
+          }],
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      const cutout = result['panel-1'].cutouts[0];
+      expect(cutout.mode).toBeUndefined();
+    });
+
+    it('should not set cornerRadius when absent in serialized rect cutout', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          co: [{
+            t: 'r' as const,
+            id: 'no-cr',
+            c: [0, 0] as [number, number],
+            w: 10,
+            h: 10,
+          }],
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      const cutout = result['panel-1'].cutouts[0];
+      if (cutout.type === 'rect') {
+        expect(cutout.cornerRadius).toBeUndefined();
+      }
+    });
+  });
+
+  describe('combined operations', () => {
+    it('should deserialize multiple operation types on the same panel', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          cf: { 'left:top': 5 },
+          acf: { 'hole:test-cutout:0': 2 },
+          co: [{
+            t: 'r' as const,
+            id: 'test-cutout',
+            c: [10, 10] as [number, number],
+            w: 15,
+            h: 10,
+          }],
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      expect(result['panel-1'].cornerFillets).toHaveLength(1);
+      expect(result['panel-1'].cornerFillets[0]).toEqual({ corner: 'left:top', radius: 5 });
+      expect(result['panel-1'].allCornerFillets).toHaveLength(1);
+      expect(result['panel-1'].allCornerFillets[0]).toEqual({ cornerId: 'hole:test-cutout:0', radius: 2 });
+      expect(result['panel-1'].cutouts).toHaveLength(1);
+      expect(result['panel-1'].cutouts[0].type).toBe('rect');
+    });
+
+    it('should handle multiple panels with different operations', async () => {
+      const deserializePanelOperations = await getDeserializePanelOperations();
+
+      const input = {
+        'panel-1': {
+          cf: { 'left:top': 5 },
+        },
+        'panel-2': {
+          co: [{
+            t: 'c' as const,
+            id: 'c1',
+            c: [0, 0] as [number, number],
+            r: 8,
+          }],
+        },
+        'panel-3': {
+          acf: { 'outline:3': 4 },
+        },
+      };
+
+      const result = deserializePanelOperations(input);
+
+      expect(Object.keys(result)).toHaveLength(3);
+
+      expect(result['panel-1'].cornerFillets).toHaveLength(1);
+      expect(result['panel-1'].cutouts).toHaveLength(0);
+      expect(result['panel-1'].allCornerFillets).toHaveLength(0);
+
+      expect(result['panel-2'].cutouts).toHaveLength(1);
+      expect(result['panel-2'].cornerFillets).toHaveLength(0);
+      expect(result['panel-2'].allCornerFillets).toHaveLength(0);
+
+      expect(result['panel-3'].allCornerFillets).toHaveLength(1);
+      expect(result['panel-3'].cornerFillets).toHaveLength(0);
+      expect(result['panel-3'].cutouts).toHaveLength(0);
+    });
+  });
+
+  describe('roundtrip with serializePanelOperations', () => {
+    it('should roundtrip corner fillets through serialize/deserialize', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+      const { serializePanelOperations, deserializePanelOperations } = await import('../../../src/utils/urlState');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      syncStoreToEngine(config, createDefaultFaces(), createRootVoid(config));
+
+      const engine = getEngine();
+
+      // Disable faces to make corner eligible
+      engine.dispatch({ type: 'TOGGLE_FACE', targetId: 'main-assembly', payload: { faceId: 'top' } });
+      engine.dispatch({ type: 'TOGGLE_FACE', targetId: 'main-assembly', payload: { faceId: 'left' } });
+
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      engine.dispatch({
+        type: 'SET_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: { panelId: frontPanel!.id, corner: 'left:top', radius: 5 },
+      });
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as any;
+
+      // Serialize then deserialize
+      const serialized = serializePanelOperations(assemblySnapshot);
+      expect(serialized).toBeDefined();
+
+      const deserialized = deserializePanelOperations(serialized);
+      expect(deserialized[frontPanel!.id]).toBeDefined();
+      expect(deserialized[frontPanel!.id].cornerFillets).toContainEqual({ corner: 'left:top', radius: 5 });
+    });
+
+    it('should roundtrip cutouts through serialize/deserialize', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+      const { serializePanelOperations, deserializePanelOperations } = await import('../../../src/utils/urlState');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      syncStoreToEngine(config, createDefaultFaces(), createRootVoid(config));
+
+      const engine = getEngine();
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // Add rect cutout
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: { id: 'r1', type: 'rect' as const, center: { x: 5, y: 10 }, width: 20, height: 15, cornerRadius: 2 },
+        },
+      });
+
+      // Add circle cutout
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: { id: 'c1', type: 'circle' as const, center: { x: -10, y: -10 }, radius: 8 },
+        },
+      });
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as any;
+
+      const serialized = serializePanelOperations(assemblySnapshot);
+      expect(serialized).toBeDefined();
+
+      const deserialized = deserializePanelOperations(serialized);
+      expect(deserialized[frontPanel!.id]).toBeDefined();
+      expect(deserialized[frontPanel!.id].cutouts).toHaveLength(2);
+
+      const rect = deserialized[frontPanel!.id].cutouts.find(c => c.id === 'r1');
+      expect(rect).toBeDefined();
+      expect(rect!.type).toBe('rect');
+      if (rect!.type === 'rect') {
+        expect(rect!.center).toEqual({ x: 5, y: 10 });
+        expect(rect!.width).toBe(20);
+        expect(rect!.height).toBe(15);
+        expect(rect!.cornerRadius).toBe(2);
+      }
+
+      const circle = deserialized[frontPanel!.id].cutouts.find(c => c.id === 'c1');
+      expect(circle).toBeDefined();
+      expect(circle!.type).toBe('circle');
+      if (circle!.type === 'circle') {
+        expect(circle!.center).toEqual({ x: -10, y: -10 });
+        expect(circle!.radius).toBe(8);
+      }
+    });
+  });
+});
