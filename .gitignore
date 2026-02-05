@@ -55,3 +55,8 @@ processed/*
 # Processed inbox items (triaged images)
 project-management/processed/*
 !project-management/processed/.gitkeep
+
+# Orchestrator database
+.orchestrator/state.db
+.orchestrator/state.db-wal
+.orchestrator/state.db-shm

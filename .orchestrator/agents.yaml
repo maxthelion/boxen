@@ -4,6 +4,11 @@
 model: proposal
 # paused: true  # System-wide pause - uncomment to stop all agents
 
+# SQLite database mode (replaces file-based state)
+database:
+  enabled: true
+  path: state.db  # Relative to .orchestrator/
+
 # Proposal backpressure (per proposer type)
 proposal_limits:
   test-checker:
