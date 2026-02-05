@@ -2284,3 +2284,334 @@ describe('deserializePanelOperations', () => {
     });
   });
 });
+
+// =============================================================================
+// Edge Case Tests
+// =============================================================================
+
+describe('Edge Cases', () => {
+  describe('Zero-radius fillet omission', () => {
+    it('should omit zero-radius fillet from serialization and leave outline unchanged', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+
+      // Disable two faces to make a corner eligible for fillet
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'left' },
+      });
+
+      // Get baseline outline before any fillet
+      const panelsBefore = engine.generatePanelsFromNodes();
+      const frontBefore = panelsBefore.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontBefore).toBeDefined();
+      const pointsBefore = frontBefore!.outline.points.length;
+
+      // Apply a corner fillet with radius=0
+      const filletResult = engine.dispatch({
+        type: 'SET_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontBefore!.id,
+          corner: 'left:top',
+          radius: 0,
+        },
+      });
+      expect(filletResult).toBe(true);
+
+      // Outline should be unchanged (radius=0 removes the fillet)
+      const panelsAfterZero = engine.generatePanelsFromNodes();
+      const frontAfterZero = panelsAfterZero.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontAfterZero!.outline.points.length).toBe(pointsBefore);
+
+      // Serialize panel operations - should be undefined (no operations stored)
+      const snapshot = engine.getSnapshot();
+      const assemblySnap = snapshot.children[0] as AssemblySnapshot;
+      const serializedPanelOps = serializePanelOperations(assemblySnap);
+      expect(
+        serializedPanelOps,
+        'Zero-radius fillet should not produce any serialized panel operations'
+      ).toBeUndefined();
+
+      // Full roundtrip: serialize project and deserialize
+      const updatedFaces = original.faces.map(f =>
+        f.id === 'top' || f.id === 'left' ? { ...f, solid: false } : f
+      );
+      const stateToSerialize: ProjectState = {
+        ...original,
+        faces: updatedFaces,
+        panelOperations: serializedPanelOps ? deserializePanelOperations(serializedPanelOps) : undefined,
+      };
+
+      const serialized = serializeProject(stateToSerialize);
+      const deserialized = deserializeProject(serialized);
+      expect(deserialized).not.toBeNull();
+
+      // Reload into fresh engine
+      resetEngine();
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid, undefined, deserialized!.panelOperations);
+
+      const reloadedEngine = getEngine();
+      const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
+      const reloadedFront = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'front');
+
+      // After roundtrip, outline should still be unchanged (no fillet geometry)
+      expect(
+        reloadedFront!.outline.points.length,
+        'After roundtrip with zero-radius fillet, outline should be unchanged'
+      ).toBe(pointsBefore);
+    });
+  });
+
+  describe('Multiple panels with different operations', () => {
+    it('should preserve fillet on front panel and cutout on back panel after roundtrip', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+
+      // Disable top and left faces to make front panel's left:top corner eligible
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'left' },
+      });
+
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      const backPanel = panels.panels.find((p: any) => p.source?.faceId === 'back');
+      expect(frontPanel).toBeDefined();
+      expect(backPanel).toBeDefined();
+
+      // Get baseline point count for front panel
+      const frontPointsBefore = frontPanel!.outline.points.length;
+
+      // Apply corner fillet to front panel
+      engine.dispatch({
+        type: 'SET_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          corner: 'left:top',
+          radius: 5,
+        },
+      });
+
+      // Add a rectangular cutout to back panel
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: backPanel!.id,
+          cutout: {
+            id: 'back-rect-cutout',
+            type: 'rect' as const,
+            center: { x: 0, y: 0 },
+            width: 15,
+            height: 10,
+          },
+        },
+      });
+
+      // Verify both operations were applied
+      const panelsAfterOps = engine.generatePanelsFromNodes();
+      const frontAfterOps = panelsAfterOps.panels.find((p: any) => p.source?.faceId === 'front');
+      const backAfterOps = panelsAfterOps.panels.find((p: any) => p.source?.faceId === 'back');
+
+      const frontPointsAfterFillet = frontAfterOps!.outline.points.length;
+      expect(frontPointsAfterFillet).toBeGreaterThan(frontPointsBefore);
+
+      const backCutoutHoles = backAfterOps?.holes?.filter(
+        (h: any) => h.source?.type === 'decorative'
+      ) ?? [];
+      expect(backCutoutHoles.length).toBe(1);
+
+      // Serialize and roundtrip
+      const updatedFaces = original.faces.map(f =>
+        f.id === 'top' || f.id === 'left' ? { ...f, solid: false } : f
+      );
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnap = snapshot.children[0] as AssemblySnapshot;
+      const serializedPanelOps = serializePanelOperations(assemblySnap);
+      const panelOps = deserializePanelOperations(serializedPanelOps);
+
+      const stateToSerialize: ProjectState = {
+        ...original,
+        faces: updatedFaces,
+        panelOperations: Object.keys(panelOps).length > 0 ? panelOps : undefined,
+      };
+
+      const serialized = serializeProject(stateToSerialize);
+      const deserialized = deserializeProject(serialized);
+      expect(deserialized).not.toBeNull();
+
+      // Verify both panels have operations in deserialized state
+      expect(deserialized!.panelOperations).toBeDefined();
+      expect(deserialized!.panelOperations!['face:front']).toBeDefined();
+      expect(deserialized!.panelOperations!['face:back']).toBeDefined();
+
+      // Reload into fresh engine
+      resetEngine();
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid, undefined, deserialized!.panelOperations);
+
+      const reloadedEngine = getEngine();
+      const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
+
+      // Verify front panel fillet survived
+      const reloadedFront = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(
+        reloadedFront!.outline.points.length,
+        'Front panel fillet should survive roundtrip'
+      ).toBe(frontPointsAfterFillet);
+
+      // Verify back panel cutout survived
+      const reloadedBack = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'back');
+      const reloadedBackCutouts = reloadedBack?.holes?.filter(
+        (h: any) => h.source?.type === 'decorative'
+      ) ?? [];
+      expect(
+        reloadedBackCutouts.length,
+        'Back panel cutout should survive roundtrip'
+      ).toBe(1);
+    });
+  });
+
+  describe('Geometry validation after restore', () => {
+    it('should produce valid geometry after serialize/deserialize/syncStoreToEngine with panel operations', async () => {
+      const { resetEngine, syncStoreToEngine, getEngine } = await import('../../../src/engine');
+      const { checkGeometry } = await import('../../../src/engine/geometryChecker');
+
+      resetEngine();
+
+      const config = createBasicConfig();
+      const original: ProjectState = {
+        config,
+        faces: createDefaultFaces(),
+        rootVoid: createRootVoid(config),
+        edgeExtensions: {},
+      };
+
+      syncStoreToEngine(original.config, original.faces, original.rootVoid);
+
+      const engine = getEngine();
+
+      // Disable top and left faces to enable corner fillets
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'left' },
+      });
+
+      const panels = engine.generatePanelsFromNodes();
+      const frontPanel = panels.panels.find((p: any) => p.source?.faceId === 'front');
+      expect(frontPanel).toBeDefined();
+
+      // Apply corner fillet
+      engine.dispatch({
+        type: 'SET_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          corner: 'left:top',
+          radius: 5,
+        },
+      });
+
+      // Add a cutout
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: frontPanel!.id,
+          cutout: {
+            id: 'geo-validation-cutout',
+            type: 'circle' as const,
+            center: { x: 0, y: 0 },
+            radius: 5,
+          },
+        },
+      });
+
+      // Serialize the state
+      const updatedFaces = original.faces.map(f =>
+        f.id === 'top' || f.id === 'left' ? { ...f, solid: false } : f
+      );
+
+      const snapshot = engine.getSnapshot();
+      const assemblySnap = snapshot.children[0] as AssemblySnapshot;
+      const serializedPanelOps = serializePanelOperations(assemblySnap);
+      const panelOps = deserializePanelOperations(serializedPanelOps);
+
+      const stateToSerialize: ProjectState = {
+        ...original,
+        faces: updatedFaces,
+        panelOperations: Object.keys(panelOps).length > 0 ? panelOps : undefined,
+      };
+
+      const serialized = serializeProject(stateToSerialize);
+      const deserialized = deserializeProject(serialized);
+      expect(deserialized).not.toBeNull();
+
+      // Full restore cycle
+      resetEngine();
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid, undefined, deserialized!.panelOperations);
+
+      const reloadedEngine = getEngine();
+
+      // Run geometry validation
+      const geometryResult = checkGeometry(reloadedEngine);
+
+      expect(
+        geometryResult.valid,
+        `Geometry should be valid after restore, but got ${geometryResult.summary.errors} errors: ${
+          geometryResult.violations
+            .filter(v => v.severity === 'error')
+            .map(v => `${v.ruleId}: ${v.message}`)
+            .join('; ')
+        }`
+      ).toBe(true);
+      expect(geometryResult.summary.errors).toBe(0);
+    });
+  });
+});
