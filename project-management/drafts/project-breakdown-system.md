@@ -499,6 +499,122 @@ Curator no longer manages proposal directories. Instead:
 4. Update proposer agents to write to new location
 5. Update curator to read from DB
 
+## Explorer/Auditor Agents
+
+### Concept
+
+Agents that randomly sample from lists or directories to maintain quality and prune complexity:
+
+- Pick something at random to examine
+- Track what they've looked at (avoid re-checking recently)
+- Prioritize older/stale items
+- Make recommendations based on findings
+
+### Use Cases
+
+| Agent | Source | Examines | Outputs |
+|-------|--------|----------|---------|
+| `test-gap-auditor` | Test matrix gaps | Random untested scenario | Recommendation: add test |
+| `doc-auditor` | `docs/` directory | Random document | Recommendation: update/archive/delete |
+| `code-auditor` | Source files | Random file | Recommendation: refactor/simplify |
+| `issue-auditor` | `docs/issues/` | Random open issue | Recommendation: close/update status |
+| `plan-auditor` | `docs/` plans | Random plan | Recommendation: mark complete/abandon |
+
+### Audit Log Schema
+
+```sql
+CREATE TABLE audit_log (
+    id TEXT PRIMARY KEY,
+    agent TEXT NOT NULL,
+    item_type TEXT,           -- 'file', 'test_gap', 'issue', etc.
+    item_path TEXT,           -- path or identifier
+    examined_at TEXT,
+    finding TEXT,             -- what the agent found
+    recommendation_id TEXT    -- links to recommendation if one was created
+);
+```
+
+### Selection Algorithm
+
+```python
+def pick_item_to_examine(agent_name, item_list):
+    # Get recently examined items
+    recent = get_recent_audits(agent=agent_name, days=7)
+    recent_paths = {r.item_path for r in recent}
+
+    # Filter out recently examined
+    candidates = [i for i in item_list if i.path not in recent_paths]
+
+    if not candidates:
+        return None  # Everything examined recently
+
+    # Weight by age (older = higher weight)
+    weights = []
+    for item in candidates:
+        age_days = (now - item.modified_at).days
+        weight = min(age_days, 365)  # Cap at 1 year
+        weights.append(weight + 1)   # +1 so new files have some chance
+
+    # Random weighted selection
+    return random.choices(candidates, weights=weights, k=1)[0]
+```
+
+### Agent Configuration
+
+```yaml
+- name: doc-auditor
+  role: auditor
+  focus: documentation
+  interval_seconds: 3600      # Hourly
+  config:
+    source_glob: "docs/**/*.md"
+    exclude: ["docs/issues/*"]  # Covered by issue-auditor
+    lookback_days: 7           # Don't re-examine within 7 days
+    priority_age_days: 30      # Prioritize files not modified in 30+ days
+
+- name: test-gap-auditor
+  role: auditor
+  focus: test_coverage
+  interval_seconds: 7200      # Every 2 hours
+  config:
+    source: "test_matrix_gaps"  # Special source type
+    lookback_days: 14
+```
+
+### Findings vs Recommendations
+
+Not every examination produces a recommendation:
+
+```python
+# In auditor agent
+finding = examine_document(doc_path)
+
+log_audit(item_path=doc_path, finding=finding.summary)
+
+if finding.needs_action:
+    create_recommendation(
+        title=f"Update: {doc_path}",
+        body=finding.details,
+        source_agent=self.name,
+        category="documentation",
+        tags=["type:maintenance", f"file:{doc_path}"]
+    )
+```
+
+**Findings examples:**
+- "Document is current, no action needed" → log only
+- "Document references removed feature" → recommendation
+- "Test gap is actually covered by integration test" → log only
+- "Test gap is real, should add unit test" → recommendation
+
+### Benefits
+
+1. **Continuous maintenance**: Complexity pruned regularly without dedicated effort
+2. **Random sampling**: Catches things that fall through the cracks
+3. **Audit trail**: Can see what's been examined, when, by whom
+4. **Natural prioritization**: Stale items get attention
+5. **Scales with codebase**: More files = more auditor runs, but each run is bounded
+
 ## Open Questions
 
 1. **Project branch creation**: Automatic on project activation, or manual?
@@ -510,6 +626,9 @@ Curator no longer manages proposal directories. Instead:
 7. **Recommendation feedback**: How does human give feedback before accepting? Messaging system?
 8. **Tag taxonomy**: Predefined tags or freeform? Who maintains the tag vocabulary?
 9. **Deferred recommendations**: How long before resurfacing? Auto-expire?
+10. **Auditor coordination**: Multiple auditors examining same area? Partition or overlap?
+11. **Audit log retention**: How long to keep? Prune after N days?
+12. **False positive rate**: If auditor creates too many low-value recommendations, how to tune?
 
 ## Success Metrics
 
