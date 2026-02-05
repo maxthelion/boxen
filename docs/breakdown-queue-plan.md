@@ -352,3 +352,27 @@ If issues arise:
 - [ ] Dependencies respected (BLOCKED_BY)
 - [ ] Project completion triggers PR creation
 - [ ] User doesn't wait at prompt for implementation
+
+## Future Architectural Considerations
+
+### Task File / DB Separation
+
+Currently, `create_task()` creates both the markdown file and DB row in sync. A cleaner architecture might be:
+
+1. **Files as external input** - Task markdown files created independently (by humans, scripts, or other tools)
+2. **Sync script imports to DB** - A separate process watches for new files and imports them into the DB with status tracking
+3. **DB as status layer only** - DB doesn't duplicate content, just tracks status, relationships, and metadata
+
+**Benefits:**
+- Decouples task creation from octopoid internals
+- Files remain human-editable and git-trackable
+- Multiple tools can create tasks without knowing DB schema
+- Clearer separation of concerns (octopoid consumes, doesn't own task format)
+
+**Implementation sketch:**
+```bash
+# Watcher or cron job
+orchestrator sync-tasks --watch .orchestrator/shared/queue/incoming/
+```
+
+This would make octopoid a pure consumer of task files rather than the creator.
