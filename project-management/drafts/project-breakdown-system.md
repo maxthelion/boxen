@@ -629,6 +629,12 @@ if finding.needs_action:
 10. **Auditor coordination**: Multiple auditors examining same area? Partition or overlap?
 11. **Audit log retention**: How long to keep? Prune after N days?
 12. **False positive rate**: If auditor creates too many low-value recommendations, how to tune?
+13. **Task file / DB separation**: Should octopoid be a pure consumer of task files rather than creator?
+    - Currently `create_task()` creates both file and DB row in sync
+    - Alternative: Files created externally (by humans, scripts, other tools), sync script imports to DB
+    - Would decouple task creation from octopoid internals
+    - DB becomes status layer only, not source of content
+    - Makes octopoid more generic (consumes standard format, doesn't own it)
 
 ## Success Metrics
 
