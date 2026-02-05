@@ -37,6 +37,8 @@ import {
   Subdivision,
   CornerKey,
   CornerFillet,
+  AllCornerId,
+  AllCornerFillet,
   CustomEdgePath,
   Cutout,
 } from '../types';
@@ -104,6 +106,9 @@ export abstract class BaseAssembly extends BaseNode {
 
   // Stored corner fillets for panels (keyed by panel ID)
   protected _panelCornerFillets: Map<string, Map<CornerKey, number>> = new Map();
+
+  // Stored all-corner fillets for panels (any corner in geometry, keyed by panel ID, then by corner ID)
+  protected _panelAllCornerFillets: Map<string, Map<AllCornerId, number>> = new Map();
 
   // Stored custom edge paths for panels (keyed by panel ID, then by edge)
   protected _panelCustomEdgePaths: Map<string, Map<EdgePosition, CustomEdgePath>> = new Map();
@@ -569,6 +574,73 @@ export abstract class BaseAssembly extends BaseNode {
       this._panelCornerFillets.set(panelId, filletMap);
     } else {
       this._panelCornerFillets.delete(panelId);
+    }
+    this.markDirty();
+  }
+
+  // ==========================================================================
+  // All-Corner Fillet Management (any corner in panel geometry)
+  // ==========================================================================
+
+  /**
+   * Get all-corner fillets for a panel
+   */
+  getPanelAllCornerFillets(panelId: string): AllCornerFillet[] {
+    const filletMap = this._panelAllCornerFillets.get(panelId);
+    if (!filletMap) return [];
+    return Array.from(filletMap.entries()).map(([cornerId, radius]) => ({
+      cornerId,
+      radius,
+    }));
+  }
+
+  /**
+   * Get all-corner fillet radius for a specific corner
+   */
+  getPanelAllCornerFillet(panelId: string, cornerId: AllCornerId): number {
+    const filletMap = this._panelAllCornerFillets.get(panelId);
+    return filletMap?.get(cornerId) ?? 0;
+  }
+
+  /**
+   * Set all-corner fillet for a panel
+   */
+  setPanelAllCornerFillet(panelId: string, cornerId: AllCornerId, radius: number): void {
+    let filletMap = this._panelAllCornerFillets.get(panelId);
+    if (!filletMap) {
+      filletMap = new Map();
+      this._panelAllCornerFillets.set(panelId, filletMap);
+    }
+
+    const currentRadius = filletMap.get(cornerId) ?? 0;
+    if (currentRadius !== radius) {
+      if (radius <= 0) {
+        filletMap.delete(cornerId);
+        // Clean up empty map
+        if (filletMap.size === 0) {
+          this._panelAllCornerFillets.delete(panelId);
+        }
+      } else {
+        filletMap.set(cornerId, radius);
+      }
+      this.markDirty();
+    }
+  }
+
+  /**
+   * Set all all-corner fillets for a panel
+   */
+  setPanelAllCornerFillets(panelId: string, fillets: AllCornerFillet[]): void {
+    const filletMap = new Map<AllCornerId, number>();
+    for (const { cornerId, radius } of fillets) {
+      if (radius > 0) {
+        filletMap.set(cornerId, radius);
+      }
+    }
+    if (filletMap.size > 0) {
+      this._panelAllCornerFillets.set(panelId, filletMap);
+    } else {
+      this._panelAllCornerFillets.delete(panelId);
     }
     this.markDirty();
   }
@@ -1064,12 +1136,21 @@ export abstract class BaseAssembly extends BaseNode {
           panelNode.setEdgeExtensions(storedExtensions);
         }
 
-        // Apply stored corner fillets
+        // Apply stored corner fillets (old 4-corner system)
         const storedFillets = this._panelCornerFillets.get(panelNode.id)
           || this._panelCornerFillets.get(`face-${faceId}`);
         if (storedFillets) {
           for (const [corner, radius] of storedFillets) {
             panelNode.setCornerFillet(corner, radius);
+          }
+        }
+
+        // Apply stored all-corner fillets (new all-corners system)
+        const storedAllCornerFillets = this._panelAllCornerFillets.get(panelNode.id)
+          || this._panelAllCornerFillets.get(`face-${faceId}`);
+        if (storedAllCornerFillets) {
+          for (const [cornerId, radius] of storedAllCornerFillets) {
+            panelNode.setAllCornerFillet(cornerId, radius);
           }
         }
 
@@ -1160,11 +1241,19 @@ export abstract class BaseAssembly extends BaseNode {
               dividerNode.setEdgeExtensions(storedExtensions);
             }
 
-            // Apply stored corner fillets
+            // Apply stored corner fillets (old 4-corner system)
             const storedFillets = this._panelCornerFillets.get(dividerNode.id);
             if (storedFillets) {
               for (const [corner, radius] of storedFillets) {
                 dividerNode.setCornerFillet(corner, radius);
+              }
+            }
+
+            // Apply stored all-corner fillets (new all-corners system)
+            const storedAllCornerFillets = this._panelAllCornerFillets.get(dividerNode.id);
+            if (storedAllCornerFillets) {
+              for (const [cornerId, radius] of storedAllCornerFillets) {
+                dividerNode.setAllCornerFillet(cornerId, radius);
               }
             }
 
@@ -1213,11 +1302,19 @@ export abstract class BaseAssembly extends BaseNode {
           dividerNode.setEdgeExtensions(storedExtensions);
         }
 
-        // Apply stored corner fillets
+        // Apply stored corner fillets (old 4-corner system)
         const storedFillets = this._panelCornerFillets.get(dividerNode.id);
         if (storedFillets) {
           for (const [corner, radius] of storedFillets) {
             dividerNode.setCornerFillet(corner, radius);
+          }
+        }
+
+        // Apply stored all-corner fillets (new all-corners system)
+        const storedAllCornerFillets = this._panelAllCornerFillets.get(dividerNode.id);
+        if (storedAllCornerFillets) {
+          for (const [cornerId, radius] of storedAllCornerFillets) {
+            dividerNode.setAllCornerFillet(cornerId, radius);
           }
         }
 
@@ -1333,6 +1430,12 @@ export abstract class BaseAssembly extends BaseNode {
     target._panelCornerFillets = new Map();
     for (const [panelId, filletMap] of this._panelCornerFillets) {
       target._panelCornerFillets.set(panelId, new Map(filletMap));
+    }
+
+    // Copy panel all-corner fillets
+    target._panelAllCornerFillets = new Map();
+    for (const [panelId, filletMap] of this._panelAllCornerFillets) {
+      target._panelAllCornerFillets.set(panelId, new Map(filletMap));
     }
 
     // Copy custom edge paths

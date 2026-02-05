@@ -101,7 +101,7 @@ export function getInsetPanelEligibility(panel: PanelPath): EligibilityResult {
  * Panel must have at least one eligible corner.
  */
 export function getFilletPanelEligibility(panel: PanelPath): EligibilityResult {
-  const cornerEligibility = panel.cornerEligibility ?? [];
+  const cornerEligibility = panel.allCornerEligibility ?? [];
   const hasEligibleCorner = cornerEligibility.some(c => c.eligible);
 
   if (!hasEligibleCorner) {

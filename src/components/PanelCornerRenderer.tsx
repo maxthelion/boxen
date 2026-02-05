@@ -8,9 +8,9 @@
 import React, { useMemo, useCallback } from 'react';
 import * as THREE from 'three';
 import { useBoxStore } from '../store/useBoxStore';
-import { useEnginePanels, useEngineConfig } from '../engine';
-import { PanelPath, EdgeExtensions } from '../types';
-import { CornerKey, CornerEligibility, ALL_CORNERS } from '../engine/types';
+import { useEnginePanels, useEngineMainPanels, useEngineConfig } from '../engine';
+import { PanelPath } from '../types';
+import { AllCornerId, AllCornerEligibility } from '../engine/types';
 import { useColors } from '../hooks/useColors';
 
 // Corner indicator dimensions in mm
@@ -18,16 +18,14 @@ const CORNER_INDICATOR_OUTER_RADIUS = 5;
 const CORNER_INDICATOR_INNER_RADIUS = 3;  // Creates ring effect
 
 interface CornerMeshProps {
-  corner: CornerKey;
+  cornerId: AllCornerId;
   isEligible: boolean;
   maxRadius: number;
   isSelected: boolean;
   isHovered: boolean;
-  position: [number, number, number];
+  panelPosition: [number, number, number];  // Panel center in world space
   rotation: [number, number, number];
-  panelWidth: number;
-  panelHeight: number;
-  edgeExtensions: EdgeExtensions;  // Edge extensions to position at extended corners
+  localPosition: { x: number; y: number };  // Corner position in panel-local 2D coordinates
   thickness: number;  // Panel thickness for positioning on outer face
   scale: number;
   onHover: (hovered: boolean) => void;
@@ -35,40 +33,20 @@ interface CornerMeshProps {
 }
 
 /**
- * Get corner position offset in panel-local coordinates, accounting for edge extensions
- */
-function getCornerOffset(
-  corner: CornerKey,
-  halfWidth: number,
-  halfHeight: number,
-  extensions: { top: number; bottom: number; left: number; right: number }
-): [number, number] {
-  switch (corner) {
-    case 'left:top':
-      return [-(halfWidth + extensions.left), halfHeight + extensions.top];
-    case 'right:top':
-      return [halfWidth + extensions.right, halfHeight + extensions.top];
-    case 'bottom:left':
-      return [-(halfWidth + extensions.left), -(halfHeight + extensions.bottom)];
-    case 'bottom:right':
-      return [halfWidth + extensions.right, -(halfHeight + extensions.bottom)];
-  }
-}
-
-/**
  * Single corner mesh component
+ *
+ * Renders a corner indicator at the specified local 2D position on a panel.
+ * The localPosition is transformed to world space using the panel's position and rotation.
  */
 const CornerMesh: React.FC<CornerMeshProps> = ({
-  corner,
+  cornerId: _cornerId,  // Used for key, passed through
   isEligible,
   maxRadius: _maxRadius,  // Used in tooltip, passed through for future use
   isSelected,
   isHovered,
-  position,
+  panelPosition,
   rotation,
-  panelWidth,
-  panelHeight,
-  edgeExtensions,
+  localPosition,
   thickness,
   scale,
   onHover,
@@ -108,21 +86,13 @@ const CornerMesh: React.FC<CornerMeshProps> = ({
   }, [scale, isSelected]);
 
   // Calculate corner position in world space
+  // localPosition is in panel-local 2D coordinates (from allCornerEligibility)
   const cornerPosition = useMemo(() => {
-    const [px, py, pz] = position;
-    const halfWidth = (panelWidth * scale) / 2;
-    const halfHeight = (panelHeight * scale) / 2;
+    const [px, py, pz] = panelPosition;
 
-    // Scale the edge extensions
-    const scaledExtensions = {
-      top: edgeExtensions.top * scale,
-      bottom: edgeExtensions.bottom * scale,
-      left: edgeExtensions.left * scale,
-      right: edgeExtensions.right * scale,
-    };
-
-    // Get corner offset in panel-local space (including extensions)
-    const [localX, localY] = getCornerOffset(corner, halfWidth, halfHeight, scaledExtensions);
+    // Scale the local position
+    const localX = localPosition.x * scale;
+    const localY = localPosition.y * scale;
 
     // Position on outer face: half thickness + small offset to prevent z-fighting
     const zOffset = (thickness * scale / 2) + 0.05;
@@ -142,7 +112,7 @@ const CornerMesh: React.FC<CornerMeshProps> = ({
       py + worldOffset.y,
       pz + worldOffset.z,
     ] as [number, number, number];
-  }, [corner, position, rotation, panelWidth, panelHeight, edgeExtensions, thickness, scale]);
+  }, [panelPosition, rotation, localPosition, thickness, scale]);
 
   // Corner indicator faces the same direction as the panel
   const cornerRotation = useMemo(() => {
@@ -198,6 +168,8 @@ interface PanelCornerRendererProps {
  */
 export const PanelCornerRenderer: React.FC<PanelCornerRendererProps> = ({ scale }) => {
   const panelCollection = useEnginePanels();
+  // Use main scene panels for eligibility (stable during preview operations)
+  const mainPanelCollection = useEngineMainPanels();
   const config = useEngineConfig();
 
   const activeTool = useBoxStore((state) => state.activeTool);
@@ -208,31 +180,32 @@ export const PanelCornerRenderer: React.FC<PanelCornerRendererProps> = ({ scale 
   const operationState = useBoxStore((state) => state.operationState);
 
   // Handle corner click
-  const handleCornerClick = useCallback((panelId: string, corner: CornerKey, event: React.MouseEvent) => {
+  // Uses AllCornerId format: "outline:index" or "hole:holeId:index"
+  const handleCornerClick = useCallback((panelId: string, cornerId: AllCornerId, event: React.MouseEvent) => {
     // During an active operation, only shift+click modifies selection
     const isOperationActive = operationState.activeOperation !== null;
     if (isOperationActive && !event.shiftKey) {
       return; // Let camera controls handle this click
     }
 
-    // Build corner key: "panelId:corner"
-    const cornerKey = `${panelId}:${corner}`;
+    // Build corner key: "panelId:cornerId"
+    const cornerKey = `${panelId}:${cornerId}`;
     // Use additive mode (toggle) when shift is held
     const additive = event.shiftKey;
     selectCorner(cornerKey, additive);
   }, [selectCorner, operationState.activeOperation]);
 
   // Handle corner hover
-  const handleCornerHover = useCallback((panelId: string, corner: CornerKey, hovered: boolean) => {
+  const handleCornerHover = useCallback((panelId: string, cornerId: AllCornerId, hovered: boolean) => {
     if (hovered) {
-      setHoveredCorner(`${panelId}:${corner}`);
+      setHoveredCorner(`${panelId}:${cornerId}`);
     } else {
       setHoveredCorner(null);
     }
   }, [setHoveredCorner]);
 
   // Only render when fillet tool is active
-  if (activeTool !== 'fillet' || !panelCollection || !config) {
+  if (activeTool !== 'fillet' || !panelCollection || !mainPanelCollection || !config) {
     return null;
   }
 
@@ -241,34 +214,37 @@ export const PanelCornerRenderer: React.FC<PanelCornerRendererProps> = ({ scale 
       {panelCollection.panels.map((panel: PanelPath) => {
         if (!panel.visible) return null;
 
-        // Get corner eligibility from the panel (computed by engine)
-        const cornerEligibility = panel.cornerEligibility ?? getDefaultCornerEligibility();
+        // Get eligibility from MAIN scene (not preview) so corners remain visible
+        // throughout the operation even after fillets are applied to the preview.
+        // The main scene is stable during the operation.
+        const mainPanel = mainPanelCollection.panels.find(p => p.id === panel.id);
+        const allCornerEligibility = mainPanel?.allCornerEligibility ?? [];
 
-        return ALL_CORNERS.map((corner) => {
-          const eligibility = cornerEligibility.find(e => e.corner === corner);
-          const isEligible = eligibility?.eligible ?? false;
-          const maxRadius = eligibility?.maxRadius ?? 0;
-          const cornerKey = `${panel.id}:${corner}`;
+        // Only render ELIGIBLE corners - ineligible corners (e.g., from finger joints)
+        // are not shown to reduce visual clutter. This follows the design principle
+        // that "anything in a forbidden area cannot be filleted" and shouldn't appear.
+        return allCornerEligibility
+          .filter((eligibility: AllCornerEligibility) => eligibility.eligible)
+          .map((eligibility: AllCornerEligibility) => {
+          const cornerKey = `${panel.id}:${eligibility.id}`;
           const isSelected = selectedCornerIds.has(cornerKey);
           const isHovered = hoveredCorner === cornerKey;
 
           return (
             <CornerMesh
               key={cornerKey}
-              corner={corner}
-              isEligible={isEligible}
-              maxRadius={maxRadius}
+              cornerId={eligibility.id}
+              isEligible={eligibility.eligible}
+              maxRadius={eligibility.maxRadius}
               isSelected={isSelected}
               isHovered={isHovered}
-              position={panel.position}
+              panelPosition={panel.position}
               rotation={panel.rotation}
-              panelWidth={panel.width}
-              panelHeight={panel.height}
-              edgeExtensions={panel.edgeExtensions}
+              localPosition={eligibility.position}
               thickness={config.materialThickness}
               scale={scale}
-              onHover={(hovered) => handleCornerHover(panel.id, corner, hovered)}
-              onClick={(event) => handleCornerClick(panel.id, corner, event)}
+              onHover={(hovered) => handleCornerHover(panel.id, eligibility.id, hovered)}
+              onClick={(event) => handleCornerClick(panel.id, eligibility.id, event)}
             />
           );
         });
@@ -276,16 +252,3 @@ export const PanelCornerRenderer: React.FC<PanelCornerRendererProps> = ({ scale 
     </>
   );
 };
-
-/**
- * Default corner eligibility (all ineligible) for panels without computed eligibility
- */
-function getDefaultCornerEligibility(): CornerEligibility[] {
-  return ALL_CORNERS.map((corner): CornerEligibility => ({
-    corner,
-    eligible: false,
-    maxRadius: 0,
-    freeLength1: 0,
-    freeLength2: 0,
-  }));
-}

@@ -1879,64 +1879,51 @@ describe('Comprehensive Geometry Validation', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('should compute correct corner eligibility based on extensions', () => {
+    it('should compute correct corner eligibility based on edge status', () => {
       engine.createAssembly(200, 150, 100, {
         thickness: 3,
         fingerWidth: 10,
         fingerGap: 1.5,
       });
 
-      // Open the left face to get an 'unlocked' edge on the front panel
+      // Open BOTH left AND top faces to get TWO 'unlocked' edges on the front panel
+      // Both edges must be unlocked (no joints) for the corner to be eligible
       engine.dispatch({
         type: 'TOGGLE_FACE',
         targetId: 'main-assembly',
         payload: { faceId: 'left' },
       });
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
 
       const snapshot = engine.getSnapshot();
       const panels = snapshot.children[0].derived.panels;
 
-      // Use the front panel - after opening left face:
-      // - top edge: outward-only (meets top lid)
+      // Use the front panel - after opening left AND top faces:
+      // - top edge: unlocked (open face)
       // - left edge: unlocked (open face)
-      // This gives us an extendable corner at left:top
+      // This gives us an eligible corner at left:top (both edges unlocked)
       const frontPanel = panels.find((p: any) => p.kind === 'face-panel' && p.props.faceId === 'front');
       expect(frontPanel).toBeDefined();
 
-      console.log('Front panel edge statuses (left face open):', frontPanel!.derived.edgeStatuses);
+      console.log('Front panel edge statuses (left + top faces open):', frontPanel!.derived.edgeStatuses);
 
-      // With no extensions, corners should not be eligible (no free length)
-      const eligibility1 = frontPanel!.derived.cornerEligibility;
-      console.log('Corner eligibility with no extensions:', eligibility1);
+      // The left:top corner should be eligible (both edges unlocked = no joints)
+      const eligibility = frontPanel!.derived.cornerEligibility;
+      console.log('Corner eligibility with both top and left open:', eligibility);
 
-      // All corners should be ineligible initially (no extensions)
-      for (const corner of eligibility1) {
-        expect(corner.eligible).toBe(false);
-      }
-
-      // Extend top (outward-only) and left (unlocked) edges
-      engine.dispatch({
-        type: 'SET_EDGE_EXTENSIONS_BATCH',
-        targetId: 'main-assembly',
-        payload: {
-          extensions: [
-            { panelId: frontPanel!.id, edge: 'top', value: 20 },
-            { panelId: frontPanel!.id, edge: 'left', value: 15 },
-          ],
-        },
-      });
-
-      const snapshot2 = engine.getSnapshot();
-      const panels2 = snapshot2.children[0].derived.panels;
-      const frontPanel2 = panels2.find((p: any) => p.id === frontPanel!.id);
-      const eligibility2 = frontPanel2!.derived.cornerEligibility;
-      console.log('Corner eligibility with top=20, left=15:', eligibility2);
-
-      // The left:top corner should now be eligible with max radius = min(20, 15) = 15
-      const topLeftEligibility = eligibility2.find((e: any) => e.corner === 'left:top');
+      const topLeftEligibility = eligibility.find((e: any) => e.corner === 'left:top');
       expect(topLeftEligibility).toBeDefined();
       expect(topLeftEligibility!.eligible).toBe(true);
-      expect(topLeftEligibility!.maxRadius).toBe(15);
+      expect(topLeftEligibility!.maxRadius).toBeGreaterThan(0);
+
+      // Other corners should still be ineligible because they have at least one joint edge
+      const bottomLeftCorner = eligibility.find((e: any) => e.corner === 'bottom:left');
+      expect(bottomLeftCorner?.eligible).toBe(false);
+      expect(bottomLeftCorner?.reason).toBe('has-joints');
     });
 
     it('should clamp fillet radius to max radius', () => {

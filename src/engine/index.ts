@@ -39,13 +39,14 @@ export {
   useEngineMainPanels,
   useEngineMainConfig,
   useEngineMainVoidTree,
+  usePanelEligibility,
   notifyEngineStateChanged,
   // Snapshot converters (for converting engine snapshots to store types)
   voidSnapshotToVoid,
   assemblySnapshotToConfig,
   faceConfigsToFaces,
 } from './useEngineState';
-export type { EngineModelState } from './useEngineState';
+export type { EngineModelState, PanelEligibility } from './useEngineState';
 
 // Panel generation bridge
 export {

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { useBoxStore, getAllSubdivisions } from '../store/useBoxStore';
-import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels, getEngine, notifyEngineStateChanged } from '../engine';
+import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels, usePanelEligibility, getEngine, notifyEngineStateChanged } from '../engine';
 import { useEditor } from '../editor';
 import { PathPoint, FaceId, Face } from '../types';
 import { getFaceEdgeStatuses, getDividerEdgeStatuses, EdgeStatusInfo } from '../utils/panelGenerator';
@@ -404,6 +404,10 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     clearCornerSelection,
   } = useBoxStore();
 
+  // Get eligibility from main scene (stable during preview operations)
+  // This shared hook ensures consistent behavior across 2D and 3D views
+  const { corners: mainSceneCorners } = usePanelEligibility(sketchPanelId ?? undefined);
+
   // Editor context for operations and drafts
   const {
     mode: editorMode,
@@ -617,24 +621,66 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   }, [panel, faces, config.materialThickness]);
 
   // Detect corners for potential finishing
-  // Use panel body dimensions + extensions to place corners at actual panel corners
-  // (not affected by fillet preview, but includes extensions)
+  // Uses usePanelEligibility hook which reads from MAIN scene (not preview)
+  // This ensures corners remain selectable even after fillets are applied to preview
   const detectedCorners = useMemo((): DetectedCorner[] => {
     if (!panel) return [];
 
-    // Get edge extensions (default to 0 if not set)
-    const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
+    // mainSceneCorners comes from usePanelEligibility hook (stable during operations)
+    // Fall back to panel's own eligibility data if hook returns empty
+    const allCornerEligibility = mainSceneCorners.length > 0
+      ? mainSceneCorners
+      : panel.allCornerEligibility ?? [];
 
-    // Calculate corner positions including extensions
+    if (allCornerEligibility.length > 0) {
+      // Convert AllCornerEligibility to DetectedCorner format
+      // We need to compute edge lengths from the outline points
+      const outlinePoints = panel.outline.points;
+
+      return allCornerEligibility.map(corner => {
+        // Compute edge lengths for this corner
+        let incomingEdgeLength = 0;
+        let outgoingEdgeLength = 0;
+
+        if (corner.location === 'outline') {
+          const n = outlinePoints.length;
+          const idx = corner.pathIndex;
+          const prevIdx = (idx - 1 + n) % n;
+          const nextIdx = (idx + 1) % n;
+
+          const prev = outlinePoints[prevIdx];
+          const curr = outlinePoints[idx];
+          const next = outlinePoints[nextIdx];
+
+          incomingEdgeLength = Math.sqrt(
+            Math.pow(curr.x - prev.x, 2) + Math.pow(curr.y - prev.y, 2)
+          );
+          outgoingEdgeLength = Math.sqrt(
+            Math.pow(next.x - curr.x, 2) + Math.pow(next.y - curr.y, 2)
+          );
+        }
+
+        return {
+          id: corner.id,
+          index: corner.pathIndex,
+          position: { x: corner.position.x, y: corner.position.y },
+          angle: corner.angle,
+          eligible: corner.eligible,
+          maxRadius: corner.maxRadius,
+          incomingEdgeLength,
+          outgoingEdgeLength,
+        };
+      });
+    }
+
+    // Fallback to basic 4-corner detection if allCornerEligibility not available
+    const ext = panel.edgeExtensions ?? { top: 0, bottom: 0, left: 0, right: 0 };
     const halfW = panel.width / 2;
     const halfH = panel.height / 2;
-
-    // Corners are at the extended panel edges
     const leftX = -halfW - ext.left;
     const rightX = halfW + ext.right;
     const topY = halfH + ext.top;
     const bottomY = -halfH - ext.bottom;
-
     const totalWidth = panel.width + ext.left + ext.right;
     const totalHeight = panel.height + ext.top + ext.bottom;
     const maxRadius = Math.min(totalWidth, totalHeight) * 0.3;
@@ -681,7 +727,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         outgoingEdgeLength: totalWidth,
       },
     ];
-  }, [panel]);
+  }, [panel, mainSceneCorners]);
 
   // Calculate adjacent panel side profiles for visualization
   // Shows cross-section of adjacent panels at each edge
@@ -2816,16 +2862,29 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         >
           <PaletteCheckboxGroup label="Select Corners">
             {detectedCorners.filter(c => c.eligible).map(corner => {
+              // Generate label for corner - handle both old (corner-tl) and new (outline:5) formats
               const cornerLabels: Record<string, string> = {
                 'corner-tl': 'Top Left',
                 'corner-tr': 'Top Right',
                 'corner-bl': 'Bottom Left',
                 'corner-br': 'Bottom Right',
               };
+              let label = cornerLabels[corner.id];
+              if (!label) {
+                // New all-corners format: "outline:N" or "hole:holeId:N"
+                if (corner.id.startsWith('outline:')) {
+                  label = `Outline #${corner.id.split(':')[1]}`;
+                } else if (corner.id.startsWith('hole:')) {
+                  const parts = corner.id.split(':');
+                  label = `Hole ${parts[1]} #${parts[2]}`;
+                } else {
+                  label = corner.id;
+                }
+              }
               return (
                 <PaletteCheckbox
                   key={corner.id}
-                  label={cornerLabels[corner.id] || corner.id}
+                  label={label}
                   checked={selectedCornerIds.has(corner.id)}
                   onChange={() => {
                     // Toggle corner selection

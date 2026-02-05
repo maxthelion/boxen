@@ -34,6 +34,9 @@ import {
   CornerFillet,
   CornerEligibility,
   ALL_CORNERS,
+  AllCornerFillet,
+  AllCornerId,
+  AllCornerEligibility,
   getCornerEdges,
   CustomEdgePath,
   EdgePathPoint,  // Used in applyCustomEdgePathToOutline for path point mapping
@@ -42,6 +45,12 @@ import {
   CircleCutout,
   PathCutout,
 } from '../types';
+import {
+  detectAllPanelCorners,
+  computeAllCornerEligibility,
+  ForbiddenArea,
+  CornerDetectionConfig,
+} from '../../utils/allCorners';
 import { generateFingerJointPathV2, Point } from '../../utils/fingerJoints';
 
 export interface PanelDimensions {
@@ -72,6 +81,7 @@ export abstract class BasePanel extends BaseNode {
   // Input properties
   protected _edgeExtensions: EdgeExtensions = { top: 0, bottom: 0, left: 0, right: 0 };
   protected _cornerFillets: Map<CornerKey, number> = new Map();  // corner -> radius
+  protected _allCornerFillets: Map<AllCornerId, number> = new Map();  // all-corner -> radius
   protected _customEdgePaths: Map<EdgePosition, CustomEdgePath> = new Map();  // edge -> custom path
   protected _cutouts: Map<string, Cutout> = new Map();  // cutoutId -> cutout
   protected _visible: boolean = true;
@@ -151,6 +161,48 @@ export abstract class BasePanel extends BaseNode {
           this._cornerFillets.delete(corner);
         } else {
           this._cornerFillets.set(corner, radius);
+        }
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.markDirty();
+    }
+  }
+
+  // All-corner fillet accessors (for any corner in panel geometry)
+  get allCornerFillets(): AllCornerFillet[] {
+    return Array.from(this._allCornerFillets.entries()).map(([cornerId, radius]) => ({
+      cornerId,
+      radius,
+    }));
+  }
+
+  getAllCornerFillet(cornerId: AllCornerId): number {
+    return this._allCornerFillets.get(cornerId) ?? 0;
+  }
+
+  setAllCornerFillet(cornerId: AllCornerId, radius: number): void {
+    const currentRadius = this._allCornerFillets.get(cornerId) ?? 0;
+    if (currentRadius !== radius) {
+      if (radius <= 0) {
+        this._allCornerFillets.delete(cornerId);
+      } else {
+        this._allCornerFillets.set(cornerId, radius);
+      }
+      this.markDirty();
+    }
+  }
+
+  setAllCornerFillets(fillets: AllCornerFillet[]): void {
+    let changed = false;
+    for (const { cornerId, radius } of fillets) {
+      const currentRadius = this._allCornerFillets.get(cornerId) ?? 0;
+      if (currentRadius !== radius) {
+        if (radius <= 0) {
+          this._allCornerFillets.delete(cornerId);
+        } else {
+          this._allCornerFillets.set(cornerId, radius);
         }
         changed = true;
       }
@@ -335,14 +387,134 @@ export abstract class BasePanel extends BaseNode {
   }
 
   /**
+   * Get all-corner eligibility for any corner in panel geometry.
+   * This includes outline corners and hole corners.
+   */
+  getAllCornerEligibility(): AllCornerEligibility[] {
+    const outline = this.getOutline();
+    const material = this.getMaterial();
+    const dims = this.getDimensions();
+
+    // Detect all corners in the panel geometry
+    const config: CornerDetectionConfig = {
+      materialThickness: material.thickness,
+      minEdgeLength: 2, // Minimum edge length to consider
+    };
+
+    // Extract holes from the outline to pass to corner detection
+    // Each hole contributes corners that may be eligible for filleting
+    const holes = (outline.holes ?? []).map((hole, index) => ({
+      id: hole.id ?? `hole-${index}`,
+      path: hole.path,
+    }));
+
+    const corners = detectAllPanelCorners(
+      outline.points,
+      holes,
+      config
+    );
+
+    // Build forbidden areas from joint regions
+    // For now, we compute forbidden areas based on the edge statuses
+    const edgeStatuses = this.computeEdgeStatuses();
+    const forbiddenAreas: ForbiddenArea[] = [];
+
+    for (const status of edgeStatuses) {
+      // Both 'locked' (male joints/tabs) and 'outward-only' (female joints/slots) edges have finger joints
+      // Corners at edges with any type of finger joints cannot be filleted
+      if (status.status === 'locked' || status.status === 'outward-only') {
+        // Edges with finger joints - mark the entire edge region as forbidden
+        // Convert edge position to bounds
+        let bounds: { minX: number; maxX: number; minY: number; maxY: number };
+        const w = dims.width / 2;
+        const h = dims.height / 2;
+        const mt = material.thickness;
+
+        switch (status.position) {
+          case 'top':
+            bounds = { minX: -w, maxX: w, minY: h - mt, maxY: h };
+            break;
+          case 'bottom':
+            bounds = { minX: -w, maxX: w, minY: -h, maxY: -h + mt };
+            break;
+          case 'left':
+            bounds = { minX: -w, maxX: -w + mt, minY: -h, maxY: h };
+            break;
+          case 'right':
+            bounds = { minX: w - mt, maxX: w, minY: -h, maxY: h };
+            break;
+        }
+
+        forbiddenAreas.push({
+          type: 'finger-joint',
+          bounds,
+        });
+      }
+    }
+
+    // Compute eligibility for each corner
+    return computeAllCornerEligibility(corners, forbiddenAreas, config);
+  }
+
+  /**
    * Compute corner eligibility for fillet operations.
-   * A corner is eligible if both adjacent edges have "free length" > 0.
-   * Free length = this panel's extension - adjacent panel's extension (if any).
+   *
+   * A corner is eligible for filleting only if BOTH adjacent edges are "safe"
+   * (no finger joints at that corner location).
+   *
+   * Edge types and safety:
+   * - Joint edge (male or female): NOT safe - has finger joints
+   * - Open edge (adjacent face disabled): safe - no joints, straight edge
+   * - Extended edge: safe in the extension region (beyond finger joint area)
+   *
+   * A joint edge can still contribute to an eligible corner IF the panel has
+   * enough extension on that edge to create "free length" beyond the joint.
    */
   protected computeCornerEligibility(): CornerEligibility[] {
     const edgeStatuses = this.computeEdgeStatuses();
     const extensions = this._edgeExtensions;
     const MIN_FILLET_RADIUS = 1; // mm
+
+    // Get panel dimensions for calculating max fillet radius on open edges
+    const dims = this.getDimensions();
+
+    /**
+     * Check if an edge is "safe" for filleting at this corner.
+     * An edge is safe if:
+     * 1. It has no finger joints (status === 'unlocked'), OR
+     * 2. It has extension that provides free length beyond the joint area
+     */
+    const isEdgeSafe = (
+      edgeStatus: EdgeStatusInfo | undefined,
+      thisExtension: number,
+      adjacentExtension: number,
+      edgePosition: EdgePosition
+    ): { safe: boolean; freeLength: number } => {
+      // If edge has no joints (open face), it's safe
+      if (edgeStatus?.status === 'unlocked') {
+        // For unlocked edges (open faces), the corner is safe regardless of extension
+        // If the edge has an extension, use that as the free length
+        // Otherwise, use a portion of the edge length as the free length
+        if (thisExtension > 0) {
+          // Use the extension amount as the free length
+          return { safe: true, freeLength: thisExtension };
+        }
+        // No extension - use a conservative estimate based on panel dimensions
+        const edgeLength = edgePosition === 'top' || edgePosition === 'bottom'
+          ? dims.width
+          : dims.height;
+        const freeLength = edgeLength / 3;
+        return { safe: true, freeLength };
+      }
+
+      // Edge has finger joints (either 'locked' = male, or 'outward-only' = female)
+      // It can only be safe if there's enough extension to create free length
+      // Free length = this extension - adjacent panel's extension
+      const freeLength = Math.max(0, thisExtension - adjacentExtension);
+
+      // For joint edges, we need positive free length to be safe at this corner
+      return { safe: freeLength > 0, freeLength };
+    };
 
     return ALL_CORNERS.map((corner): CornerEligibility => {
       const [edge1, edge2] = getCornerEdges(corner);
@@ -351,29 +523,48 @@ export abstract class BasePanel extends BaseNode {
       const status1 = edgeStatuses.find(s => s.position === edge1);
       const status2 = edgeStatuses.find(s => s.position === edge2);
 
-      // Locked edges (male joints) cannot have filleted corners
-      if (status1?.status === 'locked' || status2?.status === 'locked') {
+      // Early exit: if either edge has joints (locked or outward-only), corner is ineligible
+      // Locked = male joints (tabs out), outward-only = female joints (slots)
+      // Corners at edges with finger joints cannot be filleted
+      const edge1HasJoints = status1?.status === 'locked' || status1?.status === 'outward-only';
+      const edge2HasJoints = status2?.status === 'locked' || status2?.status === 'outward-only';
+      if (edge1HasJoints || edge2HasJoints) {
         return {
           corner,
           eligible: false,
-          reason: 'no-free-length',
+          reason: 'has-joints',
           maxRadius: 0,
           freeLength1: 0,
           freeLength2: 0,
         };
       }
 
-      // Calculate free length for each edge at this corner
-      // Free length = this extension - adjacent panel's extension
+      // Get extensions
       const thisExt1 = extensions[edge1];
       const thisExt2 = extensions[edge2];
       const adjExt1 = this.getAdjacentPanelExtension(edge1);
       const adjExt2 = this.getAdjacentPanelExtension(edge2);
 
-      const freeLength1 = Math.max(0, thisExt1 - adjExt1);
-      const freeLength2 = Math.max(0, thisExt2 - adjExt2);
+      // Check if each edge is safe for filleting
+      const edge1Safety = isEdgeSafe(status1, thisExt1, adjExt1, edge1);
+      const edge2Safety = isEdgeSafe(status2, thisExt2, adjExt2, edge2);
 
-      // Max radius is the minimum of the two free lengths
+      const freeLength1 = edge1Safety.freeLength;
+      const freeLength2 = edge2Safety.freeLength;
+
+      // Corner is only eligible if BOTH edges are safe
+      if (!edge1Safety.safe || !edge2Safety.safe) {
+        return {
+          corner,
+          eligible: false,
+          reason: 'no-free-length',
+          maxRadius: 0,
+          freeLength1,
+          freeLength2,
+        };
+      }
+
+      // Both edges are safe - max radius is minimum of free lengths
       const maxRadius = Math.min(freeLength1, freeLength2);
 
       // Corner is eligible if max radius >= minimum fillet radius
@@ -679,9 +870,14 @@ export abstract class BasePanel extends BaseNode {
       }
     }
 
-    // Apply corner fillets as final post-processing
+    // Apply corner fillets as final post-processing (old 4-corner system)
     if (this._cornerFillets.size > 0) {
       this.applyFilletsToOutline(points, extendedCorners);
+    }
+
+    // Apply all-corner fillets (new all-corners system)
+    if (this._allCornerFillets.size > 0) {
+      this.applyAllCornerFilletsToOutline(points);
     }
 
     // Add cutouts as holes
@@ -953,6 +1149,79 @@ export abstract class BasePanel extends BaseNode {
     }
 
     return arcPoints;
+  }
+
+  /**
+   * Apply all-corner fillets to the outline.
+   * The all-corners system uses path indices directly (e.g., 'outline:5')
+   * to identify corners, which is simpler than the old 4-corner system.
+   *
+   * NOTE: This must process corners in REVERSE index order to avoid
+   * index shifting issues when splicing arc points into the array.
+   */
+  protected applyAllCornerFilletsToOutline(points: Point2D[]): void {
+    // Collect corners to process with their indices
+    const cornersToProcess: Array<{ pathIndex: number; radius: number }> = [];
+
+    for (const [cornerId, radius] of this._allCornerFillets) {
+      if (radius <= 0) continue;
+
+      // Parse cornerId: 'outline:5' -> pathIndex 5
+      const parts = cornerId.split(':');
+      if (parts[0] !== 'outline') continue; // Only outline corners supported for now
+
+      const pathIndex = parseInt(parts[1], 10);
+      if (isNaN(pathIndex) || pathIndex < 0 || pathIndex >= points.length) continue;
+
+      cornersToProcess.push({ pathIndex, radius });
+    }
+
+    // Sort by descending path index to avoid index shifting issues
+    cornersToProcess.sort((a, b) => b.pathIndex - a.pathIndex);
+
+    // Process each corner
+    for (const { pathIndex, radius } of cornersToProcess) {
+      // Get corner and adjacent points
+      const prevIdx = (pathIndex - 1 + points.length) % points.length;
+      const nextIdx = (pathIndex + 1) % points.length;
+
+      const prevPt = points[prevIdx];
+      const cornerPt = points[pathIndex];
+      const nextPt = points[nextIdx];
+
+      // Calculate vectors from corner to adjacent points
+      const toPrev = { x: prevPt.x - cornerPt.x, y: prevPt.y - cornerPt.y };
+      const toNext = { x: nextPt.x - cornerPt.x, y: nextPt.y - cornerPt.y };
+
+      // Normalize vectors
+      const lenPrev = Math.sqrt(toPrev.x * toPrev.x + toPrev.y * toPrev.y);
+      const lenNext = Math.sqrt(toNext.x * toNext.x + toNext.y * toNext.y);
+
+      if (lenPrev < 0.001 || lenNext < 0.001) continue;
+
+      const normPrev = { x: toPrev.x / lenPrev, y: toPrev.y / lenPrev };
+      const normNext = { x: toNext.x / lenNext, y: toNext.y / lenNext };
+
+      // Clamp radius to available edge lengths
+      const effectiveRadius = Math.min(radius, lenPrev, lenNext);
+      if (effectiveRadius < 0.5) continue;
+
+      // Calculate arc start and end points
+      const arcStart = {
+        x: cornerPt.x + normPrev.x * effectiveRadius,
+        y: cornerPt.y + normPrev.y * effectiveRadius,
+      };
+      const arcEnd = {
+        x: cornerPt.x + normNext.x * effectiveRadius,
+        y: cornerPt.y + normNext.y * effectiveRadius,
+      };
+
+      // Generate arc points
+      const arcPoints = this.generateFilletArc(cornerPt, arcStart, arcEnd, effectiveRadius);
+
+      // Replace the corner point with arc points
+      points.splice(pathIndex, 1, ...arcPoints);
+    }
   }
 
   /**
@@ -1791,6 +2060,7 @@ export abstract class BasePanel extends BaseNode {
       props: {
         edgeExtensions: this.edgeExtensions,
         cornerFillets: this.cornerFillets,
+        allCornerFillets: this.allCornerFillets,
         customEdgePaths: this.customEdgePaths,
         cutouts: this.cutouts,
         visible: this._visible,
@@ -1805,6 +2075,7 @@ export abstract class BasePanel extends BaseNode {
         edgeAnchors: this.getEdgeAnchors(),
         edgeStatuses: this.computeEdgeStatuses(),
         cornerEligibility: this.getCornerEligibility(),
+        allCornerEligibility: this.getAllCornerEligibility(),
       },
     };
   }

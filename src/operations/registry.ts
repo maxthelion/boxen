@@ -430,20 +430,36 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     shortcut: 'c',
     createPreviewAction: (params) => {
       const { corners, radius, type } = params as {
-        corners?: string[];  // Corner IDs like "corner-tl", "corner-br"
+        corners?: string[];  // Corner IDs - either "outline:N" (new) or "corner-tl" (legacy)
         radius?: number;
         type?: 'chamfer' | 'fillet';
       };
 
       if (!corners?.length || radius === undefined || radius <= 0) return null;
 
-      // For 2D view, we use the same fillet batch action
       // Panel ID comes from the sketch context (single panel being edited)
       const { panelId } = params as { panelId?: string };
       if (!panelId) return null;
 
-      // Convert 2D corner IDs to fillet objects
-      // Corner IDs are like "corner-tl" -> need to map to "left:top" format
+      // Check if using new all-corners format (outline:N, hole:holeId:N) or legacy format (corner-tl)
+      const isAllCornersFormat = corners.some(id => id.startsWith('outline:') || id.startsWith('hole:'));
+
+      if (isAllCornersFormat) {
+        // New all-corners system - use SET_ALL_CORNER_FILLETS_BATCH
+        const fillets = corners.map(cornerId => ({
+          panelId,
+          cornerId,
+          radius,
+        }));
+
+        return {
+          type: 'SET_ALL_CORNER_FILLETS_BATCH',
+          targetId: 'main-assembly',
+          payload: { fillets },
+        };
+      }
+
+      // Legacy format - convert corner-tl to left:top format
       const cornerMap: Record<string, 'bottom:left' | 'bottom:right' | 'left:top' | 'right:top'> = {
         'corner-tl': 'left:top',
         'corner-tr': 'right:top',
@@ -481,22 +497,29 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     shortcut: 'f',
     createPreviewAction: (params) => {
       const { corners, radius } = params as {
-        corners?: string[];  // Format: "panelId:corner" e.g., "uuid:left:top"
+        corners?: string[];  // Format: "panelId:cornerId" e.g., "uuid:outline:5"
         radius?: number;
       };
 
       if (!corners?.length || radius === undefined || radius <= 0) return null;
 
       // Convert corner keys to fillet objects
+      // Corner key format: "panelId:cornerId" where cornerId is "outline:index" or "hole:holeId:index"
       const fillets = corners.map(cornerKey => {
-        const parts = cornerKey.split(':');
-        const panelId = parts[0];
-        const corner = `${parts[1]}:${parts[2]}` as 'bottom:left' | 'bottom:right' | 'left:top' | 'right:top';
-        return { panelId, corner, radius };
-      });
+        // Find the first colon to separate panelId from cornerId
+        const firstColonIndex = cornerKey.indexOf(':');
+        if (firstColonIndex === -1) return null;
+
+        const panelId = cornerKey.slice(0, firstColonIndex);
+        const cornerId = cornerKey.slice(firstColonIndex + 1);
+
+        return { panelId, cornerId, radius };
+      }).filter((f): f is { panelId: string; cornerId: string; radius: number } => f !== null);
+
+      if (fillets.length === 0) return null;
 
       return {
-        type: 'SET_CORNER_FILLETS_BATCH',
+        type: 'SET_ALL_CORNER_FILLETS_BATCH',
         targetId: 'main-assembly',
         payload: { fillets },
       };
