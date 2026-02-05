@@ -1,8 +1,9 @@
 import { StateCreator } from 'zustand';
 import { Void, BoxConfig, Face, EdgeExtensions, defaultEdgeExtensions, PanelCollection } from '../../types';
-import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState } from '../../utils/urlState';
+import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState, DeserializedPanelOps } from '../../utils/urlState';
 import { generatePanelCollection } from '../../utils/panelGenerator';
 import { syncStoreToEngine, getEngine, getEngineSnapshot, resetEngine } from '../../engine';
+import type { AssemblySnapshot } from '../../engine/types';
 
 // =============================================================================
 // URL Slice - Save/load state from URL for sharing

@@ -1,6 +1,6 @@
 import { BoxConfig, Face, Void, AssemblyConfig, defaultAssemblyConfig, EdgeExtensions, SubAssembly, FaceOffsets, defaultFaceOffsets } from '../types';
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
-import type { AssemblySnapshot, CornerFillet, CornerKey, AllCornerFillet, AllCornerId, Cutout } from '../engine/types';
+import type { AssemblySnapshot, CornerFillet, CornerKey, AllCornerFillet, AllCornerId, Cutout, PanelSnapshot, FacePanelSnapshot, DividerPanelSnapshot } from '../engine/types';
 
 // Compact serialization format for URL storage
 interface SerializedState {
@@ -17,6 +17,7 @@ interface SerializedState {
   f: number;  // Faces bitmap (6 bits, one per face)
   r: SerializedVoid;  // Root void
   e?: Record<string, [number, number, number, number]>;  // Edge extensions by panel ID [top, bottom, left, right]
+  po?: Record<string, SerializedPanelOps>;  // Panel operations (fillets, cutouts) by panel ID
 }
 
 interface SerializedAssembly {
@@ -354,11 +355,29 @@ const serializeCutout = (cutout: Cutout): SerializedCutout => {
 };
 
 /**
+ * Get a stable key for a panel snapshot that survives engine restarts.
+ * Face panels are keyed by faceId; divider panels by voidId:axis:position.
+ */
+export const getPanelStableKey = (panel: PanelSnapshot): string => {
+  if (panel.kind === 'face-panel') {
+    const facePanel = panel as FacePanelSnapshot;
+    const prefix = facePanel.props.assemblyId
+      ? `sub:${facePanel.props.assemblyId}:face:${facePanel.props.faceId}`
+      : `face:${facePanel.props.faceId}`;
+    return prefix;
+  } else {
+    const dividerPanel = panel as DividerPanelSnapshot;
+    return `divider:${dividerPanel.props.voidId}:${dividerPanel.props.axis}:${r(dividerPanel.props.position)}`;
+  }
+};
+
+/**
  * Serialize panel operations from assembly snapshot.
  * Extracts cornerFillets, allCornerFillets, and cutouts from each panel.
+ * Uses stable source-based keys (not UUIDs) so operations survive engine restarts.
  *
  * @param assemblySnapshot - The assembly snapshot containing panels
- * @returns Record<panelId, SerializedPanelOps> or undefined if no operations
+ * @returns Record<stableKey, SerializedPanelOps> or undefined if no operations
  */
 export const serializePanelOperations = (
   assemblySnapshot: AssemblySnapshot
@@ -397,7 +416,8 @@ export const serializePanelOperations = (
     }
 
     if (hasOps) {
-      result[panel.id] = ops;
+      const stableKey = getPanelStableKey(panel);
+      result[stableKey] = ops;
       hasAny = true;
     }
   }
@@ -517,7 +537,54 @@ export interface ProjectState {
   faces: Face[];
   rootVoid: Void;
   edgeExtensions: Record<string, EdgeExtensions>;
+  panelOperations?: Record<string, DeserializedPanelOps>;
 }
+
+/**
+ * Re-serialize deserialized panel operations back to compact format.
+ * Used by serializeProject when ProjectState includes panelOperations.
+ */
+const reserializePanelOps = (
+  ops: Record<string, DeserializedPanelOps>
+): Record<string, SerializedPanelOps> | undefined => {
+  const result: Record<string, SerializedPanelOps> = {};
+  let hasAny = false;
+
+  for (const [panelId, panelOps] of Object.entries(ops)) {
+    const serialized: SerializedPanelOps = {};
+    let hasOps = false;
+
+    if (panelOps.cornerFillets && panelOps.cornerFillets.length > 0) {
+      const cf: Record<string, number> = {};
+      for (const fillet of panelOps.cornerFillets) {
+        cf[fillet.corner] = r(fillet.radius);
+      }
+      serialized.cf = cf;
+      hasOps = true;
+    }
+
+    if (panelOps.allCornerFillets && panelOps.allCornerFillets.length > 0) {
+      const acf: Record<string, number> = {};
+      for (const fillet of panelOps.allCornerFillets) {
+        acf[fillet.cornerId] = r(fillet.radius);
+      }
+      serialized.acf = acf;
+      hasOps = true;
+    }
+
+    if (panelOps.cutouts && panelOps.cutouts.length > 0) {
+      serialized.co = panelOps.cutouts.map(serializeCutout);
+      hasOps = true;
+    }
+
+    if (hasOps) {
+      result[panelId] = serialized;
+      hasAny = true;
+    }
+  }
+
+  return hasAny ? result : undefined;
+};
 
 export const serializeProject = (state: ProjectState): string => {
   const serialized: SerializedState = {
@@ -534,6 +601,7 @@ export const serializeProject = (state: ProjectState): string => {
     f: serializeFaces(state.faces),
     r: serializeVoid(state.rootVoid),
     e: serializeExtensions(state.edgeExtensions),
+    po: state.panelOperations ? reserializePanelOps(state.panelOperations) : undefined,
   };
 
   // Convert to JSON and compress with lz-string
@@ -570,11 +638,14 @@ export const deserializeProject = (encoded: string): ProjectState | null => {
       assembly: deserializeAssembly(serialized.c.a),
     };
 
+    const panelOperations = deserializePanelOperations(serialized.po);
+
     return {
       config,
       faces: deserializeFaces(serialized.f),
       rootVoid: deserializeVoid(serialized.r),
       edgeExtensions: deserializeExtensions(serialized.e),
+      panelOperations: Object.keys(panelOperations).length > 0 ? panelOperations : undefined,
     };
   } catch (e) {
     console.error('Failed to deserialize project:', e);
