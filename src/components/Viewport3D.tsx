@@ -27,7 +27,7 @@ import { FilletAllCornersPalette, PanelAllCornerGroup } from './FilletAllCorners
 import { IneligibilityTooltip } from './IneligibilityTooltip';
 import { useBoxStore } from '../store/useBoxStore';
 import { EdgePosition, EdgeStatus } from '../types';
-import { useEnginePanels, getEngine } from '../engine';
+import { useEnginePanels, useEngineMainPanels, getEngine } from '../engine';
 import { AllCornerId } from '../engine/types';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
@@ -40,6 +40,8 @@ export interface Viewport3DHandle {
 export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Model state from engine
   const panelCollection = useEnginePanels();
+  // Main scene panels for eligibility (doesn't change during preview)
+  const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
   const clearSelection = useBoxStore((state) => state.clearSelection);
@@ -444,9 +446,11 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const selectedCornersArray = useMemo(() => Array.from(selectedAllCornerIds), [selectedAllCornerIds]);
 
   // Build panel all-corner groups for the FilletAllCornersPalette
+  // IMPORTANT: Eligibility comes from MAIN scene (not preview) so corners remain
+  // selectable throughout the operation even after fillets are applied to preview.
   // This uses allCornerEligibility which includes all corners in outline + holes
   const panelAllCornerGroups = useMemo((): PanelAllCornerGroup[] => {
-    if (activeTool !== 'fillet' || !panelCollection) {
+    if (activeTool !== 'fillet' || !panelCollection || !mainPanelCollection) {
       return [];
     }
 
@@ -461,8 +465,9 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     }
 
     // If no corners selected, show all panels that have eligible corners
+    // Use MAIN panels for eligibility check (stable during operation)
     if (panelIdsWithCorners.size === 0) {
-      for (const panel of panelCollection.panels) {
+      for (const panel of mainPanelCollection.panels) {
         if (panel.allCornerEligibility && panel.allCornerEligibility.some(c => c.eligible)) {
           panelIdsWithCorners.add(panel.id);
         }
@@ -477,8 +482,10 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     const groups: PanelAllCornerGroup[] = [];
 
     for (const panelId of panelIdsWithCorners) {
+      // Get panel from preview for geometry/name, but eligibility from main
       const panel = panelCollection.panels.find(p => p.id === panelId);
-      if (!panel || !panel.allCornerEligibility) continue;
+      const mainPanel = mainPanelCollection.panels.find(p => p.id === panelId);
+      if (!panel || !mainPanel?.allCornerEligibility) continue;
 
       // Get panel name from source
       let panelName: string;
@@ -495,7 +502,8 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
       }
 
       // Convert AllCornerEligibility to AllCornerInfo
-      const corners = panel.allCornerEligibility.map(eligibility => {
+      // Use MAIN panel eligibility (stable during operation)
+      const corners = mainPanel.allCornerEligibility.map(eligibility => {
         const cornerKey = `${panelId}:${eligibility.id}`;
         const isSelected = selectedAllCornerIds.has(cornerKey);
 
@@ -514,7 +522,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     }
 
     return groups;
-  }, [activeTool, panelCollection, selectedAllCornerIds]);
+  }, [activeTool, panelCollection, mainPanelCollection, selectedAllCornerIds]);
 
   // Calculate max radius for all-corners fillet (from panelAllCornerGroups)
   const filletAllMaxRadius = useMemo(() => {

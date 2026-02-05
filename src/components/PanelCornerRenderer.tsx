@@ -8,7 +8,7 @@
 import React, { useMemo, useCallback } from 'react';
 import * as THREE from 'three';
 import { useBoxStore } from '../store/useBoxStore';
-import { useEnginePanels, useEngineConfig } from '../engine';
+import { useEnginePanels, useEngineMainPanels, useEngineConfig } from '../engine';
 import { PanelPath } from '../types';
 import { AllCornerId, AllCornerEligibility } from '../engine/types';
 import { useColors } from '../hooks/useColors';
@@ -168,6 +168,8 @@ interface PanelCornerRendererProps {
  */
 export const PanelCornerRenderer: React.FC<PanelCornerRendererProps> = ({ scale }) => {
   const panelCollection = useEnginePanels();
+  // Use main scene panels for eligibility (stable during preview operations)
+  const mainPanelCollection = useEngineMainPanels();
   const config = useEngineConfig();
 
   const activeTool = useBoxStore((state) => state.activeTool);
@@ -203,7 +205,7 @@ export const PanelCornerRenderer: React.FC<PanelCornerRendererProps> = ({ scale 
   }, [setHoveredCorner]);
 
   // Only render when fillet tool is active
-  if (activeTool !== 'fillet' || !panelCollection || !config) {
+  if (activeTool !== 'fillet' || !panelCollection || !mainPanelCollection || !config) {
     return null;
   }
 
@@ -212,9 +214,11 @@ export const PanelCornerRenderer: React.FC<PanelCornerRendererProps> = ({ scale 
       {panelCollection.panels.map((panel: PanelPath) => {
         if (!panel.visible) return null;
 
-        // Get ALL corner eligibility from the panel (computed by engine)
-        // This includes corners from outline AND all holes
-        const allCornerEligibility = panel.allCornerEligibility ?? [];
+        // Get eligibility from MAIN scene (not preview) so corners remain visible
+        // throughout the operation even after fillets are applied to the preview.
+        // The main scene is stable during the operation.
+        const mainPanel = mainPanelCollection.panels.find(p => p.id === panel.id);
+        const allCornerEligibility = mainPanel?.allCornerEligibility ?? [];
 
         // Only render ELIGIBLE corners - ineligible corners (e.g., from finger joints)
         // are not shown to reduce visual clutter. This follows the design principle

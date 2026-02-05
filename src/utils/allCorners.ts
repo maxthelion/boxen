@@ -137,29 +137,51 @@ export function calculateMaxFilletRadius(
   outgoingEdgeLength: number,
   angle: number
 ): number {
+  // Guard: minimum edge length to avoid degenerate cases
+  const minEdgeLength = 0.1;
+  const safeIncoming = Math.max(Math.abs(incomingEdgeLength), minEdgeLength);
+  const safeOutgoing = Math.max(Math.abs(outgoingEdgeLength), minEdgeLength);
+
+  // Normalize angle to [0, 2*PI] range
+  let normalizedAngle = angle % (2 * Math.PI);
+  if (normalizedAngle < 0) normalizedAngle += 2 * Math.PI;
+
+  // Guard: clamp angle to avoid singularities at 0, PI, and 2*PI
+  // These would cause tan to be 0 or infinite
+  const minAngle = 0.01; // ~0.5 degrees
+  const maxAngle = Math.PI - 0.01;
+  const safeAngle = Math.max(minAngle, Math.min(normalizedAngle, maxAngle));
+
   // The interior angle for fillet calculation
   // For a 90° corner, the exterior angle is 90°, so we use PI - angle for convex corners
-  const exteriorAngle = Math.PI - angle;
+  const exteriorAngle = Math.PI - safeAngle;
 
-  // Handle edge cases
-  if (Math.abs(exteriorAngle) < 0.001) {
-    return Infinity; // Nearly straight - no limit
+  // Handle nearly straight corners (exterior angle close to 0)
+  if (Math.abs(exteriorAngle) < 0.01) {
+    // Nearly straight line - return a large but finite value
+    // (infinite would cause issues downstream)
+    return 1000;
   }
 
   const halfAngle = Math.abs(exteriorAngle) / 2;
   const tanHalfAngle = Math.tan(halfAngle);
 
-  if (tanHalfAngle < 0.001) {
-    return Infinity; // Very small angle
+  // Guard: avoid division by very small tan values
+  if (!Number.isFinite(tanHalfAngle) || tanHalfAngle <= 0.001) {
+    // Return 0 for angles where fillet cannot be computed
+    return 0;
   }
 
-  const minEdge = Math.min(incomingEdgeLength, outgoingEdgeLength);
+  const minEdge = Math.min(safeIncoming, safeOutgoing);
 
   // Use a safety factor to ensure fillets don't consume the entire edge
   // This leaves room for adjacent operations and prevents edge cases
   const safetyFactor = 0.8;
 
-  return (minEdge * safetyFactor) / tanHalfAngle;
+  const result = (minEdge * safetyFactor) / tanHalfAngle;
+
+  // Guard: ensure finite positive result
+  return Number.isFinite(result) && result > 0 ? result : 0;
 }
 
 /**

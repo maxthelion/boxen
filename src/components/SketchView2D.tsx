@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { useBoxStore, getAllSubdivisions } from '../store/useBoxStore';
-import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels, getEngine, notifyEngineStateChanged } from '../engine';
+import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels, usePanelEligibility, getEngine, notifyEngineStateChanged } from '../engine';
 import { useEditor } from '../editor';
 import { PathPoint, FaceId, Face } from '../types';
 import { getFaceEdgeStatuses, getDividerEdgeStatuses, EdgeStatusInfo } from '../utils/panelGenerator';
@@ -404,6 +404,10 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     clearCornerSelection,
   } = useBoxStore();
 
+  // Get eligibility from main scene (stable during preview operations)
+  // This shared hook ensures consistent behavior across 2D and 3D views
+  const { corners: mainSceneCorners } = usePanelEligibility(sketchPanelId ?? undefined);
+
   // Editor context for operations and drafts
   const {
     mode: editorMode,
@@ -617,12 +621,16 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   }, [panel, faces, config.materialThickness]);
 
   // Detect corners for potential finishing
-  // Use engine's allCornerEligibility for accurate corner detection including holes
+  // Uses usePanelEligibility hook which reads from MAIN scene (not preview)
+  // This ensures corners remain selectable even after fillets are applied to preview
   const detectedCorners = useMemo((): DetectedCorner[] => {
     if (!panel) return [];
 
-    // Use allCornerEligibility from engine if available
-    const allCornerEligibility = panel.allCornerEligibility ?? [];
+    // mainSceneCorners comes from usePanelEligibility hook (stable during operations)
+    // Fall back to panel's own eligibility data if hook returns empty
+    const allCornerEligibility = mainSceneCorners.length > 0
+      ? mainSceneCorners
+      : panel.allCornerEligibility ?? [];
 
     if (allCornerEligibility.length > 0) {
       // Convert AllCornerEligibility to DetectedCorner format
@@ -719,7 +727,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         outgoingEdgeLength: totalWidth,
       },
     ];
-  }, [panel]);
+  }, [panel, mainSceneCorners]);
 
   // Calculate adjacent panel side profiles for visualization
   // Shows cross-section of adjacent panels at each edge

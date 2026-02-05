@@ -430,20 +430,36 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     shortcut: 'c',
     createPreviewAction: (params) => {
       const { corners, radius, type } = params as {
-        corners?: string[];  // Corner IDs like "corner-tl", "corner-br"
+        corners?: string[];  // Corner IDs - either "outline:N" (new) or "corner-tl" (legacy)
         radius?: number;
         type?: 'chamfer' | 'fillet';
       };
 
       if (!corners?.length || radius === undefined || radius <= 0) return null;
 
-      // For 2D view, we use the same fillet batch action
       // Panel ID comes from the sketch context (single panel being edited)
       const { panelId } = params as { panelId?: string };
       if (!panelId) return null;
 
-      // Convert 2D corner IDs to fillet objects
-      // Corner IDs are like "corner-tl" -> need to map to "left:top" format
+      // Check if using new all-corners format (outline:N, hole:holeId:N) or legacy format (corner-tl)
+      const isAllCornersFormat = corners.some(id => id.startsWith('outline:') || id.startsWith('hole:'));
+
+      if (isAllCornersFormat) {
+        // New all-corners system - use SET_ALL_CORNER_FILLETS_BATCH
+        const fillets = corners.map(cornerId => ({
+          panelId,
+          cornerId,
+          radius,
+        }));
+
+        return {
+          type: 'SET_ALL_CORNER_FILLETS_BATCH',
+          targetId: 'main-assembly',
+          payload: { fillets },
+        };
+      }
+
+      // Legacy format - convert corner-tl to left:top format
       const cornerMap: Record<string, 'bottom:left' | 'bottom:right' | 'left:top' | 'right:top'> = {
         'corner-tl': 'left:top',
         'corner-tr': 'right:top',

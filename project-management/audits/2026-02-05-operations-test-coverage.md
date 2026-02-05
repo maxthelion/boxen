@@ -1,11 +1,13 @@
 # Operations Test Coverage Audit
 
-**Date:** 2026-02-05
+**Date:** 2026-02-05 (Updated)
 **Auditor:** Claude Code
 
 ## Overview
 
-This audit evaluates test coverage for all operations against the 7 testing criteria defined in `.claude/rules/testing.md`.
+This audit evaluates test coverage for all operations against the testing criteria defined in `.claude/rules/testing.md`.
+
+**Key Insight:** Operations available in multiple views (2D and 3D) need separate UI flow tests for each view. We discovered a bug where the 2D fillet implementation had different wiring than the 3D version, causing eligibility to disappear during preview.
 
 ## Grading Scale
 
@@ -17,10 +19,31 @@ This audit evaluates test coverage for all operations against the 7 testing crit
 
 ---
 
-## Parameter Operations (have preview phase)
+## Operations by View Availability
 
-| Operation | 1. Preview Created | 2. Preview Geometry | 3. Cancel Discards | 4. State Resets | 5. Apply Commits | 6. Geometry Valid | 7. UI Flow Sim | **Overall** |
-|-----------|:------------------:|:-------------------:|:------------------:|:---------------:|:----------------:|:-----------------:|:--------------:|:-----------:|
+| Operation | 3D View | 2D View | Notes |
+|-----------|:-------:|:-------:|-------|
+| **corner-fillet** | ✓ | - | 3D only, uses `useBoxStore` |
+| **chamfer-fillet** | - | ✓ | 2D only, uses `useEditor` |
+| **inset-outset** | ✓ | ✓ | Both views |
+| **push-pull** | ✓ | - | |
+| **subdivide** | ✓ | - | |
+| **subdivide-grid** | ✓ | - | |
+| **subdivide-two-panel** | ✓ | - | |
+| **configure** | ✓ | - | |
+| **scale** | ✓ | - | |
+| **move** | ✓ | - | Candidate for 2D |
+| **create-sub-assembly** | ✓ | - | |
+| **toggle-face** | ✓ | - | Immediate |
+| **remove-subdivision** | ✓ | - | Immediate |
+| **remove-sub-assembly** | ✓ | - | Immediate |
+
+---
+
+## 3D View Parameter Operations
+
+| Operation | 1. Preview | 2. Geometry | 3. Cancel | 4. Reset | 5. Apply | 6. Valid | 7. UI Flow | **Overall** |
+|-----------|:----------:|:-----------:|:---------:|:--------:|:--------:|:--------:|:----------:|:-----------:|
 | **corner-fillet** | 5 | 5 | 5 | 5 | 5 | 5 | 5 | **5.0** |
 | **inset-outset** | 5 | 5 | 5 | 5 | 5 | 5 | 2 | **4.6** |
 | **push-pull** | 5 | 4 | 5 | 5 | 4 | 5 | 1 | **4.1** |
@@ -30,11 +53,21 @@ This audit evaluates test coverage for all operations against the 7 testing crit
 | **subdivide-grid** | 3 | 2 | 3 | 3 | 2 | 2 | 1 | **2.3** |
 | **move** | 3 | 1 | 3 | 3 | 1 | 1 | 1 | **1.9** |
 | **create-sub-assembly** | 2 | 1 | 2 | 2 | 1 | 1 | 1 | **1.4** |
-| **chamfer-fillet** | 2 | 1 | 2 | 2 | 1 | 1 | 1 | **1.4** |
 
 ---
 
-## Immediate Operations (no preview phase)
+## 2D View Parameter Operations
+
+| Operation | 1. Preview | 2. Geometry | 3. Cancel | 4. Reset | 5. Apply | 6. Valid | 7. UI Flow | **Overall** |
+|-----------|:----------:|:-----------:|:---------:|:--------:|:--------:|:--------:|:----------:|:-----------:|
+| **chamfer-fillet** | 3 | 2 | 2 | 2 | 2 | 2 | 2 | **2.1** |
+| **inset-outset** | 3 | 2 | 3 | 3 | 2 | 2 | 1 | **2.3** |
+
+**Note:** 2D operations use the `useEditor` context (EditorStateMachine) instead of `useBoxStore`. They need separate UI flow tests that exercise the editor → engine → panel rendering path.
+
+---
+
+## 3D View Immediate Operations
 
 Criteria 1-5 are N/A for immediate operations.
 
@@ -60,15 +93,16 @@ Criteria 1-5 are N/A for immediate operations.
 
 ## Key Test Files
 
-| Operation | Primary Test File | Lines |
-|-----------|-------------------|-------|
-| corner-fillet | `tests/integration/operations/cornerFillet.test.ts` | ~600 |
-| corner-fillet | `src/test/fixtures/filletUIFlow.test.ts` (UI flow) | ~300 |
-| inset-outset | `tests/integration/operations/insetOutset.test.ts` | ~400 |
-| push-pull | `tests/integration/operations/pushPull.test.ts` | ~300 |
-| subdivide | `tests/integration/operations/subdivide.test.ts` | ~350 |
-| (generic) | `tests/unit/store/operations.test.ts` | ~1000 |
-| (template) | `tests/integration/operations/_template.test.ts` | ~200 |
+| Operation | View | Primary Test File | Lines |
+|-----------|------|-------------------|-------|
+| corner-fillet | 3D | `tests/integration/operations/cornerFillet.test.ts` | ~600 |
+| corner-fillet | 3D | `src/test/fixtures/filletUIFlow.test.ts` (UI flow) | ~300 |
+| corner-fillet | 3D | `src/test/fixtures/filletUIBugs.test.ts` (regression) | ~450 |
+| inset-outset | 3D | `tests/integration/operations/insetOutset.test.ts` | ~400 |
+| push-pull | 3D | `tests/integration/operations/pushPull.test.ts` | ~300 |
+| subdivide | 3D | `tests/integration/operations/subdivide.test.ts` | ~350 |
+| (generic) | Both | `tests/unit/store/operations.test.ts` | ~1000 |
+| (template) | 3D | `tests/integration/operations/_template.test.ts` | ~200 |
 
 ---
 
@@ -76,24 +110,31 @@ Criteria 1-5 are N/A for immediate operations.
 
 ### Well-Tested (4+)
 
-- **corner-fillet** - Gold standard. Only operation with full UI flow simulation tests.
-- **inset-outset** - Strong coverage, just missing UI flow tests.
+- **corner-fillet (3D)** - Gold standard. Full UI flow simulation tests.
+- **inset-outset (3D)** - Strong coverage, just missing UI flow tests.
 - **push-pull**, **subdivide** - Good coverage of core functionality.
 
 ### Needs Attention (2-3)
 
+- **chamfer-fillet (2D)** - Recently fixed wiring bug. Needs dedicated tests.
+- **inset-outset (2D)** - Available in 2D but no 2D-specific tests.
 - **configure**, **scale** - Basic lifecycle tests only, no geometry validation.
 - **subdivide-grid** - Relies on generic tests, no dedicated file.
 
 ### Critical Gaps (1-2)
 
 - **move** - Only generic operation tests, no move-specific validation.
-- **create-sub-assembly**, **chamfer-fillet** - Minimal coverage.
+- **create-sub-assembly** - Minimal coverage.
 - **All immediate operations** - No geometry validation tests.
 
-### Criterion 7 Gap
+### Multi-View Operations Gap
 
-**UI Flow Simulation tests only exist for `corner-fillet`.** This test type caught a real bug where eligibility was computed from preview instead of main scene. Other operations may have similar wiring bugs that would only be caught by UI flow tests.
+**Operations available in both 2D and 3D need separate test coverage for each view.** The 2D and 3D views have different:
+- State management (`useEditor` vs `useBoxStore`)
+- Component rendering paths
+- Corner/edge selection UIs
+
+A bug fixed in one view may still exist in the other.
 
 ---
 
@@ -101,50 +142,63 @@ Criteria 1-5 are N/A for immediate operations.
 
 ### Priority 1 (High)
 
-1. Add UI flow tests to `inset-outset` - Most used operation after fillet
-2. Create dedicated `move` operation tests - Currently only generic coverage
+1. **Add 2D UI flow tests for `chamfer-fillet`** - Recently had wiring bug
+2. **Add 2D UI flow tests for `inset-outset`** - Only multi-view operation without 2D tests
+3. Create dedicated `move` operation tests
 
 ### Priority 2 (Medium)
 
-3. Add geometry validation to immediate operations (`toggle-face`, etc.)
-4. Expand `subdivide-grid` tests beyond generic coverage
-5. Add UI flow tests to `push-pull` and `subdivide`
+4. Add geometry validation to immediate operations
+5. Expand `subdivide-grid` tests beyond generic coverage
+6. Add 3D UI flow tests to `push-pull` and `subdivide`
 
 ### Priority 3 (Low)
 
-6. `chamfer-fillet` tests - Less frequently used
-7. `create-sub-assembly` tests - Complex operation, needs comprehensive tests
+7. `create-sub-assembly` tests - Complex operation
+8. Consider adding `move` to 2D view (would need tests)
 
 ---
 
-## How to Add UI Flow Tests
+## Shared Infrastructure Opportunity
 
-Follow the pattern in `src/test/fixtures/filletUIFlow.test.ts`:
+The 2D and 3D views duplicated the "eligibility from preview" bug because they don't share UI infrastructure. Consider extracting:
+
+### Pattern: Eligibility from Main Scene
 
 ```typescript
-// Read from MAIN scene for eligibility (what UI should do)
-function getMainScenePanels(engine) {
-  const hadPreview = engine.hasPreview();
-  if (hadPreview) {
-    const previewScene = (engine as any)._previewScene;
-    (engine as any)._previewScene = null;
-    const panels = engine.generatePanelsFromNodes().panels;
-    (engine as any)._previewScene = previewScene;
-    return panels;
-  }
-  return engine.generatePanelsFromNodes().panels;
+// Potential shared hook
+function usePanelEligibility(panelId: string) {
+  const mainPanels = useEngineMainPanels();
+  const mainPanel = mainPanels?.panels.find(p => p.id === panelId);
+  return {
+    cornerEligibility: mainPanel?.allCornerEligibility ?? [],
+    edgeEligibility: mainPanel?.edgeStatuses ?? [],
+  };
 }
-
-// Test that UI state remains consistent through operation
-it('selection state persists through operation', () => {
-  // 1. Get initial state from UI's perspective
-  // 2. Start operation and make changes
-  // 3. Verify UI still shows correct state (not affected by preview)
-});
 ```
+
+### Current Duplication
+
+| Component | View | Pattern |
+|-----------|------|---------|
+| `PanelCornerRenderer.tsx` | 3D | `useEngineMainPanels()` for eligibility |
+| `SketchView2D.tsx` | 2D | `useEngineMainPanels()` for eligibility |
+| `Viewport3D.tsx` | 3D | `useEngineMainPanels()` for eligibility |
+
+### State Management Split
+
+| View | Operations State | Preview Control |
+|------|------------------|-----------------|
+| 3D | `useBoxStore` | `startOperation()`, `updateOperationParams()` |
+| 2D | `useEditor` | `startOperation()`, `updateParams()` |
+
+Unifying these would reduce bugs and make multi-view operations easier to implement.
 
 ---
 
 ## Next Audit
 
-Schedule next audit after implementing Priority 1 recommendations.
+Schedule next audit after:
+1. Adding 2D UI flow tests for chamfer-fillet and inset-outset
+2. Evaluating shared infrastructure extraction
+

@@ -870,9 +870,14 @@ export abstract class BasePanel extends BaseNode {
       }
     }
 
-    // Apply corner fillets as final post-processing
+    // Apply corner fillets as final post-processing (old 4-corner system)
     if (this._cornerFillets.size > 0) {
       this.applyFilletsToOutline(points, extendedCorners);
+    }
+
+    // Apply all-corner fillets (new all-corners system)
+    if (this._allCornerFillets.size > 0) {
+      this.applyAllCornerFilletsToOutline(points);
     }
 
     // Add cutouts as holes
@@ -1144,6 +1149,79 @@ export abstract class BasePanel extends BaseNode {
     }
 
     return arcPoints;
+  }
+
+  /**
+   * Apply all-corner fillets to the outline.
+   * The all-corners system uses path indices directly (e.g., 'outline:5')
+   * to identify corners, which is simpler than the old 4-corner system.
+   *
+   * NOTE: This must process corners in REVERSE index order to avoid
+   * index shifting issues when splicing arc points into the array.
+   */
+  protected applyAllCornerFilletsToOutline(points: Point2D[]): void {
+    // Collect corners to process with their indices
+    const cornersToProcess: Array<{ pathIndex: number; radius: number }> = [];
+
+    for (const [cornerId, radius] of this._allCornerFillets) {
+      if (radius <= 0) continue;
+
+      // Parse cornerId: 'outline:5' -> pathIndex 5
+      const parts = cornerId.split(':');
+      if (parts[0] !== 'outline') continue; // Only outline corners supported for now
+
+      const pathIndex = parseInt(parts[1], 10);
+      if (isNaN(pathIndex) || pathIndex < 0 || pathIndex >= points.length) continue;
+
+      cornersToProcess.push({ pathIndex, radius });
+    }
+
+    // Sort by descending path index to avoid index shifting issues
+    cornersToProcess.sort((a, b) => b.pathIndex - a.pathIndex);
+
+    // Process each corner
+    for (const { pathIndex, radius } of cornersToProcess) {
+      // Get corner and adjacent points
+      const prevIdx = (pathIndex - 1 + points.length) % points.length;
+      const nextIdx = (pathIndex + 1) % points.length;
+
+      const prevPt = points[prevIdx];
+      const cornerPt = points[pathIndex];
+      const nextPt = points[nextIdx];
+
+      // Calculate vectors from corner to adjacent points
+      const toPrev = { x: prevPt.x - cornerPt.x, y: prevPt.y - cornerPt.y };
+      const toNext = { x: nextPt.x - cornerPt.x, y: nextPt.y - cornerPt.y };
+
+      // Normalize vectors
+      const lenPrev = Math.sqrt(toPrev.x * toPrev.x + toPrev.y * toPrev.y);
+      const lenNext = Math.sqrt(toNext.x * toNext.x + toNext.y * toNext.y);
+
+      if (lenPrev < 0.001 || lenNext < 0.001) continue;
+
+      const normPrev = { x: toPrev.x / lenPrev, y: toPrev.y / lenPrev };
+      const normNext = { x: toNext.x / lenNext, y: toNext.y / lenNext };
+
+      // Clamp radius to available edge lengths
+      const effectiveRadius = Math.min(radius, lenPrev, lenNext);
+      if (effectiveRadius < 0.5) continue;
+
+      // Calculate arc start and end points
+      const arcStart = {
+        x: cornerPt.x + normPrev.x * effectiveRadius,
+        y: cornerPt.y + normPrev.y * effectiveRadius,
+      };
+      const arcEnd = {
+        x: cornerPt.x + normNext.x * effectiveRadius,
+        y: cornerPt.y + normNext.y * effectiveRadius,
+      };
+
+      // Generate arc points
+      const arcPoints = this.generateFilletArc(cornerPt, arcStart, arcEnd, effectiveRadius);
+
+      // Replace the corner point with arc points
+      points.splice(pathIndex, 1, ...arcPoints);
+    }
   }
 
   /**

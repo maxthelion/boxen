@@ -442,3 +442,69 @@ export function useEngineMainVoidTree(): Void | null {
     () => null // Server render returns null
   );
 }
+
+// =============================================================================
+// Eligibility Hooks (for stable UI during operations)
+// =============================================================================
+
+import { AllCornerEligibility, EdgeStatusInfo } from './types';
+import { useMemo } from 'react';
+
+/**
+ * Panel eligibility data from the MAIN scene.
+ * Use this for determining which corners/edges can be selected,
+ * so eligibility doesn't change when preview applies modifications.
+ */
+export interface PanelEligibility {
+  /** All corners in the panel with their eligibility status */
+  corners: AllCornerEligibility[];
+  /** Edge statuses (for inset/outset eligibility) */
+  edges: EdgeStatusInfo[];
+}
+
+const EMPTY_ELIGIBILITY: PanelEligibility = {
+  corners: [],
+  edges: [],
+};
+
+/**
+ * Hook to get eligibility data for a panel from the MAIN scene.
+ *
+ * This is the recommended way to get corner/edge eligibility for operations.
+ * Using main scene ensures eligibility stays stable during preview - corners
+ * don't disappear when a fillet is applied to the preview, edges don't change
+ * status when an extension is previewed, etc.
+ *
+ * @param panelId - The panel ID to get eligibility for
+ * @returns PanelEligibility with corners and edges from main scene
+ *
+ * @example
+ * ```tsx
+ * function CornerSelector({ panelId }) {
+ *   const { corners } = usePanelEligibility(panelId);
+ *   const eligibleCorners = corners.filter(c => c.eligible);
+ *   return eligibleCorners.map(corner => (
+ *     <CornerButton key={corner.id} corner={corner} />
+ *   ));
+ * }
+ * ```
+ */
+export function usePanelEligibility(panelId: string | undefined): PanelEligibility {
+  const mainPanels = useEngineMainPanels();
+
+  return useMemo(() => {
+    if (!panelId || !mainPanels) {
+      return EMPTY_ELIGIBILITY;
+    }
+
+    const mainPanel = mainPanels.panels.find(p => p.id === panelId);
+    if (!mainPanel) {
+      return EMPTY_ELIGIBILITY;
+    }
+
+    return {
+      corners: mainPanel.allCornerEligibility ?? [],
+      edges: mainPanel.edgeStatuses ?? [],
+    };
+  }, [panelId, mainPanels]);
+}

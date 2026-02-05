@@ -1136,12 +1136,21 @@ export abstract class BaseAssembly extends BaseNode {
           panelNode.setEdgeExtensions(storedExtensions);
         }
 
-        // Apply stored corner fillets
+        // Apply stored corner fillets (old 4-corner system)
         const storedFillets = this._panelCornerFillets.get(panelNode.id)
           || this._panelCornerFillets.get(`face-${faceId}`);
         if (storedFillets) {
           for (const [corner, radius] of storedFillets) {
             panelNode.setCornerFillet(corner, radius);
+          }
+        }
+
+        // Apply stored all-corner fillets (new all-corners system)
+        const storedAllCornerFillets = this._panelAllCornerFillets.get(panelNode.id)
+          || this._panelAllCornerFillets.get(`face-${faceId}`);
+        if (storedAllCornerFillets) {
+          for (const [cornerId, radius] of storedAllCornerFillets) {
+            panelNode.setAllCornerFillet(cornerId, radius);
           }
         }
 
@@ -1232,11 +1241,19 @@ export abstract class BaseAssembly extends BaseNode {
               dividerNode.setEdgeExtensions(storedExtensions);
             }
 
-            // Apply stored corner fillets
+            // Apply stored corner fillets (old 4-corner system)
             const storedFillets = this._panelCornerFillets.get(dividerNode.id);
             if (storedFillets) {
               for (const [corner, radius] of storedFillets) {
                 dividerNode.setCornerFillet(corner, radius);
+              }
+            }
+
+            // Apply stored all-corner fillets (new all-corners system)
+            const storedAllCornerFillets = this._panelAllCornerFillets.get(dividerNode.id);
+            if (storedAllCornerFillets) {
+              for (const [cornerId, radius] of storedAllCornerFillets) {
+                dividerNode.setAllCornerFillet(cornerId, radius);
               }
             }
 
@@ -1285,11 +1302,19 @@ export abstract class BaseAssembly extends BaseNode {
           dividerNode.setEdgeExtensions(storedExtensions);
         }
 
-        // Apply stored corner fillets
+        // Apply stored corner fillets (old 4-corner system)
         const storedFillets = this._panelCornerFillets.get(dividerNode.id);
         if (storedFillets) {
           for (const [corner, radius] of storedFillets) {
             dividerNode.setCornerFillet(corner, radius);
+          }
+        }
+
+        // Apply stored all-corner fillets (new all-corners system)
+        const storedAllCornerFillets = this._panelAllCornerFillets.get(dividerNode.id);
+        if (storedAllCornerFillets) {
+          for (const [cornerId, radius] of storedAllCornerFillets) {
+            dividerNode.setAllCornerFillet(cornerId, radius);
           }
         }
 
