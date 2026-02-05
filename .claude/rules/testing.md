@@ -9,6 +9,8 @@ paths:
 
 This guide covers testing requirements for Boxen. All new features that modify geometry or operations MUST follow this checklist.
 
+**Current Coverage:** See [Operations Test Coverage Audit](../../project-management/audits/2026-02-05-operations-test-coverage.md) for a matrix of operations vs testing criteria.
+
 ---
 
 ## Testing Philosophy: Outside-In
@@ -115,6 +117,63 @@ Test the UI flow for operations:
 | **3. Highlighting** | Correct items highlighted in view | Manual verification |
 | **4. Proxy selections** | Select panel → eligible corners become targets | Integration test |
 | **5. Preview & rollback** | Preview appears, cancel reverts | Operations test |
+
+### 4. Simulated UI Flow Tests
+
+**Problem:** Store-level tests can pass while the actual UI is broken. This happens when the UI reads data from a different source than tests check.
+
+**Example:** The fillet bug where eligibility was computed from preview (making corners disappear) but tests checked main scene eligibility.
+
+**Solution:** "Simulated UI flow" tests that read from the **same data sources** the UI uses:
+
+```typescript
+// BAD: Bypasses the preview to check main scene
+function getMainScenePanels(engine) {
+  // Temporarily nulls preview - NOT what UI does
+}
+
+// GOOD: Reads from same source as UI
+function getUIPanels(engine) {
+  // UI uses generatePanelsFromNodes() which returns preview when active
+  return engine.generatePanelsFromNodes().panels;
+}
+```
+
+**Pattern for simulated UI tests:**
+
+```typescript
+it('eligibility persists after selection', () => {
+  // 1. Setup: Create engine state
+  const engine = setupEngine();
+
+  // 2. Get initial state from UI's perspective
+  const panels = engine.generatePanelsFromNodes().panels;  // Same as useEnginePanels()
+  const eligibleBefore = panel.allCornerEligibility?.filter(c => c.eligible);
+
+  // 3. Trigger operation (same sequence as UI)
+  useBoxStore.getState().startOperation('corner-fillet');
+  useBoxStore.getState().updateOperationParams({ corners: [...], radius: 10 });
+
+  // 4. Check from UI's perspective (preview is now active)
+  const previewPanels = engine.generatePanelsFromNodes().panels;
+  const eligibleAfter = previewPanel.allCornerEligibility?.filter(c => c.eligible);
+
+  // 5. Assert UI behavior
+  expect(eligibleAfter.length).toBe(eligibleBefore.length);
+});
+```
+
+**Limitations:** This approach simulates the data flow but doesn't test:
+- React component rendering
+- DOM events (clicks, hover)
+- CSS/visual state
+- Component lifecycle effects
+
+For higher-fidelity UI testing, consider:
+- **jsdom + React Testing Library** - Renders components in simulated DOM
+- **Playwright/Cypress** - Full browser E2E tests
+
+These weren't implemented due to setup complexity, but may be needed if simulated tests prove inadequate.
 
 ---
 
