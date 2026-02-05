@@ -51,3 +51,7 @@ classified/**/*
 !classified/**/.gitkeep
 processed/*
 !processed/.gitkeep
+
+# Processed inbox items (triaged images)
+project-management/processed/*
+!project-management/processed/.gitkeep
