@@ -31,3 +31,25 @@ git branch --show-current
 ```
 
 If on `main`, create a feature branch first.
+
+## What Goes Where
+
+**Feature branches** are for feature code only:
+- Source code changes (`src/`)
+- Tests for the feature
+- Feature-specific documentation
+
+**Main branch** is for project-wide changes:
+- Claude rules (`.claude/rules/`)
+- Plan documents (`docs/`)
+- Project management files
+- Audits and recommendations
+- Slash commands (`.claude/commands/`)
+
+### When Unsure
+
+If working on a feature branch and need to commit non-feature changes (rules, plans, etc.):
+1. Ask whether to commit to main or the feature branch
+2. If committing to main: stash, checkout main, commit, push, return to feature branch
+
+This keeps feature branches focused and ensures project-wide changes are immediately available on main.
