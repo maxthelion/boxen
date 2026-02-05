@@ -78,16 +78,18 @@ BLOCKED_BY: TASK-xyz789             # Dependency within project
 
 ### Breakdown Queue
 
-New queue for work that needs decomposition before implementation:
+A new queue status in the database for work that needs decomposition before implementation:
 
 ```
-.orchestrator/shared/queue/
-├── incoming/        # Ready for implementation
-├── breakdown/       # Needs decomposition first  ← NEW
-├── claimed/
-├── provisional/
-└── done/
+Queue statuses:
+  breakdown    ← NEW: needs decomposition
+  incoming     → ready for implementation
+  claimed      → being worked on
+  provisional  → complete, awaiting acceptance
+  done         → accepted
 ```
+
+No new directory needed - just a new status value that the breakdown agent claims from.
 
 ## Workflow
 
@@ -149,7 +151,8 @@ When all tasks done:
 - name: breakdown-agent
   role: breakdown
   interval_seconds: 60
-  pre_check: "ls -A .orchestrator/shared/queue/breakdown/ 2>/dev/null | grep -v .gitkeep | head -1"
+  # Pre-check queries DB for tasks in breakdown queue
+  pre_check: "python -c \"from orchestrator.orchestrator.db import count_tasks; print(count_tasks('breakdown'))\""
   pre_check_trigger: non_empty
 ```
 
@@ -265,14 +268,15 @@ ALTER TABLE tasks ADD COLUMN project_id TEXT REFERENCES projects(id);
 ├── projects/              # Project definitions (NEW)
 │   └── PROJ-*.yaml
 ├── queue/
-│   ├── breakdown/         # Needs decomposition (NEW)
-│   └── ... existing ...
+│   └── ... existing ...   # Files mirror DB for visibility
 ```
+
+Note: `breakdown` is a DB queue status, not a directory. File locations mirror DB state for debugging/visibility but DB is source of truth.
 
 ## Quick Wins (Implement First)
 
 1. **`/send-to-queue` command**: Capture discussion, create task, exit interactive wait
-2. **`breakdown/` queue**: New directory, manual promotion for now
+2. **`breakdown` queue status**: Add to DB schema, manual promotion for now
 3. **Project YAML format**: Define schema, manual creation initially
 
 ## Full Implementation (Later)
