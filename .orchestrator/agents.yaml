@@ -69,7 +69,7 @@ agents:
     # Check both incoming and needs_continuation queues
     pre_check: "ls -A .orchestrator/shared/queue/incoming/ .orchestrator/shared/queue/needs_continuation/ 2>/dev/null | grep -v .gitkeep | head -1"
     pre_check_trigger: non_empty
-    # paused: true  # Unpaused to continue fillet task
+    paused: true  # Paused while implementing breakdown system
 
   # ============================================
   # SLOW POLL (expensive work, no pre-check)
@@ -111,6 +111,7 @@ agents:
     # Check both incoming and needs_continuation queues
     pre_check: "ls -A .orchestrator/shared/queue/incoming/ .orchestrator/shared/queue/needs_continuation/ 2>/dev/null | grep -v .gitkeep | head -1"
     pre_check_trigger: non_empty
+    paused: true  # Paused while implementing breakdown system
 
   # - name: test-agent
   #   role: tester
@@ -121,6 +122,7 @@ agents:
     interval_seconds: 60
     pre_check: "gh pr list --state open --json number --jq 'length'"
     pre_check_trigger: non_empty
+    paused: true  # Paused while implementing breakdown system
 
   # PR Coordinator - watches for new PRs and creates review tasks
   - name: pr-coordinator
