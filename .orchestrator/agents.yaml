@@ -1,10 +1,7 @@
-# Orchestrator Agent Configuration
-# Using proposal-driven model (v2)
-
 model: proposal
-# paused: true  # System-wide pause - uncomment to stop all agents
-
-# Proposal backpressure (per proposer type)
+database:
+  enabled: true
+  path: state.db
 proposal_limits:
   test-checker:
     max_active: 5
@@ -19,108 +16,82 @@ proposal_limits:
     max_active: 10
     max_per_run: 5
   inbox-poller:
-    max_active: 1  # Only one item type at a time
-    max_per_run: 10  # Process many items per run
-
-# Voice weights - how much each proposer's voice matters
+    max_active: 1
+    max_per_run: 10
 voice_weights:
-  backlog-groomer: 1.5  # Processes user's direct input
-  plan-reader: 1.5      # Executing documented plans is priority
-  architect: 1.2        # Complexity reduction multiplies velocity
-  test-checker: 1.0     # Important but often not urgent
-
-# Task queue limits
+  backlog-groomer: 1.5
+  plan-reader: 1.5
+  architect: 1.2
+  test-checker: 1.0
 queue_limits:
   max_incoming: 20
   max_claimed: 5
   max_open_prs: 10
-
-# Agent definitions
 agents:
-  # ============================================
-  # FAST POLL + PRE-CHECK (respond quickly to new work)
-  # ============================================
-
-  # Inbox Poller - classifies and routes inbox items
-  - name: inbox-poller
-    role: proposer
-    focus: inbox_triage
-    interval_seconds: 10  # Very frequent
-    pre_check: "ls -A project-management/agent-inbox/ 2>/dev/null | grep -v .gitkeep | head -1"
-    pre_check_trigger: non_empty
-
-  # Curator - evaluates proposals, queues tasks
-  - name: curator
-    role: curator
-    interval_seconds: 30  # Frequent
-    pre_check: "ls -A .orchestrator/shared/proposals/active/ 2>/dev/null | grep -v .gitkeep | head -1"
-    pre_check_trigger: non_empty
-    paused: true
-
-  # Implementer - executes tasks
-  - name: impl-agent-1
-    role: implementer
-    interval_seconds: 30  # Frequent
-    # Check both incoming and needs_continuation queues
-    pre_check: "ls -A .orchestrator/shared/queue/incoming/ .orchestrator/shared/queue/needs_continuation/ 2>/dev/null | grep -v .gitkeep | head -1"
-    pre_check_trigger: non_empty
-    # paused: true  # Unpaused to continue fillet task
-
-  # ============================================
-  # SLOW POLL (expensive work, no pre-check)
-  # ============================================
-
-  # Backlog Groomer - processes docs into proposals
-  - name: backlog-groomer
-    role: proposer
-    focus: backlog_grooming
-    interval_seconds: 86400  # Daily
-    paused: true
-
-  # Proposers - explore codebase, suggest work
-  - name: test-checker
-    role: proposer
-    focus: test_quality
-    interval_seconds: 86400  # Daily
-    paused: true
-
-  - name: architect
-    role: proposer
-    focus: code_structure
-    interval_seconds: 300  # Every 5 minutes (for testing)
-    # paused: true  # Unpaused to propose refactoring after impl completes
-
-  - name: plan-reader
-    role: proposer
-    focus: project_plans
-    interval_seconds: 86400  # Daily
-    paused: true
-
-  # ============================================
-  # ADDITIONAL AGENTS (uncomment to enable)
-  # ============================================
-
-  - name: impl-agent-2
-    role: implementer
-    interval_seconds: 30
-    # Check both incoming and needs_continuation queues
-    pre_check: "ls -A .orchestrator/shared/queue/incoming/ .orchestrator/shared/queue/needs_continuation/ 2>/dev/null | grep -v .gitkeep | head -1"
-    pre_check_trigger: non_empty
-
-  # - name: test-agent
-  #   role: tester
-  #   interval_seconds: 120
-
-  - name: review-agent
-    role: reviewer
-    interval_seconds: 60
-    pre_check: "gh pr list --state open --json number --jq 'length'"
-    pre_check_trigger: non_empty
-
-  # PR Coordinator - watches for new PRs and creates review tasks
-  - name: pr-coordinator
-    role: pr_coordinator
-    interval_seconds: 120  # Check every 2 minutes
-    pre_check: "gh pr list --state open --json number --jq 'length'"
-    pre_check_trigger: non_empty
-    paused: true  # Paused by default - enable when ready
+- name: inbox-poller
+  role: proposer
+  focus: inbox_triage
+  interval_seconds: 10
+  pre_check: ls -A project-management/agent-inbox/ 2>/dev/null | grep -v .gitkeep
+    | head -1
+  pre_check_trigger: non_empty
+- name: curator
+  role: curator
+  interval_seconds: 30
+  pre_check: ls -A .orchestrator/shared/proposals/active/ 2>/dev/null | grep -v .gitkeep
+    | head -1
+  pre_check_trigger: non_empty
+  paused: true
+- name: impl-agent-1
+  role: implementer
+  interval_seconds: 30
+  pre_check: ls -A .orchestrator/shared/queue/incoming/ .orchestrator/shared/queue/needs_continuation/
+    2>/dev/null | grep -v .gitkeep | head -1
+  pre_check_trigger: non_empty
+  paused: false
+- name: backlog-groomer
+  role: proposer
+  focus: backlog_grooming
+  interval_seconds: 86400
+  paused: true
+- name: test-checker
+  role: proposer
+  focus: test_quality
+  interval_seconds: 86400
+  paused: true
+- name: architect
+  role: proposer
+  focus: code_structure
+  interval_seconds: 300
+  paused: true
+- name: plan-reader
+  role: proposer
+  focus: project_plans
+  interval_seconds: 86400
+  paused: true
+- name: impl-agent-2
+  role: implementer
+  interval_seconds: 30
+  pre_check: ls -A .orchestrator/shared/queue/incoming/ .orchestrator/shared/queue/needs_continuation/
+    2>/dev/null | grep -v .gitkeep | head -1
+  pre_check_trigger: non_empty
+  paused: true
+- name: review-agent
+  role: reviewer
+  interval_seconds: 60
+  pre_check: gh pr list --state open --json number --jq 'length'
+  pre_check_trigger: non_empty
+  paused: true
+- name: pr-coordinator
+  role: pr_coordinator
+  interval_seconds: 120
+  pre_check: gh pr list --state open --json number --jq 'length'
+  pre_check_trigger: non_empty
+  paused: true
+- name: breakdown-agent
+  role: breakdown
+  interval_seconds: 60
+  pre_check: ls -A .orchestrator/shared/queue/breakdown/ 2>/dev/null | grep -v .gitkeep
+    | head -1
+  pre_check_trigger: non_empty
+  paused: false
