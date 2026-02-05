@@ -6,6 +6,7 @@
 | [2d-sketch-plan.md](2d-sketch-plan.md) | archived | Original combined plan (split into focused plans) |
 | [3d-overlay-depth-plan.md](3d-overlay-depth-plan.md) | draft | Z-index/depth management for 3D overlays (fillet circles, edge selection, etc.) |
 | [assembly-creation-operation-plan.md](assembly-creation-operation-plan.md) | complete | Assembly creation workflow |
+| [breakdown-queue-plan.md](breakdown-queue-plan.md) | draft | Breakdown queue & projects for async work handoff |
 | [color-system-plan.md](color-system-plan.md) | draft | Centralized color configuration system |
 | [corner-extension-rule-plan.md](corner-extension-rule-plan.md) | complete | Corner extension geometry rules |
 | [edge-and-path-editing-analysis.md](edge-and-path-editing-analysis.md) | draft | Path drawing behavior analysis - context-dependent edge paths vs cutouts |
