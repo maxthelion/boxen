@@ -377,6 +377,128 @@ Could use actual sendmail/postfix:
 
 **Decision:** Start with SQLite-based messaging, consider MTA later if needs grow.
 
+## Proposal/Recommendation Consolidation
+
+### Current State (Fragmented)
+
+Multiple overlapping directories:
+```
+.orchestrator/shared/proposals/
+├── active/
+├── promoted/
+├── deferred/
+└── rejected/
+
+project-management/
+├── classified/
+├── agent-recommendations/
+└── ...
+```
+
+Plus agent instructions and conditions scattered in `.orchestrator/`.
+
+### Proposed: Single Recommendation Pool
+
+Consolidate to one location in `project-management/`:
+
+```
+project-management/
+└── recommendations/
+    ├── test-quality/      # From test-checker agent
+    ├── architecture/      # From architect agent
+    ├── backlog/           # From backlog-groomer
+    └── inbox/             # From inbox-poller
+```
+
+All recommendations are DB-backed with files for visibility/feedback.
+
+### Recommendation Lifecycle
+
+```
+Agent creates recommendation
+        ↓
+  recommendations/ (open for feedback via messaging)
+        ↓
+  Human/curator accepts
+        ↓
+  breakdown queue (decomposed into tasks)
+        ↓
+  projects/tasks ready for implementation
+        ↓
+  Curator selects from pool
+```
+
+### Database Schema
+
+```sql
+CREATE TABLE recommendations (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    body TEXT,
+    source_agent TEXT,           -- who created it
+    category TEXT,               -- test-quality, architecture, etc.
+    tags TEXT,                   -- JSON array for cross-cutting concerns
+    status TEXT DEFAULT 'open',  -- open | feedback | accepted | rejected | deferred
+    created_at TEXT,
+    accepted_at TEXT,
+    project_id TEXT              -- links to project if accepted
+);
+```
+
+### Tags for Progress Tracking
+
+Tags help maintain progress across multiple areas:
+
+```yaml
+tags:
+  - area:geometry
+  - area:ui
+  - priority:high
+  - type:refactor
+  - type:feature
+```
+
+Curator can query: "Give me accepted projects tagged `area:geometry`" to focus work.
+
+### Recommender Agent Backpressure
+
+Agents query DB before creating new recommendations:
+
+```python
+# In proposer agent
+my_open_count = count_recommendations(source_agent=self.name, status='open')
+my_accepted_count = count_recommendations(source_agent=self.name, status='accepted')
+
+if my_open_count >= config.max_open_per_agent:
+    # Don't create more until some are processed
+    return
+
+if my_accepted_count == 0:
+    # None of my recommendations being pulled - slow down
+    return
+```
+
+This creates natural flow control:
+- Agents don't flood with recommendations nobody's processing
+- Agents that produce valuable work get "pulled" more
+- Human can see which agents are contributing useful ideas
+
+### Curator Role (Simplified)
+
+Curator no longer manages proposal directories. Instead:
+1. Reviews `recommendations/` pool
+2. Accepts → sends to breakdown queue
+3. Selects from broken-down projects for implementation
+4. Balances work across tags/areas
+
+### Migration from Current System
+
+1. Move existing proposals → `recommendations/`
+2. Add DB records for each
+3. Retire `.orchestrator/shared/proposals/` directories
+4. Update proposer agents to write to new location
+5. Update curator to read from DB
+
 ## Open Questions
 
 1. **Project branch creation**: Automatic on project activation, or manual?
@@ -385,6 +507,9 @@ Could use actual sendmail/postfix:
 4. **Cross-project dependencies**: Tasks in different projects that depend on each other?
 5. **Message persistence**: How long to keep messages? Archive after task/project complete?
 6. **Blocking questions**: Should agent pause and wait for reply, or continue with other work?
+7. **Recommendation feedback**: How does human give feedback before accepting? Messaging system?
+8. **Tag taxonomy**: Predefined tags or freeform? Who maintains the tag vocabulary?
+9. **Deferred recommendations**: How long before resurfacing? Auto-expire?
 
 ## Success Metrics
 
