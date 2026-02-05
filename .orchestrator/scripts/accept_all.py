@@ -15,13 +15,13 @@ from pathlib import Path
 # Add orchestrator to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "orchestrator"))
 
-from orchestrator.orchestrator.queue_utils import (
+from orchestrator.queue_utils import (
     list_tasks,
     accept_completion,
     is_burned_out,
     recycle_to_breakdown,
 )
-from orchestrator.orchestrator.config import is_db_enabled
+from orchestrator.config import is_db_enabled
 
 
 def main():
