@@ -18,6 +18,8 @@ import {
   assemblySnapshotToConfig,
   faceConfigsToFaces,
 } from './useEngineState';
+import { getPanelStableKey } from '../utils/urlState';
+import type { DeserializedPanelOps } from '../utils/urlState';
 
 // Singleton engine instance
 let engineInstance: Engine | null = null;
@@ -79,6 +81,59 @@ export function resetEngine(): void {
 }
 
 /**
+ * Apply deserialized panel operations to the engine.
+ * Maps stable source-based keys to current panel UUIDs and dispatches operations.
+ */
+function applyPanelOperations(
+  engine: Engine,
+  panelOperations: Record<string, DeserializedPanelOps>
+): void {
+  const snapshot = engine.getSnapshot();
+  const assemblySnapshot = snapshot.children[0] as AssemblySnapshot | undefined;
+  if (!assemblySnapshot) return;
+
+  // Build mapping from stable keys to current panel UUIDs
+  const stableKeyToId = new Map<string, string>();
+  for (const panel of assemblySnapshot.derived.panels) {
+    const key = getPanelStableKey(panel);
+    stableKeyToId.set(key, panel.id);
+  }
+
+  // Apply operations for each panel
+  for (const [stableKey, ops] of Object.entries(panelOperations)) {
+    const panelId = stableKeyToId.get(stableKey);
+    if (!panelId) continue;
+
+    // Apply corner fillets
+    for (const fillet of ops.cornerFillets) {
+      engine.dispatch({
+        type: 'SET_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: { panelId, corner: fillet.corner, radius: fillet.radius },
+      });
+    }
+
+    // Apply all-corner fillets
+    for (const fillet of ops.allCornerFillets) {
+      engine.dispatch({
+        type: 'SET_ALL_CORNER_FILLET',
+        targetId: 'main-assembly',
+        payload: { panelId, cornerId: fillet.cornerId, radius: fillet.radius },
+      });
+    }
+
+    // Apply cutouts
+    for (const cutout of ops.cutouts) {
+      engine.dispatch({
+        type: 'ADD_CUTOUT',
+        targetId: 'main-assembly',
+        payload: { panelId, cutout },
+      });
+    }
+  }
+}
+
+/**
  * Sync store state to engine
  * Called before panel generation to ensure engine is up to date
  *
@@ -86,12 +141,14 @@ export function resetEngine(): void {
  * @param faces - Face configurations
  * @param rootVoid - Optional void tree to sync (if provided, syncs void structure)
  * @param existingPanels - Optional existing panels to sync edge extensions from
+ * @param panelOperations - Optional panel operations to restore (corner fillets, cutouts, etc.)
  */
 export function syncStoreToEngine(
   config: BoxConfig,
   faces: Face[],
   rootVoid?: Void,
-  existingPanels?: PanelPath[]
+  existingPanels?: PanelPath[],
+  panelOperations?: Record<string, DeserializedPanelOps>
 ): void {
   const engine = getEngine();
 
@@ -194,6 +251,11 @@ export function syncStoreToEngine(
         }
       }
     }
+  }
+
+  // Apply panel operations (corner fillets, cutouts, etc.) if provided
+  if (panelOperations && Object.keys(panelOperations).length > 0) {
+    applyPanelOperations(engine, panelOperations);
   }
 
   // Notify React components that engine state changed

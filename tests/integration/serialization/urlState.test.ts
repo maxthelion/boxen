@@ -4,8 +4,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { serializeProject, deserializeProject, ProjectState } from '../../../src/utils/urlState';
+import { serializeProject, deserializeProject, ProjectState, serializePanelOperations, deserializePanelOperations, getPanelStableKey } from '../../../src/utils/urlState';
 import { BoxConfig, Face, Void, SubAssembly } from '../../../src/types';
+import type { AssemblySnapshot } from '../../../src/engine/types';
 
 // Helper to create a basic config
 const createBasicConfig = (overrides?: Partial<BoxConfig>): BoxConfig => ({
@@ -867,27 +868,33 @@ describe('Panel Operations Serialization', () => {
       const updatedFaces = original.faces.map(f =>
         f.id === 'top' || f.id === 'left' ? { ...f, solid: false } : f
       );
+
+      // Extract panel operations from the engine snapshot
+      const snapshot = engine.getSnapshot();
+      const assemblySnapshot = snapshot.children[0] as AssemblySnapshot;
+      const serializedPanelOps = serializePanelOperations(assemblySnapshot);
+      const panelOperations = deserializePanelOperations(serializedPanelOps);
+
       const stateToSerialize: ProjectState = {
         ...original,
         faces: updatedFaces,
+        panelOperations: Object.keys(panelOperations).length > 0 ? panelOperations : undefined,
       };
 
       const serialized = serializeProject(stateToSerialize);
       const deserialized = deserializeProject(serialized);
       expect(deserialized).not.toBeNull();
 
-      // Reload the deserialized state into a fresh engine
+      // Reload the deserialized state into a fresh engine, including panel operations
       resetEngine();
-      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid);
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid, undefined, deserialized!.panelOperations);
 
       const reloadedEngine = getEngine();
       const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
       const reloadedFrontPanel = reloadedPanels.panels.find((p: any) => p.source?.faceId === 'front');
       const pointsAfterReload = reloadedFrontPanel!.outline.points.length;
 
-      // This assertion is expected to FAIL: corner fillet should be preserved
-      // Currently, ProjectState does not include cornerFillets, so the
-      // fillet effect (extra arc points) will be lost after reload
+      // Corner fillet should be preserved after serialization roundtrip
       expect(
         pointsAfterReload,
         `Corner fillet should survive serialization (had ${pointsAfterFillet} points, got ${pointsAfterReload})`
@@ -968,14 +975,24 @@ describe('Panel Operations Serialization', () => {
         'All-corner fillet should be stored in panel props'
       ).toBeGreaterThan(0);
 
-      // Serialize and deserialize
-      const serialized = serializeProject(original);
+      // Extract panel operations from engine snapshot
+      const fullSnapshot = engine.getSnapshot();
+      const assemblySnap = fullSnapshot.children[0] as AssemblySnapshot;
+      const serializedPanelOps = serializePanelOperations(assemblySnap);
+      const panelOps = deserializePanelOperations(serializedPanelOps);
+
+      // Serialize including panel operations
+      const stateToSerialize: ProjectState = {
+        ...original,
+        panelOperations: Object.keys(panelOps).length > 0 ? panelOps : undefined,
+      };
+      const serialized = serializeProject(stateToSerialize);
       const deserialized = deserializeProject(serialized);
       expect(deserialized).not.toBeNull();
 
-      // Reload into fresh engine
+      // Reload into fresh engine with panel operations
       resetEngine();
-      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid);
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid, undefined, deserialized!.panelOperations);
 
       const reloadedEngine = getEngine();
 
@@ -991,8 +1008,7 @@ describe('Panel Operations Serialization', () => {
         (h: any) => h.source?.type === 'decorative'
       ) ?? [];
 
-      // Expected to FAIL: both cutout and all-corner fillet should be preserved
-      // Check cutout exists
+      // Cutout and all-corner fillet should be preserved
       expect(
         reloadedCutoutHoles.length,
         'Cutout should survive serialization roundtrip'
@@ -1056,14 +1072,24 @@ describe('Panel Operations Serialization', () => {
       ) ?? [];
       expect(cutoutHoles.length).toBe(1);
 
-      // Serialize and deserialize
-      const serialized = serializeProject(original);
+      // Extract panel operations from engine snapshot
+      const snapshot = engine.getSnapshot();
+      const assemblySnap = snapshot.children[0] as AssemblySnapshot;
+      const serializedPanelOps = serializePanelOperations(assemblySnap);
+      const panelOps = deserializePanelOperations(serializedPanelOps);
+
+      // Serialize including panel operations
+      const stateToSerialize: ProjectState = {
+        ...original,
+        panelOperations: Object.keys(panelOps).length > 0 ? panelOps : undefined,
+      };
+      const serialized = serializeProject(stateToSerialize);
       const deserialized = deserializeProject(serialized);
       expect(deserialized).not.toBeNull();
 
-      // Reload into fresh engine
+      // Reload into fresh engine with panel operations
       resetEngine();
-      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid);
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid, undefined, deserialized!.panelOperations);
 
       const reloadedEngine = getEngine();
       const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
@@ -1074,7 +1100,7 @@ describe('Panel Operations Serialization', () => {
         (h: any) => h.source?.type === 'decorative'
       ) ?? [];
 
-      // Expected to FAIL: cutout should be preserved
+      // Cutout should be preserved
       expect(
         reloadedCutoutHoles.length,
         'Rectangular cutout should survive serialization roundtrip'
@@ -1125,14 +1151,24 @@ describe('Panel Operations Serialization', () => {
       ) ?? [];
       expect(cutoutHoles.length).toBe(1);
 
-      // Serialize and deserialize
-      const serialized = serializeProject(original);
+      // Extract panel operations from engine snapshot
+      const snapshot = engine.getSnapshot();
+      const assemblySnap = snapshot.children[0] as AssemblySnapshot;
+      const serializedPanelOps = serializePanelOperations(assemblySnap);
+      const panelOps = deserializePanelOperations(serializedPanelOps);
+
+      // Serialize including panel operations
+      const stateToSerialize: ProjectState = {
+        ...original,
+        panelOperations: Object.keys(panelOps).length > 0 ? panelOps : undefined,
+      };
+      const serialized = serializeProject(stateToSerialize);
       const deserialized = deserializeProject(serialized);
       expect(deserialized).not.toBeNull();
 
-      // Reload into fresh engine
+      // Reload into fresh engine with panel operations
       resetEngine();
-      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid);
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid, undefined, deserialized!.panelOperations);
 
       const reloadedEngine = getEngine();
       const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
@@ -1142,7 +1178,7 @@ describe('Panel Operations Serialization', () => {
         (h: any) => h.source?.type === 'decorative'
       ) ?? [];
 
-      // Expected to FAIL: circular cutout should be preserved
+      // Circular cutout should be preserved
       expect(
         reloadedCutoutHoles.length,
         'Circular cutout should survive serialization roundtrip'
@@ -1251,9 +1287,17 @@ describe('Panel Operations Serialization', () => {
       const updatedFaces = original.faces.map(f =>
         f.id === 'top' || f.id === 'left' ? { ...f, solid: false } : f
       );
+
+      // Extract panel operations from engine snapshot
+      const snapshot = engine.getSnapshot();
+      const assemblySnap = snapshot.children[0] as AssemblySnapshot;
+      const serializedPanelOps = serializePanelOperations(assemblySnap);
+      const panelOps = deserializePanelOperations(serializedPanelOps);
+
       const stateToSerialize: ProjectState = {
         ...original,
         faces: updatedFaces,
+        panelOperations: Object.keys(panelOps).length > 0 ? panelOps : undefined,
       };
 
       // Serialize and deserialize
@@ -1261,9 +1305,9 @@ describe('Panel Operations Serialization', () => {
       const deserialized = deserializeProject(serialized);
       expect(deserialized).not.toBeNull();
 
-      // Reload into fresh engine
+      // Reload into fresh engine with panel operations
       resetEngine();
-      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid);
+      syncStoreToEngine(deserialized!.config, deserialized!.faces, deserialized!.rootVoid, undefined, deserialized!.panelOperations);
 
       const reloadedEngine = getEngine();
       const reloadedPanels = reloadedEngine.generatePanelsFromNodes();
@@ -1275,8 +1319,7 @@ describe('Panel Operations Serialization', () => {
         (h: any) => h.source?.type === 'decorative'
       )?.length ?? 0;
 
-      // These assertions are expected to FAIL
-      // They clearly show what operations were lost during serialization
+      // Operations should be preserved after serialization roundtrip
       expect(
         pointsAfterReload,
         `Corner fillet should be preserved (had ${pointsAfterFillet} outline points, got ${pointsAfterReload})`
@@ -1386,9 +1429,10 @@ describe('serializePanelOperations', () => {
       const result = serializePanelOperations(assemblySnapshot);
 
       expect(result).toBeDefined();
-      expect(result![frontPanel!.id]).toBeDefined();
-      expect(result![frontPanel!.id].cf).toBeDefined();
-      expect(result![frontPanel!.id].cf!['left:top']).toBe(5.12); // Rounded to 2 decimal places
+      // Keys are now stable source-based (e.g., 'face:front') not UUIDs
+      expect(result!['face:front']).toBeDefined();
+      expect(result!['face:front'].cf).toBeDefined();
+      expect(result!['face:front'].cf!['left:top']).toBe(5.12); // Rounded to 2 decimal places
     });
   });
 
@@ -1447,9 +1491,9 @@ describe('serializePanelOperations', () => {
       const result = serializePanelOperations(assemblySnapshot);
 
       expect(result).toBeDefined();
-      expect(result![frontPanel!.id]).toBeDefined();
-      expect(result![frontPanel!.id].acf).toBeDefined();
-      expect(result![frontPanel!.id].acf!['hole:test-cutout:0']).toBe(3.57); // Rounded
+      expect(result!['face:front']).toBeDefined();
+      expect(result!['face:front'].acf).toBeDefined();
+      expect(result!['face:front'].acf!['hole:test-cutout:0']).toBe(3.57); // Rounded
     });
   });
 
@@ -1497,11 +1541,11 @@ describe('serializePanelOperations', () => {
       const result = serializePanelOperations(assemblySnapshot);
 
       expect(result).toBeDefined();
-      expect(result![frontPanel!.id]).toBeDefined();
-      expect(result![frontPanel!.id].co).toBeDefined();
-      expect(result![frontPanel!.id].co!.length).toBe(1);
+      expect(result!['face:front']).toBeDefined();
+      expect(result!['face:front'].co).toBeDefined();
+      expect(result!['face:front'].co!.length).toBe(1);
 
-      const cutout = result![frontPanel!.id].co![0];
+      const cutout = result!['face:front'].co![0];
       expect(cutout.t).toBe('r'); // rect type
       expect(cutout.id).toBe('rect-1');
       expect(cutout.c).toEqual([10.56, 15.33]); // center rounded
@@ -1551,11 +1595,11 @@ describe('serializePanelOperations', () => {
       const result = serializePanelOperations(assemblySnapshot);
 
       expect(result).toBeDefined();
-      expect(result![frontPanel!.id]).toBeDefined();
-      expect(result![frontPanel!.id].co).toBeDefined();
-      expect(result![frontPanel!.id].co!.length).toBe(1);
+      expect(result!['face:front']).toBeDefined();
+      expect(result!['face:front'].co).toBeDefined();
+      expect(result!['face:front'].co!.length).toBe(1);
 
-      const cutout = result![frontPanel!.id].co![0];
+      const cutout = result!['face:front'].co![0];
       expect(cutout.t).toBe('c'); // circle type
       expect(cutout.id).toBe('circle-1');
       expect(cutout.c).toEqual([-5.5, 8.33]); // center rounded
@@ -1607,11 +1651,11 @@ describe('serializePanelOperations', () => {
       const result = serializePanelOperations(assemblySnapshot);
 
       expect(result).toBeDefined();
-      expect(result![frontPanel!.id]).toBeDefined();
-      expect(result![frontPanel!.id].co).toBeDefined();
-      expect(result![frontPanel!.id].co!.length).toBe(1);
+      expect(result!['face:front']).toBeDefined();
+      expect(result!['face:front'].co).toBeDefined();
+      expect(result!['face:front'].co!.length).toBe(1);
 
-      const cutout = result![frontPanel!.id].co![0];
+      const cutout = result!['face:front'].co![0];
       expect(cutout.t).toBe('p'); // path type
       expect(cutout.id).toBe('path-1');
       expect(cutout.c).toEqual([0, 0]); // center
@@ -1665,10 +1709,10 @@ describe('serializePanelOperations', () => {
       const result = serializePanelOperations(assemblySnapshot);
 
       expect(result).toBeDefined();
-      expect(result![frontPanel!.id]).toBeDefined();
-      expect(result![frontPanel!.id].co).toBeDefined();
+      expect(result!['face:front']).toBeDefined();
+      expect(result!['face:front'].co).toBeDefined();
 
-      const cutout = result![frontPanel!.id].co![0];
+      const cutout = result!['face:front'].co![0];
       expect(cutout.m).toBe('a'); // additive mode
     });
   });
@@ -1752,13 +1796,13 @@ describe('serializePanelOperations', () => {
       const result = serializePanelOperations(assemblySnapshot);
 
       expect(result).toBeDefined();
-      expect(result![frontPanel!.id]).toBeDefined();
-      expect(result![frontPanel!.id].cf).toBeDefined();
-      expect(result![frontPanel!.id].cf!['left:top']).toBe(5);
-      expect(result![frontPanel!.id].acf).toBeDefined();
-      expect(result![frontPanel!.id].acf!['hole:test-cutout:0']).toBe(2);
-      expect(result![frontPanel!.id].co).toBeDefined();
-      expect(result![frontPanel!.id].co!.length).toBe(1);
+      expect(result!['face:front']).toBeDefined();
+      expect(result!['face:front'].cf).toBeDefined();
+      expect(result!['face:front'].cf!['left:top']).toBe(5);
+      expect(result!['face:front'].acf).toBeDefined();
+      expect(result!['face:front'].acf!['hole:test-cutout:0']).toBe(2);
+      expect(result!['face:front'].co).toBeDefined();
+      expect(result!['face:front'].co!.length).toBe(1);
     });
 
     it('should only include panels with operations in the result', async () => {
@@ -1803,10 +1847,10 @@ describe('serializePanelOperations', () => {
       const result = serializePanelOperations(assemblySnapshot);
 
       expect(result).toBeDefined();
-      // Should only contain the front panel
-      const panelIds = Object.keys(result!);
-      expect(panelIds.length).toBe(1);
-      expect(panelIds[0]).toBe(frontPanel!.id);
+      // Should only contain the front panel (keyed by stable source key)
+      const panelKeys = Object.keys(result!);
+      expect(panelKeys.length).toBe(1);
+      expect(panelKeys[0]).toBe('face:front');
     });
   });
 });
@@ -2172,8 +2216,8 @@ describe('deserializePanelOperations', () => {
       expect(serialized).toBeDefined();
 
       const deserialized = deserializePanelOperations(serialized);
-      expect(deserialized[frontPanel!.id]).toBeDefined();
-      expect(deserialized[frontPanel!.id].cornerFillets).toContainEqual({ corner: 'left:top', radius: 5 });
+      expect(deserialized['face:front']).toBeDefined();
+      expect(deserialized['face:front'].cornerFillets).toContainEqual({ corner: 'left:top', radius: 5 });
     });
 
     it('should roundtrip cutouts through serialize/deserialize', async () => {
@@ -2217,10 +2261,10 @@ describe('deserializePanelOperations', () => {
       expect(serialized).toBeDefined();
 
       const deserialized = deserializePanelOperations(serialized);
-      expect(deserialized[frontPanel!.id]).toBeDefined();
-      expect(deserialized[frontPanel!.id].cutouts).toHaveLength(2);
+      expect(deserialized['face:front']).toBeDefined();
+      expect(deserialized['face:front'].cutouts).toHaveLength(2);
 
-      const rect = deserialized[frontPanel!.id].cutouts.find(c => c.id === 'r1');
+      const rect = deserialized['face:front'].cutouts.find(c => c.id === 'r1');
       expect(rect).toBeDefined();
       expect(rect!.type).toBe('rect');
       if (rect!.type === 'rect') {
@@ -2230,7 +2274,7 @@ describe('deserializePanelOperations', () => {
         expect(rect!.cornerRadius).toBe(2);
       }
 
-      const circle = deserialized[frontPanel!.id].cutouts.find(c => c.id === 'c1');
+      const circle = deserialized['face:front'].cutouts.find(c => c.id === 'c1');
       expect(circle).toBeDefined();
       expect(circle!.type).toBe('circle');
       if (circle!.type === 'circle') {
