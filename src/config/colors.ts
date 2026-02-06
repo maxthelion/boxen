@@ -93,6 +93,12 @@ export interface ColorConfig {
     extension: string;         // Extension visualization on adjacent panels
     hole: StateColors;         // Slot/hole rendering
     label: string;             // Dimension and annotation labels
+    guides: {
+      centerLine: string;      // Center lines (through panel midpoint)
+      edgeLine: string;        // Edge extension lines
+      highlight: string;       // Highlighted guide line (cursor near)
+      snapIndicator: string;   // Snap point circle indicator
+    };
   };
 
   // ===== Opacity Presets =====
@@ -181,6 +187,12 @@ export const defaultColors: ColorConfig = {
     extension: '#e53e3e',
     hole: { base: '#1a1a2e', hover: '#666' },
     label: '#888',
+    guides: {
+      centerLine: '#4a4a6a',      // Subtle, like grid axes
+      edgeLine: '#3a4a5a',        // Subtle blue-gray
+      highlight: '#6ab0f9',       // Bright blue when snapping
+      snapIndicator: '#6ab0f9',   // Bright blue snap dot
+    },
   },
 
   opacity: {
