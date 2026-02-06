@@ -7,7 +7,7 @@ import { PanelCollectionRenderer } from './PanelPathRenderer';
 import { PanelEdgeRenderer } from './PanelEdgeRenderer';
 import { PanelCornerRenderer } from './PanelCornerRenderer';
 import { PushPullArrow } from './PushPullArrow';
-import { AssemblyAxisIndicator, LidFaceHighlight } from './AssemblyAxisIndicator';
+import { AssemblyCenterLines, LidFaceHighlight } from './AssemblyAxisIndicator';
 import { PanelToggleOverlay } from './PanelToggleOverlay';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
@@ -120,20 +120,37 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
         <lineBasicMaterial color={isPreviewActive ? '#ffcc00' : '#ff0000'} linewidth={2} />
       </lineSegments>
 
-      {/* Assembly axis indicator - shows when main assembly is selected or configure tool is active */}
+      {/* Assembly center lines - shows when any assembly is selected */}
+      {selectedAssemblyId != null && (() => {
+        if (selectedAssemblyId === 'main') {
+          // Main assembly: center lines at origin (center of box)
+          return <AssemblyCenterLines visible={true} />;
+        }
+        // Sub-assembly: find its position and offset center lines
+        const subInfo = subAssemblies.find(s => s.subAssembly.id === selectedAssemblyId);
+        if (!subInfo) return null;
+        const { subAssembly, bounds } = subInfo;
+        const offsets = subAssembly.faceOffsets || { left: 0, right: 0, top: 0, bottom: 0, front: 0, back: 0 };
+        const subOuterW = subAssembly.rootVoid.bounds.w + 2 * subAssembly.materialThickness;
+        const subOuterH = subAssembly.rootVoid.bounds.h + 2 * subAssembly.materialThickness;
+        const subOuterD = subAssembly.rootVoid.bounds.d + 2 * subAssembly.materialThickness;
+        const cx = (bounds.x + subAssembly.clearance - offsets.left + subOuterW / 2 - boxCenter.x) * scale;
+        const cy = (bounds.y + subAssembly.clearance - offsets.bottom + subOuterH / 2 - boxCenter.y) * scale;
+        const cz = (bounds.z + subAssembly.clearance - offsets.back + subOuterD / 2 - boxCenter.z) * scale;
+        return (
+          <group position={[cx, cy, cz]}>
+            <AssemblyCenterLines visible={true} />
+          </group>
+        );
+      })()}
+
+      {/* Lid face highlight - shows when main assembly is selected or configure tool is active */}
       {(selectedAssemblyId === 'main' || activeTool === 'configure-assembly') && config.assembly?.assemblyAxis && (
-        <>
-          <AssemblyAxisIndicator
-            axis={config.assembly.assemblyAxis}
-            dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
-            visible={true}
-          />
-          <LidFaceHighlight
-            axis={config.assembly.assemblyAxis}
-            dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
-            visible={true}
-          />
-        </>
+        <LidFaceHighlight
+          axis={config.assembly.assemblyAxis}
+          dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
+          visible={true}
+        />
       )}
 
       {/* Panel toggle buttons - show when any face panels are visually selected or configure tool is active */}
