@@ -1,6 +1,6 @@
 import { StateCreator } from 'zustand';
-import { Void, BoxConfig, Face, EdgeExtensions, defaultEdgeExtensions, PanelCollection } from '../../types';
-import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState, DeserializedPanelOps } from '../../utils/urlState';
+import { Void, BoxConfig, Face, EdgeExtensions, PanelCollection } from '../../types';
+import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState, getPanelCanonicalKeyFromPath, serializePanelOperations, deserializePanelOperations } from '../../utils/urlState';
 import { generatePanelCollection } from '../../utils/panelGenerator';
 import { syncStoreToEngine, getEngine, getEngineSnapshot, resetEngine } from '../../engine';
 import type { AssemblySnapshot } from '../../engine/types';
@@ -34,7 +34,7 @@ export const createUrlSlice: StateCreator<
   [],
   [],
   UrlSlice
-> = (set, get) => ({
+> = (set) => ({
   // Actions
   loadFromUrl: () => {
     const loaded = loadFromUrl();
@@ -43,38 +43,37 @@ export const createUrlSlice: StateCreator<
     // Reset engine to start fresh (prevents merging with current scene)
     resetEngine();
 
-    // Apply loaded state
-    const state = get();
+    // Initialize engine with loaded config, void tree, and panel operations
+    syncStoreToEngine(loaded.config, loaded.faces, loaded.rootVoid, undefined, loaded.panelOperations);
 
-    // Initialize engine with loaded config (not defaults)
-    // This ensures the engine matches the loaded state
-    syncStoreToEngine(loaded.config, loaded.faces, loaded.rootVoid);
-
-    // Collect edge extensions from loaded data
+    // Apply edge extensions using canonical keys
+    const engine = getEngine();
     const edgeExtensionsMap = loaded.edgeExtensions;
 
-    // Create panels with loaded extensions
-    const panelsWithExtensions = state.panelCollection?.panels.map(panel => ({
-      ...panel,
-      edgeExtensions: edgeExtensionsMap[panel.id] ?? defaultEdgeExtensions,
-    }));
+    if (Object.keys(edgeExtensionsMap).length > 0) {
+      // Build canonical key → panel mapping from freshly created engine panels
+      const newPanels = engine.generatePanelsFromNodes();
+      const keyToPanel = new Map<string, import('../../types').PanelPath>();
+      for (const p of newPanels.panels) {
+        keyToPanel.set(getPanelCanonicalKeyFromPath(p), p);
+      }
 
-    // Generate new panel collection with loaded config
+      // Apply edge extensions using canonical keys to resolve to current UUIDs
+      for (const [key, ext] of Object.entries(edgeExtensionsMap)) {
+        const panel = keyToPanel.get(key);
+        if (panel) {
+          engine.assembly?.setPanelEdgeExtensions(panel.id, ext);
+        }
+      }
+    }
+
+    // Generate panel collection for the store
     const collection = generatePanelCollection(
       loaded.faces,
       loaded.rootVoid,
       loaded.config,
       1,
-      panelsWithExtensions
     );
-
-    // Apply edge extensions to newly generated panels
-    if (collection && Object.keys(edgeExtensionsMap).length > 0) {
-      collection.panels = collection.panels.map(panel => ({
-        ...panel,
-        edgeExtensions: edgeExtensionsMap[panel.id] ?? panel.edgeExtensions,
-      }));
-    }
 
     set({
       config: loaded.config,
@@ -96,7 +95,7 @@ export const createUrlSlice: StateCreator<
     const engineSnapshot = getEngineSnapshot();
     if (!engineSnapshot) return;
 
-    // Get panels from engine to collect edge extensions
+    // Get panels from engine to collect edge extensions (using canonical keys)
     const engine = getEngine();
     const panelCollection = engine.generatePanelsFromNodes();
 
@@ -107,15 +106,22 @@ export const createUrlSlice: StateCreator<
            panel.edgeExtensions.bottom !== 0 ||
            panel.edgeExtensions.left !== 0 ||
            panel.edgeExtensions.right !== 0)) {
-        edgeExtensions[panel.id] = panel.edgeExtensions;
+        edgeExtensions[getPanelCanonicalKeyFromPath(panel)] = panel.edgeExtensions;
       }
     }
+
+    // Serialize panel operations (fillets, cutouts, edge paths) from assembly snapshot
+    const sceneSnapshot = engine.getSnapshot();
+    const assemblySnapshot = sceneSnapshot.children?.[0] as AssemblySnapshot | undefined;
+    const serializedOps = assemblySnapshot ? serializePanelOperations(assemblySnapshot) : undefined;
+    const panelOperations = serializedOps ? deserializePanelOperations(serializedOps) : undefined;
 
     const projectState: ProjectState = {
       config: engineSnapshot.config,
       faces: engineSnapshot.faces,
       rootVoid: engineSnapshot.rootVoid,
       edgeExtensions,
+      panelOperations,
     };
 
     saveStateToUrl(projectState);
@@ -126,7 +132,7 @@ export const createUrlSlice: StateCreator<
     const engineSnapshot = getEngineSnapshot();
     if (!engineSnapshot) return '';
 
-    // Get panels from engine to collect edge extensions
+    // Get panels from engine to collect edge extensions (using canonical keys)
     const engine = getEngine();
     const panelCollection = engine.generatePanelsFromNodes();
 
@@ -137,15 +143,22 @@ export const createUrlSlice: StateCreator<
            panel.edgeExtensions.bottom !== 0 ||
            panel.edgeExtensions.left !== 0 ||
            panel.edgeExtensions.right !== 0)) {
-        edgeExtensions[panel.id] = panel.edgeExtensions;
+        edgeExtensions[getPanelCanonicalKeyFromPath(panel)] = panel.edgeExtensions;
       }
     }
+
+    // Serialize panel operations (fillets, cutouts, edge paths) from assembly snapshot
+    const sceneSnapshot = engine.getSnapshot();
+    const assemblySnapshot = sceneSnapshot.children?.[0] as AssemblySnapshot | undefined;
+    const serializedOps = assemblySnapshot ? serializePanelOperations(assemblySnapshot) : undefined;
+    const panelOperations = serializedOps ? deserializePanelOperations(serializedOps) : undefined;
 
     const projectState: ProjectState = {
       config: engineSnapshot.config,
       faces: engineSnapshot.faces,
       rootVoid: engineSnapshot.rootVoid,
       edgeExtensions,
+      panelOperations,
     };
 
     return getShareUrl(projectState);

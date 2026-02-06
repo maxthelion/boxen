@@ -204,9 +204,10 @@ export function syncVoidNodeFromStoreVoid(
         }
       } else {
         // Single-axis subdivision: extract split positions from children
-        // Note: splitAxis/splitPosition are stored on the FIRST child (index 0)
+        // Note: splitAxis/splitPosition are stored on children[1+] (the second child onwards)
         const positions: number[] = [];
-        const axis = storeChildren[0]?.splitAxis;
+        // Find splitAxis from any child that has it (typically children[1+])
+        const axis = storeChildren.find(c => c.splitAxis)?.splitAxis;
 
         if (axis) {
           // Collect positions from all children that have splitPosition

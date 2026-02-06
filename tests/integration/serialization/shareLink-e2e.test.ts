@@ -307,7 +307,7 @@ describe('Share Link End-to-End', () => {
       targetId: 'main-assembly',
       payload: {
         panelId: frontPanel!.id,
-        cornerId: eligibleCorner!.cornerId,
+        cornerId: eligibleCorner!.id,
         radius: Math.min(3, eligibleCorner!.maxRadius),
       },
     });
@@ -337,14 +337,16 @@ describe('Share Link End-to-End', () => {
 
     resetEngine();
     const store = useBoxStore.getState();
-    syncStoreToEngine(store.config, store.faces, store.rootVoid);
+    // Ensure all faces start solid (previous tests may have toggled faces via loadFromUrl)
+    const allSolidFaces = store.faces.map((f: any) => ({ ...f, solid: true }));
+    syncStoreToEngine(store.config, allSolidFaces, store.rootVoid);
 
     const engine = getEngine();
 
-    // 1. Remove top face (enables edge paths and extensions on top edges)
-    engine.dispatch({ type: 'TOGGLE_FACE', targetId: 'main-assembly', payload: { faceId: 'top' } });
-    // Also remove left face (enables corner fillets on left corners)
-    engine.dispatch({ type: 'TOGGLE_FACE', targetId: 'main-assembly', payload: { faceId: 'left' } });
+    // 1. Disable top face (enables edge paths and extensions on top edges)
+    engine.dispatch({ type: 'SET_FACE_SOLID', targetId: 'main-assembly', payload: { faceId: 'top', solid: false } });
+    // Also disable left face (enables corner fillets on left corners)
+    engine.dispatch({ type: 'SET_FACE_SOLID', targetId: 'main-assembly', payload: { faceId: 'left', solid: false } });
 
     // 2. Add a subdivision
     const snapshot = engine.getSnapshot();
@@ -477,12 +479,10 @@ describe('Share Link End-to-End', () => {
     ).toBeGreaterThan(0);
 
     // Verify faces (top and left should be off)
-    const reloadedFaces = reloadedAssembly.props?.faces ?? [];
-    if (reloadedFaces.length > 0) {
-      const topFace = reloadedFaces.find((f: any) => f.id === 'top');
-      const leftFace = reloadedFaces.find((f: any) => f.id === 'left');
-      if (topFace) expect(topFace.solid, 'Top face should be off').toBe(false);
-      if (leftFace) expect(leftFace.solid, 'Left face should be off').toBe(false);
-    }
+    const reloadedAssemblyNode = reloadedEngine.assembly;
+    expect(reloadedAssemblyNode, 'Assembly should exist after reload').toBeDefined();
+    expect(reloadedAssemblyNode!.isFaceSolid('top'), 'Top face should be off').toBe(false);
+    expect(reloadedAssemblyNode!.isFaceSolid('left'), 'Left face should be off').toBe(false);
+    expect(reloadedAssemblyNode!.isFaceSolid('front'), 'Front face should still be on').toBe(true);
   });
 });

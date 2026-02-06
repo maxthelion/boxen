@@ -18,7 +18,7 @@ import {
   assemblySnapshotToConfig,
   faceConfigsToFaces,
 } from './useEngineState';
-import { getPanelStableKey } from '../utils/urlState';
+import { getPanelCanonicalKey } from '../utils/urlState';
 import type { DeserializedPanelOps } from '../utils/urlState';
 
 // Singleton engine instance
@@ -95,7 +95,7 @@ function applyPanelOperations(
   // Build mapping from stable keys to current panel UUIDs
   const stableKeyToId = new Map<string, string>();
   for (const panel of assemblySnapshot.derived.panels) {
-    const key = getPanelStableKey(panel);
+    const key = getPanelCanonicalKey(panel);
     stableKeyToId.set(key, panel.id);
   }
 
@@ -128,6 +128,15 @@ function applyPanelOperations(
         type: 'ADD_CUTOUT',
         targetId: 'main-assembly',
         payload: { panelId, cutout },
+      });
+    }
+
+    // Apply custom edge paths
+    for (const edgePath of ops.customEdgePaths) {
+      engine.dispatch({
+        type: 'SET_EDGE_PATH',
+        targetId: 'main-assembly',
+        payload: { panelId, path: edgePath },
       });
     }
   }

@@ -1,6 +1,6 @@
-import { BoxConfig, Face, Void, AssemblyConfig, defaultAssemblyConfig, EdgeExtensions, SubAssembly, FaceOffsets, defaultFaceOffsets } from '../types';
+import { BoxConfig, Face, Void, AssemblyConfig, defaultAssemblyConfig, EdgeExtensions, SubAssembly, FaceOffsets, defaultFaceOffsets, PanelPath } from '../types';
 import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
-import type { AssemblySnapshot, CornerFillet, CornerKey, AllCornerFillet, AllCornerId, Cutout, PanelSnapshot, FacePanelSnapshot, DividerPanelSnapshot } from '../engine/types';
+import type { AssemblySnapshot, CornerFillet, CornerKey, AllCornerFillet, AllCornerId, Cutout, PanelSnapshot, FacePanelSnapshot, DividerPanelSnapshot, CustomEdgePath, EdgePosition } from '../engine/types';
 
 // Compact serialization format for URL storage
 interface SerializedState {
@@ -55,15 +55,28 @@ type SerializedCutout =
   | { t: 'p'; id: string; c: [number, number]; pts: [number, number][]; m?: 'a' | 's' };  // path: center, points, mode?
 
 /**
+ * Serialized custom edge path (compact form)
+ */
+interface SerializedEdgePath {
+  e: string;    // edge: 'top'|'bottom'|'left'|'right'
+  bo: number;   // baseOffset
+  pts: [number, number][];  // points as [t, offset] tuples
+  m: boolean;   // mirrored
+  f?: number[]; // fillets (optional)
+}
+
+/**
  * Serialized panel operations for a single panel
  * - cf: cornerFillets as Record<cornerKey, radius>
  * - acf: allCornerFillets as Record<cornerId, radius>
  * - co: cutouts as SerializedCutout[]
+ * - ep: customEdgePaths as SerializedEdgePath[]
  */
 interface SerializedPanelOps {
   cf?: Record<string, number>;   // cornerFillets: { "left:top": 5, "bottom:right": 3 }
   acf?: Record<string, number>;  // allCornerFillets: { "outline:5": 2, "hole:cutout-1:0": 3 }
   co?: SerializedCutout[];       // cutouts
+  ep?: SerializedEdgePath[];     // customEdgePaths
 }
 
 interface SerializedVoid {
@@ -358,7 +371,7 @@ const serializeCutout = (cutout: Cutout): SerializedCutout => {
  * Get a stable key for a panel snapshot that survives engine restarts.
  * Face panels are keyed by faceId; divider panels by voidId:axis:position.
  */
-export const getPanelStableKey = (panel: PanelSnapshot): string => {
+export const getPanelCanonicalKey = (panel: PanelSnapshot): string => {
   if (panel.kind === 'face-panel') {
     const facePanel = panel as FacePanelSnapshot;
     const prefix = facePanel.props.assemblyId
@@ -368,6 +381,25 @@ export const getPanelStableKey = (panel: PanelSnapshot): string => {
   } else {
     const dividerPanel = panel as DividerPanelSnapshot;
     return `divider:${dividerPanel.props.voidId}:${dividerPanel.props.axis}:${r(dividerPanel.props.position)}`;
+  }
+};
+
+/** @deprecated Use getPanelCanonicalKey instead */
+export const getPanelStableKey = getPanelCanonicalKey;
+
+/**
+ * Get a stable canonical key from a PanelPath (which has PanelSource metadata).
+ * Same key format as getPanelCanonicalKey but works with PanelPath objects
+ * from generatePanelsFromNodes().
+ */
+export const getPanelCanonicalKeyFromPath = (panel: PanelPath): string => {
+  const source = panel.source;
+  if (source.type === 'face') {
+    return source.subAssemblyId
+      ? `sub:${source.subAssemblyId}:face:${source.faceId}`
+      : `face:${source.faceId}`;
+  } else {
+    return `divider:${source.subdivisionId}:${source.axis}:${r(source.position ?? 0)}`;
   }
 };
 
@@ -415,8 +447,20 @@ export const serializePanelOperations = (
       hasOps = true;
     }
 
+    // Serialize custom edge paths: CustomEdgePath[] -> SerializedEdgePath[]
+    if (panel.props.customEdgePaths && panel.props.customEdgePaths.length > 0) {
+      ops.ep = panel.props.customEdgePaths.map(ep => ({
+        e: ep.edge,
+        bo: r(ep.baseOffset),
+        pts: ep.points.map(p => [r(p.t), r(p.offset)] as [number, number]),
+        m: ep.mirrored,
+        ...(ep.fillets && ep.fillets.length > 0 ? { f: ep.fillets.map(r) } : {}),
+      }));
+      hasOps = true;
+    }
+
     if (hasOps) {
-      const stableKey = getPanelStableKey(panel);
+      const stableKey = getPanelCanonicalKey(panel);
       result[stableKey] = ops;
       hasAny = true;
     }
@@ -483,6 +527,7 @@ export interface DeserializedPanelOps {
   cornerFillets: CornerFillet[];
   allCornerFillets: AllCornerFillet[];
   cutouts: Cutout[];
+  customEdgePaths: CustomEdgePath[];
 }
 
 /**
@@ -525,7 +570,21 @@ export const deserializePanelOperations = (
       }
     }
 
-    result[panelId] = { cornerFillets, allCornerFillets, cutouts };
+    // Reconstruct CustomEdgePath[] from SerializedEdgePath[]
+    const customEdgePaths: CustomEdgePath[] = [];
+    if (ops.ep) {
+      for (const sep of ops.ep) {
+        customEdgePaths.push({
+          edge: sep.e as EdgePosition,
+          baseOffset: sep.bo,
+          points: sep.pts.map(([t, offset]) => ({ t, offset })),
+          mirrored: sep.m,
+          ...(sep.f ? { fillets: sep.f } : {}),
+        });
+      }
+    }
+
+    result[panelId] = { cornerFillets, allCornerFillets, cutouts, customEdgePaths };
   }
 
   return result;
@@ -574,6 +633,17 @@ const reserializePanelOps = (
 
     if (panelOps.cutouts && panelOps.cutouts.length > 0) {
       serialized.co = panelOps.cutouts.map(serializeCutout);
+      hasOps = true;
+    }
+
+    if (panelOps.customEdgePaths && panelOps.customEdgePaths.length > 0) {
+      serialized.ep = panelOps.customEdgePaths.map(ep => ({
+        e: ep.edge,
+        bo: r(ep.baseOffset),
+        pts: ep.points.map(p => [r(p.t), r(p.offset)] as [number, number]),
+        m: ep.mirrored,
+        ...(ep.fillets && ep.fillets.length > 0 ? { f: ep.fillets.map(r) } : {}),
+      }));
       hasOps = true;
     }
 
