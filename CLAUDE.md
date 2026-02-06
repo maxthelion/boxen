@@ -756,3 +756,43 @@ These rules encode critical geometric constraints documented in `docs/IMG_8222.j
 - Preview mutations go to `engine._previewScene`, committed state to `engine._scene`
 - Components use `useEnginePanels()` which returns preview panels if active
 - `createPreviewAction` must return `null` if params are incomplete (no action dispatched)
+
+## Share Link Debugging Tools
+
+Two scripts in `scripts/` for working with share links:
+
+### Parsing
+
+```bash
+npx tsx --import ./scripts/register-lz-compat.mjs scripts/parse-share-link.ts "http://localhost:5173/?p=..."   # full URL
+npx tsx --import ./scripts/register-lz-compat.mjs scripts/parse-share-link.ts "NoIgLg..."                       # compressed string
+npx tsx --import ./scripts/register-lz-compat.mjs scripts/parse-share-link.ts --raw "..."                       # raw JSON output
+```
+
+### Generating
+
+```bash
+npx tsx --import ./scripts/register-lz-compat.mjs scripts/generate-share-link.ts basic          # preset
+npx tsx --import ./scripts/register-lz-compat.mjs scripts/generate-share-link.ts grid-2x2       # preset with grid
+npx tsx --import ./scripts/register-lz-compat.mjs scripts/generate-share-link.ts --json '{"width":100,"height":80,"depth":60,"actions":[]}'
+```
+
+The `--import ./scripts/register-lz-compat.mjs` flag is required because lz-string is CJS-only and the project uses ESM. The loader shim provides named-export compatibility.
+
+Presets: `basic`, `subdivided-x`, `subdivided-z`, `grid-2x2`, `grid-3x3`
+
+### Slash Commands
+
+- `/parse-share-link <url>` - Parse and display a share link's contents
+- `/generate-share-link <preset or description>` - Generate a share link
+
+### Playwright Testing: Use Share Links for State Setup
+
+When writing Playwright tests, generate a URL with state pre-applied using `scripts/generate-share-link.ts` rather than clicking through the UI. Navigate directly to the URL with `page.goto(url)`. This is faster, more reliable, and tests the serialization path as a side effect.
+
+```typescript
+// Generate URL with a 2x2 grid box
+const url = execSync('npx tsx --import ./scripts/register-lz-compat.mjs scripts/generate-share-link.ts grid-2x2').toString().trim();
+await page.goto(url);
+// State is fully loaded - now test interactions
+```
