@@ -24,6 +24,12 @@ This gives a single-page overview of: scheduler health, queue state, agent statu
 - Before unpausing agents or making queue changes
 - After enqueuing work, to verify it appeared
 
+## Creating Tasks
+
+**Never create task files manually.** Always use `/enqueue` or the `create_task()` function from `orchestrator.queue_utils`. Manually writing a `.md` file into the queue directory creates a file that exists on disk but is not registered in the DB — the scheduler cannot see it, and it will sit in `incoming/` forever.
+
+If you find an orphan file (the status script flags these), register it in the DB or recreate it via `/enqueue`.
+
 ## Other Useful Scripts
 
 Scripts in `orchestrator/scripts/` (run with `.orchestrator/venv/bin/python`):
