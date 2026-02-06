@@ -1,132 +1,70 @@
 import React, { useMemo } from 'react';
-import { Line, Html } from '@react-three/drei';
+import { Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { useColors } from '../hooks/useColors';
 
 type Axis = 'x' | 'y' | 'z';
 
-interface AssemblyAxisIndicatorProps {
-  /** The assembly axis direction */
-  axis: Axis;
-  /** Scaled dimensions of the box */
-  dimensions: { width: number; height: number; depth: number };
-  /** Whether to show the indicator */
+interface AssemblyCenterLinesProps {
+  /** Whether to show the lines */
   visible?: boolean;
-  /** Opacity of the indicator */
+  /** Opacity of the lines */
   opacity?: number;
 }
 
-// Friendly names for axes
-const AXIS_LABELS: Record<Axis, string> = {
-  x: 'Side',
-  y: 'Top',
-  z: 'Front',
-};
+// Large extent value to simulate "infinite" lines within the viewport
+const LINE_EXTENT = 10000;
 
 /**
- * Shows a 3D arrow indicating the assembly axis direction.
- * The arrow points in the positive direction of the axis,
- * showing where the "positive" lid would open.
+ * Shows infinite center lines through the origin on all 3 axes (X/Y/Z).
+ * Lines are thin, slightly transparent, and render through geometry
+ * (not occluded by panels) using depthTest: false.
  */
-export const AssemblyAxisIndicator: React.FC<AssemblyAxisIndicatorProps> = ({
-  axis,
-  dimensions,
+export const AssemblyCenterLines: React.FC<AssemblyCenterLinesProps> = ({
   visible = true,
-  opacity = 0.8,
+  opacity = 0.35,
 }) => {
   const colors = useColors();
   const axisColors = colors.axis;
 
-  // Calculate arrow geometry
-  const { arrowStart, arrowEnd, conePosition, coneRotation, labelPosition } = useMemo(() => {
-    const { width, height, depth } = dimensions;
-    const minDim = Math.min(width, height, depth);
-    const arrowLength = minDim * 0.4;
-    const coneLength = arrowLength * 0.25;
-
-    // Arrow starts at center, points in positive axis direction
-    const start: [number, number, number] = [0, 0, 0];
-    const end: [number, number, number] = [0, 0, 0];
-    const conePos: [number, number, number] = [0, 0, 0];
-    const coneRot: [number, number, number] = [0, 0, 0];
-    const labelPos: [number, number, number] = [0, 0, 0];
-
-    switch (axis) {
-      case 'x':
-        end[0] = arrowLength;
-        conePos[0] = arrowLength - coneLength / 2;
-        coneRot[2] = -Math.PI / 2; // Point along +X
-        labelPos[0] = arrowLength + coneLength;
-        break;
-      case 'y':
-        end[1] = arrowLength;
-        conePos[1] = arrowLength - coneLength / 2;
-        // Cone default is +Y, no rotation needed
-        labelPos[1] = arrowLength + coneLength;
-        break;
-      case 'z':
-        end[2] = arrowLength;
-        conePos[2] = arrowLength - coneLength / 2;
-        coneRot[0] = Math.PI / 2; // Point along +Z
-        labelPos[2] = arrowLength + coneLength;
-        break;
-    }
-
-    return {
-      arrowStart: start,
-      arrowEnd: end,
-      conePosition: conePos,
-      coneRotation: coneRot,
-      coneLength,
-      labelPosition: labelPos,
-    };
-  }, [axis, dimensions]);
+  const lines = useMemo(() => {
+    return [
+      {
+        axis: 'x' as Axis,
+        start: [-LINE_EXTENT, 0, 0] as [number, number, number],
+        end: [LINE_EXTENT, 0, 0] as [number, number, number],
+        color: axisColors.x,
+      },
+      {
+        axis: 'y' as Axis,
+        start: [0, -LINE_EXTENT, 0] as [number, number, number],
+        end: [0, LINE_EXTENT, 0] as [number, number, number],
+        color: axisColors.y,
+      },
+      {
+        axis: 'z' as Axis,
+        start: [0, 0, -LINE_EXTENT] as [number, number, number],
+        end: [0, 0, LINE_EXTENT] as [number, number, number],
+        color: axisColors.z,
+      },
+    ];
+  }, [axisColors]);
 
   if (!visible) return null;
 
-  const color = axisColors[axis];
-  const minDim = Math.min(dimensions.width, dimensions.height, dimensions.depth);
-  const coneRadius = minDim * 0.03;
-  const coneHeight = minDim * 0.1;
-  const lineWidth = 3;
-
   return (
     <group>
-      {/* Arrow line */}
-      <Line
-        points={[arrowStart, arrowEnd]}
-        color={color}
-        lineWidth={lineWidth}
-        transparent
-        opacity={opacity}
-      />
-
-      {/* Arrow head (cone) */}
-      <mesh position={conePosition} rotation={coneRotation}>
-        <coneGeometry args={[coneRadius, coneHeight, 12]} />
-        <meshStandardMaterial
+      {lines.map(({ axis, start, end, color }) => (
+        <Line
+          key={axis}
+          points={[start, end]}
           color={color}
+          lineWidth={1}
           transparent
           opacity={opacity}
+          depthTest={false}
         />
-      </mesh>
-
-      {/* Label */}
-      <Html
-        position={labelPosition}
-        center
-        style={{
-          color: color,
-          fontSize: '12px',
-          fontWeight: 'bold',
-          textShadow: '0 0 3px rgba(0,0,0,0.8)',
-          pointerEvents: 'none',
-          userSelect: 'none',
-          whiteSpace: 'nowrap',
-        }}
-      >
-        {AXIS_LABELS[axis]}
-      </Html>
+      ))}
     </group>
   );
 };
