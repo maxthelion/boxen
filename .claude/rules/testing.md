@@ -418,6 +418,20 @@ A bug fixed in one view may still exist in the other.
 
 See `project-management/audits/2026-02-05-operations-test-coverage.md` for the full matrix of operations vs views.
 
+### 6. Tests at Wrong Layer (Helpers Instead of Entry Points)
+
+**Symptom:** All tests pass, but the feature is completely broken for users.
+
+**Cause:** Tests call helper functions directly and manually construct intermediate state, instead of calling the actual user-facing function. The helpers work perfectly, but the user-facing function never calls them.
+
+**Real Example:** Share link serialization — agents built `serializePanelOperations()` and `deserializePanelOperations()` helpers, wrote 44 passing tests that called the helpers directly, but never modified `getShareableUrl()` or `loadFromUrl()` to use them. Tests manually injected `panelOperations` into `ProjectState` instead of letting `getShareableUrl()` produce it. See `project-management/postmortems/2026-02-06-share-link-panel-ops.md`.
+
+**Prevention:**
+1. Integration tests for bug fixes MUST call the actual function the user triggers
+2. If the bug is "Share links don't preserve X", test must call `getShareableUrl()` then `loadFromUrl()`, not build `ProjectState` manually
+3. If the bug is "clicking Y doesn't do Z", test must invoke the store action, not the engine helper
+4. Tests that manually construct intermediate state are **unit tests** — label them as such, and write a separate integration test that uses the real entry point
+
 ---
 
 ## Selection Testing
