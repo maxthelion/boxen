@@ -1702,15 +1702,16 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         const editable = isEdgeEditable(edge);
         if (editable) {
           debug('path-tool', `Starting forked mode on edge: ${edge}`);
+          const startPos = snapResult ? snapResult.point : svgPos;
           startDraft('edge-path', {
             panelId: panel.id,
             edge,
             pathMode: 'forked',
-            forkStart: { x: svgPos.x, y: svgPos.y },
+            forkStart: { x: startPos.x, y: startPos.y },
           });
           // Add first point in edge-relative coordinates
           // Snap offset to the current edge path value at this t position
-          const edgeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, edge);
+          const edgeCoords = svgToEdgeCoords(startPos.x, startPos.y, edge);
           if (edgeCoords) {
             const currentOffset = getEdgePathOffsetAtT(
               panel.customEdgePaths ?? [],
@@ -1802,6 +1803,15 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const svgPos = screenToSvg(e.clientX, e.clientY);
 
+    // Compute snap once for all branches that need it
+    const isDrawingMode = activeTool === 'path' || activeTool === 'rectangle' || activeTool === 'circle';
+    let snap: SnapResult | null = null;
+    if (svgPos && showGuideLines && isDrawingMode && guideLines.length > 0) {
+      const snapThreshold = Math.max(viewBox.width, viewBox.height) / 40;
+      snap = findSnapPoint(svgPos.x, svgPos.y, guideLines, snapThreshold);
+    }
+    const snappedPos = snap ? snap.point : svgPos;
+
     if (isDraggingEdge && dragEdge && svgPos && panel && isInsetOperationActive) {
       // Calculate drag delta
       let delta: number;
@@ -1823,32 +1833,14 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         offset: clampedOffset,
       });
     } else if (isDrawingRect && svgPos) {
-      // Compute snap during rect drawing
-      if (showGuideLines && guideLines.length > 0) {
-        const snapThreshold = Math.max(viewBox.width, viewBox.height) / 40;
-        const snap = findSnapPoint(svgPos.x, svgPos.y, guideLines, snapThreshold);
-        setSnapResult(snap);
-        setRectCurrent(snap ? snap.point : svgPos);
-      } else {
-        setRectCurrent(svgPos);
-        setSnapResult(null);
-      }
+      setSnapResult(snap);
+      setRectCurrent(snappedPos!);
     } else if (isDrawingCircle && circleCenter && svgPos) {
-      // Compute snap during circle drawing
-      if (showGuideLines && guideLines.length > 0) {
-        const snapThreshold = Math.max(viewBox.width, viewBox.height) / 40;
-        const snap = findSnapPoint(svgPos.x, svgPos.y, guideLines, snapThreshold);
-        setSnapResult(snap);
-        const target = snap ? snap.point : svgPos;
-        const dx = target.x - circleCenter.x;
-        const dy = target.y - circleCenter.y;
-        setCircleRadius(Math.sqrt(dx * dx + dy * dy));
-      } else {
-        const dx = svgPos.x - circleCenter.x;
-        const dy = svgPos.y - circleCenter.y;
-        setCircleRadius(Math.sqrt(dx * dx + dy * dy));
-        setSnapResult(null);
-      }
+      setSnapResult(snap);
+      const target = snappedPos!;
+      const dx = target.x - circleCenter.x;
+      const dy = target.y - circleCenter.y;
+      setCircleRadius(Math.sqrt(dx * dx + dy * dy));
     } else if (isPanning) {
       const svg = svgRef.current;
       if (!svg) return;
@@ -1892,15 +1884,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         setCursorPosition(null);
       }
 
-      // Compute snap to guide lines when drawing or about to draw
-      const isDrawingMode = activeTool === 'path' || activeTool === 'rectangle' || activeTool === 'circle';
-      if (showGuideLines && isDrawingMode && guideLines.length > 0) {
-        const snapThreshold = Math.max(viewBox.width, viewBox.height) / 40;
-        const snap = findSnapPoint(svgPos.x, svgPos.y, guideLines, snapThreshold);
-        setSnapResult(snap);
-      } else {
-        setSnapResult(null);
-      }
+      setSnapResult(snap);
     }
   }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, config.materialThickness, activeTool, findCornerAtPoint, isInsetOperationActive, updateParams, isPathDraftActive, isEdgeEditable, isDrawingRect, isDrawingCircle, circleCenter, showGuideLines, guideLines]);
 
@@ -2215,44 +2199,25 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                       : colors.sketch.guides.edgeLine;
                   const opacity = isHighlighted ? 0.8 : guide.type === 'center' ? 0.5 : 0.3;
                   const strokeW = isHighlighted ? guideStrokeWidth * 2 : guideStrokeWidth;
+                  const isH = guide.orientation === 'horizontal';
 
-                  if (guide.orientation === 'horizontal') {
-                    return (
-                      <line
-                        key={`guide-h-${i}`}
-                        x1={-extent}
-                        y1={guide.position}
-                        x2={extent}
-                        y2={guide.position}
-                        stroke={color}
-                        strokeWidth={strokeW}
-                        strokeDasharray={guide.type === 'center'
-                          ? `${6 * guideStrokeWidth} ${4 * guideStrokeWidth}`
-                          : `${3 * guideStrokeWidth} ${3 * guideStrokeWidth}`
-                        }
-                        opacity={opacity}
-                        style={{ transition: 'opacity 0.1s, stroke 0.1s' }}
-                      />
-                    );
-                  } else {
-                    return (
-                      <line
-                        key={`guide-v-${i}`}
-                        x1={guide.position}
-                        y1={-extent}
-                        x2={guide.position}
-                        y2={extent}
-                        stroke={color}
-                        strokeWidth={strokeW}
-                        strokeDasharray={guide.type === 'center'
-                          ? `${6 * guideStrokeWidth} ${4 * guideStrokeWidth}`
-                          : `${3 * guideStrokeWidth} ${3 * guideStrokeWidth}`
-                        }
-                        opacity={opacity}
-                        style={{ transition: 'opacity 0.1s, stroke 0.1s' }}
-                      />
-                    );
-                  }
+                  return (
+                    <line
+                      key={`guide-${isH ? 'h' : 'v'}-${i}`}
+                      x1={isH ? -extent : guide.position}
+                      y1={isH ? guide.position : -extent}
+                      x2={isH ? extent : guide.position}
+                      y2={isH ? guide.position : extent}
+                      stroke={color}
+                      strokeWidth={strokeW}
+                      strokeDasharray={guide.type === 'center'
+                        ? `${6 * guideStrokeWidth} ${4 * guideStrokeWidth}`
+                        : `${3 * guideStrokeWidth} ${3 * guideStrokeWidth}`
+                      }
+                      opacity={opacity}
+                      style={{ transition: 'opacity 0.1s, stroke 0.1s' }}
+                    />
+                  );
                 })}
               </g>
             );
