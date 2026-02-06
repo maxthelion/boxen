@@ -199,6 +199,26 @@ def print_queue_status() -> None:
         if recycled:
             print(f"\n  recycled: {len(recycled)} task(s)")
 
+    # Orphan detection: files on disk but not in DB
+    if is_db_enabled():
+        try:
+            from orchestrator.db import get_task
+            orphans = []
+            for subdir_name in ["incoming", "claimed", "breakdown"]:
+                subdir = get_queue_dir() / subdir_name
+                if not subdir.exists():
+                    continue
+                for task_file in subdir.glob("TASK-*.md"):
+                    file_id = task_file.stem.replace("TASK-", "")
+                    if get_task(file_id) is None:
+                        orphans.append((subdir_name, file_id, task_file.name))
+            if orphans:
+                subheader(f"ORPHAN FILES ({len(orphans)}) - on disk but NOT in DB!")
+                for q, tid, fname in orphans:
+                    print(f"    {q}/{fname}  (invisible to scheduler)")
+        except ImportError:
+            pass
+
 
 def print_agent_status() -> None:
     header("AGENTS")
