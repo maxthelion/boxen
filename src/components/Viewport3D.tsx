@@ -22,7 +22,7 @@ import { MovePalette } from './MovePalette';
 import { CreateSubAssemblyPalette } from './CreateSubAssemblyPalette';
 import { ConfigurePalette } from './ConfigurePalette';
 import { ScalePalette } from './ScalePalette';
-import { InsetPalette, PanelEdgeGroup } from './InsetPalette';
+import { OffsetPalette, PanelEdgeGroup } from './OffsetPalette';
 import { FilletAllCornersPalette, PanelAllCornerGroup } from './FilletAllCornersPalette';
 import { IneligibilityTooltip } from './IneligibilityTooltip';
 import { useBoxStore } from '../store/useBoxStore';
@@ -803,8 +803,8 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         containerRef={canvasContainerRef as React.RefObject<HTMLElement>}
       />
 
-      {/* Inset/Outset Palette */}
-      <InsetPalette
+      {/* Offset Palette */}
+      <OffsetPalette
         visible={activeTool === 'inset' && panelEdgeGroups.length > 0}
         position={insetPalettePosition}
         panelEdgeGroups={panelEdgeGroups}
