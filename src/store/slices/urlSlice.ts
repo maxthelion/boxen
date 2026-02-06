@@ -1,6 +1,6 @@
 import { StateCreator } from 'zustand';
 import { Void, BoxConfig, Face, EdgeExtensions, defaultEdgeExtensions, PanelCollection } from '../../types';
-import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState, DeserializedPanelOps } from '../../utils/urlState';
+import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState, serializePanelOperations, deserializePanelOperations } from '../../utils/urlState';
 import { generatePanelCollection } from '../../utils/panelGenerator';
 import { syncStoreToEngine, getEngine, getEngineSnapshot, resetEngine } from '../../engine';
 import type { AssemblySnapshot } from '../../engine/types';
@@ -48,7 +48,7 @@ export const createUrlSlice: StateCreator<
 
     // Initialize engine with loaded config (not defaults)
     // This ensures the engine matches the loaded state
-    syncStoreToEngine(loaded.config, loaded.faces, loaded.rootVoid);
+    syncStoreToEngine(loaded.config, loaded.faces, loaded.rootVoid, undefined, loaded.panelOperations);
 
     // Collect edge extensions from loaded data
     const edgeExtensionsMap = loaded.edgeExtensions;
@@ -111,11 +111,18 @@ export const createUrlSlice: StateCreator<
       }
     }
 
+    // Extract panel operations (fillets, cutouts) from assembly snapshot
+    const sceneSnapshot = engine.getSnapshot();
+    const assemblySnapshot = sceneSnapshot.children[0] as AssemblySnapshot;
+    const serializedPanelOps = assemblySnapshot ? serializePanelOperations(assemblySnapshot) : undefined;
+    const panelOperations = serializedPanelOps ? deserializePanelOperations(serializedPanelOps) : undefined;
+
     const projectState: ProjectState = {
       config: engineSnapshot.config,
       faces: engineSnapshot.faces,
       rootVoid: engineSnapshot.rootVoid,
       edgeExtensions,
+      panelOperations,
     };
 
     saveStateToUrl(projectState);
@@ -141,11 +148,18 @@ export const createUrlSlice: StateCreator<
       }
     }
 
+    // Extract panel operations (fillets, cutouts) from assembly snapshot
+    const sceneSnapshot = engine.getSnapshot();
+    const assemblySnapshot = sceneSnapshot.children[0] as AssemblySnapshot;
+    const serializedPanelOps = assemblySnapshot ? serializePanelOperations(assemblySnapshot) : undefined;
+    const panelOperations = serializedPanelOps ? deserializePanelOperations(serializedPanelOps) : undefined;
+
     const projectState: ProjectState = {
       config: engineSnapshot.config,
       faces: engineSnapshot.faces,
       rootVoid: engineSnapshot.rootVoid,
       edgeExtensions,
+      panelOperations,
     };
 
     return getShareUrl(projectState);
