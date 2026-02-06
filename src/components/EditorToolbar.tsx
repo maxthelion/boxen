@@ -74,8 +74,8 @@ const tools: ToolButton[] = [
   {
     id: 'inset',
     icon: '⧈',
-    label: 'Inset',
-    tooltip: 'Inset/Outset edges (I)',
+    label: 'Offset',
+    tooltip: 'Offset edges (I)',
     modes: ['2d', '3d'],
   },
   {
