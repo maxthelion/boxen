@@ -39,22 +39,23 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectedEdges, selectedCornerIds, selectPanel, selectAssembly, selectPanelEdges, selectPanelCorners, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
 
   // Compute visually selected panels (includes cascade from assembly selection)
-  const allPanelIds = panelCollection?.panels.map(p => p.id) ?? [];
+  const allPanels = panelCollection?.panels ?? [];
   const visuallySelectedPanelIds = computeVisuallySelectedPanelIds(
     { selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds },
-    allPanelIds
+    allPanels
   );
 
-  // Get the set of visually selected face IDs
+  // Get the set of visually selected face IDs by looking up panel source metadata
   const selectedFaceIds = useMemo(() => {
     const faceIds = new Set<FaceId>();
     for (const panelId of visuallySelectedPanelIds) {
-      if (panelId.startsWith('face-')) {
-        faceIds.add(panelId.replace('face-', '') as FaceId);
+      const panel = allPanels.find(p => p.id === panelId);
+      if (panel?.source.type === 'face' && panel.source.faceId) {
+        faceIds.add(panel.source.faceId);
       }
     }
     return faceIds;
-  }, [visuallySelectedPanelIds]);
+  }, [visuallySelectedPanelIds, allPanels]);
 
   // Check if any face panels are visually selected
   const hasFacePanelsSelected = selectedFaceIds.size > 0;
@@ -215,12 +216,14 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
       {/* Push/Pull arrow indicator when tool is active and face panel is selected */}
       {activeTool === 'push-pull' && mainPanelCollection && pushPullCallbacks && (() => {
         // Find selected face panel - use MAIN panel collection for original position
-        const selectedFaceId = Array.from(selectedPanelIds).find(id => id.startsWith('face-'));
-        if (!selectedFaceId) return null;
+        // Look up via source metadata since panel IDs are UUIDs
+        const selectedPanel = mainPanelCollection.panels.find(p =>
+          selectedPanelIds.has(p.id) && p.source.type === 'face' && p.source.faceId
+        );
+        if (!selectedPanel) return null;
 
-        const faceId = selectedFaceId.replace('face-', '') as FaceId;
-        const panel = mainPanelCollection.panels.find(p => p.id === selectedFaceId);
-        if (!panel) return null;
+        const faceId = selectedPanel.source.faceId!;
+        const panel = selectedPanel;
 
         const arrowSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.5;
 
@@ -237,7 +240,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
         }
 
         // Log arrow position calculation
-        const previewPanel = panelCollection?.panels.find(p => p.id === selectedFaceId);
+        const previewPanel = panelCollection?.panels.find(p => p.id === panel.id);
         logPushPull({
           action: 'Box3D - arrow position calculated',
           faceId,
