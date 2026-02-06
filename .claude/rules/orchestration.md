@@ -49,6 +49,33 @@ Scripts in `.orchestrator/scripts/`:
 | `status.py` | Comprehensive one-shot status report |
 | `accept_all.py` | Accept all provisional tasks |
 
+## Reviewing Agent Output
+
+A permanent review worktree exists at `.orchestrator/agents/review-worktree/`. Use it to check out agent branches and run tests **without touching the main working tree**.
+
+```bash
+# Switch to an agent branch
+cd .orchestrator/agents/review-worktree
+git checkout origin/agent/<branch-name>
+
+# Run tests
+npx vitest run <test-path>
+
+# Run full suite
+npx vitest run
+
+# When done, leave it — no cleanup needed
+```
+
+**Always use this worktree** instead of `git checkout FETCH_HEAD -- <files>` or stash/restore gymnastics in the main repo. It has its own `node_modules` so tests run independently.
+
+If the worktree is missing (e.g., after a fresh clone), recreate it:
+
+```bash
+git worktree add --detach .orchestrator/agents/review-worktree HEAD
+cd .orchestrator/agents/review-worktree && npm install
+```
+
 ## Extending the Status Script
 
 If you find yourself doing manual investigation that the status script doesn't cover, **add it to the script** at `.orchestrator/scripts/status.py` so the next person benefits. Examples of things worth adding:
