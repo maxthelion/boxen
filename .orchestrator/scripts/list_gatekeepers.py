@@ -88,6 +88,21 @@ def main():
             print(f"  {a['name']:20s}  {status}")
     print()
 
+    # --- Automated check types ---
+    print("-" * 60)
+    print("AUTOMATED CHECK TYPES (run by check_runner)")
+    print("-" * 60)
+    try:
+        from orchestrator.roles.check_runner import VALID_CHECK_TYPES
+        for ct in sorted(VALID_CHECK_TYPES):
+            auto = ""
+            if ct == "gk-testing-octopoid":
+                auto = "  (auto-added to orchestrator_impl tasks)"
+            print(f"  {ct}{auto}")
+    except ImportError:
+        print("  (could not import check_runner)")
+    print()
+
     # --- Prompt files ---
     print("-" * 60)
     print("GATEKEEPER PROMPTS")
