@@ -78,6 +78,21 @@ agents:
   name: recycler
   paused: false
   role: recycler
+- focus: architecture
+  interval_seconds: 120
+  name: gk-architecture
+  paused: true
+  role: gatekeeper
+- focus: testing
+  interval_seconds: 120
+  name: gk-testing
+  paused: true
+  role: gatekeeper
+- focus: qa
+  interval_seconds: 120
+  name: gk-qa
+  paused: true
+  role: gatekeeper
 database:
   enabled: true
   path: state.db
@@ -102,6 +117,14 @@ queue_limits:
   max_claimed: 5
   max_incoming: 20
   max_open_prs: 10
+gatekeeper:
+  enabled: false
+  max_rejections: 3
+  required_checks:
+  - architecture
+  - testing
+  - qa
+  skip_if_auto_accept: true
 voice_weights:
   architect: 1.2
   backlog-groomer: 1.5
