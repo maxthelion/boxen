@@ -6,10 +6,11 @@
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Block pip install -e targeting the shared venv
+# Block pip install -e from agent worktrees (they hijack the shared venv)
+CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 if echo "$COMMAND" | grep -qE "pip install.*-e|pip install.*--editable"; then
-  if echo "$COMMAND" | grep -q ".orchestrator/venv\|orchestrator/venv"; then
-    echo "BLOCKED: Do not run pip install -e against the shared orchestrator venv. It will corrupt the scheduler." >&2
+  if [[ "$CWD" == *"/agents/"*"/worktree"* ]]; then
+    echo "BLOCKED: Do not run pip install -e from an agent worktree. It will corrupt the shared scheduler venv." >&2
     exit 2
   fi
 fi
