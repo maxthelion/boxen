@@ -280,13 +280,28 @@ def main() -> int:
     status = get_queue_status()
     provisional = status.get("provisional", {}).get("tasks", [])
     if provisional:
-        section(">>", f"Provisional Tasks ({len(provisional)})")
-        for t in provisional:
-            tid = (t.get("id") or "?")[:8]
-            title = resolve_task_title(t)
-            print(f"- `{tid}` {title}")
-        print(f"\nReview and approve or reject these completed tasks.")
-        actions_found += len(provisional)
+        orch_tasks = [t for t in provisional if t.get("role") == "orchestrator_impl"]
+        app_tasks = [t for t in provisional if t.get("role") != "orchestrator_impl"]
+
+        if app_tasks:
+            section(">>", f"Provisional Tasks ({len(app_tasks)})")
+            for t in app_tasks:
+                tid = (t.get("id") or "?")[:8]
+                title = resolve_task_title(t)
+                print(f"- `{tid}` {title}")
+            print(f"\nReview and approve or reject these completed tasks.")
+            actions_found += len(app_tasks)
+
+        if orch_tasks:
+            section(">>", f"Orchestrator Tasks ({len(orch_tasks)}) -- INFRA")
+            for t in orch_tasks:
+                tid = (t.get("id") or "?")[:8]
+                title = resolve_task_title(t)
+                print(f"- `{tid}` {title}")
+            print(f"\nThese modify the orchestrator itself. Approval requires:")
+            print(f"  1. Push submodule commits: cd orchestrator && git push")
+            print(f"  2. Merge the main repo PR: gh pr merge <number> --merge")
+            actions_found += len(orch_tasks)
 
     # 4. Breakdowns pending review
     try:
