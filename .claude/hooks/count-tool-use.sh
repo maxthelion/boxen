@@ -8,7 +8,7 @@
 
 [ -z "$AGENT_NAME" ] && exit 0
 
-COUNTER_DIR="${CLAUDE_PROJECT_DIR:-.}/.orchestrator/agents/$AGENT_NAME"
+COUNTER_DIR="${ORCHESTRATOR_DIR:-${CLAUDE_PROJECT_DIR:-.}/.orchestrator}/agents/$AGENT_NAME"
 mkdir -p "$COUNTER_DIR" 2>/dev/null
 printf '.' >> "$COUNTER_DIR/tool_counter"
 
