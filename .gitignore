@@ -41,6 +41,7 @@ npm-debug.log*
 .orchestrator/scheduler.lock
 .orchestrator/logs/
 .agent-instructions.md
+CLAUDE.local.md
 
 # Inbox/Outbox working directories (at project root)
 inbox/*

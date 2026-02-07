@@ -33,6 +33,22 @@ To get a local copy up and running, follow these simple steps.
     npm run dev
     ```
 
+## Claude Code Setup
+
+This project uses separate Claude Code contexts for interactive sessions vs. automated agents.
+
+- **`CLAUDE.md`** -- shared codebase facts, loaded by all sessions and agents.
+- **`CLAUDE.local.md`** -- interactive session role (project manager). Gitignored, loaded only by human-driven sessions.
+- **`.agent-instructions.md`** -- written by the orchestrator into agent worktrees. Role + task specific.
+
+After cloning, create the symlink for the interactive role:
+
+```sh
+ln -sf project-management/claude-interactive-role.md CLAUDE.local.md
+```
+
+The source file (`project-management/claude-interactive-role.md`) is version-controlled. The symlink is gitignored.
+
 ## Available Scripts
 
 In the project directory, you can run:
