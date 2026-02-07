@@ -30,7 +30,7 @@ fi
 
 # --- Extract commit message from git output ---
 # Successful git commit output looks like: [branch hash] commit message
-# e.g., "[sqlite-model abc1234] fix: add feature X"
+# e.g., "[main abc1234] fix: add feature X"
 COMMIT_MSG=""
 
 # Try to extract from the git output line "[branch hash] message"

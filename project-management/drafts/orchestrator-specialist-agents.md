@@ -15,7 +15,7 @@ A new agent role (`orchestrator-specialist` or `orch-impl`) with:
 
 - **Context:** Knows the orchestrator codebase structure (`orchestrator/orchestrator/`), the DB schema, queue lifecycle, scheduler loop, agent roles, backpressure system.
 - **Testing:** Runs `cd orchestrator && ./venv/bin/python -m pytest tests/ -v` instead of `npm run test`.
-- **Commit workflow:** Commits in the orchestrator submodule, not the main repo. Understands the submodule branch (`sqlite-model`).
+- **Commit workflow:** Commits in the orchestrator submodule, not the main repo. Creates `orch/<task-id>` feature branches in the submodule for isolated work.
 - **Safety:** Extra caution around scheduler.py and db.py changes — always run tests before committing. Never modify the running DB directly.
 - **No Boxen domain knowledge needed.** Doesn't need to know about Three.js, panels, finger joints, etc.
 

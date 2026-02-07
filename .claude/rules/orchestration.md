@@ -1,6 +1,6 @@
 # Octopoid (Orchestrator) Debugging
 
-The project uses **Octopoid**, an automated orchestrator that manages background agents. Full docs: `docs/orchestrator-usage.md`. Submodule: `orchestrator/` (branch `sqlite-model`, venv at `orchestrator/venv/`).
+The project uses **Octopoid**, an automated orchestrator that manages background agents. Full docs: `docs/orchestrator-usage.md`. Submodule: `orchestrator/` (branch `main`, venv at `orchestrator/venv/`).
 
 ## First Point of Entry
 
@@ -28,10 +28,35 @@ This gives a single-page overview of: scheduler health, queue state, agent statu
 
 Tasks with `role=orchestrator_impl` follow a different model to regular app tasks:
 
-- **BRANCH must be `main`**, not `sqlite-model`. The scheduler creates a normal Boxen worktree; the agent works inside the `orchestrator/` submodule within it.
-- **No PRs in the main repo.** The agent commits to the submodule's `sqlite-model` branch directly.
-- **Approval uses a separate script:** `.orchestrator/scripts/approve_orchestrator_task.py <task-id>` (pushes submodule, updates ref on main, accepts in DB).
+- **BRANCH must be `main`.** The scheduler creates a normal Boxen worktree; the agent works inside the `orchestrator/` submodule within it.
+- **No PRs in the main repo.** The agent creates an `orch/<task-id>` feature branch in the submodule and commits there. This keeps work isolated until approved.
+- **Approval uses a separate script:** `.orchestrator/scripts/approve_orchestrator_task.py <task-id>` (auto-detects agent branch, cherry-picks to main, pushes submodule, updates ref on main, accepts in DB).
 - **Set `role='orchestrator_impl'` at creation time.** Do not create with `role='implement'` then update — regular agents can claim it in the gap.
+
+## Reviewing Orchestrator Task Commits
+
+**WARNING: This is a known pain point.** Orchestrator_impl agents work inside a git submodule (`orchestrator/`) within their worktree. Commits can end up in multiple places with **separate git object stores**:
+
+1. The agent's worktree submodule: `.orchestrator/agents/<agent>/worktree/orchestrator/` (on branch `orch/<task-id>`)
+2. The main checkout's submodule: `orchestrator/`
+3. The remote: `origin/main`
+
+These locations have **separate git object stores**. A commit visible in one is invisible from the other via `git cat-file` or `git log`. "I can't find the commit" ≠ "the commit doesn't exist."
+
+**Before concluding a commit is fabricated:**
+1. Check all three locations above
+2. Check the reflog in each
+3. Remember the agent may have committed but not pushed
+
+**Use the review script** (when available):
+```bash
+.orchestrator/venv/bin/python orchestrator/scripts/review-orchestrator-task <task-id>
+```
+
+**Use the approve script** for approval (handles fetching from the right place):
+```bash
+.orchestrator/venv/bin/python .orchestrator/scripts/approve_orchestrator_task.py <task-id>
+```
 
 ## Creating Tasks
 
