@@ -351,6 +351,14 @@ Presets: `basic`, `subdivided-x`, `subdivided-z`, `grid-2x2`, `grid-3x3`
 - `/parse-share-link <url>` - Parse and display a share link's contents
 - `/generate-share-link <preset or description>` - Generate a share link
 
+## CLAUDE.local.md (Interactive Session Config)
+
+`CLAUDE.local.md` is gitignored but **symlinked** to `project-management/claude-interactive-role.md` (which is in git). This means edits to the source file automatically take effect in Claude Code sessions.
+
+- **Source of truth:** `project-management/claude-interactive-role.md`
+- **Symlink:** `CLAUDE.local.md` → `project-management/claude-interactive-role.md`
+- **Do not** replace the symlink with a regular file or create a separate copy — they must stay in sync via the symlink.
+
 ### Playwright Testing: Use Share Links for State Setup
 
 When writing Playwright tests, generate a URL with state pre-applied using `scripts/generate-share-link.ts` rather than clicking through the UI. Navigate directly to the URL with `page.goto(url)`. This is faster, more reliable, and tests the serialization path as a side effect.
