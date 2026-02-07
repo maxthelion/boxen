@@ -82,6 +82,8 @@ Scripts in `.orchestrator/scripts/`:
 |--------|---------|
 | `status.py` | Comprehensive one-shot status report |
 | `accept_all.py` | Accept all provisional tasks |
+| `list_gatekeepers.py` | Show gatekeeper config, agents, checks, and key files |
+| `approve_orchestrator_task.py` | Approve orchestrator_impl tasks (cherry-pick + push) |
 
 ## Reviewing Agent Output
 
