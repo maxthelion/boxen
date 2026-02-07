@@ -155,7 +155,26 @@ def main():
     else:
         from orchestrator.db import accept_completion as db_accept
         db_accept(task_id, validator="human")
-    print("   Done")
+
+    # Verify DB state
+    task_after = get_task(task_id)
+    if task_after:
+        db_queue = task_after.get("queue", "unknown")
+        db_claimed = task_after.get("claimed_by")
+        if db_queue != "done":
+            print(f"   WARNING: DB shows queue='{db_queue}', expected 'done'. Fixing...")
+            with get_connection() as conn:
+                conn.execute("UPDATE tasks SET queue = 'done', claimed_by = NULL WHERE id = ?", (task_id,))
+                conn.commit()
+        elif db_claimed:
+            print(f"   WARNING: DB still shows claimed_by='{db_claimed}'. Clearing...")
+            with get_connection() as conn:
+                conn.execute("UPDATE tasks SET claimed_by = NULL WHERE id = ?", (task_id,))
+                conn.commit()
+        else:
+            print("   Done (verified: queue=done, unclaimed)")
+    else:
+        print("   Done (task not found in DB — file-only mode)")
 
     print(f"\nTask {task_id[:8]} approved and merged.")
 

@@ -24,6 +24,15 @@ This gives a single-page overview of: scheduler health, queue state, agent statu
 - Before unpausing agents or making queue changes
 - After enqueuing work, to verify it appeared
 
+## Orchestrator Specialist Tasks
+
+Tasks with `role=orchestrator_impl` follow a different model to regular app tasks:
+
+- **BRANCH must be `main`**, not `sqlite-model`. The scheduler creates a normal Boxen worktree; the agent works inside the `orchestrator/` submodule within it.
+- **No PRs in the main repo.** The agent commits to the submodule's `sqlite-model` branch directly.
+- **Approval uses a separate script:** `.orchestrator/scripts/approve_orchestrator_task.py <task-id>` (pushes submodule, updates ref on main, accepts in DB).
+- **Set `role='orchestrator_impl'` at creation time.** Do not create with `role='implement'` then update — regular agents can claim it in the gap.
+
 ## Creating Tasks
 
 **Never create task files manually.** Always use `/enqueue` or the `create_task()` function from `orchestrator.queue_utils`. Manually writing a `.md` file into the queue directory creates a file that exists on disk but is not registered in the DB — the scheduler cannot see it, and it will sit in `incoming/` forever.
