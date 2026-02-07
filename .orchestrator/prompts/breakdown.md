@@ -40,3 +40,19 @@ Rules for verification:
 - **Verification** describes a specific test that proves the user's problem is solved — it's the "how do we know this actually works" check
 
 Both are required. Acceptance criteria alone can be satisfied by building infrastructure that's never connected. Verification forces the agent to wire everything end-to-end.
+
+### Writing Good Acceptance Criteria
+
+Acceptance criteria are the **success signal the agent uses to know they're finished**. Write them as observable, checkable conditions — not descriptions of work to do.
+
+**Good** (observable):
+- "Running `npm run test:run -- src/engine/integration/fillet.test.ts` passes"
+- "`checkEngineGeometry(engine)` returns `valid: true` after applying a fillet"
+- "The panel outline has more points than before the operation was applied"
+
+**Bad** (describes work, not completion):
+- "Implement the fillet operation"
+- "Add tests for the new feature"
+- "Update types as needed"
+
+If the agent can check off the criterion without the feature actually working, it's not specific enough.
