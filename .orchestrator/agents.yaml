@@ -60,6 +60,13 @@ agents:
   pre_check_trigger: non_empty
   role: pr_coordinator
 - interval_seconds: 60
+  name: orch-impl-1
+  paused: false
+  pre_check: ls -A .orchestrator/shared/queue/incoming/ 2>/dev/null | grep -v .gitkeep
+    | head -1
+  pre_check_trigger: non_empty
+  role: orchestrator_impl
+- interval_seconds: 60
   name: breakdown-agent
   paused: false
   pre_check: ls -A .orchestrator/shared/queue/breakdown/ 2>/dev/null | grep -v .gitkeep
