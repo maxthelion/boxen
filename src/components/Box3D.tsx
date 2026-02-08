@@ -115,9 +115,14 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   return (
     <group>
       {/* Wireframe box outline - shows current assembly dimensions */}
-      <lineSegments>
-        <edgesGeometry args={[new THREE.BoxGeometry(boundingBoxW, boundingBoxH, boundingBoxD)]} />
-        <lineBasicMaterial color={isPreviewActive ? '#ffcc00' : '#ff0000'} linewidth={2} />
+      {/* Small offset prevents z-fighting with coplanar panel surfaces */}
+      <lineSegments renderOrder={1}>
+        <edgesGeometry args={[new THREE.BoxGeometry(
+          boundingBoxW + 0.15,
+          boundingBoxH + 0.15,
+          boundingBoxD + 0.15
+        )]} />
+        <lineBasicMaterial color={isPreviewActive ? '#ffcc00' : '#ff0000'} linewidth={2} depthTest={true} />
       </lineSegments>
 
       {/* Assembly axis indicator - shows when main assembly is selected or configure tool is active */}
