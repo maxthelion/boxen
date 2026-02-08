@@ -91,8 +91,8 @@ const EdgeMesh: React.FC<EdgeMeshProps> = ({
     const [px, py, pz] = position;
     const halfWidth = (width * scale) / 2;
     const halfHeight = (height * scale) / 2;
-    // Offset to prevent z-fighting with panel edge cap surfaces
-    const edgeOffset = 0.15;
+    // Small offset to prevent z-fighting with panel edge cap surfaces
+    const edgeOffset = 0.05;
 
     // Create panel's rotation as Euler, then convert to quaternion for transforms
     const panelEuler = new THREE.Euler(rotation[0], rotation[1], rotation[2], 'XYZ');
@@ -183,9 +183,6 @@ const EdgeMesh: React.FC<EdgeMeshProps> = ({
         opacity={opacity}
         side={THREE.DoubleSide}
         depthWrite={false}
-        polygonOffset={true}
-        polygonOffsetFactor={-1}
-        polygonOffsetUnits={-1}
       />
     </mesh>
   );

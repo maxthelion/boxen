@@ -15,8 +15,9 @@ if echo "$COMMAND" | grep -qE "pip install.*-e|pip install.*--editable"; then
   fi
 fi
 
-# Block git commits on agent branches
-if echo "$COMMAND" | grep -q "git commit"; then
+# Block git commits on agent branches (interactive sessions only)
+# Agents themselves need to commit to their own agent/* branches — that's the whole point.
+if [[ -z "$AGENT_NAME" ]] && echo "$COMMAND" | grep -q "git commit"; then
   BRANCH=$(git branch --show-current 2>/dev/null)
   if [[ "$BRANCH" == agent/* ]]; then
     echo "BLOCKED: On agent branch '$BRANCH'. Switch to main first: git checkout main" >&2
