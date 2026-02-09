@@ -39,6 +39,13 @@ from orchestrator.queue_utils import (
 
 VERBOSE = "--verbose" in sys.argv or "-v" in sys.argv
 
+# --task <id> flag: show event log for a specific task
+TASK_ID = None
+for i, arg in enumerate(sys.argv):
+    if arg == "--task" and i + 1 < len(sys.argv):
+        TASK_ID = sys.argv[i + 1]
+        break
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
@@ -553,10 +560,77 @@ def print_messages() -> None:
         print(f"  {msg_path.name}: {preview}")
 
 
+def print_task_detail(task_id: str) -> None:
+    """Print detailed info for a specific task, including event log."""
+    header(f"TASK: {task_id}")
+
+    if not is_db_enabled():
+        print("  DB not enabled")
+        return
+
+    from orchestrator.db import get_task, get_task_events
+
+    task = get_task(task_id)
+    if not task:
+        print(f"  Task {task_id} not found")
+        return
+
+    # Task summary
+    print(f"  queue:        {task.get('queue', '?')}")
+    print(f"  priority:     {task.get('priority', '?')}")
+    print(f"  role:         {task.get('role', '?')}")
+    print(f"  branch:       {task.get('branch', '?')}")
+    print(f"  claimed_by:   {task.get('claimed_by') or '-'}")
+    print(f"  commits:      {task.get('commits_count', 0)}")
+    print(f"  turns:        {task.get('turns_used') or '-'}")
+    print(f"  attempts:     {task.get('attempt_count', 0)}")
+    print(f"  rejections:   {task.get('rejection_count', 0)}")
+    if task.get('project_id'):
+        print(f"  project:      {task['project_id']}")
+    if task.get('blocked_by'):
+        print(f"  blocked_by:   {task['blocked_by']}")
+
+    # Lifecycle timestamps
+    subheader("Lifecycle Timestamps")
+    print(f"  created_at:   {task.get('created_at') or '-'}")
+    print(f"  claimed_at:   {task.get('claimed_at') or '-'}")
+    print(f"  submitted_at: {task.get('submitted_at') or '-'}")
+    print(f"  completed_at: {task.get('completed_at') or '-'}")
+    print(f"  updated_at:   {task.get('updated_at') or '-'}")
+
+    # Event log
+    events = get_task_events(task_id)
+    subheader(f"Event Log ({len(events)} events)")
+    if not events:
+        print("  No events recorded")
+    else:
+        fmt = "  {:<20} {:<18} {:<14} {}"
+        print(fmt.format("TIMESTAMP", "EVENT", "ACTOR", "DETAILS"))
+        print(fmt.format("-" * 20, "-" * 18, "-" * 14, "-" * 20))
+        for ev in events:
+            ts = ev.get("timestamp") or "?"
+            # Truncate timestamp for display
+            if len(ts) > 19:
+                ts = ts[:19]
+            event_name = ev.get("event") or "?"
+            actor = ev.get("actor") or "-"
+            details = (ev.get("details") or "")[:50]
+            print(fmt.format(ts, event_name, actor, details))
+
+
 # ── Main ─────────────────────────────────────────────────────────────────
 
 
 def main() -> int:
+    # If --task flag is provided, show task detail only
+    if TASK_ID:
+        print(f"\nOrchestrator Task Detail -- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        print("-" * 60)
+        print_task_detail(TASK_ID)
+        print(f"\n{'-' * 60}")
+        print("Done.\n")
+        return 0
+
     print(f"\nOrchestrator Status Report -- {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print("-" * 60)
 
