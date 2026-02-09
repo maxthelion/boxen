@@ -6,6 +6,8 @@ import { useColors } from '../hooks/useColors';
 type Axis = 'x' | 'y' | 'z';
 
 interface AssemblyCenterLinesProps {
+  /** The assembly axis to render the line on */
+  axis?: Axis;
   /** Whether to show the lines */
   visible?: boolean;
   /** Opacity of the lines */
@@ -15,13 +17,21 @@ interface AssemblyCenterLinesProps {
 // Large extent value to simulate "infinite" lines within the viewport
 const LINE_EXTENT = 10000;
 
+// Line endpoints for each axis
+const AXIS_POINTS: Record<Axis, [[number, number, number], [number, number, number]]> = {
+  x: [[-LINE_EXTENT, 0, 0], [LINE_EXTENT, 0, 0]],
+  y: [[0, -LINE_EXTENT, 0], [0, LINE_EXTENT, 0]],
+  z: [[0, 0, -LINE_EXTENT], [0, 0, LINE_EXTENT]],
+};
+
 /**
- * Shows a single infinite vertical (Y-axis) center line through the origin.
- * Indicates the top/bottom orientation axis of the assembly.
+ * Shows a single infinite center line through the origin on the assembly axis.
+ * Indicates the orientation axis of the assembly (e.g. top/bottom for Y).
  * The line is thin, slightly transparent, and renders through geometry
  * (not occluded by panels) using depthTest: false.
  */
 export const AssemblyCenterLines: React.FC<AssemblyCenterLinesProps> = ({
+  axis = 'y',
   visible = true,
   opacity = 0.35,
 }) => {
@@ -31,11 +41,8 @@ export const AssemblyCenterLines: React.FC<AssemblyCenterLinesProps> = ({
 
   return (
     <Line
-      points={[
-        [0, -LINE_EXTENT, 0] as [number, number, number],
-        [0, LINE_EXTENT, 0] as [number, number, number],
-      ]}
-      color={colors.axis.y}
+      points={AXIS_POINTS[axis]}
+      color={colors.axis[axis]}
       lineWidth={1}
       transparent
       opacity={opacity}
