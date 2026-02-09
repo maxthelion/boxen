@@ -35,6 +35,14 @@ agents:
   name: architect
   paused: true
   role: proposer
+- focus: draft_processing
+  interval_seconds: 43200
+  name: draft-processor
+  paused: true
+  pre_check: find project-management/drafts/boxen/ project-management/drafts/octopoid/ -name
+    '*.md' -mtime +3 2>/dev/null | head -1
+  pre_check_trigger: non_empty
+  role: proposer
 - focus: project_plans
   interval_seconds: 86400
   name: plan-reader
