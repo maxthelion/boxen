@@ -36,9 +36,9 @@ agents:
   paused: true
   role: proposer
 - focus: draft_processing
-  interval_seconds: 43200
+  interval_seconds: 60
   name: draft-processor
-  paused: true
+  paused: false
   pre_check: find project-management/drafts/boxen/ project-management/drafts/octopoid/ -name
     '*.md' -mtime +3 2>/dev/null | head -1
   pre_check_trigger: non_empty

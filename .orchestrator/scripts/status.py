@@ -28,6 +28,7 @@ from orchestrator.config import (
     is_db_enabled,
     is_system_paused,
 )
+from orchestrator.git_utils import get_submodule_status
 from orchestrator.queue_utils import (
     count_open_prs,
     get_queue_status,
@@ -219,6 +220,31 @@ def print_queue_status() -> None:
         except ImportError:
             pass
 
+    # Stale blocker detection: tasks blocked by tasks that are already done
+    if is_db_enabled():
+        try:
+            from orchestrator.db import get_task, list_tasks as db_list_tasks
+            stale = []
+            blocked = db_list_tasks(include_blocked=True)
+            for task in blocked:
+                blocked_by = task.get("blocked_by")
+                if not blocked_by:
+                    continue
+                blockers = [b.strip() for b in blocked_by.split(",") if b.strip()]
+                stale_ids = []
+                for bid in blockers:
+                    bt = get_task(bid)
+                    if bt and bt.get("queue") == "done":
+                        stale_ids.append(bid)
+                if stale_ids:
+                    stale.append((task["id"], task.get("queue", "?"), stale_ids))
+            if stale:
+                subheader(f"STALE BLOCKERS ({len(stale)}) - blocked by done tasks!")
+                for tid, queue, stale_ids in stale:
+                    print(f"    {tid[:8]} ({queue}) blocked by done: {', '.join(s[:8] for s in stale_ids)}")
+        except ImportError:
+            pass
+
 
 def print_agent_status() -> None:
     header("AGENTS")
@@ -227,7 +253,7 @@ def print_agent_status() -> None:
     runtime_dir = get_agents_runtime_dir()
 
     fmt = "  {:<20} {:<14} {:<12} {:<12} {}"
-    print(fmt.format("NAME", "ROLE", "STATUS", "LAST RUN", "TASK"))
+    print(fmt.format("NAME", "ROLE", "STATUS", "LAST ACTIVE", "TASK"))
     print(fmt.format("-" * 20, "-" * 14, "-" * 12, "-" * 12, "-" * 8))
 
     for agent in agents:
@@ -251,14 +277,32 @@ def print_agent_status() -> None:
             blocked = state.get("extra", {}).get("blocked_reason", "")
             status_str = f"idle({blocked[:8]})" if blocked else "idle"
 
-        last_run = ago(state.get("last_finished") or state.get("last_started"))
+        # Prefer heartbeat file (written by Stop hook) over state.json timestamps
+        heartbeat_path = runtime_dir / name / "heartbeat"
+        heartbeat_ts = None
+        if heartbeat_path.exists():
+            try:
+                heartbeat_ts = heartbeat_path.read_text().strip()
+            except OSError:
+                pass
+        last_active = ago(
+            heartbeat_ts
+            or state.get("last_finished")
+            or state.get("last_started")
+        )
         current_task = (state.get("current_task") or "-")[:8]
 
-        print(fmt.format(name, role, status_str, last_run, current_task))
+        print(fmt.format(name, role, status_str, last_active, current_task))
 
     paused_count = sum(1 for a in agents if a.get("paused"))
     active_count = len(agents) - paused_count
     print(f"\n  {active_count} active, {paused_count} paused of {len(agents)} total")
+
+
+def _get_agent_roles() -> dict[str, str]:
+    """Build a mapping of agent name → role from config."""
+    agents = get_agents()
+    return {a["name"]: a.get("role", "implementer") for a in agents}
 
 
 def print_worktree_status() -> None:
@@ -268,6 +312,8 @@ def print_worktree_status() -> None:
     if not runtime_dir.exists():
         print("  No agents directory")
         return
+
+    agent_roles = _get_agent_roles()
 
     found = False
     for agent_dir in sorted(runtime_dir.iterdir()):
@@ -281,6 +327,7 @@ def print_worktree_status() -> None:
         found = True
         name = agent_dir.name
         wt = str(worktree)
+        is_orch_impl = agent_roles.get(name) == "orchestrator_impl"
 
         branch = run(["git", "branch", "--show-current"], cwd=wt) or run(
             ["git", "rev-parse", "--short", "HEAD"], cwd=wt
@@ -293,7 +340,8 @@ def print_worktree_status() -> None:
         )
         untracked_count = len(untracked_raw.split("\n")) if untracked_raw else 0
 
-        subheader(name)
+        role_tag = f" [{agent_roles.get(name, '?')}]" if is_orch_impl else ""
+        subheader(f"{name}{role_tag}")
         print(f"    branch:     {branch}")
         print(f"    ahead:      {commits_ahead or '0'} commit(s) ahead of main")
 
@@ -315,6 +363,45 @@ def print_worktree_status() -> None:
                 print("    recent:")
                 for line in log.split("\n"):
                     print(f"      {line}")
+
+        # For orchestrator_impl agents, show submodule state
+        if is_orch_impl:
+            sub_status = get_submodule_status(worktree)
+            if sub_status["exists"]:
+                print("    --- orchestrator/ submodule ---")
+                print(f"    sub branch: {sub_status['branch']}")
+                sub_ahead = sub_status["commits_ahead"]
+                print(f"    sub ahead:  {sub_ahead} commit(s) ahead of origin")
+                if sub_status["diff_shortstat"]:
+                    print(f"    sub unstg:  {sub_status['diff_shortstat']}")
+                if sub_status["staged_shortstat"]:
+                    print(f"    sub staged: {sub_status['staged_shortstat']}")
+                if sub_status["untracked_count"]:
+                    print(f"    sub untrk:  {sub_status['untracked_count']} file(s)")
+                for commit_line in sub_status.get("recent_commits", []):
+                    print(f"      {commit_line}")
+                for warning in sub_status.get("warnings", []):
+                    print(f"    !! {warning}")
+            else:
+                print("    !! orchestrator/ submodule NOT FOUND in worktree")
+
+        # Show recent entries from commits.log (written by PostToolUse hook)
+        commits_log = agent_dir / "commits.log"
+        if commits_log.exists():
+            try:
+                lines = commits_log.read_text().strip().split("\n")
+                recent = lines[-5:]  # last 5 entries
+                print(f"    hook log:   ({len(lines)} total)")
+                for entry in recent:
+                    parts = entry.split(" | ", 2)
+                    if len(parts) >= 2:
+                        ts = ago(parts[0].strip())
+                        msg = parts[1].strip()[:60]
+                        print(f"      {ts}: {msg}")
+                    else:
+                        print(f"      {entry[:70]}")
+            except OSError:
+                pass
 
     if not found:
         print("  No worktrees found")

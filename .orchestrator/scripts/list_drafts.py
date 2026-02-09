@@ -5,7 +5,6 @@ Usage:
     orchestrator/venv/bin/python .orchestrator/scripts/list_drafts.py
 """
 
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,20 +22,17 @@ def _find_project_root() -> Path:
 
 def _extract_metadata(filepath: Path) -> dict:
     """Extract status and captured date from a draft file."""
-    meta = {"status": "unknown", "captured": None, "title": filepath.stem}
+    meta = {"status": "-", "captured": None, "title": filepath.stem}
     try:
         content = filepath.read_text()
-        # Title from first heading
         title_match = re.search(r"^#\s+(.+)$", content, re.MULTILINE)
         if title_match:
             meta["title"] = title_match.group(1).strip()
 
-        # Status field
         status_match = re.search(r"\*\*Status:\*\*\s*(.+)", content)
         if status_match:
             meta["status"] = status_match.group(1).strip()
 
-        # Captured date
         captured_match = re.search(r"\*\*Captured:\*\*\s*(.+)", content)
         if captured_match:
             meta["captured"] = captured_match.group(1).strip()
@@ -45,10 +41,31 @@ def _extract_metadata(filepath: Path) -> dict:
     return meta
 
 
-def _age_str(filepath: Path) -> str:
-    """Human-readable age based on file mtime."""
-    mtime = filepath.stat().st_mtime
-    age = datetime.now(timezone.utc) - datetime.fromtimestamp(mtime, tz=timezone.utc)
+def _creation_date(filepath: Path, metadata: dict) -> datetime:
+    """Best-effort creation date: captured header > filename date > mtime."""
+    # 1. Captured header
+    if metadata.get("captured"):
+        try:
+            return datetime.strptime(metadata["captured"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    # 2. Filename date pattern: 030-2026-02-09-topic.md
+    m = re.match(r"^\d{3}-(\d{4}-\d{2}-\d{2})-", filepath.name)
+    if m:
+        try:
+            return datetime.strptime(m.group(1), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    # 3. Fallback to mtime
+    return datetime.fromtimestamp(filepath.stat().st_mtime, tz=timezone.utc)
+
+
+def _age_str(filepath: Path, metadata: dict) -> str:
+    """Human-readable age based on creation date."""
+    created = _creation_date(filepath, metadata)
+    age = datetime.now(timezone.utc) - created
     days = age.days
     if days == 0:
         hours = age.seconds // 3600
@@ -71,12 +88,10 @@ def list_drafts():
 
     # Collect all .md files from subdirectories
     drafts = []
-    for subdir in sorted(drafts_dir.iterdir()):
-        if not subdir.is_dir():
+    for subdir in drafts_dir.iterdir():
+        if not subdir.is_dir() or subdir.name.startswith(".") or subdir.name == "proposed-tasks":
             continue
-        if subdir.name.startswith("."):
-            continue
-        for f in sorted(subdir.glob("*.md")):
+        for f in subdir.glob("*.md"):
             meta = _extract_metadata(f)
             drafts.append({
                 "category": subdir.name,
@@ -86,10 +101,10 @@ def list_drafts():
             })
 
     # Also check root-level drafts
-    for f in sorted(drafts_dir.glob("*.md")):
+    for f in drafts_dir.glob("*.md"):
         meta = _extract_metadata(f)
         drafts.append({
-            "category": "",
+            "category": "-",
             "file": f.name,
             "path": f,
             **meta,
@@ -99,28 +114,32 @@ def list_drafts():
         print("No drafts found.")
         return
 
-    # Group by category
-    categories = {}
+    # Sort by creation date descending (newest first)
+    drafts.sort(key=lambda d: _creation_date(d["path"], d), reverse=True)
+
+    # Truncate helpers
+    def trunc(s, n):
+        return s[:n - 3] + "..." if len(s) > n else s
+
+    def parse_filename(name):
+        """Split '030-2026-02-09-topic.md' into ('030', '2026-02-09', 'topic.md')."""
+        m = re.match(r"^(\d{3})-(\d{4}-\d{2}-\d{2})-(.+)$", name)
+        if m:
+            return m.group(1), m.group(2), m.group(3)
+        return "", "", name
+
+    # Print table
+    print(f"{'AGE':>4s}  {'CAT':<9s}  {'#':<3s}  {'DATE':<10s}  {'STATUS':<16s}  TITLE")
+    print(f"{'---':>4s}  {'---':<9s}  {'--':<3s}  {'----':<10s}  {'---':<16s}  ---")
     for d in drafts:
-        cat = d["category"] or "(root)"
-        categories.setdefault(cat, []).append(d)
+        age = _age_str(d["path"], d)
+        cat = d["category"]
+        status = trunc(d["status"], 16)
+        title = trunc(d["title"], 50)
+        num, date, _ = parse_filename(d["file"])
+        print(f"{age:>4s}  {cat:<9s}  {num:<3s}  {date:<10s}  {status:<16s}  {title}")
 
-    for cat in sorted(categories.keys()):
-        items = categories[cat]
-        print(f"\n{'='*60}")
-        print(f"  {cat.upper()} ({len(items)} drafts)")
-        print(f"{'='*60}")
-        for item in items:
-            age = _age_str(item["path"])
-            status = item["status"]
-            title = item["title"]
-            # Truncate title if too long
-            if len(title) > 50:
-                title = title[:47] + "..."
-            print(f"  [{status:10s}] {age:>4s}  {title}")
-            print(f"             {item['file']}")
-
-    print(f"\nTotal: {len(drafts)} drafts")
+    print(f"\n{len(drafts)} drafts total")
 
 
 if __name__ == "__main__":
