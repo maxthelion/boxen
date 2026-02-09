@@ -124,7 +124,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
       {selectedAssemblyId != null && (() => {
         if (selectedAssemblyId === 'main') {
           // Main assembly: center lines at origin (center of box)
-          return <AssemblyCenterLines visible={true} />;
+          return <AssemblyCenterLines axis={config.assembly?.assemblyAxis ?? 'y'} visible={true} />;
         }
         // Sub-assembly: find its position and offset center lines
         const subInfo = subAssemblies.find(s => s.subAssembly.id === selectedAssemblyId);
@@ -139,7 +139,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
         const cz = (bounds.z + subAssembly.clearance - offsets.back + subOuterD / 2 - boxCenter.z) * scale;
         return (
           <group position={[cx, cy, cz]}>
-            <AssemblyCenterLines visible={true} />
+            <AssemblyCenterLines axis={subAssembly.assembly?.assemblyAxis ?? 'y'} visible={true} />
           </group>
         );
       })()}
