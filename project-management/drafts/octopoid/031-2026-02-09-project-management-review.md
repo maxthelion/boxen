@@ -244,6 +244,50 @@ This is the missing glue between async agent work and human decision-making. Rig
 
 It also solves the proposed-tasks dead end: instead of writing to `proposed-tasks/`, the draft-processor writes inbox messages with `enqueue` actions. Human says "yes", responder creates the task. No new review command needed.
 
+## 8. Directory Simplification
+
+`project-management/` has 11 subdirectories with overlapping purposes. Several are artifacts of a one-time photo triage session (Feb 3) and have been dormant since.
+
+### Current State
+
+| Directory | Files | Purpose | Verdict |
+|-----------|-------|---------|---------|
+| `agent-inbox/` | 0 | Input queue for inbox-poller | **Keep** — active input |
+| `agent-recommendations/` | 1 | Agents write recommendations here | **Remove** — redundant with proposals/drafts |
+| `audits/` | 1 | One-off test coverage audit | **Remove** — just a report, belongs in drafts or archive |
+| `awaiting-clarification/` | 17 | Items from photo triage needing human input | **Remove** — these are drafts with status "Awaiting Clarification" |
+| `classified/` | 4 | Triaged items sorted by type (features, architectural, bugs) | **Remove** — one-time triage artifact |
+| `drafts/` | 14+ | Ideas, plans, specs (boxen/, octopoid/, proposed-tasks/) | **Keep** — core workflow |
+| `human-inbox/` | 8 | Messages from agents to human | **Keep** — active output |
+| `processed/` | 11 | Source photos after triage complete | **Remove** — pure archive material |
+| `postmortems/` | several | Failure analysis documents | **Keep** — distinct purpose |
+| `archive/` | many | Completed/archived drafts | **Keep** — where done work goes |
+| `scripts/` | several | Utility scripts | **Keep** |
+
+### Proposed Consolidation
+
+Move content, then delete the empty directories:
+
+- **`awaiting-clarification/` (17 items)** → `drafts/boxen/` with status "Awaiting Clarification". They're just feature ideas that need input — same as any other draft.
+- **`agent-recommendations/` (1 item)** → `drafts/boxen/`. Kill directory. Proposers should write to inbox or proposals system.
+- **`classified/` (4 items)** → feature docs to `drafts/boxen/`, architectural jpegs to `archive/`. Kill directory.
+- **`audits/` (1 item)** → `archive/`. Kill directory. Audits are just reports.
+- **`processed/` (11 items)** → `archive/processed-photos/`. Source photos that have been triaged.
+
+### After Cleanup
+
+```
+project-management/
+  agent-inbox/       # Input: items for inbox-poller
+  human-inbox/       # Output: messages from agents to human
+  drafts/            # Active ideas and plans (boxen/, octopoid/)
+  archive/           # Completed/superseded material
+  postmortems/       # Failure analysis
+  scripts/           # Utilities
+```
+
+Six directories instead of eleven. Simple rule: if it needs attention, it's a draft. If it's done, it's in archive.
+
 ## Open Questions
 
 - Should proposed-tasks flow through the formal proposal system, or directly to queue with human approval?
@@ -261,7 +305,7 @@ It also solves the proposed-tasks dead end: instead of writing to `proposed-task
 - [ ] Add project visibility to status script and dashboard
 - [ ] Add `position` field for backlog ordering
 - [ ] Clean up stale blockers automatically
-- [ ] Consolidate recommendation directories
+- [ ] Consolidate project-management directories (11 → 6): migrate awaiting-clarification, agent-recommendations, classified, audits, processed into drafts/archive
 - [ ] Design actionable inbox message format
 - [ ] Build responder agent (scan inbox for responses, execute actions)
 - [ ] Update draft-processor to write enqueue actions instead of proposed-tasks files
