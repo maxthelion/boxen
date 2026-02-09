@@ -126,7 +126,7 @@ queue_limits:
   max_incoming: 20
   max_open_prs: 10
 gatekeeper:
-  enabled: false
+  enabled: true
   max_rejections: 3
   required_checks:
   - architecture
