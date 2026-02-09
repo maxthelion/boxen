@@ -6,7 +6,7 @@ When finishing a task, follow this cleanup process:
 
 Check for documents that were used during the task:
 - Plans in `docs/` or `.claude/plans/`
-- Drafts in `project-management/drafts/`
+- Drafts in `project-management/drafts/boxen/` or `project-management/drafts/octopoid/`
 - Task files in `.orchestrator/shared/queue/`
 
 ## 2. Review and Extract Outstanding Work
@@ -20,7 +20,7 @@ Before archiving, read through each document and look for:
 ## 3. Capture Outstanding Work
 
 For each outstanding item found:
-1. Create a new draft in `project-management/drafts/`
+1. Create a new draft in `project-management/drafts/boxen/` or `project-management/drafts/octopoid/` (whichever is appropriate)
 2. Use descriptive filename: `<topic>-<brief-description>.md`
 3. Include context about where it came from
 
@@ -40,7 +40,7 @@ The 2D and 3D views could share more operation infrastructure...
 ## 4. Move Completed Documents
 
 Move completed documents to their respective `done/` folders:
-- `project-management/drafts/done/`
+- `project-management/archive/boxen/` or `project-management/archive/octopoid/`
 - `docs/done/` (if applicable)
 
 ## 5. Suggest to User

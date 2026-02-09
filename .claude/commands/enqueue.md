@@ -10,6 +10,19 @@ Run `/enqueue` to interactively create a task, or provide details:
 /enqueue "Add rate limiting to API"
 ```
 
+## Check for Duplicates
+
+Before creating anything, scan existing tasks for duplicates:
+
+1. Run the status script or list tasks in `incoming/`, `claimed/`, and `provisional/` queues
+2. Compare the proposed title and description against existing task titles
+3. If a duplicate or near-duplicate exists:
+   - Tell the user which task already covers this work (show task ID and title)
+   - Ask whether to: proceed anyway, or skip creation
+   - Do **not** create a task until the user confirms
+
+This prevents the same task being enqueued twice, which wastes agent turns.
+
 ## Interactive Mode
 
 When run without arguments, I'll ask for:

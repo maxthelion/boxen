@@ -12,9 +12,36 @@ Extract:
 - **Topic** — a short slug for the filename (e.g. `agent-progress-tracking`)
 - **Idea** — the user's description, however rough
 
-### 2. Write the draft
+### 2. Check for duplicates
 
-Create `project-management/drafts/<topic>.md` with:
+Before creating anything, scan existing drafts in both `project-management/drafts/boxen/` and `project-management/drafts/octopoid/` for ideas that overlap with this one. Read filenames and titles — if something looks similar, read the draft to confirm.
+
+If a duplicate or near-duplicate exists:
+- Tell the user which draft already covers this idea
+- Ask whether to: update the existing draft with the new details, or create a new one anyway
+- Do **not** increment the counter or create a file until the user confirms
+
+### 3. Classify the idea
+
+Determine whether the idea is about:
+- **Boxen** (the app) — features, geometry, UI, 2D/3D editing, SVG export, share links, testing the app
+- **Octopoid** (the orchestrator) — agents, task queue, scheduling, gatekeepers, breakdowns, dashboard, project management tooling
+
+### 4. Generate the filename
+
+Run the helper script to get the next filename:
+
+```bash
+project-management/scripts/next-draft.sh <boxen|octopoid> <topic-slug>
+```
+
+This reads and increments the shared counter at `project-management/drafts/.counter`, and outputs the full path like `project-management/drafts/boxen/025-2026-02-08-agent-progress-tracking.md`.
+
+### 5. Write the draft
+
+Create the file at the path returned by the script.
+
+Content:
 
 ```markdown
 # <Title>
@@ -45,6 +72,6 @@ Create `project-management/drafts/<topic>.md` with:
 
 Keep it concise. The point is to park the idea, not design the solution.
 
-### 3. Confirm
+### 6. Confirm
 
 Tell the user the file was created and suggest committing it.

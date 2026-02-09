@@ -41,11 +41,13 @@ An agent's worktree at `.orchestrator/agents/{name}/worktree/` belongs exclusive
 
 `git log main..orch/<task-id>`, `git diff main..orch/<task-id>`, and `git show <ref>` work on the object store, not the working directory. These can be run against any worktree's submodule at any time, even while the agent is active.
 
-### Rule 3: The review worktree needs a lock
+### Rule 3: The review worktree is a human tool
 
-The review worktree is shared infrastructure. Any process that modifies it (checkout, cherry-pick, test execution) must acquire an exclusive lock first. Proposed mechanism: a lockfile at `.orchestrator/agents/review-worktree/.review-lock` with PID and timestamp. If stale (>10 minutes), force-acquire.
+If rule 1 is followed — gatekeeper, rebaser, and check_runner agents each get their own persistent worktree — then the review worktree at `.orchestrator/agents/review-worktree/` is only used by humans during interactive review sessions.
 
-Roles that need the lock: check_runner, gatekeeper, rebaser, human review scripts.
+This means no locking is needed. Humans can freely checkout branches, run tests, and reset it without worrying about interfering with agents.
+
+If a future role needs shared worktree access without its own persistent worktree, add a lock at that point. Don't over-engineer it now.
 
 ### Rule 4: Prefer ephemeral worktrees for one-off operations
 
@@ -109,22 +111,23 @@ Read-only operations (git log, git diff) don't need cleanup.
 
 ## Role-Specific Worktree Access
 
-| Role | Has own worktree | Uses review worktree | Needs code access | Safe to run concurrently |
-|------|-----------------|---------------------|-------------------|------------------------|
-| Implementer | Yes (exclusive) | No | Yes (own) | Yes — isolated |
-| Orch-impl | Yes (exclusive) | No | Yes (own submodule) | Yes — isolated |
-| Check runner | No | Yes (with lock) | Yes (tests) | No — needs lock |
-| Gatekeeper | No | Yes (with lock) | Yes (review + tests) | No — needs lock |
-| Rebaser | No | Ephemeral preferred | Yes (rebase + tests) | Yes if ephemeral |
-| Human review | No | Ephemeral preferred | Yes (review + tests) | Yes if ephemeral |
-| Breakdown | Yes (exclusive) | No | Yes (read previous work) | Yes — isolated |
-| Validator | No | No | No (DB only) | Yes |
-| Coordinator | No | No | No (metadata only) | Yes |
+| Role | Has own worktree | Needs code access | Safe to run concurrently |
+|------|-----------------|-------------------|------------------------|
+| Implementer | Yes (exclusive) | Yes (own) | Yes — isolated |
+| Orch-impl | Yes (exclusive) | Yes (own submodule) | Yes — isolated |
+| Gatekeeper | Yes (exclusive) | Yes (review + tests) | Yes — isolated |
+| Rebaser | Yes (exclusive) | Yes (rebase + tests) | Yes — isolated |
+| Human review | Review worktree | Yes (review + tests) | N/A — interactive |
+| Breakdown | Yes (exclusive) | Yes (read previous work) | Yes — isolated |
+| Validator | No | No (DB only) | Yes |
+
+**Deprecated roles** (being removed per gatekeeper-simplification.md):
+- **Check runner** — absorbed into gatekeeper agents (LLM-based review replaces mechanical rebase+pytest)
+- **Coordinator** — replaced by scheduler-level gatekeeper orchestration
 
 ## Migration
 
-1. **Add lock to review worktree** — implement in check_runner and gatekeeper roles
+1. **Give each agent role its own worktree** — check_runner, gatekeeper, rebaser all get persistent worktrees via the same `ensure_worktree()` path that implementers use
 2. **Push orch/ branches** — update orchestrator_impl agent prompt/role to push after commit
-3. **Add ephemeral worktree helper** — utility function in `git_utils.py` for creating/cleaning throwaway worktrees
-4. **Update `/check-orchestrator-task`** — use ephemeral worktree for test phase
-5. **Design rebaser** — ephemeral worktree per rebase operation, not shared review worktree
+3. **Update `/check-orchestrator-task`** — use read-only operations from agent worktree for review, review worktree for test execution
+4. **Reserve review worktree for humans** — remove any automated role usage of the review worktree
