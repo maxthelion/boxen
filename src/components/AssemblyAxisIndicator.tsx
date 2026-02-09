@@ -16,8 +16,9 @@ interface AssemblyCenterLinesProps {
 const LINE_EXTENT = 10000;
 
 /**
- * Shows infinite center lines through the origin on all 3 axes (X/Y/Z).
- * Lines are thin, slightly transparent, and render through geometry
+ * Shows an infinite vertical (Y-axis) center line through the origin.
+ * Indicates top/bottom orientation of the assembly.
+ * The line is thin, slightly transparent, and renders through geometry
  * (not occluded by panels) using depthTest: false.
  */
 export const AssemblyCenterLines: React.FC<AssemblyCenterLinesProps> = ({
@@ -25,47 +26,18 @@ export const AssemblyCenterLines: React.FC<AssemblyCenterLinesProps> = ({
   opacity = 0.35,
 }) => {
   const colors = useColors();
-  const axisColors = colors.axis;
-
-  const lines = useMemo(() => {
-    return [
-      {
-        axis: 'x' as Axis,
-        start: [-LINE_EXTENT, 0, 0] as [number, number, number],
-        end: [LINE_EXTENT, 0, 0] as [number, number, number],
-        color: axisColors.x,
-      },
-      {
-        axis: 'y' as Axis,
-        start: [0, -LINE_EXTENT, 0] as [number, number, number],
-        end: [0, LINE_EXTENT, 0] as [number, number, number],
-        color: axisColors.y,
-      },
-      {
-        axis: 'z' as Axis,
-        start: [0, 0, -LINE_EXTENT] as [number, number, number],
-        end: [0, 0, LINE_EXTENT] as [number, number, number],
-        color: axisColors.z,
-      },
-    ];
-  }, [axisColors]);
 
   if (!visible) return null;
 
   return (
-    <group>
-      {lines.map(({ axis, start, end, color }) => (
-        <Line
-          key={axis}
-          points={[start, end]}
-          color={color}
-          lineWidth={1}
-          transparent
-          opacity={opacity}
-          depthTest={false}
-        />
-      ))}
-    </group>
+    <Line
+      points={[[0, -LINE_EXTENT, 0], [0, LINE_EXTENT, 0]]}
+      color={colors.axis.y}
+      lineWidth={1}
+      transparent
+      opacity={opacity}
+      depthTest={false}
+    />
   );
 };
 
