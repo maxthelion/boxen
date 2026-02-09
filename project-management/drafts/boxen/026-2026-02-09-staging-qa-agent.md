@@ -1,6 +1,6 @@
 # Staging QA Agent
 
-**Status:** Idea
+**Status:** Blocker cleared — ready to build
 **Captured:** 2026-02-09
 
 ## Raw
@@ -114,10 +114,33 @@ The prompt should cover three evaluation dimensions:
 > - Check the 2D editor for panels that were modified — are outlines clean?
 > - Look for: z-fighting (flickering faces), gaps between panels, misaligned joints, panels extending beyond the assembly boundary, holes that look like extrusions.
 
+## Playwright MCP Investigation Results (2026-02-09)
+
+**Verdict: Playwright MCP IS available to background agents. No blocker.**
+
+### How it works
+
+1. **MCP server runs on localhost** — `npx @playwright/mcp@latest` (PID 50726), started by the interactive session
+2. **Agents inherit MCP config** — scheduler spawns Python agent roles, which invoke `claude -p` with the agent worktree as CWD. Claude CLI auto-discovers MCP from `.claude/settings.json`
+3. **Permissions already granted** — project settings include `mcp__playwright__*` permission, which propagates to all agent worktrees
+4. **No special wiring needed** — it works out of the box via standard MCP discovery
+
+### Remaining concern: shared browser instance
+
+All agents share the same Playwright MCP server. If two agents try to use Playwright simultaneously, they'd fight over the same browser. Options:
+
+- **Sequential access** (simplest): only dispatch one QA agent at a time. Since QA runs are short (15-20 turns), this is probably fine initially.
+- **Per-agent Playwright servers**: spawn a dedicated MCP server per agent with a unique port. The `AGENT_PW_WS_PORT` env var is already allocated by `port_utils.py` but not wired up yet.
+- **Browser context isolation**: Playwright supports multiple browser contexts in one server. Could use `browser_tabs` to isolate agent sessions.
+
+### What this unblocks
+
+- The `gk-qa` agent can be built and tested
+- `/qa-check <task-id>` interactive command is feasible
+- Visual regression testing for staging deployments is possible
+
 ## Open Questions
 
-- **Can Playwright MCP run in a background agent?** It's currently used in interactive sessions. Need to verify it works when spawned by the scheduler in a worktree context.
-- **How does the agent get Playwright MCP?** The MCP server config is per-session. Agents would need it configured in their environment.
 - **Screenshot comparison**: Should the agent do pure visual judgment (multimodal), or also run programmatic checks (e.g., inject a script that calls ComprehensiveValidator in the browser console)?
 - **State generation**: For complex features, the agent might need custom JSON specs rather than presets. Should the task description include a suggested share link state?
 - **Baseline**: Does the agent compare against a "before" state (screenshot the staging URL without the feature branch), or just judge the result in isolation?
@@ -125,14 +148,14 @@ The prompt should cover three evaluation dimensions:
 
 ## Risks
 
-- **Playwright MCP availability**: The biggest unknown. If agents can't access Playwright MCP, this whole approach doesn't work. Fallback: use `curl` + screenshot service, but much less interactive.
 - **Cloudflare deployment timing**: The staging URL might not be ready when the agent runs (deployment still in progress). Need a retry/wait mechanism.
 - **Multimodal judgment quality**: Claude can analyze screenshots but may miss subtle geometry issues that a human would catch. Consider this a first-pass filter, not a replacement for human review.
 - **State serialization coverage**: Not all features can be set up via share links. Some require interaction (e.g., selecting a panel, entering a mode). The agent would need to click through the UI for those.
+- **Browser contention**: If multiple agents need Playwright simultaneously, sequential dispatch or per-agent servers needed (see above).
 
-## Possible Next Steps
+## Next Steps
 
-1. **Verify Playwright MCP works in agent context** — spawn a test agent with MCP configured, have it navigate to a URL and screenshot. This is the blocker.
+1. ~~**Verify Playwright MCP works in agent context**~~ — DONE (2026-02-09). It works.
 2. **Write the QA agent prompt** — expand the three evaluation dimensions into a concrete prompt, referencing the share link generation scripts.
 3. **Wire staging_url into the dispatch flow** — when a task has a staging_url and reaches provisional, trigger QA check.
 4. **Start with manual invocation** — a `/qa-check <task-id>` command that runs the QA flow interactively before automating it.
