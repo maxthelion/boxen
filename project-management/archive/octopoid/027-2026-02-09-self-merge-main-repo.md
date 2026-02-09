@@ -1,3 +1,15 @@
+---
+**Processed:** 2026-02-09
+**Mode:** human-guided
+**Actions taken:**
+- Implemented via TASK-f94f3914 (self-merge for main repo commits, 632 lines, 13 tests)
+- Extended approve_orchestrator_task.py to handle main repo commits (f51f55d)
+- Extracted branch naming and origin-merge rules to `.claude/rules/orchestration.md`
+- Enqueued TASK-90acf0f6: push-then-pull flow (dirty working tree fix)
+**Outstanding items:**
+- Path allowlist for auto-merge not enforced (merges any main repo commits regardless of file path)
+---
+
 # Self-Merge for Main Repo Commits
 
 **Status:** Ready to build

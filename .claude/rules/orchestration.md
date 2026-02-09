@@ -29,9 +29,24 @@ This gives a single-page overview of: scheduler health, queue state, agent statu
 Tasks with `role=orchestrator_impl` follow a different model to regular app tasks:
 
 - **BRANCH must be `main`.** The scheduler creates a normal Boxen worktree; the agent works inside the `orchestrator/` submodule within it.
-- **No PRs in the main repo.** The agent creates an `orch/<task-id>` feature branch in the submodule and commits there. This keeps work isolated until approved.
-- **Approval uses a separate script:** `.orchestrator/scripts/approve_orchestrator_task.py <task-id>` (auto-detects agent branch, cherry-picks to main, pushes submodule, updates ref on main, accepts in DB).
+- **No PRs in the main repo.** The agent creates feature branches and commits there. This keeps work isolated until approved.
+- **Approval uses a separate script:** `.orchestrator/scripts/approve_orchestrator_task.py <task-id>` (auto-detects agent branch, cherry-picks to main, pushes submodule, updates ref on main, accepts in DB). The script handles both submodule and main repo commits.
 - **Set `role='orchestrator_impl'` at creation time.** Do not create with `role='implement'` then update — regular agents can claim it in the gap.
+
+### Branch Naming
+
+Orchestrator_impl agents use two branch namespaces depending on where they commit:
+
+- **Submodule work** (Python code in `orchestrator/`): `orch/<task-id>` branch in the submodule
+- **Main repo work** (commands, scripts, prompts): `tooling/<task-id>` branch in the main repo
+
+Both merge via rebase onto main + ff-only. A single task can produce commits in both locations.
+
+### Self-Merge via Origin
+
+Self-merge for main repo commits pushes to origin and ff-merges there — it never touches the human's working tree. The human runs `git pull` when ready. This avoids conflicts with uncommitted local work.
+
+For submodule commits, self-merge operates within the agent's worktree (separate git repo, no conflict risk) then pushes to origin.
 
 ## Reviewing Orchestrator Task Commits
 

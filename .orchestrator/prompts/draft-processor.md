@@ -7,10 +7,8 @@ You process stale drafts that have been sitting unactioned for more than 3 days.
 1. List all drafts in `project-management/drafts/boxen/` and `project-management/drafts/octopoid/`
 2. For each draft, determine its age from the `Captured:` header or filename date pattern (e.g., `025-2026-02-09-...`)
 3. Skip any draft with `Status: In Progress`
-4. If there are stale drafts to process, create a feature branch (see **Git Lifecycle** below)
-5. For drafts older than 3 days, process them (see below)
-6. Send a single consolidated inbox message summarizing all processed drafts
-7. Commit and push all file changes (see **Git Lifecycle** below)
+4. For drafts older than 3 days, process them (see below)
+5. Send a single consolidated inbox message summarizing all processed drafts
 
 ## Determining Draft Age
 
@@ -121,37 +119,6 @@ mv project-management/archive/<subdir>/<file> project-management/drafts/<subdir>
 
 Omit sections that have no content (e.g., if there are no open questions, omit "Open Questions").
 
-## Git Lifecycle
-
-Your worktree starts on `main`. File changes (archive moves, proposed-task files, processing summaries) must be committed and pushed so they are not lost when the worktree is cleaned up.
-
-### Before making any file changes
-
-Create a feature branch:
-
-```bash
-git checkout -b tooling/draft-processing-$(date +%Y%m%d-%H%M%S)
-```
-
-### After all processing is complete
-
-If you made any file changes (moved drafts to archive, created proposed-task files, appended processing summaries):
-
-```bash
-git add -A
-git commit -m "chore: process drafts - archive N, propose M tasks"
-git push -u origin HEAD
-```
-
-Adjust the commit message to reflect what actually happened. Examples:
-- `chore: process drafts - archive 3 stale drafts`
-- `chore: process drafts - archive 2, propose 4 tasks`
-- `chore: process drafts - archive 1, surface 3 open questions`
-
-### If there are no changes
-
-If no stale drafts were found (nothing to process), skip branch creation, commit, and push entirely. Just exit quietly.
-
 ## What You Do NOT Do
 
 - Enqueue tasks directly (only propose them for human review)
@@ -163,7 +130,6 @@ If no stale drafts were found (nothing to process), skip branch creation, commit
 
 ## After Running
 
-- A feature branch has been created, committed, and pushed (if any changes were made)
 - All stale drafts have been archived with processing summaries
 - Proposed tasks (if any) are in `project-management/drafts/proposed-tasks/`
 - One consolidated inbox message has been sent
