@@ -77,6 +77,20 @@ Pytest only (orchestrator tests). These tooling files don't affect app behavior,
 
 The scheduler creates worktrees on the base branch (main). It may need to create the `tooling/<task-id>` branch in the worktree after creation, or the role can do this itself at task start.
 
+## Dirty Working Tree Problem
+
+The main checkout may have uncommitted human work when the agent tries to merge. Git won't cherry-pick or merge onto a dirty working tree. The submodule path doesn't have this problem because the submodule is a separate git repo — both worktrees can have `main` checked out independently. The main repo can't do this (git prevents the same branch being checked out in two worktrees).
+
+**Options:**
+
+1. **Push-then-pull**: Agent pushes its rebased branch to origin. Main checkout pulls when clean. The merge is deferred until the human commits or stashes their work. A notification (via /send-to-inbox) tells the human "TASK-xyz ready to merge — run `git pull` when your working tree is clean."
+
+2. **Stash-merge-unstash**: The approve script stashes local changes, merges, then pops. Risk: stash conflicts on pop, or forgetting to pop.
+
+3. **Fail with notification**: If the working tree is dirty, abort the merge and send a notification to the human inbox with the details. The task stays in provisional until the human runs the approve script manually.
+
+**Decision: Option 1 (push-then-pull).** This is what origin and remotes are designed for. The agent pushes its rebased branch, then ff-merges to main on origin. The main checkout pulls when ready. The agent never touches the human's working tree. A notification tells the human to pull.
+
 ## Context
 
 TASK-fca7e249 (send-to-inbox skill) was correctly implemented — both files exist and work. But the agent was `orchestrator_impl`, which only counts commits in the submodule. The agent wrote files to the main repo, reported 0 commits, and couldn't self-merge. A human had to investigate and manually commit the files.

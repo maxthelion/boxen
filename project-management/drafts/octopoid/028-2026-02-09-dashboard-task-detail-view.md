@@ -11,6 +11,8 @@
 
 Add a task detail view to the Octopoid dashboard. On the Work Board tab, arrow keys highlight individual task cards (text turns yellow). Pressing Enter opens a full detail view for that task showing logs, turns used, commits, and other task metadata. Esc closes the detail view and returns to the board.
 
+The detail view should show commit counts broken down by location — commits in boxen (main repo) and commits in octopoid (submodule) — since orchestrator_impl tasks can produce commits in either or both.
+
 ## Context
 
 The dashboard currently shows task cards on the Work Board but they're display-only — no way to drill into a specific task's history, logs, or progress. The Agents tab has a master-detail pattern already (agent list + detail pane), but the Work tab doesn't have equivalent depth for individual tasks.
