@@ -144,12 +144,115 @@ Build on Option B plus:
 
 **Option C can wait** — the proposer/curator system is elaborate but not critical. The human PM session (this one) is currently faster and more accurate than autonomous proposers.
 
+## 7. Actionable Inbox
+
+**Current state:** The inbox (`project-management/human-inbox/`) is notification-only. Agents write messages, human reads them, then has to manually act (run `/enqueue`, edit a draft, etc.). Messages are informational dead ends.
+
+**What's needed:** Messages should carry structured actions. The human responds to an action inline, and a responder agent picks up the response and executes it.
+
+### How It Would Work
+
+```
+Agent creates inbox message with actions
+    ↓
+Human reads message, responds to specific action
+    ↓
+Responder agent (periodic) checks for responses
+    ↓
+If response found → execute the action with human's input
+    ↓
+Mark action as resolved, archive message
+```
+
+### Message Format (proposed)
+
+```markdown
+# Draft Aging: 13 drafts processed
+
+**From:** draft-processor
+**Created:** 2026-02-09
+
+## Actions
+
+### ACTION-1: Clarify event sourcing snapshot frequency
+**Type:** clarify
+**Target:** project-management/archive/boxen/event-sourcing-proposal.md
+**Question:** What checkpoint frequency? (proposed: every 10 commands)
+**Response:** _awaiting_
+
+### ACTION-2: Schedule visibility system fix
+**Type:** enqueue
+**Proposed task:** Fix visibility system UUID migration (P1, implement)
+**Response:** _awaiting_
+```
+
+### Response Mechanism
+
+Human responds by editing the `Response:` field:
+
+```markdown
+**Response:** every 10 commands is fine, go with that
+```
+
+or for an enqueue action:
+
+```markdown
+**Response:** yes, do it
+```
+
+or to dismiss:
+
+```markdown
+**Response:** skip
+```
+
+### Responder Agent
+
+A lightweight agent (like the recycler) that periodically:
+1. Scans inbox messages for actions where `Response:` is not `_awaiting_`
+2. For each responded action, executes the action type:
+   - **clarify** → updates the target document with the answer, removes the open question
+   - **enqueue** → creates the task via `create_task()`
+   - **approve** → runs approval flow
+   - **update-draft** → edits the draft with provided content
+   - **dismiss** → marks as resolved, no further action
+3. Marks the action as `_resolved_` and archives the message when all actions are done
+
+### Examples
+
+**Draft-processor flags open questions:**
+```
+ACTION: Clarify event sourcing checkpoint frequency
+Response: every 10 commands → responder updates draft, removes open question
+```
+
+**Proposer suggests a project:**
+```
+ACTION: Schedule "panel visibility fix" project
+Response: do it → responder creates project, breaks down into tasks, enqueues
+```
+
+**Agent needs human decision:**
+```
+ACTION: Choose approach for X (option A vs option B)
+Response: option A → responder creates task with option A specified in context
+```
+
+### Why This Matters
+
+This is the missing glue between async agent work and human decision-making. Right now the bottleneck is: agent produces output → human has to context-switch to act on it manually → things pile up. With actionable inbox, the human's job reduces to answering questions and saying "yes/no" — the system handles the rest.
+
+It also solves the proposed-tasks dead end: instead of writing to `proposed-tasks/`, the draft-processor writes inbox messages with `enqueue` actions. Human says "yes", responder creates the task. No new review command needed.
+
 ## Open Questions
 
 - Should proposed-tasks flow through the formal proposal system, or directly to queue with human approval?
 - Is `backlog` a separate queue state, or just `incoming` with better ordering?
 - Should projects own the feature branch, or should tasks still have individual branches?
 - How much of this should be orchestrator_impl tasks vs done in interactive sessions?
+- Actionable inbox: edit-in-place responses vs a simpler reply mechanism (e.g. `/respond ACTION-1 "yes, do it"`)?
+- Should the responder agent be a new role, or a focus mode of an existing proposer?
+- How to handle actions that need complex input (not just yes/no/short answer)?
 
 ## Possible Next Steps
 
@@ -159,3 +262,6 @@ Build on Option B plus:
 - [ ] Add `position` field for backlog ordering
 - [ ] Clean up stale blockers automatically
 - [ ] Consolidate recommendation directories
+- [ ] Design actionable inbox message format
+- [ ] Build responder agent (scan inbox for responses, execute actions)
+- [ ] Update draft-processor to write enqueue actions instead of proposed-tasks files
