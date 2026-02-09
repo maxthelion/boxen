@@ -99,7 +99,7 @@ agents:
 - focus: qa
   interval_seconds: 120
   name: gk-qa
-  paused: true
+  paused: false
   role: gatekeeper
 database:
   enabled: true
