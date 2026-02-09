@@ -86,6 +86,10 @@ agents:
   name: recycler
   paused: false
   role: recycler
+- interval_seconds: 1800
+  name: queue-manager
+  paused: true
+  role: queue_manager
 - focus: architecture
   interval_seconds: 120
   name: gk-architecture
