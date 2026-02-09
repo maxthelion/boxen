@@ -116,7 +116,50 @@ If any criterion cannot be completed (button missing, operation has no effect, e
 
 **Ask the human about ambiguous cases.** If something looks wrong but you're not sure, show the screenshot and ask rather than guessing.
 
-### 8. Check three evaluation dimensions
+### 8. Run Programmatic Geometry Validation
+
+After visual inspection, run the ComprehensiveValidator programmatically via `browser_evaluate`. This catches geometry bugs invisible to the eye (misaligned finger joints, wrong winding order, panels at wrong positions, etc.).
+
+Use `browser_evaluate` with this JavaScript snippet:
+
+```javascript
+(() => {
+  const engine = window.__BOXEN_ENGINE__;
+  if (!engine) {
+    return { skipped: true, reason: 'Engine not exposed on window.__BOXEN_ENGINE__' };
+  }
+  try {
+    const { ComprehensiveValidator } = window.__BOXEN_VALIDATORS__ || {};
+    if (!ComprehensiveValidator) {
+      return { skipped: true, reason: 'Validators not exposed on window.__BOXEN_VALIDATORS__' };
+    }
+    const validator = new ComprehensiveValidator(engine);
+    const result = validator.validateAll();
+    return {
+      skipped: false,
+      passed: result.valid,
+      errorCount: result.summary.errorCount,
+      warningCount: result.summary.warningCount,
+      rulesChecked: result.summary.rulesChecked,
+      errors: result.errors.map(e => ({ rule: e.rule, message: e.message })),
+      warnings: result.warnings.map(w => ({ rule: w.rule, message: w.message })),
+    };
+  } catch (err) {
+    return { skipped: false, passed: false, error: err.message || String(err) };
+  }
+})()
+```
+
+**Interpreting results:**
+
+- **`skipped: true`** — The app doesn't expose the engine/validators on `window` yet. Report as "Programmatic validation: NOT AVAILABLE (engine not exposed)." This is not a failure.
+- **`passed: true`** — All geometry rules passed. Include the rules checked count in the report.
+- **`passed: false`** — Geometry errors detected. List each error's `rule` and `message`. **This is a FAIL even if visual inspection passed.**
+- **`error`** — The validation script threw an exception. Report the error message.
+
+Show the results to the user before proceeding to the evaluation dimensions.
+
+### 9. Check three evaluation dimensions
 
 #### A. Does It Work?
 - Can each acceptance criterion be completed through the UI?
@@ -135,7 +178,7 @@ If any criterion cannot be completed (button missing, operation has no effect, e
 - Did unmodified panels change unexpectedly?
 - Check for visual artifacts (missing geometry, inverted normals, overlapping panels)
 
-### 9. Present the QA report
+### 10. Present the QA report
 
 Display the structured report inline for the user to review:
 
@@ -161,6 +204,12 @@ Display the structured report inline for the user to review:
 **Visual Artifacts:** [none / list specific issues]
 **Side Effects:** [none / list specific issues]
 
+### D. Programmatic Geometry Validation
+**Status:** [PASS / FAIL / NOT AVAILABLE / ERROR]
+**Rules Checked:** [count]
+**Errors:** [none / list each: rule — message]
+**Warnings:** [none / list each: rule — message]
+
 ### Screenshots
 [Reference screenshots taken during the review]
 
@@ -168,7 +217,7 @@ Display the structured report inline for the user to review:
 [1-2 sentence overall assessment]
 ```
 
-### 10. Offer next actions
+### 11. Offer next actions
 
 After presenting the report, offer the user these options:
 

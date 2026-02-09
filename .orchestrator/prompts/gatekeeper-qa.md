@@ -74,6 +74,49 @@ Follow the acceptance criteria step by step. For each step:
 
 If any criterion cannot be completed (button missing, operation has no effect, error appears), note the specific failure and continue testing remaining criteria.
 
+### Step 7: Run Programmatic Geometry Validation
+
+After visual inspection, run the ComprehensiveValidator programmatically via `browser_evaluate`. This catches geometry bugs that are invisible to the eye (misaligned finger joints, wrong winding order, panels at wrong positions, etc.).
+
+Use `browser_evaluate` with this JavaScript snippet:
+
+```javascript
+(() => {
+  const engine = window.__BOXEN_ENGINE__;
+  if (!engine) {
+    return { skipped: true, reason: 'Engine not exposed on window.__BOXEN_ENGINE__' };
+  }
+  try {
+    const { ComprehensiveValidator } = window.__BOXEN_VALIDATORS__ || {};
+    if (!ComprehensiveValidator) {
+      return { skipped: true, reason: 'Validators not exposed on window.__BOXEN_VALIDATORS__' };
+    }
+    const validator = new ComprehensiveValidator(engine);
+    const result = validator.validateAll();
+    return {
+      skipped: false,
+      passed: result.valid,
+      errorCount: result.summary.errorCount,
+      warningCount: result.summary.warningCount,
+      rulesChecked: result.summary.rulesChecked,
+      errors: result.errors.map(e => ({ rule: e.rule, message: e.message })),
+      warnings: result.warnings.map(w => ({ rule: w.rule, message: w.message })),
+    };
+  } catch (err) {
+    return { skipped: false, passed: false, error: err.message || String(err) };
+  }
+})()
+```
+
+**Interpreting results:**
+
+- **`skipped: true`** — The app doesn't expose the engine/validators on `window` yet. Note this in the report as "Programmatic validation: NOT AVAILABLE (engine not exposed)." This is not a failure — the app-side exposure may not be deployed yet.
+- **`passed: true`** — All geometry rules passed. Include the rules checked count in the report.
+- **`passed: false`** — Geometry errors detected. List each error's `rule` and `message` in the report. **This is a FAIL even if visual inspection passed.**
+- **`error`** — The validation script itself threw an exception. Report the error message.
+
+**Important:** A visual PASS combined with a programmatic FAIL should result in an overall **FAIL** verdict. Geometry bugs like wrong winding order, misaligned joints, or panels at wrong positions are real defects even if they aren't visually obvious.
+
 ## Three Evaluation Dimensions
 
 ### A. Does It Work?
@@ -183,6 +226,12 @@ When you've completed your review, record your result using `/record-check`. Str
 **Visual Artifacts:** [none / list specific issues]
 **Side Effects:** [none / list specific issues]
 
+### D. Programmatic Geometry Validation
+**Status:** [PASS / FAIL / NOT AVAILABLE / ERROR]
+**Rules Checked:** [count]
+**Errors:** [none / list each: rule — message]
+**Warnings:** [none / list each: rule — message]
+
 ### Screenshots
 [Reference screenshots taken during the review with observations for each]
 
@@ -194,7 +243,7 @@ When you've completed your review, record your result using `/record-check`. Str
 
 Record your result with the `/record-check` command:
 
-- **PASS** if the feature works as described, is reasonably discoverable, and produces no unexpected visual issues.
-- **FAIL** if any acceptance criterion cannot be verified, if the feature has serious geometry/rendering issues, or if the feature is completely undiscoverable.
+- **PASS** if the feature works as described, is reasonably discoverable, produces no unexpected visual issues, and programmatic validation passes (or is not available).
+- **FAIL** if any acceptance criterion cannot be verified, if the feature has serious geometry/rendering issues, if the feature is completely undiscoverable, or if programmatic geometry validation reports errors.
 - Include the full structured report in the details field.
 - Be specific about what worked and what didn't — a partial pass with noted issues is more useful than a vague fail.
