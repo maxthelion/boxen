@@ -73,6 +73,51 @@ def ago(iso_str: str | None) -> str:
         return str(iso_str)
 
 
+def duration_str(start_iso: str | None, end_iso: str | None = None) -> str:
+    """Calculate duration between two timestamps (or from start to now).
+
+    Args:
+        start_iso: Starting timestamp (ISO format)
+        end_iso: Ending timestamp (ISO format). If None, uses current time.
+
+    Returns:
+        Human-readable duration string like "12m" or "3h 48m"
+    """
+    if not start_iso:
+        return "-"
+    try:
+        # Parse start time
+        start_cleaned = start_iso.replace("Z", "+00:00")
+        start_dt = datetime.fromisoformat(start_cleaned)
+        if start_dt.tzinfo is not None:
+            start_dt = start_dt.replace(tzinfo=None)
+
+        # Parse end time or use now
+        if end_iso:
+            end_cleaned = end_iso.replace("Z", "+00:00")
+            end_dt = datetime.fromisoformat(end_cleaned)
+            if end_dt.tzinfo is not None:
+                end_dt = end_dt.replace(tzinfo=None)
+        else:
+            end_dt = datetime.now()
+
+        delta = end_dt - start_dt
+
+        if delta < timedelta(minutes=1):
+            return f"{int(delta.total_seconds())}s"
+        if delta < timedelta(hours=1):
+            return f"{int(delta.total_seconds() / 60)}m"
+        if delta < timedelta(days=1):
+            h = int(delta.total_seconds() // 3600)
+            m = int((delta.total_seconds() % 3600) // 60)
+            return f"{h}h {m}m" if m > 0 else f"{h}h"
+        days = delta.days
+        h = delta.seconds // 3600
+        return f"{days}d {h}h" if h > 0 else f"{days}d"
+    except (ValueError, TypeError):
+        return "-"
+
+
 def run(cmd: list[str], cwd: str | None = None) -> str:
     """Run a command and return stdout, or empty string on failure."""
     try:
@@ -173,6 +218,44 @@ def print_queue_status() -> None:
             role = task.get("role") or "implement"
             branch = task.get("branch") or ""
             blocked_by = task.get("blocked_by") or ""
+            created_at = task.get("created")
+            claimed_at = task.get("claimed_at")
+            submitted_at = task.get("submitted_at")
+            commits = task.get("commits_count", 0)
+            turns = task.get("turns_used", 0)
+
+            # Calculate durations and detect stuck/stale tasks
+            in_queue_since = claimed_at if queue_name == "claimed" else (
+                submitted_at if queue_name == "provisional" else created_at
+            )
+            queue_duration = duration_str(in_queue_since) if in_queue_since else "-"
+
+            # Health markers
+            health = []
+            if queue_name == "claimed" and claimed_at:
+                # Stuck if claimed >2h with 0 commits
+                try:
+                    claimed_dt = datetime.fromisoformat(claimed_at.replace("Z", "+00:00"))
+                    if claimed_dt.tzinfo is not None:
+                        claimed_dt = claimed_dt.replace(tzinfo=None)
+                    claimed_duration_hrs = (datetime.now() - claimed_dt).total_seconds() / 3600
+                    if claimed_duration_hrs > 2 and commits == 0:
+                        health.append("[STUCK?]")
+                except (ValueError, TypeError):
+                    pass
+            if queue_name == "provisional" and submitted_at:
+                # Stale if in provisional >24h
+                try:
+                    prov_dt = datetime.fromisoformat(submitted_at.replace("Z", "+00:00"))
+                    if prov_dt.tzinfo is not None:
+                        prov_dt = prov_dt.replace(tzinfo=None)
+                    prov_duration_hrs = (datetime.now() - prov_dt).total_seconds() / 3600
+                    if prov_duration_hrs > 24:
+                        health.append("[STALE?]")
+                except (ValueError, TypeError):
+                    pass
+            if queue_name == "needs_continuation":
+                health.append("[ABANDONED?]")
 
             line = f"    {priority} {tid}  {title}"
             extras = []
@@ -182,8 +265,29 @@ def print_queue_status() -> None:
                 extras.append(f"branch:{branch}")
             if blocked_by:
                 extras.append(f"blocked:{blocked_by}")
+
+            # Add timestamps
+            time_parts = []
+            if created_at:
+                time_parts.append(f"created {ago(created_at)}")
+            if claimed_at and queue_name == "claimed":
+                time_parts.append(f"claimed {ago(claimed_at)}")
+                active_runtime = duration_str(claimed_at, submitted_at)
+                if submitted_at:
+                    time_parts.append(f"ran {active_runtime}")
+                else:
+                    time_parts.append(f"running {active_runtime}")
+            if queue_name == "provisional" and submitted_at:
+                time_parts.append(f"in queue {queue_duration}")
+                time_parts.append(f"{turns} turns")
+                time_parts.append(f"{commits} commits")
+
             if extras:
                 line += f"  ({', '.join(extras)})"
+            if time_parts:
+                line += f"  | {' | '.join(time_parts)}"
+            if health:
+                line += f"  {' '.join(health)}"
             print(line)
 
     # Needs continuation
@@ -251,6 +355,63 @@ def print_queue_status() -> None:
                     print(f"    {tid[:8]} ({queue}) blocked by done: {', '.join(s[:8] for s in stale_ids)}")
         except ImportError:
             pass
+
+
+def print_recent_transitions() -> None:
+    """Show recent task queue transitions (last 24 hours)."""
+    header("RECENT TRANSITIONS")
+
+    if not is_db_enabled():
+        print("  DB not enabled")
+        return
+
+    from orchestrator.db import get_connection
+
+    # Get all queue transitions in last 24 hours
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            SELECT task_id, event, agent, timestamp, details
+            FROM task_history
+            WHERE event IN ('created', 'claimed', 'submitted', 'accepted', 'rejected',
+                           'moved_to_breakdown', 'moved_to_escalated', 'moved_to_failed',
+                           'moved_to_needs_continuation', 'recycled')
+              AND datetime(timestamp) > datetime('now', '-24 hours')
+            ORDER BY timestamp DESC
+            LIMIT 20
+            """,
+        )
+        events = [dict(row) for row in cursor.fetchall()]
+
+    if not events:
+        print("  No transitions in last 24 hours")
+        return
+
+    for ev in events:
+        task_id = ev.get("task_id", "?")[:8]
+        event_name = ev.get("event", "?")
+        agent_name = ev.get("agent") or "-"
+        ts = ev.get("timestamp", "?")
+        ts_ago = ago(ts)
+
+        # Format event name for readability
+        if event_name == "created":
+            desc = "created → incoming"
+        elif event_name == "claimed":
+            desc = f"claimed by {agent_name}"
+        elif event_name == "submitted":
+            desc = "submitted → provisional"
+        elif event_name == "accepted":
+            desc = "accepted → done"
+        elif event_name == "rejected":
+            desc = "rejected"
+        elif event_name.startswith("moved_to_"):
+            queue = event_name.replace("moved_to_", "")
+            desc = f"→ {queue}"
+        else:
+            desc = event_name
+
+        print(f"  {ts_ago:<12} TASK-{task_id}  {desc}")
 
 
 def print_agent_status() -> None:
@@ -598,24 +759,66 @@ def print_task_detail(task_id: str) -> None:
     print(f"  completed_at: {task.get('completed_at') or '-'}")
     print(f"  updated_at:   {task.get('updated_at') or '-'}")
 
-    # Event log
+    # Timeline with durations
     events = get_task_events(task_id)
-    subheader(f"Event Log ({len(events)} events)")
+    subheader(f"Timeline ({len(events)} events)")
     if not events:
         print("  No events recorded")
     else:
-        fmt = "  {:<20} {:<18} {:<14} {}"
-        print(fmt.format("TIMESTAMP", "EVENT", "ACTOR", "DETAILS"))
-        print(fmt.format("-" * 20, "-" * 18, "-" * 14, "-" * 20))
-        for ev in events:
-            ts = ev.get("timestamp") or "?"
-            # Truncate timestamp for display
-            if len(ts) > 19:
-                ts = ts[:19]
+        # Build timeline with durations
+        prev_ts = None
+        for i, ev in enumerate(events):
+            ts_str = ev.get("timestamp") or "?"
             event_name = ev.get("event") or "?"
             actor = ev.get("actor") or "-"
-            details = (ev.get("details") or "")[:50]
-            print(fmt.format(ts, event_name, actor, details))
+
+            # Parse timestamp
+            try:
+                ts_cleaned = ts_str.replace("Z", "+00:00")
+                ts = datetime.fromisoformat(ts_cleaned)
+                if ts.tzinfo is not None:
+                    ts = ts.replace(tzinfo=None)
+                ts_display = ts.strftime("%H:%M:%S")
+            except (ValueError, TypeError):
+                ts_display = ts_str[:19] if len(ts_str) > 19 else ts_str
+                ts = None
+
+            # Calculate wait/duration since previous event
+            duration_note = ""
+            if prev_ts and ts:
+                delta = ts - prev_ts
+                duration_note = f"  [{duration_str(prev_ts.isoformat(), ts.isoformat())} wait]"
+
+            # Format event name
+            if event_name == "created":
+                desc = "Created (incoming)"
+            elif event_name == "claimed":
+                desc = f"Claimed by {actor}"
+            elif event_name == "submitted":
+                desc = "Submitted to provisional"
+                # Add runtime info
+                if task.get("turns_used"):
+                    desc += f"  ({task['turns_used']} turns, {task.get('commits_count', 0)} commits)"
+            elif event_name == "accepted":
+                desc = "Accepted → done"
+            elif event_name == "rejected":
+                desc = "Rejected"
+            elif event_name.startswith("moved_to_"):
+                queue = event_name.replace("moved_to_", "")
+                desc = f"Moved to {queue}"
+            else:
+                desc = event_name
+
+            # Mark current state
+            is_last = (i == len(events) - 1)
+            marker = "[current]" if is_last and task.get("queue") != "done" else ""
+
+            print(f"  {ts_display:<10} {desc}{duration_note}")
+            if marker:
+                current_duration = duration_str(ts.isoformat()) if ts else "-"
+                print(f"  {marker:<10} In {task.get('queue', '?')} for {current_duration}")
+
+            prev_ts = ts
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
@@ -636,6 +839,7 @@ def main() -> int:
 
     print_scheduler_health()
     print_queue_status()
+    print_recent_transitions()
     print_agent_status()
     print_worktree_status()
     print_agent_notes()
