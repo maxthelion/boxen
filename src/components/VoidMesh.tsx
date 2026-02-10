@@ -161,6 +161,7 @@ export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter })
         <meshStandardMaterial
           color={isSelected ? colors.void.selected.base : isHovered ? colors.interactive.hover.base : colors.void.default.base}
           transparent
+          depthWrite={false}
           opacity={isSelected ? colors.opacity.default : isHovered ? colors.opacity.subtle : colors.opacity.faint}
         />
       </mesh>
