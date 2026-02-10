@@ -53,7 +53,7 @@ Detect type from filename pattern and handle approval differently:
 **Purpose:** Categorize and file inbox items
 
 **On Approve:**
-- Create summary files in `project-management/classified/` as specified
+- Create summary files in `project-management/drafts/boxen/` as specified
 - Archive original inbox files to `project-management/processed/`
 - Move proposal to `processed/`
 

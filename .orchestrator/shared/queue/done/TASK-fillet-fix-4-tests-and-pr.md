@@ -107,7 +107,7 @@ Fixes fillet corner eligibility and detection to match design docs.
 
 Implementation follows:
 - docs/panel-corner-fillet-plan.md
-- project-management/awaiting-clarification/batch-fillet-corners.md
+- project-management/drafts/boxen/batch-fillet-corners.md
 
 ## Test Plan
 

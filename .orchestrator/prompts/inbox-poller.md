@@ -7,7 +7,7 @@ You analyze new items in the agent-inbox and propose how to triage them. After c
 2. If no new items, do nothing and exit
 3. For each item, analyze what it is and what the user likely wants
 4. Create a single triage proposal in `project-management/human-inbox/` covering ALL new items
-5. **IMPORTANT:** After creating the proposal, MOVE all processed files to `project-management/processed/` using `mv`
+5. **IMPORTANT:** After creating the proposal, MOVE all processed files to `project-management/archive/processed-photos/` using `mv`
 
 ## Triage Proposal Format
 
@@ -47,7 +47,7 @@ Filename: `YYYY-MM-DD-HHMM-inbox-triage.md`
 - Y items → architectural
 - Z items → priorities updates
 
-**Note:** Original files have been moved to `project-management/processed/`
+**Note:** Original files have been moved to `project-management/archive/processed-photos/`
 
 Ready to process? Reply with approval or corrections.
 ```
@@ -72,7 +72,7 @@ Indicators:
 - Code organization: "move X to Y", "split this into..."
 - Design discussions: "how should X work"
 
-**Proposed action:** Create summary → `project-management/classified/architectural/` (when approved)
+**Proposed action:** Create summary → `project-management/drafts/boxen/architectural/` (when approved)
 
 ### Features
 Indicators:
@@ -80,7 +80,7 @@ Indicators:
 - Product improvements: "users should be able to..."
 - UI/UX changes: "the button should...", "improve the..."
 
-**Proposed action:** Create summary → `project-management/classified/features/` (when approved)
+**Proposed action:** Create summary → `project-management/drafts/boxen/features/` (when approved)
 
 ### Bugs
 Indicators:
@@ -89,16 +89,16 @@ Indicators:
 - Error reports: "getting an error when..."
 - Regressions: "X used to work but now..."
 
-**Proposed action:** Create summary → `project-management/classified/bugs/` (when approved)
+**Proposed action:** Create summary → `project-management/drafts/boxen/bugs/` (when approved)
 
 ### Other
 - Unclear items
 - Meta/process stuff
 - Things that don't fit categories above
 
-**Proposed action:** Create summary → `project-management/classified/other/` (when approved)
+**Proposed action:** Create summary → `project-management/drafts/boxen/other/` (when approved)
 
-Directories are at project root: `project-management/agent-inbox/`, `project-management/human-inbox/`, `project-management/classified/`, `project-management/processed/`
+Directories are at project root: `project-management/agent-inbox/`, `project-management/human-inbox/`, `project-management/drafts/boxen/`, `project-management/archive/processed-photos/`
 
 ## Handling Different File Types
 
@@ -128,10 +128,10 @@ Example proposal for a photo mentioning "fix the login bug" and "add dark mode":
 2. Consider dark mode as a feature request
 
 **Proposed action (when approved):**
-- Create `project-management/classified/bugs/2026-02-03-login-bug.md` - summarizing the bug
-- Create `project-management/classified/features/2026-02-03-dark-mode.md` - describing the feature
+- Create `project-management/drafts/boxen/bugs/2026-02-03-login-bug.md` - summarizing the bug
+- Create `project-management/drafts/boxen/features/2026-02-03-dark-mode.md` - describing the feature
 
-**Original file:** Already moved to `project-management/processed/`
+**Original file:** Already moved to `project-management/archive/processed-photos/`
 
 **Confidence:** High
 ```
@@ -147,8 +147,8 @@ If you can't interpret the file, create a question in outbox.
 
 ## After Running
 1. Create ONE triage proposal in `project-management/human-inbox/` covering all inbox items
-2. **MOVE** all processed files from `project-management/agent-inbox/` to `project-management/processed/`:
+2. **MOVE** all processed files from `project-management/agent-inbox/` to `project-management/archive/processed-photos/`:
    ```bash
-   mv project-management/agent-inbox/FILE project-management/processed/
+   mv project-management/agent-inbox/FILE project-management/archive/processed-photos/
    ```
 3. This prevents re-proposing the same items on the next run

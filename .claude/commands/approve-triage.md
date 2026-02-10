@@ -14,7 +14,7 @@ If no file specified, uses the most recent triage proposal in `project-managemen
 
 1. Reads the triage proposal from `project-management/human-inbox/`
 2. For each item in the proposal:
-   - Creates the summary files in `project-management/classified/` as specified
+   - Creates the summary files in `project-management/drafts/boxen/` as specified
    - Archives original files to `project-management/processed/`
    - Updates `current-priorities.md` if applicable
 3. Moves the processed proposal to `project-management/processed/`
@@ -26,7 +26,7 @@ Read the specified triage proposal (or find the most recent `*-inbox-triage.md` 
 For each proposed action:
 
 ### For feature/architectural/bug summaries:
-- Create the markdown file in the specified `project-management/classified/` subdirectory
+- Create the markdown file in the specified `project-management/drafts/boxen/` subdirectory
 - Include a proper header with source file, date, and category
 - Summarize the content as described in the proposal
 

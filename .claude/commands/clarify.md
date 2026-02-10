@@ -15,7 +15,7 @@ Go through the clarification process for a feature awaiting clarification.
 
 ### 1. Select Feature
 
-If no argument, list items in `project-management/awaiting-clarification/`:
+If no argument, list items in `project-management/drafts/boxen/`:
 
 ```
 ## Features Awaiting Clarification

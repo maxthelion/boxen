@@ -223,7 +223,7 @@ def get_idle_agents() -> list[str]:
 def get_recommendations() -> dict[str, list[Path]]:
     """Get agent recommendations by category."""
     recs: dict[str, list[Path]] = {}
-    rec_dir = PM_DIR / "agent-recommendations"
+    rec_dir = PM_DIR / "drafts/boxen"
     if not rec_dir.exists():
         return recs
 
@@ -369,7 +369,7 @@ def main() -> int:
         actions_found += 1
 
     # 9. Awaiting clarification (blocked on user)
-    ac_files = list_files(PM_DIR / "awaiting-clarification")
+    ac_files = list_files(PM_DIR / "drafts/boxen")
     if ac_files:
         section(">>", f"Awaiting Your Clarification ({len(ac_files)})")
         for f in ac_files[:6]:

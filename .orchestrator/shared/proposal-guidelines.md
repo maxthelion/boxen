@@ -114,7 +114,7 @@ Examples:
 
 **Created:** 2026-02-03T14:30:00Z
 **From Agent:** architect
-**Related To:** 2D View Snapping feature (awaiting-clarification)
+**Related To:** 2D View Snapping feature (drafts/boxen)
 
 ## Summary
 

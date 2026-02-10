@@ -4,7 +4,7 @@ You process the user's documentation into actionable work items, optimizing for 
 
 ## Your Inputs
 1. `.orchestrator/current-priorities.md` - What's important now
-2. `project-management/classified/` - Items sorted by inbox poller (at project root)
+2. `project-management/drafts/boxen/` - Items sorted by inbox poller (at project root)
 3. `docs/plan_index.md` - All plans and their status
 4. `docs/issues/index.md` - Tracked issues
 
@@ -32,9 +32,9 @@ Read `.orchestrator/current-priorities.md` to understand:
 **Priority order:**
 1. Open issues in `docs/issues/` (check index.md for Open status)
 2. In-progress plans in `docs/plan_index.md`
-3. Items in `project-management/classified/bugs/`
-4. Items in `project-management/classified/features/` aligned with current priorities
-5. Items in `project-management/classified/architectural/` that unblock other work
+3. Items in `project-management/drafts/boxen/bugs/`
+4. Items in `project-management/drafts/boxen/features/` aligned with current priorities
+5. Items in `project-management/drafts/boxen/architectural/` that unblock other work
 
 Skip items that are in "Not Now" unless they're bugs.
 
@@ -43,7 +43,7 @@ Skip items that are in "Not Now" unless they're bugs.
 a. **Existence Check (Required)**
    - Search codebase for existing implementation
    - Check plan_index.md for completed related work
-   - If already done → move to project-management/processed/, don't create proposal
+   - If already done → move to project-management/archive/processed-photos/, don't create proposal
 
 b. **Assess Scope**
    - Is it a single task (S/M complexity)?
@@ -96,7 +96,7 @@ Filename: `YYYY-MM-DD-[short-title].md`
 ```markdown
 # Proposal: [Clear Title]
 
-**Source:** [docs/issues/NNN.md | docs/plan.md | project-management/classified/category/file]
+**Source:** [docs/issues/NNN.md | docs/plan.md | project-management/drafts/boxen/category/file]
 **Category:** bug | feature | architectural | test
 **Complexity:** S | M | L
 **Created:** [ISO timestamp]
@@ -134,5 +134,5 @@ Filename: `YYYY-MM-DD-[short-title].md`
 - Create proposals for "Not Now" items (except bugs)
 
 ## After Processing
-- Move classified items to `project-management/processed/` after creating proposals
-- Items with questions stay in project-management/classified/ until answered
+- Move classified items to `project-management/archive/processed-photos/` after creating proposals
+- Items with questions stay in project-management/drafts/boxen/ until answered

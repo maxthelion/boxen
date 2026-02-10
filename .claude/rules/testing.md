@@ -9,7 +9,7 @@ paths:
 
 This guide covers testing requirements for Boxen. All new features that modify geometry or operations MUST follow this checklist.
 
-**Current Coverage:** See [Operations Test Coverage Audit](../../project-management/audits/2026-02-05-operations-test-coverage.md) for a matrix of operations vs testing criteria.
+**Current Coverage:** See [Operations Test Coverage Audit](../../project-management/archive/2026-02-05-operations-test-coverage.md) for a matrix of operations vs testing criteria.
 
 ---
 
@@ -416,7 +416,7 @@ A bug fixed in one view may still exist in the other.
 - `inset-outset` - 3D and 2D
 - `chamfer-fillet` - 2D only (different from `corner-fillet` in 3D)
 
-See `project-management/audits/2026-02-05-operations-test-coverage.md` for the full matrix of operations vs views.
+See `project-management/archive/2026-02-05-operations-test-coverage.md` for the full matrix of operations vs views.
 
 ### 6. Tests at Wrong Layer (Helpers Instead of Entry Points)
 

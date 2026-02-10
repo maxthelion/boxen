@@ -11,7 +11,7 @@ BLOCKED_BY: TASK-fillet-fix-1-edge-status-check
 ## Reference Documentation
 
 **READ FIRST:**
-- `project-management/awaiting-clarification/batch-fillet-corners.md` - "Eligibility rules"
+- `project-management/drafts/boxen/batch-fillet-corners.md` - "Eligibility rules"
 
 Key quote:
 > Anything in a forbidden area (even on the boundary) **cannot** be filleted

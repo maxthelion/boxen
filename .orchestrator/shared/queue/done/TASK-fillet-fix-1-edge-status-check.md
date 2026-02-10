@@ -11,7 +11,7 @@ SKIP_PR: true
 
 **READ THESE FIRST - they contain the design decisions:**
 - `docs/panel-corner-fillet-plan.md` - Section "Eligibility Computation"
-- `project-management/awaiting-clarification/batch-fillet-corners.md` - Eligibility rules
+- `project-management/drafts/boxen/batch-fillet-corners.md` - Eligibility rules
 
 ## Problem
 

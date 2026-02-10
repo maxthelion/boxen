@@ -11,7 +11,7 @@ CREATED_BY: human
 ## Context
 Fix two z-fighting/rendering glitch issues in the 3D view.
 
-See project-management/awaiting-clarification/qol-rendering-glitches.md for full context.
+See project-management/drafts/boxen/qol-rendering-glitches.md for full context.
 
 ## Issue 1: Bounding box z-fighting
 
