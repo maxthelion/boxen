@@ -495,8 +495,12 @@ def print_projects() -> None:
 
     for p in projects:
         pid = p["id"]
-        title = p["title"][:40]
+        title = p["title"][:50]
         status = p.get("status", "?")
+        file_path = p.get("file_path", "(no file)")
+        created = p.get("created_at")
+        age = ago(created) if created else "?"
+        
         ps = get_project_status(pid)
         if ps:
             by_queue = ps.get("tasks_by_queue", {})
@@ -504,8 +508,12 @@ def print_projects() -> None:
             total = ps.get("task_count", 0)
             tasks_str = f"{done}/{total} done"
         else:
-            tasks_str = "-"
-        print(f"  {pid}  {title}  ({status}, {tasks_str})")
+            tasks_str = "0 tasks"
+        
+        print(f"  {pid}")
+        print(f"    Title: {title}")
+        print(f"    Status: {status} | Tasks: {tasks_str} | Age: {age}")
+        print(f"    File: {file_path}")
 
 
 def print_open_prs() -> None:
