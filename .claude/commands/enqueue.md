@@ -32,43 +32,62 @@ When run without arguments, I'll ask for:
    - `implement` - Code changes
    - `test` - Testing tasks
    - `review` - Code review
-3. **Priority** - How urgent:
+   - `breakdown` - Task decomposition
+   - `orchestrator_impl` - Orchestrator infrastructure changes
+3. **Priority** - How urgent (defaults to P1):
    - `P0` - Critical (security, broken builds)
    - `P1` - High (important features)
    - `P2` - Normal (improvements)
 4. **Branch** - Base branch (usually `main`)
 5. **Context** - Background and motivation
-6. **Acceptance Criteria** - Specific requirements
+6. **Acceptance Criteria** - Specific requirements (checklist format)
 
-## Task File Location
+## Creating the Task
 
-Tasks are created in:
+Use the canonical task creation script:
+
+```bash
+orchestrator/venv/bin/python orchestrator/scripts/create_task.py \
+  --title "Your task title" \
+  --role "implement" \
+  --priority "P1" \
+  --branch "main" \
+  --context "Background and context for the task" \
+  --acceptance-criteria "- [ ] First criterion
+- [ ] Second criterion
+- [ ] Third criterion"
 ```
-.orchestrator/shared/queue/incoming/TASK-{uuid}.md
-```
+
+**Required arguments:**
+- `--title` - Task title
+- `--role` - Target role (implement, test, review, breakdown, orchestrator_impl)
+- `--branch` - Base branch
+- `--context` - Context description
+- `--acceptance-criteria` - Newline-separated checklist
+
+**Optional arguments:**
+- `--priority` - P0, P1, or P2 (default: P1)
+- `--created-by` - Who created the task (default: human)
+- `--blocked-by` - Comma-separated task IDs that block this task
+- `--project-id` - Parent project ID
+- `--checks` - Comma-separated gatekeeper check names
+
+**Output:** The script prints the task ID (e.g., `TASK-abc12345`) on success.
 
 ## Example
 
-```markdown
-# [TASK-f8e7d6c5] Add rate limiting to API
-
-ROLE: implement
-PRIORITY: P1
-BRANCH: main
-CREATED: 2024-01-15T14:30:00Z
-CREATED_BY: human
-
-## Context
-Our API endpoints have no rate limiting, making them vulnerable
-to abuse and DoS attacks. We need to add rate limiting to protect
-the service.
-
-## Acceptance Criteria
-- [ ] Rate limiting middleware added to all API routes
+```bash
+orchestrator/venv/bin/python orchestrator/scripts/create_task.py \
+  --title "Add rate limiting to API" \
+  --role "implement" \
+  --priority "P1" \
+  --branch "main" \
+  --context "Our API endpoints have no rate limiting, making them vulnerable to abuse and DoS attacks. We need to add rate limiting to protect the service." \
+  --acceptance-criteria "- [ ] Rate limiting middleware added to all API routes
 - [ ] Default limit: 100 requests per minute per IP
 - [ ] Returns 429 Too Many Requests when exceeded
 - [ ] Rate limit headers included in responses
-- [ ] Configuration via environment variables
+- [ ] Configuration via environment variables"
 ```
 
 ## After Creation
