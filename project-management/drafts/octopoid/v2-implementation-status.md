@@ -420,5 +420,46 @@ The REQUIREMENTS_ANALYSIS.md document was a **snapshot in time** (commit c8d084f
 
 ---
 
-**Document Status:** Final analysis - ready to proceed with migration
-**Next Action:** Run migration script on test branch, follow PLAYBOOK.md
+## Installation Blocker: Package Not Published
+
+**UPDATE (2026-02-11):** Attempted migration revealed that `@octopoid/client` is **not published to npm** yet.
+
+**Error:**
+```
+npm ERR! 404 Not Found - GET https://registry.npmjs.org/@octopoid%2fclient
+npm ERR! 404  '@octopoid/client@*' is not in this registry.
+```
+
+**Installation options from README:**
+
+1. **From npm (NOT WORKING YET):**
+   ```bash
+   npm install -g octopoid
+   ```
+
+2. **From source (WORKS):**
+   ```bash
+   git clone https://github.com/maxthelion/octopoid.git
+   cd octopoid
+   pnpm install && pnpm build
+   cd packages/client && npm link
+   ```
+
+**Impact on migration:**
+
+The migration script assumes `npm install @octopoid/client` works, but it doesn't. We have two options:
+
+1. **Wait for npm publish** - Ask Octopoid team when they'll publish to npm
+2. **Install from source** - Clone, build, link (adds complexity to migration)
+
+**Updated migration script needed:**
+- Check if octopoid is already installed globally
+- If not, guide user to install from source first
+- Or automate the source installation in the script
+
+**Status:** Installation blocker identified, needs resolution before migration can proceed.
+
+---
+
+**Document Status:** Analysis complete - installation blocker identified
+**Next Action:** Contact Octopoid team about npm publish timeline OR update migration script to install from source
