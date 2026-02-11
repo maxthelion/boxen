@@ -72,6 +72,29 @@ Content:
 
 Keep it concise. The point is to park the idea, not design the solution.
 
-### 6. Confirm
+### 6. Register draft in database
+
+After writing the markdown file, insert a row in the drafts table:
+
+```python
+from orchestrator.db import create_draft
+
+# Extract draft ID from filename (e.g., "025" from "025-2026-02-08-topic.md")
+draft_id = file_path.split('/')[-1].split('-')[0]
+
+# Call DB function
+create_draft(
+    draft_id=draft_id,
+    title=title,  # The title from step 5 markdown content
+    author="human",
+    file_path=file_path,
+    domain=domain,  # "boxen" or "octopoid" from step 3
+    status="idea"
+)
+```
+
+**Graceful degradation:** If the DB insertion fails (e.g., table doesn't exist in older installations), log the error but don't fail the command. The markdown file is the source of truth; the DB is for indexing only.
+
+### 7. Confirm
 
 Tell the user the file was created and suggest committing it.
