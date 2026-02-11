@@ -10,17 +10,52 @@ if [ "$BRANCH" != "octopoid-v2-migration" ]; then
   exit 1
 fi
 
-# 2. Backup v1.x state
+# 2. Pre-flight checks
+echo "🔍 Running pre-flight checks..."
+
+# Check if octopoid v2.0 is installed
+if ! command -v octopoid &> /dev/null; then
+  echo "❌ octopoid command not found"
+  echo ""
+  echo "You must install Octopoid v2.0 from source first:"
+  echo "  cd /tmp"
+  echo "  git clone https://github.com/maxthelion/octopoid.git octopoid-v2"
+  echo "  cd octopoid-v2"
+  echo "  pnpm install && pnpm build"
+  echo "  cd packages/client && npm link"
+  echo ""
+  echo "See PLAYBOOK.md for detailed instructions."
+  exit 1
+fi
+
+# Verify octopoid version (should be v2.0)
+OCTOPOID_VERSION=$(octopoid --version 2>&1 || echo "unknown")
+echo "✓ Found octopoid: $OCTOPOID_VERSION"
+
+# Verify git status is clean
+if [ -n "$(git status --porcelain)" ]; then
+  echo "⚠️  Warning: Git working directory is not clean"
+  echo "Uncommitted changes:"
+  git status --short
+  echo ""
+  read -p "Continue anyway? (y/N) " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Aborted. Commit your changes and try again."
+    exit 1
+  fi
+fi
+
+echo "✓ Pre-flight checks passed"
+echo ""
+
+# 3. Backup v1.x state
 echo "📦 Backing up v1.x state..."
 git mv project-management pm2
 git mv .orchestrator .orchestrator-v1
 git commit -m "backup: preserve v1.x state before v2.0 migration"
 
-# 3. Install v2.0
-echo "📥 Installing Octopoid v2.0..."
-npm install @octopoid/client
-
-# 4. Initialize
+# 4. Initialize v2.0 structure
 echo "🏗️  Initializing v2.0 structure..."
 npx octopoid init
 

@@ -17,6 +17,41 @@ Before starting:
 - [ ] Have Claude API key ready (if testing with real agents)
 - [ ] Install `yq` for YAML comparisons: `brew install yq` (optional)
 - [ ] Install `tree` for directory visualization: `brew install tree` (optional)
+- [ ] **CRITICAL:** Install Octopoid v2.0 from source (see below)
+
+### Install Octopoid v2.0 from Source
+
+**NOTE:** `@octopoid/client` is not published to npm yet. You must install from source.
+
+```bash
+# Clone Octopoid v2.0 repository
+cd /tmp
+git clone https://github.com/maxthelion/octopoid.git octopoid-v2
+cd octopoid-v2
+
+# Install dependencies and build
+pnpm install
+pnpm build
+
+# Link client globally
+cd packages/client
+npm link
+
+# Verify installation
+octopoid --version
+# Should output: 2.0.0 or similar
+```
+
+**Test the installation:**
+```bash
+octopoid --help
+# Should show v2.0 commands (init, start, stop, task, queue, etc.)
+```
+
+If `octopoid` command not found, check your PATH includes npm global bin:
+```bash
+echo $PATH | grep -q "$(npm config get prefix)/bin" || echo "Add $(npm config get prefix)/bin to PATH"
+```
 
 ---
 
