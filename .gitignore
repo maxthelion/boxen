@@ -65,3 +65,4 @@ project-management/processed/*
 # Playwright screenshots
 .playwright-mcp/
 qa-*.png
+.orchestrator-v1-old/
