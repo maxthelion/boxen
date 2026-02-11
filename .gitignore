@@ -61,3 +61,7 @@ project-management/processed/*
 .orchestrator/state.db
 .orchestrator/state.db-wal
 .orchestrator/state.db-shm
+
+# Playwright screenshots
+.playwright-mcp/
+qa-*.png
