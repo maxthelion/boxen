@@ -4,13 +4,29 @@
 **From:** Boxen project (early v2.0 adopter)
 **Context:** Attempted v2.0 migration, hit installation blocker
 
+**UPDATE (2026-02-11):** ✅ **ISSUE RESOLVED** - The team updated the README to make source install the primary path. This feedback document is kept for reference, but the issue is already fixed!
+
 ---
 
-## TL;DR
+## ✅ Resolution
+
+The Octopoid team already addressed this! The latest README (commit b88794b on feature/client-server-architecture) now:
+
+1. **Lines 77-78:** Explicitly states `"Note: The npm package is not yet published. Install from source for now."`
+2. **Lines 79-98:** Makes "Install from Source (Current Method)" the **primary installation path**
+3. **Lines 100-105:** Shows "Install from npm (Coming Soon)" as secondary with note "Not yet published - use source install above"
+
+This matches **Option 2** from our recommendations below. Perfect! 🎉
+
+---
+
+## Original Feedback (Now Resolved)
+
+### TL;DR
 
 We're **very excited** about v2.0 - you addressed all our P0 requirements! 🎉 But we hit a migration blocker: `@octopoid/client` isn't published to npm yet, which broke our migration script.
 
-**Quick fix:** Either publish to npm OR update docs to make "install from source" the primary path.
+**Quick fix:** Either publish to npm OR update docs to make "install from source" the primary path. **[✅ DONE]**
 
 ---
 

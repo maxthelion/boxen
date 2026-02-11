@@ -420,9 +420,11 @@ The REQUIREMENTS_ANALYSIS.md document was a **snapshot in time** (commit c8d084f
 
 ---
 
-## Installation Blocker: Package Not Published
+## Installation Blocker: Package Not Published [✅ RESOLVED]
 
 **UPDATE (2026-02-11):** Attempted migration revealed that `@octopoid/client` is **not published to npm** yet.
+
+**RESOLUTION (2026-02-11):** The Octopoid team updated the README to make source install the primary method. README now clearly states "Note: The npm package is not yet published. Install from source for now."
 
 **Error:**
 ```
@@ -457,9 +459,9 @@ The migration script assumes `npm install @octopoid/client` works, but it doesn'
 - If not, guide user to install from source first
 - Or automate the source installation in the script
 
-**Status:** Installation blocker identified, needs resolution before migration can proceed.
+**Status:** ✅ Installation blocker resolved - README updated to make source install primary method.
 
 ---
 
-**Document Status:** Analysis complete - installation blocker identified
-**Next Action:** Contact Octopoid team about npm publish timeline OR update migration script to install from source
+**Document Status:** Analysis complete - all blockers resolved ✅
+**Next Action:** Follow updated README instructions to install from source, then proceed with migration
