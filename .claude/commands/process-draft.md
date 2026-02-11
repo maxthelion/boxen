@@ -1,6 +1,6 @@
 # /process-draft - Process a Draft Into Action
 
-When a draft has been enacted (tasks created, changes made, or decision taken), process it for archival.
+Review a draft's status and determine next steps. Archive only if fully complete.
 
 **Argument:** Filename or topic (e.g. `dashboard-redesign` or `gatekeeper-review-system-plan.md`)
 
@@ -63,20 +63,35 @@ Look for content that encodes lasting decisions or constraints — things future
 
 **If running in automated mode:** include proposed rules in the inbox message. Do not modify rule files directly — flag them for human review.
 
-### 4. Add processing summary to the draft
+### 4. Decide whether to archive
 
-Before archiving, prepend a processing summary block to the top of the draft file (above the existing title). This records what happened to the draft and how.
+**Archive the draft if:**
+- All proposed work is complete (tasks done, changes merged, decisions implemented)
+- No outstanding work remains to be scheduled
+- The draft served its purpose and is now historical reference
 
-Format:
+**Keep in drafts/ if:**
+- Work has been started but not finished (tasks enqueued but not complete)
+- Multi-phase plan with later phases not yet started
+- Still actively being referenced for ongoing work
+- Open questions remain unanswered
+
+**Update the status field:**
+- If archiving: `**Status:** Complete` or `**Status:** Superseded`
+- If keeping: `**Status:** In Progress` or `**Status:** Partial`
+
+### 5. Add processing summary (whether archiving or not)
+
+Prepend a processing summary block to track what's been done:
 
 ```markdown
 ---
 **Processed:** <date>
 **Mode:** <human-guided | automated | mixed>
 **Actions taken:**
-- <brief description of each action, e.g. "Enqueued as TASK-xxx", "Extracted rule to .claude/rules/foo.md", "Outstanding work captured in draft 026-...">
+- <brief description of each action, e.g. "Enqueued as TASK-xxx", "Extracted rule to .claude/rules/foo.md">
 - <...>
-**Outstanding items:** <none | list of items ignored or deferred>
+**Outstanding items:** <none | list of items still to do, or "keeping in drafts/">
 ---
 ```
 
@@ -85,17 +100,24 @@ Format:
 - `automated` — processed by an agent without human intervention (e.g. post-accept hook)
 - `mixed` — some steps automated, some required human input
 
-### 5. Archive the draft
+### 6. Archive if appropriate
 
-Move the file to the matching archive subdirectory:
+**Only if decided to archive in step 4:**
 ```bash
 mv project-management/drafts/boxen/<file> project-management/archive/boxen/<file>
 mv project-management/drafts/octopoid/<file> project-management/archive/octopoid/<file>
 ```
 
-### 6. Suggest a commit
+Otherwise, leave the file in `drafts/` with the updated status and processing summary.
 
-Propose committing the archive move and any new rules extracted, e.g.:
+### 7. Suggest a commit
+
+**If archived:**
 ```
-chore: archive <draft-name>, extract <rule-topic> rules
+chore: archive <draft-name> [, extract <rule-topic> rules]
+```
+
+**If keeping in drafts:**
+```
+docs: update <draft-name> status to in-progress
 ```
