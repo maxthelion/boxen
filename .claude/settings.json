@@ -1,5 +1,4 @@
 {
-  "plansDirectory": "./.claude/plans",
   "permissions": {
     "allow": [
       "Bash(git *)",
@@ -78,5 +77,10 @@
         ]
       }
     ]
-  }
+  },
+  "enabledPlugins": {
+    "typescript-lsp@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true
+  },
+  "plansDirectory": "./.claude/plans"
 }
