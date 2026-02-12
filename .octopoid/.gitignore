@@ -1,0 +1,8 @@
+# Octopoid runtime files
+runtime/
+logs/
+worktrees/
+*.db
+*.db-shm
+*.db-wal
+cache.db

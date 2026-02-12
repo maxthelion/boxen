@@ -1,0 +1,11 @@
+mode: remote
+repo:
+  path: /Users/maxwilliams/dev/boxen
+  main_branch: main
+agents:
+  max_concurrent: 3
+server:
+  enabled: true
+  url: https://octopoid-server.maxthelion.workers.dev
+  cluster: default
+  machine_id: Maxs-MacBook-Air.local
