@@ -474,6 +474,136 @@ $ ./octopoid-v2-cli.sh project delete test-project --force
 
 ---
 
+## File Movement Concern (Needs Clarification)
+
+### Legacy File-Moving Code in queue-utils.ts
+
+**Found:** `queue-utils.ts` contains functions for moving task files between queue subdirectories:
+
+```typescript
+// In /tmp/octopoid-v2-fresh/packages/client/src/queue-utils.ts
+
+export function moveTaskFile(
+  taskId: string,
+  fromQueue: TaskQueue,
+  toQueue: TaskQueue,
+  appendMetadata?: Record<string, string>
+): string | null {
+  const fromDir = getQueueSubdir(fromQueue)  // e.g., tasks/incoming/
+  const toDir = getQueueSubdir(toQueue)      // e.g., tasks/claimed/
+
+  // ... uses renameSync to move file between directories
+}
+
+export function getQueueSubdir(queue: TaskQueue): string {
+  const queueDir = getQueueDir()  // returns <repo>/tasks/
+  const subdir = join(queueDir, queue)  // returns <repo>/tasks/incoming/, etc.
+
+  // Creates queue subdirectories
+  if (!existsSync(subdir)) {
+    mkdirSync(subdir, { recursive: true })
+  }
+
+  return subdir
+}
+
+// Expected queue directories
+export const ALL_QUEUE_DIRS: TaskQueue[] = [
+  'incoming',
+  'claimed',
+  'provisional',
+  'done',
+  'blocked',
+  'backlog',
+]
+```
+
+**This is the v1.x pattern we wanted to avoid!** Queue state should be in the database, not file system location.
+
+### However: Code Appears Unused
+
+**Findings:**
+1. ✅ `moveTaskFile()` is **never called** in the client codebase (grep found only the definition)
+2. ✅ Scheduler doesn't import from `queue-utils.ts` at all
+3. ✅ Agent roles only import `findTaskFile` and `parseTaskFile` (read-only operations)
+4. ✅ No imports of `moveTaskFile`, `getQueueSubdir` outside queue-utils.ts itself
+
+**Enqueue command creates files in flat structure:**
+```typescript
+// From enqueue.ts
+const filePath = join(repoPath, 'tasks', `${taskId}.md`)
+// Creates: /Users/.../boxen/tasks/task-abc123.md
+// NOT:     /Users/.../boxen/tasks/incoming/TASK-abc123.md
+```
+
+**API confirms flat structure:**
+```json
+{
+  "file_path": "/Users/maxwilliams/dev/boxen/tasks/task-mljcn447-30ddcf08.md",
+  "queue": "incoming"
+}
+```
+
+Queue is stored as a field in the database, not as file system location.
+
+### Mismatch Found
+
+**Problem:** `findTaskFile()` searches queue subdirectories:
+```typescript
+export function findTaskFile(taskId: string): string | null {
+  const queueDir = getQueueDir()
+  const filename = `TASK-${taskId}.md`
+
+  for (const queue of ALL_QUEUE_DIRS) {
+    const candidate = join(queueDir, queue, filename)  // searches tasks/incoming/, tasks/claimed/, etc.
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
+```
+
+But files are created at `tasks/<task-id>.md`, not `tasks/<queue>/TASK-<task-id>.md`.
+
+**This suggests:**
+- Either the file-moving code is legacy/dead code that should be removed
+- Or there's a local-mode vs remote-mode difference in file handling
+- Or the code is incomplete/inconsistent
+
+### Questions for Octopoid Team
+
+**HIGH PRIORITY - File System State Management:**
+
+1. **Is file-moving code legacy?** Should `moveTaskFile` and `getQueueSubdir` be removed?
+
+2. **File naming inconsistency:**
+   - `enqueue` creates: `tasks/<task-id>.md`
+   - `findTaskFile` expects: `tasks/<queue>/TASK-<task-id>.md` (with TASK- prefix)
+   - Which is correct?
+
+3. **Queue state storage:**
+   - Confirm: Queue is stored in DB `queue` field only, not file system location?
+   - Files never move between directories on queue transitions?
+
+4. **Local vs Remote mode:**
+   - Does local mode use queue subdirectories?
+   - Does remote mode use flat `tasks/` directory?
+   - If so, why does the code mix both approaches?
+
+5. **Recommendation:**
+   - Remove unused file-moving functions to prevent future confusion
+   - Update `findTaskFile` to search flat `tasks/` directory only
+   - Add tests to verify queue transitions don't move files
+
+**Why this matters:**
+- V1.x file-moving caused race conditions, permission issues, and state inconsistencies
+- Moving files between directories breaks file watchers and external tools
+- File system should be storage only; queue state belongs in database
+- Dead code creates maintenance burden and confusion
+
+---
+
 ## Missing: Debugging & Observability
 
 ### Server-Side Debug Output
