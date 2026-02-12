@@ -66,3 +66,4 @@ project-management/processed/*
 .playwright-mcp/
 qa-*.png
 .orchestrator-v1-old/
+.env
