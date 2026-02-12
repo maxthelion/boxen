@@ -698,6 +698,190 @@ Add debugging endpoints or CLI commands for observability:
 
 ---
 
+## Code Review Results
+
+### ✅ Base Agent Class (`roles/base-agent.ts`)
+
+**Turn Counting - AUTOMATIC ✅**
+```typescript
+// Line 286: Auto-increments on each callAnthropic()
+this.turnsCount++
+
+// Line 132: Resets when claiming new task
+this.resetTurnCounter()
+
+// Line 189: Uses tracked count when submitting
+const actualTurns = turnsUsed !== undefined ? turnsUsed : this.turnsCount
+```
+
+**Confirmed:** Agents automatically track turns without manual intervention.
+
+**Per-Task Logging - AUTOMATIC ✅**
+```typescript
+// Line 147-161: Creates .octopoid/logs/tasks/<task-id>.log
+this.taskLogFile = join(logsDir, `${taskId}.log`)
+
+// Line 133: Called automatically when claiming task
+this.setupTaskLogging(task.id)
+```
+
+**Confirmed:** Task logs created on claim, persist after completion.
+
+**Per-Agent Logging - AUTOMATIC ✅**
+```typescript
+// Line 58-63: Creates .octopoid/logs/agents/<agent-name>-<date>.log
+this.logFile = join(logsDir, `${this.config.name}-${dateStr}.log`)
+```
+
+**Confirmed:** Agent logs created when debug mode enabled.
+
+**Task-Specific Worktrees - CONFIRMED ✅**
+```typescript
+// Line 244: Each task gets its own worktree
+protected async ensureTaskWorktree(taskId: string, baseBranch: string = 'main')
+```
+
+**Confirmed:** Worktrees at `.octopoid/worktrees/<task-id>/` (not per-agent).
+
+---
+
+### ✅ Gatekeeper Agent (`roles/gatekeeper.ts`)
+
+**3-Round Rejection Limit - HARDCODED ✅**
+```typescript
+// Line 100: Hardcoded to 3 rounds
+const maxRounds = 3
+
+// Line 109-115: Escalates to human after max rounds
+if (currentRound + 1 >= maxRounds) {
+  this.log(`⚠️ Task ${task.id} reached max review rounds - needs human intervention`)
+  await this.rejectTask(taskId, `Max review rounds (${maxRounds}) reached...`)
+}
+```
+
+**Confirmed:** 3-round limit enforced, escalates with special message.
+
+**Multi-Check Workflow - NOT IMPLEMENTED ⚠️**
+- Gatekeeper does **single comprehensive review**, not multiple specialized checks
+- No use of `checks`, `check_results` fields in schema
+- One gatekeeper agent reviews all aspects (code quality, tests, docs)
+- **Gap:** Schema supports multi-check but implementation doesn't use it
+
+---
+
+### ✅ Breakdown Agent (`roles/breakdown.ts`)
+
+**Breakdown Workflow - IMPLEMENTED ✅**
+```typescript
+// Line 22: Claims tasks with role='breakdown'
+const task = await this.claimNextTask('breakdown')
+
+// Line 82-96: Creates subtasks with dependencies
+blocked_by: i > 0 ? createdTasks[i - 1] : undefined  // Chain dependencies
+```
+
+**Confirmed:** Breakdown workflow exists, chains subtask dependencies.
+
+**Breakdown Depth Tracking - NOT IMPLEMENTED ⚠️**
+- No `breakdown_depth` field checked or set
+- No re-breakdown depth limit
+- **Gap:** Unlike v1.x (max 1 re-breakdown), v2.0 has no depth protection
+
+**File Path Mismatch - FOUND ⚠️**
+```typescript
+// Line 89: Uses queue subdirectory (conflicts with enqueue command)
+file_path: `tasks/incoming/TASK-${subtaskId}.md`
+```
+
+This conflicts with enqueue which uses flat `tasks/<id>.md`.
+
+---
+
+### ✅ Server Burnout Detection (`routes/tasks.ts`)
+
+**Burnout Heuristic - IMPLEMENTED ✅**
+```typescript
+// Line 361-362: Thresholds
+const BURNOUT_TURN_THRESHOLD = 80
+const MAX_TURN_LIMIT = 100
+
+// Line 365-369: 0 commits + 80 turns = burnout
+if (body.commits_count === 0 && body.turns_used >= BURNOUT_TURN_THRESHOLD) {
+  burnoutDetected = true
+}
+
+// Line 371-375: Absolute turn limit
+else if (body.turns_used >= MAX_TURN_LIMIT) {
+  burnoutDetected = true
+}
+
+// Line 380-383: Route to needs_continuation queue
+const transition = burnoutDetected
+  ? { ...TRANSITIONS.submit, to: 'needs_continuation' as TaskQueue }
+  : TRANSITIONS.submit
+```
+
+**Confirmed:**
+- 0 commits + 80 turns = burnout
+- 100 turns absolute limit
+- Routes to `needs_continuation` queue (preserves worktree)
+
+---
+
+### ✅ Server Lease Expiration (`scheduled/lease-monitor.ts`)
+
+**Auto-Unclaim Logic - IMPLEMENTED ✅**
+```typescript
+// Runs every minute
+UPDATE tasks
+SET queue = 'incoming',
+    claimed_by = NULL,
+    orchestrator_id = NULL,
+    lease_expires_at = NULL,
+    updated_at = datetime('now')
+WHERE queue = 'claimed'
+AND lease_expires_at < datetime('now')
+```
+
+**Confirmed:**
+- Expired leases auto-released every minute
+- Task returns to incoming queue
+- History recorded for debugging
+
+**Lease Timeout Duration:** Not found in code - likely configurable.
+
+---
+
+### ✅ Dependency Enforcement (`state-machine.ts`)
+
+**Blocking Guard - IMPLEMENTED ✅**
+```typescript
+case 'dependency_resolved': {
+  if (!task.blocked_by) {
+    return { passed: true }
+  }
+
+  const blocker = await queryOne<Task>(
+    db,
+    'SELECT queue FROM tasks WHERE id = ?',
+    task.blocked_by
+  )
+
+  if (blocker.queue !== 'done') {
+    return {
+      passed: false,
+      error: `Task is blocked by ${task.blocked_by} (${blocker.queue})`,
+    }
+  }
+}
+```
+
+**Confirmed:** Server enforces `blocked_by` - cannot claim blocked tasks.
+
+**Auto-Unblock:** Not found - likely manual or part of accept transition.
+
+---
+
 ## Next Steps
 
 ### Completed ✅
@@ -732,24 +916,62 @@ Add debugging endpoints or CLI commands for observability:
    - Dependency auto-unblock
    - Queue types (are all 8 queues supported?)
 
-### Questions for Octopoid Team
+### Questions/Issues for Octopoid Team
 
-Based on unknown items, create GitHub issues:
+Based on code review findings:
 
-1. **Turn counting:** Is it automatic or manual? Does the agent base class auto-increment on each API call?
-2. **Burnout detection:** Is it implemented server-side? What's the threshold (0 commits + N turns)?
-3. **Breakdown workflow:** Is it complete with depth limits? Does `needs_breakdown` trigger automatic routing?
-4. **Needs continuation queue:** Supported? How are uncommitted changes detected?
-5. **Gatekeeper multi-check:** How configure checks per task? Is 3-round limit enforced?
-6. **Task dependencies:** Does server enforce `blocked_by` (prevent claiming)? Auto-unblock on dependency completion?
-7. **Agent notes:** Does agent base class auto-populate `execution_notes`? Persisted after completion?
-8. **Logging:** Are logs created per-task and per-agent? Where stored?
-9. **🔴 DEBUGGING/OBSERVABILITY (HIGH PRIORITY):** Need debug endpoints or CLI commands for troubleshooting:
-   - Task-level debug (lease expiration, burnout status, blocking status, gatekeeper progress)
-   - Queue-level debug (counts, oldest task per queue, average time in queue)
-   - Agent-level debug (heartbeat, current task, success rate)
-   - Comprehensive status output (like v1.x `status.py`)
-   - See "Missing: Debugging & Observability" section above for detailed request
+**✅ CONFIRMED - Working as expected:**
+1. ~~Turn counting~~ - Automatic via `callAnthropic()` wrapper ✅
+2. ~~Burnout detection~~ - Implemented (80 turns + 0 commits OR 100 absolute) ✅
+3. ~~Lease expiration~~ - Auto-unclaim every minute via scheduled job ✅
+4. ~~Task dependencies~~ - Server enforces `blocked_by` guard ✅
+5. ~~Per-task logging~~ - Automatic at `.octopoid/logs/tasks/<id>.log` ✅
+6. ~~Needs continuation queue~~ - Exists, used for burnout cases ✅
+7. ~~3-round rejection limit~~ - Hardcoded in gatekeeper ✅
+
+**⚠️ GAPS FOUND - Need clarification or implementation:**
+
+8. **Gatekeeper multi-check NOT IMPLEMENTED:**
+   - Schema has `checks`, `check_results`, `review_round` fields
+   - But gatekeeper agent does single comprehensive review
+   - Is multi-check (architecture + testing + QA) planned but not built?
+   - Or should we remove unused schema fields?
+
+9. **Breakdown depth tracking MISSING:**
+   - No `breakdown_depth` field checked or incremented
+   - Risk of infinite re-breakdown loops
+   - v1.x had max 1 re-breakdown protection
+   - **Request:** Add depth tracking and configurable max depth
+
+10. **File path inconsistency:**
+    - `enqueue` creates: `tasks/<task-id>.md` (flat)
+    - `breakdown` creates: `tasks/incoming/TASK-<task-id>.md` (subdirs)
+    - `findTaskFile` searches: `tasks/<queue>/TASK-<task-id>.md` (subdirs)
+    - **Request:** Standardize on flat structure, remove queue subdirs
+
+11. **Lease timeout duration not found:**
+    - Auto-unclaim logic exists but timeout value not visible in code
+    - Is it configurable? Where?
+    - What's the default duration?
+
+12. **Auto-unblock on completion:**
+    - `blocked_by` enforcement confirmed
+    - Auto-unblock not found (may be in accept transition)
+    - Does completing a task auto-unblock dependents?
+    - Or must dependents be manually re-queued?
+
+13. **Agent notes (`execution_notes`) not populated:**
+    - Schema field exists but agents don't write to it
+    - Logs exist, but `execution_notes` field unused
+    - Should agents summarize key events there?
+
+14. **🔴 DEBUGGING/OBSERVABILITY (HIGHEST PRIORITY):**
+    - Need debug endpoints or CLI commands for troubleshooting
+    - Task-level debug (lease expiration, burnout status, blocking status)
+    - Queue-level debug (counts, oldest task per queue)
+    - Agent-level debug (heartbeat, current task, success rate)
+    - Comprehensive status output (like v1.x `status.py`)
+    - See "Missing: Debugging & Observability" section for detailed request
 
 ---
 
@@ -771,15 +993,22 @@ Based on unknown items, create GitHub issues:
 - ✅ `needs_breakdown`, `attempt_count` (breakdown workflow)
 - ✅ `execution_notes` (agent notes)
 
-**Runtime behavior unknown - needs code review or testing:**
-- ⚠️ Turn counting (automatic increment? manual?)
-- ⚠️ Burnout detection (is the heuristic implemented server-side?)
-- ⚠️ Breakdown workflow (does needs_breakdown trigger automation?)
-- ⚠️ Gatekeeper multi-check (how are checks configured? 3-round limit enforced?)
-- ⚠️ Lease expiration (timeout value? auto-unclaim logic?)
-- ⚠️ Task dependencies (does server enforce blocking? auto-unblock on completion?)
-- ⚠️ Needs continuation queue (exists as queue type?)
-- ⚠️ Per-task logging (created on claim? persisted after completion?)
+**Runtime behavior verified - code review complete:**
+- ✅ Turn counting - **AUTOMATIC** (auto-increments on each API call, resets on claim)
+- ✅ Burnout detection - **IMPLEMENTED** (0 commits + 80 turns OR 100 turn absolute limit)
+- ✅ Breakdown workflow - **EXISTS** (creates subtasks with chained dependencies)
+- ✅ Gatekeeper 3-round limit - **HARDCODED** (max 3 rounds, escalates to human)
+- ✅ Lease expiration - **AUTO-UNCLAIM** (runs every minute, releases expired leases)
+- ✅ Task dependencies - **ENFORCED** (server blocks claiming if dependency not done)
+- ✅ Needs continuation queue - **EXISTS** (burnout routes here instead of provisional)
+- ✅ Per-task logging - **AUTOMATIC** (created on claim at `.octopoid/logs/tasks/<id>.log`)
+
+**Gaps found:**
+- ⚠️ Gatekeeper multi-check **NOT IMPLEMENTED** (schema supports but code doesn't use)
+- ⚠️ Breakdown depth tracking **MISSING** (no protection against infinite re-breakdown)
+- ⚠️ File path inconsistency (breakdown uses queue subdirs, enqueue uses flat structure)
+- ⚠️ Lease timeout duration **NOT FOUND** (likely configurable, need to check config)
+- ⚠️ Auto-unblock on completion **NOT FOUND** (may exist in accept transition)
 
 **Recommended approach:**
 1. ✅ **Schema verification complete** - all critical fields exist
