@@ -1,7 +1,7 @@
 #!/bin/bash
 # Generate the next draft filename.
 #
-# Usage: next-draft.sh <boxen|octopoid> <topic-slug>
+# Usage: next-draft.sh <boxen|octopoid|octopoid-v2> <topic-slug>
 # Output: Full path to the new draft file
 #
 # Example:
@@ -14,15 +14,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 COUNTER_FILE="$SCRIPT_DIR/../drafts/.counter"
 
 if [ $# -ne 2 ]; then
-    echo "Usage: next-draft.sh <boxen|octopoid> <topic-slug>" >&2
+    echo "Usage: next-draft.sh <boxen|octopoid|octopoid-v2> <topic-slug>" >&2
     exit 1
 fi
 
 SUBDIR="$1"
 TOPIC="$2"
 
-if [ "$SUBDIR" != "boxen" ] && [ "$SUBDIR" != "octopoid" ]; then
-    echo "Error: first argument must be 'boxen' or 'octopoid'" >&2
+if [ "$SUBDIR" != "boxen" ] && [ "$SUBDIR" != "octopoid" ] && [ "$SUBDIR" != "octopoid-v2" ]; then
+    echo "Error: first argument must be 'boxen', 'octopoid', or 'octopoid-v2'" >&2
     exit 1
 fi
 
