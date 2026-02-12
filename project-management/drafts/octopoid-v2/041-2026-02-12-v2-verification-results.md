@@ -975,6 +975,18 @@ Based on code review findings:
 
 ---
 
+## GitHub Issues Created
+
+Based on gaps found during verification:
+
+- **Issue #9** - [Add debugging/observability endpoints and CLI commands](https://github.com/maxthelion/octopoid/issues/9) ⭐ **HIGHEST PRIORITY**
+- **Issue #10** - [Add breakdown depth tracking to prevent infinite re-breakdown loops](https://github.com/maxthelion/octopoid/issues/10) - MEDIUM-HIGH
+- **Issue #11** - [Fix file path inconsistency: standardize on flat tasks/ directory](https://github.com/maxthelion/octopoid/issues/11) - MEDIUM
+- **Issue #12** - [Gatekeeper multi-check: schema exists but not implemented](https://github.com/maxthelion/octopoid/issues/12) - MEDIUM-LOW
+- **Issue #13** - [execution_notes field exists but agents don't populate it](https://github.com/maxthelion/octopoid/issues/13) - LOW
+
+---
+
 ## Summary
 
 **What we know works:**
