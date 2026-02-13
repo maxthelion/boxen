@@ -3902,6 +3902,29 @@ body {
   }
 }
 
+/* Design Error Overlay (reuses ineligibility tooltip styles) */
+.design-error-overlay {
+  position: absolute;
+  top: 100px;
+  right: 20px;
+  z-index: 900;
+  background: rgba(255, 100, 100, 0.15);
+  border: 1px solid rgba(255, 100, 100, 0.4);
+  border-radius: 6px;
+  padding: 8px 12px;
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 400px;
+  animation: ineligibility-tooltip-fade-in 0.15s ease-out;
+}
+
+.design-error-overlay .ineligibility-tooltip-text {
+  white-space: normal;
+  line-height: 1.4;
+}
+
 /* =====================================================
    AI Design Prompt Panel
    ===================================================== */

@@ -4,7 +4,6 @@ export function DesignPromptPanel() {
   const {
     designPrompt,
     designLoading,
-    designError,
     setDesignPrompt,
     submitDesign,
     closeDesignPanel,
@@ -36,11 +35,6 @@ export function DesignPromptPanel() {
         />
       </div>
       <div className="design-prompt-actions">
-        {designError && (
-          <span className="design-prompt-error" title={designError}>
-            {designError}
-          </span>
-        )}
         <button
           className="design-btn preview"
           onClick={submitDesign}

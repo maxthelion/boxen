@@ -102,6 +102,9 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Ineligibility tooltip
   const tooltipMessage = useIneligibilityTooltip();
 
+  // AI Design error
+  const designError = useBoxStore((state) => state.designError);
+
   // Get selected face ID and assembly ID for push-pull tool
   // Panel IDs are UUIDs, so we need to look up the panel source metadata
   const selectedFaceInfo = useMemo(() => {
@@ -838,6 +841,14 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
       {/* Ineligibility Tooltip - shows why hovered items can't be operated on */}
       <IneligibilityTooltip message={tooltipMessage} visible={!!tooltipMessage} />
+
+      {/* Design error overlay - shows API/recipe errors from AI Design */}
+      {designError && (
+        <div className="design-error-overlay">
+          <span className="ineligibility-tooltip-icon">⚠</span>
+          <span className="ineligibility-tooltip-text">{designError}</span>
+        </div>
+      )}
 
       <Canvas
         camera={{ position: [150, 150, 150], fov: 50 }}
