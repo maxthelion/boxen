@@ -9,7 +9,7 @@
  * Presets: basic, subdivided-x, subdivided-z, grid-2x2, grid-3x3
  */
 
-import { TestFixture } from '../src/test/fixtures';
+import { AssemblyBuilder } from '../src/builder';
 import { serializeProject } from '../src/utils/urlState';
 import type { ProjectState } from '../src/utils/urlState';
 import type { Engine } from '../src/engine/Engine';
@@ -106,7 +106,7 @@ function buildProjectState(engine: Engine): ProjectState {
 }
 
 // ---------------------------------------------------------------------------
-// Presets (using TestFixture)
+// Presets (using AssemblyBuilder)
 // ---------------------------------------------------------------------------
 
 /**
@@ -131,10 +131,10 @@ type PresetBuilder = () => Engine;
 
 const PRESETS: Record<string, PresetBuilder> = {
   basic: () =>
-    TestFixture.enclosedBox(W, H, D).build().engine,
+    AssemblyBuilder.enclosedBox(W, H, D).build().engine,
 
   'subdivided-x': () => {
-    const fixture = TestFixture.enclosedBox(W, H, D);
+    const fixture = AssemblyBuilder.enclosedBox(W, H, D);
     fixture._queueOperation({
       type: 'ADD_SUBDIVISIONS',
       targetId: 'main-assembly',
@@ -144,7 +144,7 @@ const PRESETS: Record<string, PresetBuilder> = {
   },
 
   'subdivided-z': () => {
-    const fixture = TestFixture.enclosedBox(W, H, D);
+    const fixture = AssemblyBuilder.enclosedBox(W, H, D);
     fixture._queueOperation({
       type: 'ADD_SUBDIVISIONS',
       targetId: 'main-assembly',
@@ -154,7 +154,7 @@ const PRESETS: Record<string, PresetBuilder> = {
   },
 
   'grid-2x2': () => {
-    const fixture = TestFixture.enclosedBox(W, H, D);
+    const fixture = AssemblyBuilder.enclosedBox(W, H, D);
     fixture._queueOperation({
       type: 'ADD_GRID_SUBDIVISION',
       targetId: 'main-assembly',
@@ -170,7 +170,7 @@ const PRESETS: Record<string, PresetBuilder> = {
   },
 
   'grid-3x3': () => {
-    const fixture = TestFixture.enclosedBox(W, H, D);
+    const fixture = AssemblyBuilder.enclosedBox(W, H, D);
     fixture._queueOperation({
       type: 'ADD_GRID_SUBDIVISION',
       targetId: 'main-assembly',
@@ -209,7 +209,7 @@ function buildFromJsonSpec(spec: JsonSpec): Engine {
   };
 
   // Start with enclosed box, then open specified faces
-  const fixture = TestFixture.enclosedBox(spec.width, spec.height, spec.depth, material);
+  const fixture = AssemblyBuilder.enclosedBox(spec.width, spec.height, spec.depth, material);
 
   if (spec.faces) {
     const openFaces = Object.entries(spec.faces)

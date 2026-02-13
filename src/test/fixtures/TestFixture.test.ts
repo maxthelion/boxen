@@ -1,14 +1,14 @@
 /**
- * Tests for TestFixture - Core composable test fixture class.
+ * Tests for AssemblyBuilder - Core composable assembly builder class.
  */
 
 import { describe, it, expect } from 'vitest';
-import { TestFixture } from './TestFixture';
+import { AssemblyBuilder } from '../../builder';
 
-describe('TestFixture', () => {
+describe('AssemblyBuilder', () => {
   describe('Factory Methods', () => {
     it('creates basic box with open top', () => {
-      const { engine, panels } = TestFixture.basicBox(100, 80, 60).build();
+      const { engine, panels } = AssemblyBuilder.basicBox(100, 80, 60).build();
 
       expect(engine).toBeDefined();
       // 6 faces - 1 open (top) = 5 panels
@@ -27,7 +27,7 @@ describe('TestFixture', () => {
     });
 
     it('creates enclosed box with all faces', () => {
-      const { panels } = TestFixture.enclosedBox(100, 80, 60).build();
+      const { panels } = AssemblyBuilder.enclosedBox(100, 80, 60).build();
 
       // All 6 faces should be present
       expect(panels.length).toBe(6);
@@ -42,7 +42,7 @@ describe('TestFixture', () => {
     });
 
     it('respects custom dimensions', () => {
-      const { panels } = TestFixture.enclosedBox(200, 150, 100).build();
+      const { panels } = AssemblyBuilder.enclosedBox(200, 150, 100).build();
 
       // Find the front panel (in XY plane)
       const frontPanel = panels.find(p => p.source.faceId === 'front');
@@ -56,7 +56,7 @@ describe('TestFixture', () => {
 
   describe('Configuration', () => {
     it('configures open faces with withOpenFaces', () => {
-      const { panels } = TestFixture.enclosedBox(100, 80, 60)
+      const { panels } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .withOpenFaces(['top', 'front'])
         .build();
 
@@ -69,7 +69,7 @@ describe('TestFixture', () => {
     });
 
     it('withOpenFaces replaces previous open face config', () => {
-      const { panels } = TestFixture.basicBox(100, 80, 60)
+      const { panels } = AssemblyBuilder.basicBox(100, 80, 60)
         .withOpenFaces(['front']) // Replace open top with open front
         .build();
 
@@ -82,7 +82,7 @@ describe('TestFixture', () => {
     });
 
     it('withOpenFaces with empty array makes all faces solid', () => {
-      const { panels } = TestFixture.basicBox(100, 80, 60)
+      const { panels } = AssemblyBuilder.basicBox(100, 80, 60)
         .withOpenFaces([])
         .build();
 
@@ -92,7 +92,7 @@ describe('TestFixture', () => {
 
   describe('Panel Selection', () => {
     it('selects panel by face', () => {
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('front')
         .build();
 
@@ -101,7 +101,7 @@ describe('TestFixture', () => {
     });
 
     it('returns undefined panel when face is open', () => {
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('top') // top is open in basicBox
         .build();
 
@@ -110,7 +110,7 @@ describe('TestFixture', () => {
     });
 
     it('selected panel is in the panels array', () => {
-      const { panel, panels } = TestFixture.enclosedBox(100, 80, 60)
+      const { panel, panels } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .build();
 
@@ -121,7 +121,7 @@ describe('TestFixture', () => {
 
   describe('Cloning', () => {
     it('clone creates independent copy', () => {
-      const base = TestFixture.basicBox(100, 80, 60);
+      const base = AssemblyBuilder.basicBox(100, 80, 60);
       const clone = base.clone();
 
       // Modify clone - make front open too
@@ -137,7 +137,7 @@ describe('TestFixture', () => {
 
     it('clone preserves panel selection', () => {
       // Create base fixture with panel selection
-      const base = TestFixture.enclosedBox(100, 80, 60);
+      const base = AssemblyBuilder.enclosedBox(100, 80, 60);
       base.panel('front'); // Select front panel
 
       // Clone the fixture (should preserve selection)
@@ -152,7 +152,7 @@ describe('TestFixture', () => {
     });
 
     it('clone allows creating test matrices', () => {
-      const base = TestFixture.enclosedBox(100, 80, 60);
+      const base = AssemblyBuilder.enclosedBox(100, 80, 60);
 
       // Create variants with different open faces
       const scenarios = (['top', 'front', 'left'] as const).map(face =>
@@ -173,14 +173,14 @@ describe('TestFixture', () => {
 
   describe('Build Result', () => {
     it('returns engine in result', () => {
-      const { engine } = TestFixture.basicBox(100, 80, 60).build();
+      const { engine } = AssemblyBuilder.basicBox(100, 80, 60).build();
 
       expect(engine).toBeDefined();
       expect(engine.assembly).toBeDefined();
     });
 
     it('returns fresh panels from engine state', () => {
-      const { panels } = TestFixture.basicBox(100, 80, 60).build();
+      const { panels } = AssemblyBuilder.basicBox(100, 80, 60).build();
 
       // Verify panels have expected properties
       for (const panel of panels) {
@@ -193,7 +193,7 @@ describe('TestFixture', () => {
     });
 
     it('panels have correct structure', () => {
-      const { panel } = TestFixture.enclosedBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .build();
 
@@ -207,7 +207,7 @@ describe('TestFixture', () => {
 
   describe('withDimensions', () => {
     it('updates width', () => {
-      const { panels } = TestFixture.enclosedBox(100, 80, 60)
+      const { panels } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .withDimensions({ width: 200 })
         .build();
 
@@ -216,7 +216,7 @@ describe('TestFixture', () => {
     });
 
     it('updates multiple dimensions at once', () => {
-      const { panels } = TestFixture.enclosedBox(100, 80, 60)
+      const { panels } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .withDimensions({ width: 200, height: 150 })
         .build();
 
@@ -226,7 +226,7 @@ describe('TestFixture', () => {
     });
 
     it('is chainable', () => {
-      const { panels } = TestFixture.enclosedBox(100, 80, 60)
+      const { panels } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .withDimensions({ width: 200 })
         .withOpenFaces(['top'])
         .build();
@@ -239,7 +239,7 @@ describe('TestFixture', () => {
 
   describe('withMaterial', () => {
     it('updates material thickness', () => {
-      const { engine } = TestFixture.enclosedBox(100, 80, 60)
+      const { engine } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .withMaterial({ thickness: 6 })
         .build();
 
@@ -248,7 +248,7 @@ describe('TestFixture', () => {
     });
 
     it('is chainable', () => {
-      const { engine } = TestFixture.enclosedBox(100, 80, 60)
+      const { engine } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .withMaterial({ thickness: 6 })
         .withDimensions({ width: 200 })
         .build();
@@ -261,7 +261,7 @@ describe('TestFixture', () => {
 
   describe('withFeet', () => {
     it('enables feet', () => {
-      const { engine } = TestFixture.basicBox(100, 80, 60)
+      const { engine } = AssemblyBuilder.basicBox(100, 80, 60)
         .withFeet({ enabled: true, height: 10, width: 15, inset: 5, gap: 2 })
         .build();
 
@@ -271,7 +271,7 @@ describe('TestFixture', () => {
     });
 
     it('disables feet with null', () => {
-      const { engine } = TestFixture.basicBox(100, 80, 60)
+      const { engine } = AssemblyBuilder.basicBox(100, 80, 60)
         .withFeet({ enabled: true, height: 10, width: 15, inset: 5, gap: 2 })
         .withFeet(null)
         .build();
@@ -283,7 +283,7 @@ describe('TestFixture', () => {
 
   describe('withLid', () => {
     it('sets lid tab direction', () => {
-      const { engine } = TestFixture.enclosedBox(100, 80, 60)
+      const { engine } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .withLid('positive', { tabDirection: 'tabs-out' })
         .build();
 
@@ -294,7 +294,7 @@ describe('TestFixture', () => {
 
   describe('withAxis', () => {
     it('changes assembly axis', () => {
-      const { engine } = TestFixture.enclosedBox(100, 80, 60)
+      const { engine } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .withAxis('x')
         .build();
 
@@ -305,7 +305,7 @@ describe('TestFixture', () => {
 
   describe('subdivide', () => {
     it('adds a divider panel', () => {
-      const { panels } = TestFixture.basicBox(200, 100, 100)
+      const { panels } = AssemblyBuilder.basicBox(200, 100, 100)
         .subdivide('root', 'x', 100)
         .build();
 
@@ -314,7 +314,7 @@ describe('TestFixture', () => {
     });
 
     it('creates two child voids', () => {
-      const fixture = TestFixture.basicBox(200, 100, 100)
+      const fixture = AssemblyBuilder.basicBox(200, 100, 100)
         .subdivide('root', 'x', 100);
 
       // Should be able to access both child voids
@@ -326,7 +326,7 @@ describe('TestFixture', () => {
     });
 
     it('supports chained subdivisions using childVoid callback', () => {
-      const { panels } = TestFixture.basicBox(200, 100, 100)
+      const { panels } = AssemblyBuilder.basicBox(200, 100, 100)
         .subdivide('root', 'x', 100)
         .subdivide(f => f.childVoid(0), 'z', 50)
         .build();
@@ -337,7 +337,7 @@ describe('TestFixture', () => {
     });
 
     it('throws on out-of-range childVoid index', () => {
-      const fixture = TestFixture.basicBox(200, 100, 100)
+      const fixture = AssemblyBuilder.basicBox(200, 100, 100)
         .subdivide('root', 'x', 100);
 
       expect(() => fixture.childVoid(2)).toThrow('index out of range');
@@ -346,7 +346,7 @@ describe('TestFixture', () => {
 
   describe('subdivideEvenly', () => {
     it('creates even compartments', () => {
-      const { panels } = TestFixture.basicBox(200, 100, 100)
+      const { panels } = AssemblyBuilder.basicBox(200, 100, 100)
         .subdivideEvenly('root', 'x', 3)
         .build();
 
@@ -356,7 +356,7 @@ describe('TestFixture', () => {
     });
 
     it('creates correct number of child voids', () => {
-      const fixture = TestFixture.basicBox(200, 100, 100)
+      const fixture = AssemblyBuilder.basicBox(200, 100, 100)
         .subdivideEvenly('root', 'x', 3);
 
       expect(fixture.childVoid(0)).toBeDefined();
@@ -366,7 +366,7 @@ describe('TestFixture', () => {
     });
 
     it('does nothing for count < 2', () => {
-      const { panels } = TestFixture.basicBox(200, 100, 100)
+      const { panels } = AssemblyBuilder.basicBox(200, 100, 100)
         .subdivideEvenly('root', 'x', 1)
         .build();
 
@@ -377,7 +377,7 @@ describe('TestFixture', () => {
 
   describe('grid', () => {
     it('creates a 2x2 grid', () => {
-      const { panels } = TestFixture.basicBox(200, 100, 200)
+      const { panels } = AssemblyBuilder.basicBox(200, 100, 200)
         .grid('root', 2, 2)
         .build();
 
@@ -387,7 +387,7 @@ describe('TestFixture', () => {
     });
 
     it('creates 4 child voids for 2x2 grid', () => {
-      const fixture = TestFixture.basicBox(200, 100, 200)
+      const fixture = AssemblyBuilder.basicBox(200, 100, 200)
         .grid('root', 2, 2);
 
       expect(fixture.childVoid(0)).toBeDefined();
@@ -398,7 +398,7 @@ describe('TestFixture', () => {
     });
 
     it('creates a 3x2 grid', () => {
-      const { panels } = TestFixture.basicBox(300, 100, 200)
+      const { panels } = AssemblyBuilder.basicBox(300, 100, 200)
         .grid('root', 3, 2)
         .build();
 
@@ -411,7 +411,7 @@ describe('TestFixture', () => {
   describe('Integration: fluent subdivision scenario', () => {
     it('builds a box with nested subdivisions entirely via fluent API', () => {
       // Create a box, subdivide root on X, then subdivide the first child on Z
-      const { engine, panels } = TestFixture
+      const { engine, panels } = AssemblyBuilder
         .basicBox(200, 150, 100, { thickness: 6, fingerWidth: 10, fingerGap: 1.5 })
         .subdivide('root', 'x', 100)
         .subdivide(f => f.childVoid(0), 'z', 50)
@@ -436,7 +436,7 @@ describe('TestFixture', () => {
     });
 
     it('combines grid with configuration methods', () => {
-      const { panels, engine } = TestFixture
+      const { panels, engine } = AssemblyBuilder
         .basicBox(200, 100, 200)
         .withMaterial({ thickness: 6 })
         .grid('root', 2, 2)

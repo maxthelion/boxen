@@ -1,7 +1,7 @@
-import type { Point2D } from '../../engine/types';
+import type { Point2D } from '../engine/types';
 
 /**
- * Shape interface for test fixtures.
+ * Shape interface for assembly builders.
  * Shapes can be converted to paths and track their corner count.
  */
 export interface Shape {

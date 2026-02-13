@@ -107,6 +107,13 @@ src/
 │       ├── BasePanel.ts        # Abstract panel base (outline, finger joints)
 │       ├── FacePanelNode.ts    # Face panel (front, back, etc.)
 │       └── DividerPanelNode.ts # Divider panel from void subdivision
+├── builder/          # Fluent assembly builder (usable by tests, scripts, prompts)
+│   ├── AssemblyBuilder.ts  # Core builder class with factory methods
+│   ├── PanelBuilder.ts     # Panel-specific operations (extensions, cutouts, fillets)
+│   ├── shapes.ts           # Shape helpers (rect, circle, polygon, lShape)
+│   ├── permute.ts          # Permutation utilities for matrix-driven testing
+│   ├── types.ts            # Builder type definitions
+│   └── index.ts            # Public API exports
 ├── store/
 │   └── useBoxStore.ts      # Zustand store (UI state, selection, operations)
 ├── types.ts          # Shared TypeScript type definitions

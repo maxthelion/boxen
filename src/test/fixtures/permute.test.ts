@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { permute, permuteNamed, countPermutations } from './permute';
+import { permute, permuteNamed, countPermutations } from '../../builder/permute';
 
 describe('permute', () => {
   it('generates cartesian product', () => {

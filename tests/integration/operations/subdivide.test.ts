@@ -10,13 +10,13 @@ import { useBoxStore } from '../../../src/store/useBoxStore';
 import { validateOperation } from '../../validators';
 import { OPERATION_DEFINITIONS } from '../../../src/operations/registry';
 import { generatePanelsFromEngine } from '../../../src/engine/panelBridge';
-import { TestFixture } from '../../../src/test/fixtures';
+import { AssemblyBuilder } from '../../../src/builder';
 
 describe('Subdivide Operation', () => {
   let engine: Engine;
 
   beforeEach(() => {
-    ({ engine } = TestFixture.enclosedBox(100, 80, 60).build());
+    ({ engine } = AssemblyBuilder.enclosedBox(100, 80, 60).build());
     // Reset store state
     useBoxStore.setState({
       operationState: {

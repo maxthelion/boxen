@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { TestFixture } from './index';
+import { AssemblyBuilder } from '../../builder';
 
 describe('All-corner eligibility', () => {
   describe('Prerequisite: allCornerEligibility is passed to PanelPath', () => {
@@ -29,7 +29,7 @@ describe('All-corner eligibility', () => {
      * to the return value in panelSnapshotToPanelPath() in panelBridge.ts.
      */
     it('should have allCornerEligibility defined on panels', () => {
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('front')
         .build();
 
@@ -43,7 +43,7 @@ describe('All-corner eligibility', () => {
     });
 
     it('allCornerEligibility should have entries for panel with finger joints', () => {
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('front')
         .build();
 
@@ -64,7 +64,7 @@ describe('All-corner eligibility', () => {
      * Currently, finger joint corners are incorrectly marked as eligible.
      */
     it('enclosed box panel should have 0 eligible corners (all edges have joints)', () => {
-      const { panel } = TestFixture.enclosedBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .build();
 
@@ -106,7 +106,7 @@ describe('All-corner eligibility', () => {
       // - Right edge mates with right face (still solid) → has joints
       //
       // Only the corner where two FREE edges meet (left:top) should be eligible
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .withOpenFaces(['top', 'left'])
         .panel('front')
         .build();
@@ -143,7 +143,7 @@ describe('All-corner eligibility', () => {
      */
     it('panel with all four edges open should have 4 eligible corners', () => {
       // Open all faces except front and back - the front panel should have all free edges
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .withOpenFaces(['top', 'bottom', 'left', 'right'])
         .panel('front')
         .build();
@@ -171,7 +171,7 @@ describe('All-corner eligibility', () => {
      * No corner has BOTH adjacent edges free, so 0 corners are eligible.
      */
     it('basic box (only top open) front panel should have 0 eligible corners', () => {
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('front')
         .build();
 
@@ -194,7 +194,7 @@ describe('All-corner eligibility', () => {
 
   describe('allCornerEligibility structure (when fixed)', () => {
     it('each corner should have required properties', () => {
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('front')
         .build();
 

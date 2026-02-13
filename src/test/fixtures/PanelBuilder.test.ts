@@ -3,8 +3,8 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TestFixture } from './TestFixture';
-import { rect, circle } from './shapes';
+import { AssemblyBuilder } from '../../builder';
+import { rect, circle } from '../../builder/shapes';
 
 describe('PanelBuilder', () => {
   // Suppress console.warn during tests
@@ -20,7 +20,7 @@ describe('PanelBuilder', () => {
 
   describe('Basic Operations', () => {
     it('builds fixture through PanelBuilder', () => {
-      const { panel, panels } = TestFixture.enclosedBox(100, 80, 60)
+      const { panel, panels } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .build();
 
@@ -30,7 +30,7 @@ describe('PanelBuilder', () => {
     });
 
     it('getFaceId returns the selected face', () => {
-      const fixture = TestFixture.enclosedBox(100, 80, 60);
+      const fixture = AssemblyBuilder.enclosedBox(100, 80, 60);
       const builder = fixture.panel('front');
 
       expect(builder.getFaceId()).toBe('front');
@@ -39,7 +39,7 @@ describe('PanelBuilder', () => {
 
   describe('withExtension', () => {
     it('queues extension operation', () => {
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('front')
         .withExtension('top', 30)
         .build();
@@ -53,7 +53,7 @@ describe('PanelBuilder', () => {
     });
 
     it('chains multiple extension operations', () => {
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('front')
         .withExtension('top', 30)
         .withExtension('bottom', 20)
@@ -63,7 +63,7 @@ describe('PanelBuilder', () => {
     });
 
     it('returns this for chaining', () => {
-      const fixture = TestFixture.enclosedBox(100, 80, 60);
+      const fixture = AssemblyBuilder.enclosedBox(100, 80, 60);
       const builder = fixture.panel('front');
 
       const result = builder.withExtension('top', 30);
@@ -74,7 +74,7 @@ describe('PanelBuilder', () => {
 
   describe('withExtensions', () => {
     it('queues multiple extensions at once', () => {
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('front')
         .withExtensions(['top', 'bottom'], 25)
         .build();
@@ -83,7 +83,7 @@ describe('PanelBuilder', () => {
     });
 
     it('uses default amount of 20', () => {
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('front')
         .withExtensions(['left', 'right'])
         .build();
@@ -92,7 +92,7 @@ describe('PanelBuilder', () => {
     });
 
     it('returns this for chaining', () => {
-      const fixture = TestFixture.enclosedBox(100, 80, 60);
+      const fixture = AssemblyBuilder.enclosedBox(100, 80, 60);
       const builder = fixture.panel('front');
 
       const result = builder.withExtensions(['top', 'left'], 30);
@@ -103,7 +103,7 @@ describe('PanelBuilder', () => {
 
   describe('withCutout', () => {
     it('queues cutout operation with rect shape', () => {
-      const { panel } = TestFixture.enclosedBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .withCutout(rect(10, 10, 20, 15))
         .build();
@@ -114,7 +114,7 @@ describe('PanelBuilder', () => {
     });
 
     it('queues cutout operation with circle shape', () => {
-      const { panel } = TestFixture.enclosedBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .withCutout(circle(50, 40, 10))
         .build();
@@ -123,7 +123,7 @@ describe('PanelBuilder', () => {
     });
 
     it('returns this for chaining', () => {
-      const fixture = TestFixture.enclosedBox(100, 80, 60);
+      const fixture = AssemblyBuilder.enclosedBox(100, 80, 60);
       const builder = fixture.panel('front');
 
       const result = builder.withCutout(rect(10, 10, 20, 20));
@@ -134,7 +134,7 @@ describe('PanelBuilder', () => {
 
   describe('withCutouts', () => {
     it('queues multiple cutouts', () => {
-      const { panel } = TestFixture.enclosedBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .withCutouts([
           rect(10, 10, 20, 15),
@@ -146,7 +146,7 @@ describe('PanelBuilder', () => {
     });
 
     it('returns this for chaining', () => {
-      const fixture = TestFixture.enclosedBox(100, 80, 60);
+      const fixture = AssemblyBuilder.enclosedBox(100, 80, 60);
       const builder = fixture.panel('front');
 
       const result = builder.withCutouts([rect(10, 10, 20, 20)]);
@@ -157,7 +157,7 @@ describe('PanelBuilder', () => {
 
   describe('withFillet', () => {
     it('queues fillet operation', () => {
-      const { panel } = TestFixture.enclosedBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .withFillet(['bottom:left', 'bottom:right'], 5)
         .build();
@@ -166,7 +166,7 @@ describe('PanelBuilder', () => {
     });
 
     it('accepts single corner', () => {
-      const { panel } = TestFixture.enclosedBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .withFillet(['left:top'], 10)
         .build();
@@ -175,7 +175,7 @@ describe('PanelBuilder', () => {
     });
 
     it('returns this for chaining', () => {
-      const fixture = TestFixture.enclosedBox(100, 80, 60);
+      const fixture = AssemblyBuilder.enclosedBox(100, 80, 60);
       const builder = fixture.panel('front');
 
       const result = builder.withFillet(['bottom:left'], 5);
@@ -186,7 +186,7 @@ describe('PanelBuilder', () => {
 
   describe('withChamfer', () => {
     it('queues chamfer operation (logs warning since not implemented)', () => {
-      const { panel } = TestFixture.enclosedBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .withChamfer(['bottom:left', 'bottom:right'], 5)
         .build();
@@ -199,7 +199,7 @@ describe('PanelBuilder', () => {
     });
 
     it('returns this for chaining', () => {
-      const fixture = TestFixture.enclosedBox(100, 80, 60);
+      const fixture = AssemblyBuilder.enclosedBox(100, 80, 60);
       const builder = fixture.panel('front');
 
       const result = builder.withChamfer(['bottom:left'], 5);
@@ -209,8 +209,8 @@ describe('PanelBuilder', () => {
   });
 
   describe('and()', () => {
-    it('returns to TestFixture for further configuration', () => {
-      const fixture = TestFixture.enclosedBox(100, 80, 60);
+    it('returns to AssemblyBuilder for further configuration', () => {
+      const fixture = AssemblyBuilder.enclosedBox(100, 80, 60);
 
       const returnedFixture = fixture
         .panel('front')
@@ -222,7 +222,7 @@ describe('PanelBuilder', () => {
     });
 
     it('allows chaining back to fixture methods', () => {
-      const { panels } = TestFixture.enclosedBox(100, 80, 60)
+      const { panels } = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .withExtension('top', 30)
         .and()
@@ -240,7 +240,7 @@ describe('PanelBuilder', () => {
 
   describe('clone()', () => {
     it('creates independent copy', () => {
-      const original = TestFixture.enclosedBox(100, 80, 60)
+      const original = AssemblyBuilder.enclosedBox(100, 80, 60)
         .panel('front')
         .withExtension('top', 30);
 
@@ -263,7 +263,7 @@ describe('PanelBuilder', () => {
     });
 
     it('preserves face selection', () => {
-      const builder = TestFixture.enclosedBox(100, 80, 60).panel('back');
+      const builder = AssemblyBuilder.enclosedBox(100, 80, 60).panel('back');
       const cloned = builder.clone();
 
       expect(cloned.getFaceId()).toBe('back');
@@ -273,7 +273,7 @@ describe('PanelBuilder', () => {
   describe('Open Face Handling', () => {
     it('handles operations on open faces gracefully', () => {
       // Top is open in basicBox
-      const { panel } = TestFixture.basicBox(100, 80, 60)
+      const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('top')
         .withExtension('left', 30)
         .build();
@@ -288,7 +288,7 @@ describe('PanelBuilder', () => {
 
   describe('Complex Chaining', () => {
     it('supports complex operation chains', () => {
-      const { panel, panels } = TestFixture.basicBox(100, 80, 60)
+      const { panel, panels } = AssemblyBuilder.basicBox(100, 80, 60)
         .panel('front')
         .withExtension('top', 30)
         .withCutout(rect(20, 20, 10, 10))
@@ -300,7 +300,7 @@ describe('PanelBuilder', () => {
     });
 
     it('supports returning to fixture and selecting different panel', () => {
-      const fixture = TestFixture.enclosedBox(100, 80, 60);
+      const fixture = AssemblyBuilder.enclosedBox(100, 80, 60);
 
       // Configure front panel
       const { panel: frontPanel } = fixture

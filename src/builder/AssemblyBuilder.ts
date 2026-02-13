@@ -1,38 +1,38 @@
 /**
- * TestFixture - Core class for composable test fixture system.
+ * AssemblyBuilder - Core class for composable assembly builder system.
  *
- * Provides a fluent API for setting up test scenarios with engines.
+ * Provides a fluent API for setting up assembly scenarios with engines.
  * Uses lazy execution pattern - operations are queued and executed
  * when build() is called.
  *
  * @example
  * ```typescript
  * // Create a basic box with open top
- * const { engine, panels } = TestFixture.basicBox(100, 80, 60).build();
+ * const { engine, panels } = AssemblyBuilder.basicBox(100, 80, 60).build();
  *
  * // Create an enclosed box and select the front panel
- * const { panel } = TestFixture.enclosedBox(100, 80, 60)
+ * const { panel } = AssemblyBuilder.enclosedBox(100, 80, 60)
  *   .panel('front')
  *   .build();
  *
  * // Create matrix of test scenarios
- * const base = TestFixture.basicBox(100, 80, 60);
+ * const base = AssemblyBuilder.basicBox(100, 80, 60);
  * const scenarios = ['top', 'front', 'left'].map(face =>
  *   base.clone().withOpenFaces([face as FaceId])
  * );
  * ```
  */
 
-import { Engine, createEngineWithAssembly } from '../../engine/Engine';
-import type { FaceId } from '../../types';
-import type { MaterialConfig, EngineAction, Axis, FeetConfig, LidConfig, VoidSnapshot } from '../../engine/types';
+import { Engine, createEngineWithAssembly } from '../engine/Engine';
+import type { FaceId } from '../types';
+import type { MaterialConfig, EngineAction, Axis, FeetConfig, LidConfig, VoidSnapshot } from '../engine/types';
 import type { FixtureResult, QueuedOperation } from './types';
 import { PanelBuilder } from './PanelBuilder';
 
-/** Void selector: 'root' for the root void, or a callback that receives the fixture and returns a void ID */
-export type VoidSelector = 'root' | ((fixture: TestFixture) => string);
+/** Void selector: 'root' for the root void, or a callback that receives the builder and returns a void ID */
+export type VoidSelector = 'root' | ((fixture: AssemblyBuilder) => string);
 
-/** Default material configuration for test fixtures */
+/** Default material configuration */
 const defaultMaterial: MaterialConfig = {
   thickness: 3,
   fingerWidth: 10,
@@ -43,14 +43,14 @@ const defaultMaterial: MaterialConfig = {
 const ALL_FACES: FaceId[] = ['top', 'bottom', 'left', 'right', 'front', 'back'];
 
 /**
- * Core test fixture class for setting up test scenarios.
+ * Core assembly builder class for setting up scenarios.
  *
- * TestFixture uses a builder pattern with lazy execution:
+ * AssemblyBuilder uses a builder pattern with lazy execution:
  * - Factory methods (basicBox, enclosedBox) create the initial state
  * - Configuration methods (withOpenFaces) queue modifications
  * - build() executes all queued operations and returns the result
  */
-export class TestFixture {
+export class AssemblyBuilder {
   /** The engine instance (created by factory methods) */
   private engine: Engine;
 
@@ -102,22 +102,22 @@ export class TestFixture {
   /**
    * Create a basic box with open top face.
    *
-   * This is the most common starting point for tests - a box with
+   * This is the most common starting point - a box with
    * one open face (top) like a typical storage container.
    *
    * @param width - Box width in mm
    * @param height - Box height in mm
    * @param depth - Box depth in mm
    * @param material - Optional material configuration
-   * @returns TestFixture configured as open-top box
+   * @returns AssemblyBuilder configured as open-top box
    */
   static basicBox(
     width: number,
     height: number,
     depth: number,
     material: MaterialConfig = defaultMaterial
-  ): TestFixture {
-    return new TestFixture(width, height, depth, material, ['top']);
+  ): AssemblyBuilder {
+    return new AssemblyBuilder(width, height, depth, material, ['top']);
   }
 
   /**
@@ -127,15 +127,15 @@ export class TestFixture {
    * @param height - Box height in mm
    * @param depth - Box depth in mm
    * @param material - Optional material configuration
-   * @returns TestFixture configured as enclosed box
+   * @returns AssemblyBuilder configured as enclosed box
    */
   static enclosedBox(
     width: number,
     height: number,
     depth: number,
     material: MaterialConfig = defaultMaterial
-  ): TestFixture {
-    return new TestFixture(width, height, depth, material, []);
+  ): AssemblyBuilder {
+    return new AssemblyBuilder(width, height, depth, material, []);
   }
 
   // ===========================================================================
@@ -151,7 +151,7 @@ export class TestFixture {
    * @param faces - Array of face IDs to make open
    * @returns this for chaining
    */
-  withOpenFaces(faces: FaceId[]): TestFixture {
+  withOpenFaces(faces: FaceId[]): AssemblyBuilder {
     // First, ensure all faces are solid
     for (const face of ALL_FACES) {
       const shouldBeOpen = faces.includes(face);
@@ -182,7 +182,7 @@ export class TestFixture {
    * @param dims - Partial dimensions to update
    * @returns this for chaining
    */
-  withDimensions(dims: { width?: number; height?: number; depth?: number }): TestFixture {
+  withDimensions(dims: { width?: number; height?: number; depth?: number }): AssemblyBuilder {
     this.engine.dispatch({
       type: 'SET_DIMENSIONS',
       targetId: 'main-assembly',
@@ -200,7 +200,7 @@ export class TestFixture {
    * @param config - Partial material config to update
    * @returns this for chaining
    */
-  withMaterial(config: Partial<MaterialConfig>): TestFixture {
+  withMaterial(config: Partial<MaterialConfig>): AssemblyBuilder {
     this.engine.dispatch({
       type: 'SET_MATERIAL',
       targetId: 'main-assembly',
@@ -216,7 +216,7 @@ export class TestFixture {
    * @param config - Feet config, or null to disable
    * @returns this for chaining
    */
-  withFeet(config: FeetConfig | null): TestFixture {
+  withFeet(config: FeetConfig | null): AssemblyBuilder {
     this.engine.dispatch({
       type: 'SET_FEET_CONFIG',
       targetId: 'main-assembly',
@@ -232,7 +232,7 @@ export class TestFixture {
    * @param config - Partial lid config
    * @returns this for chaining
    */
-  withLid(side: 'positive' | 'negative', config: Partial<LidConfig>): TestFixture {
+  withLid(side: 'positive' | 'negative', config: Partial<LidConfig>): AssemblyBuilder {
     this.engine.dispatch({
       type: 'SET_LID_CONFIG',
       targetId: 'main-assembly',
@@ -247,7 +247,7 @@ export class TestFixture {
    * @param axis - The axis to set ('x', 'y', or 'z')
    * @returns this for chaining
    */
-  withAxis(axis: Axis): TestFixture {
+  withAxis(axis: Axis): AssemblyBuilder {
     this.engine.dispatch({
       type: 'SET_ASSEMBLY_AXIS',
       targetId: 'main-assembly',
@@ -271,7 +271,7 @@ export class TestFixture {
    * @param position - World-space position of the divider
    * @returns this for chaining
    */
-  subdivide(voidSelector: VoidSelector, axis: Axis, position: number): TestFixture {
+  subdivide(voidSelector: VoidSelector, axis: Axis, position: number): AssemblyBuilder {
     const voidId = this._resolveVoidId(voidSelector);
 
     this.engine.dispatch({
@@ -296,13 +296,13 @@ export class TestFixture {
    * @param count - Number of compartments (creates count-1 dividers)
    * @returns this for chaining
    */
-  subdivideEvenly(voidSelector: VoidSelector, axis: Axis, count: number): TestFixture {
+  subdivideEvenly(voidSelector: VoidSelector, axis: Axis, count: number): AssemblyBuilder {
     if (count < 2) return this;
 
     const voidId = this._resolveVoidId(voidSelector);
     const voidNode = this.engine.findVoid(voidId);
     if (!voidNode) {
-      throw new Error(`TestFixture.subdivideEvenly: void '${voidId}' not found`);
+      throw new Error(`AssemblyBuilder.subdivideEvenly: void '${voidId}' not found`);
     }
 
     const bounds = voidNode.bounds;
@@ -336,11 +336,11 @@ export class TestFixture {
    * @param zCount - Number of compartments along Z axis
    * @returns this for chaining
    */
-  grid(voidSelector: VoidSelector, xCount: number, zCount: number): TestFixture {
+  grid(voidSelector: VoidSelector, xCount: number, zCount: number): AssemblyBuilder {
     const voidId = this._resolveVoidId(voidSelector);
     const voidNode = this.engine.findVoid(voidId);
     if (!voidNode) {
-      throw new Error(`TestFixture.grid: void '${voidId}' not found`);
+      throw new Error(`AssemblyBuilder.grid: void '${voidId}' not found`);
     }
 
     const bounds = voidNode.bounds;
@@ -383,7 +383,7 @@ export class TestFixture {
   childVoid(index: number): string {
     if (index < 0 || index >= this._lastChildVoids.length) {
       throw new Error(
-        `TestFixture.childVoid(${index}): index out of range. ` +
+        `AssemblyBuilder.childVoid(${index}): index out of range. ` +
         `Last subdivision created ${this._lastChildVoids.length} child voids.`
       );
     }
@@ -413,15 +413,15 @@ export class TestFixture {
   // ===========================================================================
 
   /**
-   * Create an independent deep copy of this fixture.
+   * Create an independent deep copy of this builder.
    *
    * The clone has its own engine and can be modified without
    * affecting the original. Useful for creating test matrices.
    *
-   * @returns New TestFixture with copied state
+   * @returns New AssemblyBuilder with copied state
    */
-  clone(): TestFixture {
-    const copy = new TestFixture(
+  clone(): AssemblyBuilder {
+    const copy = new AssemblyBuilder(
       this._config.width,
       this._config.height,
       this._config.depth,
@@ -446,7 +446,7 @@ export class TestFixture {
   // ===========================================================================
 
   /**
-   * Execute all queued operations and return the fixture result.
+   * Execute all queued operations and return the result.
    *
    * This triggers:
    * 1. Execution of all queued operations
@@ -507,7 +507,7 @@ export class TestFixture {
   private _resolveVoidId(selector: VoidSelector): string {
     if (selector === 'root') {
       const assembly = this.engine.assembly;
-      if (!assembly) throw new Error('TestFixture: no assembly found');
+      if (!assembly) throw new Error('AssemblyBuilder: no assembly found');
       return assembly.rootVoid.id;
     }
     return selector(this);

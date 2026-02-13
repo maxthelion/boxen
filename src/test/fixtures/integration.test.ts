@@ -2,21 +2,21 @@
  * Integration tests for the Test Fixtures module.
  *
  * These tests verify that all Phase 1 components work together:
- * - TestFixture class for creating test scenarios
+ * - AssemblyBuilder class for creating test scenarios
  * - PanelBuilder for panel-specific operations
  * - Shape helpers for cutouts
  * - Permutation utilities for matrix-driven testing
  */
 
 import { describe, it, expect } from 'vitest';
-import { TestFixture, rect, polygon, circle, lShape, permute, permuteNamed, countPermutations } from './index';
+import { AssemblyBuilder, rect, polygon, circle, lShape, permute, permuteNamed, countPermutations } from '../../builder';
 import { checkGeometry } from '../../engine/geometryChecker';
 import type { FaceId } from '../../types';
 
 describe('Test Fixtures Integration', () => {
   describe('basic workflow', () => {
     it('creates and builds a fixture', () => {
-      const { engine, panels, panel } = TestFixture
+      const { engine, panels, panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .build();
@@ -28,13 +28,13 @@ describe('Test Fixtures Integration', () => {
     });
 
     it('produces valid geometry', () => {
-      const { engine } = TestFixture.basicBox(100, 80, 60).build();
+      const { engine } = AssemblyBuilder.basicBox(100, 80, 60).build();
       const result = checkGeometry(engine);
       expect(result.valid).toBe(true);
     });
 
     it('creates enclosed box with all faces', () => {
-      const { engine, panels } = TestFixture.enclosedBox(100, 80, 60).build();
+      const { engine, panels } = AssemblyBuilder.enclosedBox(100, 80, 60).build();
 
       expect(engine).toBeDefined();
       expect(panels.length).toBe(6);
@@ -44,7 +44,7 @@ describe('Test Fixtures Integration', () => {
     });
 
     it('respects custom dimensions', () => {
-      const { panels } = TestFixture.enclosedBox(200, 150, 100).build();
+      const { panels } = AssemblyBuilder.enclosedBox(200, 150, 100).build();
 
       const frontPanel = panels.find(p => p.source.faceId === 'front');
       expect(frontPanel).toBeDefined();
@@ -55,7 +55,7 @@ describe('Test Fixtures Integration', () => {
 
   describe('branching workflow', () => {
     it('creates independent branches', () => {
-      const base = TestFixture.basicBox(100, 80, 60);
+      const base = AssemblyBuilder.basicBox(100, 80, 60);
 
       const branch1 = base.clone().withOpenFaces(['top']);
       const branch2 = base.clone().withOpenFaces(['top', 'front']);
@@ -68,7 +68,7 @@ describe('Test Fixtures Integration', () => {
     });
 
     it('original fixture is unchanged after cloning', () => {
-      const base = TestFixture.enclosedBox(100, 80, 60);
+      const base = AssemblyBuilder.enclosedBox(100, 80, 60);
       const clone = base.clone();
 
       // Modify the clone
@@ -83,7 +83,7 @@ describe('Test Fixtures Integration', () => {
     });
 
     it('cloned fixtures produce valid geometry', () => {
-      const base = TestFixture.basicBox(100, 80, 60);
+      const base = AssemblyBuilder.basicBox(100, 80, 60);
       const clone = base.clone().withOpenFaces(['top', 'front']);
 
       const { engine: baseEngine } = base.build();
@@ -101,7 +101,7 @@ describe('Test Fixtures Integration', () => {
 
     describe.each(matrix)('with %s', (_name, { openFaces }) => {
       it('creates valid geometry', () => {
-        const { engine } = TestFixture
+        const { engine } = AssemblyBuilder
           .basicBox(100, 80, 60)
           .withOpenFaces(openFaces)
           .build();
@@ -111,7 +111,7 @@ describe('Test Fixtures Integration', () => {
       });
 
       it('has expected panel count', () => {
-        const { panels } = TestFixture
+        const { panels } = AssemblyBuilder
           .basicBox(100, 80, 60)
           .withOpenFaces(openFaces)
           .build();
@@ -134,7 +134,7 @@ describe('Test Fixtures Integration', () => {
     describe.each(advancedMatrix)('scenario: %s', (_name, config) => {
       it('produces valid geometry', () => {
         const [width, height, depth] = config.dimensions;
-        const { engine } = TestFixture
+        const { engine } = AssemblyBuilder
           .basicBox(width, height, depth)
           .withOpenFaces(config.openFaces)
           .build();
@@ -158,7 +158,7 @@ describe('Test Fixtures Integration', () => {
 
     describe.each(namedMatrix)('%s', (_name, { openFaces }) => {
       it('builds successfully', () => {
-        const { panels } = TestFixture
+        const { panels } = AssemblyBuilder
           .basicBox(100, 80, 60)
           .withOpenFaces(openFaces)
           .build();
@@ -256,7 +256,7 @@ describe('Test Fixtures Integration', () => {
 
   describe('panel builder integration', () => {
     it('panel selection works through index export', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .enclosedBox(100, 80, 60)
         .panel('front')
         .build();
@@ -266,7 +266,7 @@ describe('Test Fixtures Integration', () => {
     });
 
     it('and() returns to fixture for further configuration', () => {
-      const { panels, panel } = TestFixture
+      const { panels, panel } = AssemblyBuilder
         .enclosedBox(100, 80, 60)
         .panel('front')
         .and()
@@ -283,7 +283,7 @@ describe('Test Fixtures Integration', () => {
   describe('full workflow example', () => {
     it('demonstrates complete usage pattern', () => {
       // 1. Create base fixture
-      const base = TestFixture.basicBox(100, 80, 60);
+      const base = AssemblyBuilder.basicBox(100, 80, 60);
 
       // 2. Create test matrix
       const faces: FaceId[] = ['front', 'back', 'left', 'right', 'bottom'];

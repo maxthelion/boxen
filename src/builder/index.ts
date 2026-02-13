@@ -1,16 +1,16 @@
 /**
- * Test Fixtures - Composable test fixture system for Boxen tests.
+ * Assembly Builder - Composable builder system for Boxen assemblies.
  *
- * This module provides a fluent API for setting up test scenarios with
+ * This module provides a fluent API for setting up assembly scenarios with
  * engines, panels, and operations. It supports lazy execution, cloning
  * for test matrices, and permutation utilities for matrix-driven testing.
  *
  * @example
  * ```typescript
- * import { TestFixture, rect, permute } from '../test/fixtures';
+ * import { AssemblyBuilder, rect, permute } from '../builder';
  *
  * // Basic usage
- * const { engine, panels, panel } = TestFixture
+ * const { engine, panels, panel } = AssemblyBuilder
  *   .basicBox(100, 80, 60)
  *   .panel('front')
  *   .build();
@@ -22,7 +22,7 @@
  *
  * describe.each(matrix)('test: %s', (name, config) => {
  *   it('works', () => {
- *     const { panels } = TestFixture
+ *     const { panels } = AssemblyBuilder
  *       .basicBox(100, 80, 60)
  *       .withOpenFaces(config.openFaces)
  *       .build();
@@ -31,9 +31,9 @@
  * ```
  */
 
-// Core fixture class
-export { TestFixture } from './TestFixture';
-export type { VoidSelector } from './TestFixture';
+// Core builder class
+export { AssemblyBuilder } from './AssemblyBuilder';
+export type { VoidSelector } from './AssemblyBuilder';
 
 // Panel builder (may be needed for advanced usage)
 export { PanelBuilder } from './PanelBuilder';

@@ -88,13 +88,13 @@ Check that operations do the correct thing:
 
 ### 2. Fixtures and Chains
 
-Use TestFixture to quickly build up state by running a series of operations:
+Use AssemblyBuilder to quickly build up state by running a series of operations:
 
 ```typescript
-import { TestFixture } from '../test/fixtures';
+import { AssemblyBuilder } from '../../builder';
 
 // Chain operations to build complex state
-const { panel, engine } = TestFixture
+const { panel, engine } = AssemblyBuilder
   .basicBox(100, 80, 60)
   .withOpenFaces(['top', 'left'])           // Open two faces
   .withExtension('front', 'top', 20)        // Extend the top edge
@@ -204,7 +204,7 @@ describe('My Operation', () => {
   });
 
   it('should create preview with correct geometry', () => {
-    const { panel, engine } = TestFixture
+    const { panel, engine } = AssemblyBuilder
       .basicBox(100, 80, 60)
       .withOpenFaces(['top', 'left'])
       .panel('front')
@@ -258,10 +258,10 @@ Every new engine action MUST have:
 
 ## Permutation Testing
 
-Use TestFixture permutations to test operations against multiple panel states:
+Use AssemblyBuilder permutations to test operations against multiple panel states:
 
 ```typescript
-import { TestFixture, permute } from '../test/fixtures';
+import { AssemblyBuilder, permute } from '../../builder';
 
 // Define permutation matrix
 const matrix = permute({
@@ -275,7 +275,7 @@ const matrix = permute({
 
 describe.each(matrix)('Fillet eligibility: %s', (name, config) => {
   it('has expected eligible corners', () => {
-    const { panel } = TestFixture
+    const { panel } = AssemblyBuilder
       .basicBox(100, 80, 60)
       .withOpenFaces(config.openFaces)
       .panel('front')
@@ -335,7 +335,7 @@ Test individual functions in isolation:
 - Utility functions
 - Validators
 
-### Integration Tests (`tests/integration/` or `src/test/fixtures/*.test.ts`)
+### Integration Tests (`tests/integration/` or `src/test/fixtures/*.test.ts` or `src/builder/__tests__/`)
 
 Test end-to-end flows:
 - Engine dispatch → panel generation
@@ -467,7 +467,7 @@ Some operations use proxy selection (select a panel → its eligible sub-items b
 
 ```typescript
 it('selecting panel expands to eligible corners for fillet', () => {
-  const { panel, engine } = TestFixture
+  const { panel, engine } = AssemblyBuilder
     .basicBox(100, 80, 60)
     .withOpenFaces(['top', 'bottom', 'left', 'right'])
     .panel('front')
@@ -546,7 +546,7 @@ Write tests that verify expected behavior. These tests MUST fail before implemen
 ```typescript
 describe('My New Feature', () => {
   it('should change geometry in expected way', () => {
-    const { panel, engine } = TestFixture
+    const { panel, engine } = AssemblyBuilder
       .basicBox(100, 80, 60)
       .withOpenFaces(['top', 'left'])
       .panel('front')

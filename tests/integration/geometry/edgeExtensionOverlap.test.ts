@@ -9,13 +9,13 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import type { Engine } from '../../../src/engine/Engine';
 import { validateOperation } from '../../validators';
 import { checkOverlap, formatOverlapCheckResult } from '../../../src/engine/validators/OverlapChecker';
-import { TestFixture } from '../../../src/test/fixtures';
+import { AssemblyBuilder } from '../../../src/builder';
 
 describe('Edge Extension Overlap', () => {
   let engine: Engine;
 
   beforeEach(() => {
-    ({ engine } = TestFixture.enclosedBox(100, 80, 60).build());
+    ({ engine } = AssemblyBuilder.enclosedBox(100, 80, 60).build());
   });
 
   // Helper to find a face panel by faceId

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { TestFixture } from '../../test/fixtures';
+import { AssemblyBuilder } from '../../builder';
 
 describe('Fillet Integration', () => {
   it('should add points to outline when fillet is applied', () => {
-    const { engine, panel } = TestFixture
+    const { engine, panel } = AssemblyBuilder
       .enclosedBox(100, 80, 60)
       .panel('top')
       .build();
@@ -51,7 +51,7 @@ describe('Fillet Integration', () => {
 
   it('should add points when fillet is applied to panel with open edges', () => {
     // Create a box with top and left faces open to make front panel's left:top corner eligible
-    const { engine, panel } = TestFixture
+    const { engine, panel } = AssemblyBuilder
       .enclosedBox(100, 80, 60)
       .withOpenFaces(['top', 'left'])
       .panel('front')

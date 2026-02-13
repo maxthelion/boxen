@@ -1,5 +1,5 @@
 /**
- * PanelBuilder - Fluent API for panel-specific operations in test fixtures.
+ * PanelBuilder - Fluent API for panel-specific operations.
  *
  * Provides chainable methods for configuring panel operations like
  * extensions, cutouts, fillets, and chamfers. Operations are queued
@@ -8,13 +8,13 @@
  * @example
  * ```typescript
  * // Extend the top edge of the front panel
- * const { panel } = TestFixture.basicBox(100, 80, 60)
+ * const { panel } = AssemblyBuilder.basicBox(100, 80, 60)
  *   .panel('front')
  *   .withExtension('top', 30)
  *   .build();
  *
  * // Add multiple cutouts
- * const { panel } = TestFixture.enclosedBox(100, 80, 60)
+ * const { panel } = AssemblyBuilder.enclosedBox(100, 80, 60)
  *   .panel('front')
  *   .withCutout(rect(10, 10, 20, 20))
  *   .withCutout(circle(50, 40, 10))
@@ -22,11 +22,11 @@
  * ```
  */
 
-import type { FaceId } from '../../types';
-import type { TestFixture } from './TestFixture';
+import type { FaceId } from '../types';
+import type { AssemblyBuilder } from './AssemblyBuilder';
 import type { FixtureResult } from './types';
 import type { Shape } from './shapes';
-import type { CornerKey } from '../../engine/types';
+import type { CornerKey } from '../engine/types';
 
 /** Edge identifier for panel edge operations */
 export type EdgeId = 'top' | 'bottom' | 'left' | 'right';
@@ -42,7 +42,7 @@ export class PanelBuilder {
   private faceId: FaceId;
 
   constructor(
-    private fixture: TestFixture,
+    private fixture: AssemblyBuilder,
     faceId: FaceId
   ) {
     this.faceId = faceId;
@@ -239,36 +239,36 @@ export class PanelBuilder {
   }
 
   /**
-   * Return to the TestFixture for further configuration.
+   * Return to the AssemblyBuilder for further configuration.
    *
-   * This allows chaining back to fixture-level operations
+   * This allows chaining back to builder-level operations
    * after configuring panel operations.
    *
-   * @returns The parent TestFixture
+   * @returns The parent AssemblyBuilder
    */
-  and(): TestFixture {
+  and(): AssemblyBuilder {
     return this.fixture;
   }
 
   /**
    * Create an independent copy of this PanelBuilder.
    *
-   * The clone has its own fixture copy and can be modified
+   * The clone has its own builder copy and can be modified
    * without affecting the original.
    *
-   * @returns New PanelBuilder with cloned fixture
+   * @returns New PanelBuilder with cloned builder
    */
   clone(): PanelBuilder {
     return new PanelBuilder(this.fixture.clone(), this.faceId);
   }
 
   /**
-   * Build the fixture and return the result.
+   * Build the assembly and return the result.
    *
    * This triggers execution of all queued operations and returns
    * the final state with engine, panels, and selected panel.
    *
-   * @returns FixtureResult from the parent fixture
+   * @returns FixtureResult from the parent builder
    */
   build(): FixtureResult {
     return this.fixture.build();

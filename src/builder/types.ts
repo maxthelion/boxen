@@ -1,16 +1,16 @@
 /**
- * Types for the composable test fixture system.
+ * Types for the composable assembly builder system.
  *
- * This module provides type definitions used by TestFixture and related
- * builders for setting up test scenarios.
+ * This module provides type definitions used by AssemblyBuilder and related
+ * builders for setting up assembly scenarios.
  */
 
-import type { Engine } from '../../engine/Engine';
-import type { PanelPath } from '../../types';
-import type { EngineAction } from '../../engine/types';
+import type { Engine } from '../engine/Engine';
+import type { PanelPath } from '../types';
+import type { EngineAction } from '../engine/types';
 
 /**
- * Result of building a test fixture.
+ * Result of building an assembly.
  * Contains the engine, generated panels, and optionally a selected panel.
  */
 export interface FixtureResult {
@@ -24,7 +24,7 @@ export interface FixtureResult {
 
 /**
  * An operation queued for lazy execution.
- * Operations are collected during fixture configuration and executed
+ * Operations are collected during builder configuration and executed
  * when build() is called.
  */
 export interface QueuedOperation {

@@ -10,7 +10,7 @@
  *   extensions: [[], ['top'], ['top', 'left']],
  *   cutouts: [[], [rect(10, 10, 20, 20)]],
  * });
- * // Returns 6 combinations (3 × 2)
+ * // Returns 6 combinations (3 x 2)
  *
  * describe.each(matrix)('test: %s', (name, config) => {
  *   it('works', () => {
@@ -40,7 +40,7 @@ export type PermutationResult<T extends PermutationConfig> = Array<
  *   extensions: [[], ['top'], ['top', 'left']],
  *   cutouts: [[], [rect(10, 10, 20, 20)]],
  * });
- * // Returns 6 combinations (3 × 2)
+ * // Returns 6 combinations (3 x 2)
  *
  * describe.each(matrix)('test: %s', (name, config) => {
  *   it('works', () => {

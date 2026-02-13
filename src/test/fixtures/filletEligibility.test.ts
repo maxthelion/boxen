@@ -16,7 +16,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { TestFixture, rect } from './index';
+import { AssemblyBuilder, rect } from '../../builder';
 import { checkGeometry } from '../../engine/geometryChecker';
 
 /**
@@ -33,7 +33,7 @@ function countEligibleCorners(
 describe('Fillet corner eligibility', () => {
   describe('basic panels (no extensions)', () => {
     it('basic panel has cornerEligibility defined', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .build();
@@ -43,7 +43,7 @@ describe('Fillet corner eligibility', () => {
     });
 
     it('cornerEligibility has 4 entries (one per corner)', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .build();
@@ -55,7 +55,7 @@ describe('Fillet corner eligibility', () => {
       // In a basic box with open top, the front panel's edges mate with
       // back, left, right, and bottom panels. The corners where edges meet
       // locked/mating panels should NOT be eligible for fillets.
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .build();
@@ -71,7 +71,7 @@ describe('Fillet corner eligibility', () => {
       const faces = ['front', 'back', 'left', 'right', 'bottom'] as const;
 
       for (const face of faces) {
-        const { panel } = TestFixture
+        const { panel } = AssemblyBuilder
           .basicBox(100, 80, 60)
           .panel(face)
           .build();
@@ -83,7 +83,7 @@ describe('Fillet corner eligibility', () => {
     });
 
     it('enclosed box panels have cornerEligibility defined', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .enclosedBox(100, 80, 60)
         .panel('front')
         .build();
@@ -95,7 +95,7 @@ describe('Fillet corner eligibility', () => {
 
   describe('panels with extensions', () => {
     it('panel with 1 extension may have eligible corners on extended edge', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtension('top', 30)
@@ -115,7 +115,7 @@ describe('Fillet corner eligibility', () => {
     });
 
     it('panel with 2 adjacent extensions may have more eligible corners', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtension('top', 30)
@@ -130,7 +130,7 @@ describe('Fillet corner eligibility', () => {
     });
 
     it('panel with 2 opposite extensions', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtension('top', 30)
@@ -144,7 +144,7 @@ describe('Fillet corner eligibility', () => {
     });
 
     it('panel with 3 extensions', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtensions(['top', 'left', 'right'], 20)
@@ -157,7 +157,7 @@ describe('Fillet corner eligibility', () => {
     });
 
     it('panel with 4 extensions', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtensions(['top', 'bottom', 'left', 'right'], 20)
@@ -173,7 +173,7 @@ describe('Fillet corner eligibility', () => {
 
   describe('panels with cutouts', () => {
     it('panel with rectangular cutout still has 4 cornerEligibility entries', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withCutout(rect(10, 10, 20, 20))
@@ -185,7 +185,7 @@ describe('Fillet corner eligibility', () => {
     });
 
     it('cutout corners are not tracked in cornerEligibility', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withCutout(rect(-30, 10, 15, 15))
@@ -199,7 +199,7 @@ describe('Fillet corner eligibility', () => {
 
   describe('panels with extensions AND cutouts', () => {
     it('extended panel with cutout has 4 cornerEligibility entries', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtension('top', 30)
@@ -216,7 +216,7 @@ describe('Fillet corner eligibility', () => {
 
   describe('corner eligibility details', () => {
     it('eligible corners report maxRadius > 0', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtensions(['top', 'bottom', 'left', 'right'], 30)
@@ -230,7 +230,7 @@ describe('Fillet corner eligibility', () => {
     });
 
     it('ineligible corners report maxRadius = 0', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .build();
@@ -245,13 +245,13 @@ describe('Fillet corner eligibility', () => {
 
   describe('geometry validity', () => {
     it('basic panel produces valid geometry', () => {
-      const { engine } = TestFixture.basicBox(100, 80, 60).panel('front').build();
+      const { engine } = AssemblyBuilder.basicBox(100, 80, 60).panel('front').build();
       const result = checkGeometry(engine);
       expect(result.valid).toBe(true);
     });
 
     it('panel with extension produces valid geometry', () => {
-      const { engine } = TestFixture
+      const { engine } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtension('top', 30)
@@ -261,7 +261,7 @@ describe('Fillet corner eligibility', () => {
     });
 
     it('panel with multiple extensions produces valid geometry', () => {
-      const { engine } = TestFixture
+      const { engine } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtensions(['top', 'left'], 20)
@@ -271,7 +271,7 @@ describe('Fillet corner eligibility', () => {
     });
 
     it('panel with cutout produces valid geometry', () => {
-      const { engine } = TestFixture
+      const { engine } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withCutout(rect(10, 10, 20, 20))

@@ -9,13 +9,13 @@ import type { Engine } from '../../../src/engine/Engine';
 import { useBoxStore } from '../../../src/store/useBoxStore';
 import { validateOperation } from '../../validators';
 import { OPERATION_DEFINITIONS } from '../../../src/operations/registry';
-import { TestFixture } from '../../../src/test/fixtures';
+import { AssemblyBuilder } from '../../../src/builder';
 
 describe('Corner Fillet Operation', () => {
   let engine: Engine;
 
   beforeEach(() => {
-    ({ engine } = TestFixture.enclosedBox(100, 80, 60).build());
+    ({ engine } = AssemblyBuilder.enclosedBox(100, 80, 60).build());
     useBoxStore.setState({
       operationState: {
         activeOperation: null,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { rect, polygon, circle, lShape } from './shapes';
+import { rect, polygon, circle, lShape } from '../../builder/shapes';
 
 describe('Shape helpers', () => {
   describe('rect', () => {

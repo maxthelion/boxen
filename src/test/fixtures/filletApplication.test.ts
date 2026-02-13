@@ -2,19 +2,19 @@
  * Fillet Application Integration Tests
  *
  * Tests that verify fillet operations actually change the panel geometry,
- * not just that actions succeed. These tests use the TestFixture system
+ * not just that actions succeed. These tests use the AssemblyBuilder system
  * to create realistic box scenarios and verify user-visible outcomes.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TestFixture } from './index';
+import { AssemblyBuilder } from '../../builder';
 import type { Engine } from '../../engine/Engine';
 
 describe('Fillet application', () => {
   describe('basic fillet geometry', () => {
     it('applying fillet to corner increases outline points', () => {
       // Setup: panel with all 4 adjacent faces open (4 eligible corners)
-      const { panel, engine } = TestFixture
+      const { panel, engine } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .withOpenFaces(['top', 'bottom', 'left', 'right'])
         .panel('front')
@@ -52,7 +52,7 @@ describe('Fillet application', () => {
     });
 
     it('fillet with radius 0 does not change geometry', () => {
-      const { panel, engine } = TestFixture
+      const { panel, engine } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .withOpenFaces(['top', 'bottom', 'left', 'right'])
         .panel('front')
@@ -80,7 +80,7 @@ describe('Fillet application', () => {
     });
 
     it('multiple fillets add multiple arc segments', () => {
-      const { panel, engine } = TestFixture
+      const { panel, engine } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .withOpenFaces(['top', 'bottom', 'left', 'right'])
         .panel('front')
@@ -121,7 +121,7 @@ describe('Fillet application', () => {
     });
 
     it('fillet is removed when radius set to 0', () => {
-      const { panel, engine } = TestFixture
+      const { panel, engine } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .withOpenFaces(['top', 'bottom', 'left', 'right'])
         .panel('front')
@@ -165,7 +165,7 @@ describe('Fillet application', () => {
   describe('fillet with finger joints', () => {
     it('panel with finger joints has no eligible corners', () => {
       // Enclosed box - all panels have finger joints on all edges
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .enclosedBox(100, 80, 60)
         .panel('front')
         .build();
@@ -182,7 +182,7 @@ describe('Fillet application', () => {
       // Basic box has only top open - other 3 edges have finger joints
       // For the front panel: top edge is free, but left/right/bottom have joints
       // No corner has BOTH adjacent edges free
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .build();
@@ -198,7 +198,7 @@ describe('Fillet application', () => {
     it('panel with two adjacent open edges has one eligible corner', () => {
       // Open top and left faces
       // For front panel: top-left corner has both edges free
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .withOpenFaces(['top', 'left'])
         .panel('front')
@@ -217,7 +217,7 @@ describe('Fillet application', () => {
     let engine: Engine;
 
     beforeEach(() => {
-      ({ engine } = TestFixture
+      ({ engine } = AssemblyBuilder
         .enclosedBox(100, 80, 60)
         .withOpenFaces(['top', 'bottom', 'left', 'right'])
         .build());

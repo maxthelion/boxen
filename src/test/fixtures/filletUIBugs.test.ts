@@ -28,7 +28,7 @@
  *
  * NOTE: These tests use the global engine singleton (via resetEngine/getEngine)
  * because they test store → engine interactions. Tests that only test engine
- * behavior directly can use TestFixture which creates its own engine.
+ * behavior directly can use AssemblyBuilder which creates its own engine.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';

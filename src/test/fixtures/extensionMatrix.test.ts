@@ -15,9 +15,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { TestFixture, permute, permuteNamed } from './index';
+import { AssemblyBuilder, permute, permuteNamed } from '../../builder';
 import { checkGeometry } from '../../engine/geometryChecker';
-import type { EdgeId } from './PanelBuilder';
+import type { EdgeId } from '../../builder/PanelBuilder';
 
 describe('Extension Permutation Matrix', () => {
   /**
@@ -53,7 +53,7 @@ describe('Extension Permutation Matrix', () => {
 
   describe.each(extensionMatrix)('%s', (_name, { edges }) => {
     it('applies extensions correctly', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtensions(edges, 20)
@@ -76,7 +76,7 @@ describe('Extension Permutation Matrix', () => {
     });
 
     it('produces valid geometry', () => {
-      const { engine } = TestFixture
+      const { engine } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtensions(edges, 20)
@@ -87,7 +87,7 @@ describe('Extension Permutation Matrix', () => {
     });
 
     it('has 4 corner eligibility entries (base corners)', () => {
-      const { panel } = TestFixture
+      const { panel } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtensions(edges, 20)
@@ -109,7 +109,7 @@ describe('Extension Permutation Matrix', () => {
 
     describe.each(amountMatrix)('%s', (_name, { edge, amount }) => {
       it('applies correct extension amount', () => {
-        const { panel, engine } = TestFixture
+        const { panel, engine } = AssemblyBuilder
           .basicBox(100, 80, 60)
           .panel('front')
           .withExtension(edge, amount)
@@ -132,7 +132,7 @@ describe('Extension Permutation Matrix', () => {
 
     describe.each(faceMatrix)('%s', (_name, { face, edges }) => {
       it('works on different faces', () => {
-        const { panel, engine } = TestFixture
+        const { panel, engine } = AssemblyBuilder
           .basicBox(100, 80, 60)
           .panel(face)
           .withExtensions(edges, 20)
@@ -151,7 +151,7 @@ describe('Extension Permutation Matrix', () => {
 
   describe('branching from common base', () => {
     it('creates consistent results across branches', () => {
-      const base = TestFixture.basicBox(100, 80, 60).panel('front');
+      const base = AssemblyBuilder.basicBox(100, 80, 60).panel('front');
 
       // Create branches for different extension counts
       const branches = edgeCombinations.map(edges => ({
@@ -173,7 +173,7 @@ describe('Extension Permutation Matrix', () => {
 
 describe('Extension Edge Cases', () => {
   it('handles very small extensions', () => {
-    const { panel, engine } = TestFixture
+    const { panel, engine } = AssemblyBuilder
       .basicBox(100, 80, 60)
       .panel('front')
       .withExtension('top', 1)
@@ -184,7 +184,7 @@ describe('Extension Edge Cases', () => {
   });
 
   it('handles very large extensions', () => {
-    const { panel, engine } = TestFixture
+    const { panel, engine } = AssemblyBuilder
       .basicBox(100, 80, 60)
       .panel('front')
       .withExtension('top', 100) // Same as box height
@@ -195,7 +195,7 @@ describe('Extension Edge Cases', () => {
   });
 
   it('handles multiple extensions on same edge (should use latest)', () => {
-    const { panel } = TestFixture
+    const { panel } = AssemblyBuilder
       .basicBox(100, 80, 60)
       .panel('front')
       .withExtension('top', 10)
@@ -212,20 +212,20 @@ describe('Extension Edge Cases', () => {
     const extensionAmount = 20;
 
     // No extensions
-    const { panel: basePanel } = TestFixture
+    const { panel: basePanel } = AssemblyBuilder
       .basicBox(baseWidth, baseHeight, 60)
       .panel('front')
       .build();
 
     // Top extension only
-    const { panel: topExtPanel } = TestFixture
+    const { panel: topExtPanel } = AssemblyBuilder
       .basicBox(baseWidth, baseHeight, 60)
       .panel('front')
       .withExtension('top', extensionAmount)
       .build();
 
     // All edges extended
-    const { panel: allExtPanel } = TestFixture
+    const { panel: allExtPanel } = AssemblyBuilder
       .basicBox(baseWidth, baseHeight, 60)
       .panel('front')
       .withExtensions(['top', 'bottom', 'left', 'right'], extensionAmount)
@@ -252,7 +252,7 @@ describe('Extension Edge Cases', () => {
   });
 
   it('extension does not affect non-extended edges', () => {
-    const { panel } = TestFixture
+    const { panel } = AssemblyBuilder
       .basicBox(100, 80, 60)
       .panel('front')
       .withExtension('top', 50)
@@ -270,7 +270,7 @@ describe('Extension Geometry Validation', () => {
     const edges: EdgeId[] = ['top', 'bottom', 'left', 'right'];
 
     for (const edge of edges) {
-      const { engine } = TestFixture
+      const { engine } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtension(edge, 25)
@@ -288,7 +288,7 @@ describe('Extension Geometry Validation', () => {
     ];
 
     for (const [edge1, edge2] of opposites) {
-      const { engine } = TestFixture
+      const { engine } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtension(edge1, 20)
@@ -309,7 +309,7 @@ describe('Extension Geometry Validation', () => {
     ];
 
     for (const [edge1, edge2] of adjacents) {
-      const { engine } = TestFixture
+      const { engine } = AssemblyBuilder
         .basicBox(100, 80, 60)
         .panel('front')
         .withExtension(edge1, 20)
@@ -322,7 +322,7 @@ describe('Extension Geometry Validation', () => {
   });
 
   it('asymmetric extension amounts produce valid geometry', () => {
-    const { engine } = TestFixture
+    const { engine } = AssemblyBuilder
       .basicBox(100, 80, 60)
       .panel('front')
       .withExtension('top', 10)
