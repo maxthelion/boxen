@@ -1,8 +1,7 @@
 import { StateCreator } from 'zustand';
 import { Void, BoxConfig, Face, EdgeExtensions, PanelCollection } from '../../types';
 import { loadFromUrl, saveToUrl as saveStateToUrl, getShareableUrl as getShareUrl, ProjectState, getPanelCanonicalKeyFromPath, serializePanelOperations, deserializePanelOperations } from '../../utils/urlState';
-import { generatePanelCollection } from '../../utils/panelGenerator';
-import { syncStoreToEngine, getEngine, getEngineSnapshot, resetEngine } from '../../engine';
+import { syncStoreToEngine, getEngine, getEngineSnapshot, resetEngine, notifyEngineStateChanged } from '../../engine';
 import type { AssemblySnapshot } from '../../engine/types';
 
 // =============================================================================
@@ -67,13 +66,11 @@ export const createUrlSlice: StateCreator<
       }
     }
 
-    // Generate panel collection for the store
-    const collection = generatePanelCollection(
-      loaded.faces,
-      loaded.rootVoid,
-      loaded.config,
-      1,
-    );
+    // Notify React that engine state changed (extensions were applied after syncStoreToEngine)
+    notifyEngineStateChanged();
+
+    // Generate panel collection from engine (includes extensions)
+    const collection = engine.generatePanelsFromNodes();
 
     set({
       config: loaded.config,
