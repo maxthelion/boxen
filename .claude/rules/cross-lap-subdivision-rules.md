@@ -1,42 +1,31 @@
 # Cross-Lap Joint Subdivision Rules
 
+**See also:** `docs/geometry rules/geometry-rules.md` §5 (Divider-to-Divider Joints) for the full specification.
+
+## Prerequisite: Crossing vs Terminating
+
+Cross-lap joints apply ONLY to **crossing** dividers — dividers whose void bounds extend past each other on both sides. When a shorter divider **terminates** at a longer one (only exists on one side), it gets a normal finger joint instead. See geometry rules §5.1–5.3.
+
 ## Problem: Conflicting Cross-Lap Slots
 
-When dividers intersect, they create cross-lap joints (half-depth slots that interlock). A critical constraint arises when subdividing voids on either side of a divider:
+When dividers cross each other (e.g., in a grid subdivision), they create cross-lap joints (half-depth slots that interlock). A conflict arises when two dividers want cross-lap slots at the same position on a shared perpendicular divider.
+
+**Note:** Sequential subdivision of child voids produces **terminating** dividers (shorter panels that stop at the parent divider). These use normal finger joints, not cross-laps, so this conflict rule does not apply to them.
+
+The conflict only arises with crossing dividers (from grid subdivisions or meta-void selections) at close positions:
 
 ```
-Example of INVALID subdivision:
-
-Initial state: Box split by X-divider at X=50
-┌─────────┬─────────┐
-│  Left   │  Right  │
-│  Void   │  Void   │
-└─────────┴─────────┘
-
-If Left Void is subdivided on Z-axis at Z=50:
-┌─────────┬─────────┐
-│    │    │         │
-│────┼────│  Right  │   <- Z-divider in left half has cross-lap with X-divider
-│    │    │  Void   │
-└─────────┴─────────┘
-
-If Right Void is ALSO subdivided on Z-axis at Z=50:
+Example of INVALID geometry (two crossing Z-dividers at same position):
 ┌─────────┬─────────┐
 │    │    │    │    │
-│────┼────│────┼────│   <- PROBLEM: Both Z-dividers want cross-lap slots
-│    │    │    │    │      at the SAME position on the X-divider!
+│────┼────│────┼────│   <- If both Z-dividers CROSS the X-divider at Z=50,
+│    │    │    │    │      they would need two cross-lap slots at the same position
 └─────────┴─────────┘
 ```
-
-The X-divider cannot have two cross-lap slots at the same Z position (or sufficiently close) - they would overlap and create invalid geometry.
 
 ## Rule 1: No Conflicting Cross-Lap Positions
 
-Voids on either side of a divider **cannot** be subdivided on the same axis with spacing that would cause cross-lap slots to align (collide) on the shared parent divider.
-
-**Validation**: Before allowing a subdivision, check if any sibling void (sharing the same parent divider) already has subdivisions that would create conflicting cross-lap positions.
-
-**Minimum separation**: Cross-lap slots must be separated by at least `2 * materialThickness` to avoid overlap.
+Crossing dividers on the same axis must have sufficient separation where they intersect a shared perpendicular divider. Minimum separation: `2 × MT`.
 
 ## Rule 2: Use Multi-Axis Subdivision for Grids
 
@@ -47,7 +36,7 @@ To create proper grid patterns (like Grid Organizer), use **multi-axis subdivisi
 1. Select root void
 2. Choose both X and Z axes
 3. Set compartments: X=2, Z=2
-4. Result: Full-spanning X and Z dividers that properly interlock
+4. Result: Full-spanning X and Z dividers that properly interlock with cross-lap joints
 ```
 
 This creates dividers that span the full interior, with cross-lap joints at each intersection.

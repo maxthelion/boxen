@@ -1,152 +1,341 @@
 # Geometry Rules
 
-These rules define the geometric constraints for assemblies, faces, voids, and dividers.
+These rules define the geometric constraints for laser-cut box assemblies. They are the authoritative reference for how panels, joints, voids, and dividers relate to each other in 3D space.
 
-## Motivation
+## 1. Physical Constraints
 
-- We need to assess all rules regarding geometry
-- There are too many regressions
+### 1.1 No Overlapping Material
 
-## Assembly Bounding Box
+Two panels must never occupy the same physical space. Every piece of material has a thickness (`MT`) and occupies a volume. Where panels meet, one yields to the other:
 
-- Dictates where the faces would normally be
-- Has 3 axes with finger points
-- Has 6 planes that denote the outer faces of the face panels
-- Face panels can be extended outside the bounding box via:
-  - **Feet** (edge extensions on bottom edge)
-  - **Inset/Outset tool** (moves panel surface in or out)
-- **Key rule**: Extensions are additive - finger joints remain anchored to the bounding box
-  - The mating edge (where joints connect) stays at the bounding box plane
-  - Only the panel body/surface extends beyond
-- Face panels can be moved out or in through the **push-pull operation**
-  - This changes the assembly's bounding box (different from inset/outset)
+- **Face-to-face corners**: One panel's body occupies the corner; the other panel's body is inset by `MT`. Which panel "owns" the corner is determined by wall priority (see §3.3).
+- **Divider-to-face junctions**: The divider's body ends at the face panel's inner surface. The divider's *tabs* pass through *slots* in the face, reaching the assembly boundary.
+- **Divider-to-divider junctions**: Either a cross-lap joint (both cut halfway through) or one terminates at the other with a normal finger joint (see §5).
 
-## Assembly Void
+### 1.2 Material Thickness (MT)
 
-- An assembly contains a void that is the inner dimensions
-- This is smaller by 2x MT (material thickness) than the bounding box
+All geometry rules reference `MT`, the thickness of the sheet material. It is uniform for an entire assembly. Typical values: 3mm (acrylic), 6mm (plywood).
 
-## Face Panel Dimensions
+### 1.3 All Paths Are Axis-Aligned
 
-- The faces of a box should be the same length as the bounding box when including fingers
-- Where fingers are inset, the distance between the inset edges of the joint should be the same as the void's dimensions
-- Faces intersect along a line/axis that should be one of the void's edge lines
-
-## Subdivision / Divider Rules
-
-- When a void is subdivided, the panels created should extend at their maximum to the assembly's boundaries (tips of fingers)
-  - E.g., they should intersect the outer plane on Z axis, each MT/2 from the center of the divider's plane
-- The inner part of the joint should run along the outer plane of the void
-
-## Nested Subdivision Rules
-
-- Where subdivisions are further divided, new voids should be created
-- New voids should share a plane with their containing void if they touch it (e.g., first or last along the axis)
-- New voids can share multiple outer planes with their containing void (maximum of 5)
+All panel outlines and hole paths must consist of horizontal and vertical segments only. No diagonal segments. This is a hard constraint for laser cutting.
 
 ---
 
-## Additional Rules (from codebase analysis)
+## 2. Assembly Bounding Box
 
-### Finger Joint Rules
+### 2.1 Definition
 
-- **Minimum 3-section guarantee**: Finger joints must allow at least 3 sections (finger-hole-finger pattern)
-  - Formula: `maxJointLength >= fingerWidth * (3 + 2 * fingerGap)`
-  - Where: `maxJointLength = axisLength - 2*MT`
+An assembly has three dimensions (`width`, `height`, `depth`) that define a rectangular bounding box. The bounding box has:
+
+- **6 planes** — one for each face (front, back, left, right, top, bottom)
+- **3 axes** — each with shared finger joint points used by all panels on that axis
+- **12 edges** — where two face planes meet
+
+### 2.2 Face Panels and the Bounding Box
+
+Each face panel's body dimensions match the bounding box on the face's plane:
+
+| Face | Panel Width | Panel Height |
+|------|-------------|--------------|
+| front, back | assembly width | assembly height |
+| left, right | assembly depth | assembly height |
+| top, bottom | assembly width | assembly depth |
+
+These are the *body* dimensions — the rectangular region where the panel lives at the bounding box plane. Finger joints add detail to the edges but don't change the overall dimensions.
+
+### 2.3 Extensions Beyond the Bounding Box
+
+Face panels can extend beyond the bounding box via:
+
+- **Edge extensions (feet)**: Material added beyond one edge of the panel. The extension is purely additive — the mating edge stays at the bounding box plane.
+- **Push-pull**: Moves the bounding box plane itself, changing assembly dimensions. Finger joints move with it.
+
+**Key rule**: Finger joints are always anchored to the bounding box, not to extensions. Extensions add material; they do not move the joint.
+
+---
+
+## 3. Joint System
+
+### 3.1 Edge States
+
+Every edge of every panel has one of three states:
+
+| State | Visual | Meaning |
+|-------|--------|---------|
+| **Male** (tabs out) | Finger tabs protruding | This panel's tabs pass through slots in the mating panel |
+| **Female** (slots) | Slots cut into body | This panel receives tabs from the mating panel |
+| **Open** (straight) | Straight edge, no joint | Adjacent face is removed/open, or no mating panel exists |
+
+Mating edges always have **opposite genders**: if one side is male, the other is female. This ensures the joint interlocks.
+
+### 3.2 Gender Rules for Face-to-Face Joints
+
+Gender is determined by a precedence chain (in `genderRules.ts`):
+
+1. **Adjacent face not solid** → `null` (open, straight edge)
+2. **This face is a lid** → use lid's configured gender (`tabs-out` = male, `tabs-in` = female)
+3. **Adjacent face is a lid** → opposite of lid's gender
+4. **Wall-to-wall** → lower wall priority = male, higher = female
+
+### 3.3 Wall Priority
+
+Wall priority determines which panel "owns" the corner (occupies the corner volume) and which is inset:
+
+| Face | Priority | Corner Role |
+|------|----------|-------------|
+| front | 1 | Male (tabs out) — occupies corners |
+| back | 2 | Female (slots) |
+| left | 3 | Male (tabs out) |
+| right | 4 | Female (slots) |
+| top | 5 | Male (tabs out) |
+| bottom | 6 | Female (slots) |
+
+Lower priority → male → occupies corner. Higher priority → female → inset by MT at corners.
+
+### 3.4 Gender Rules for Divider-to-Face Joints
+
+Dividers always have **male** gender (tabs out) on edges that meet solid faces. The face panel has corresponding **slots** (female) where the divider's tabs pass through.
+
+- Divider tabs extend through face slots to the assembly boundary
+- Face slots are `MT` deep (the full thickness of the face panel)
+- Slot positions are determined by shared finger points on the axis
+
+### 3.5 Finger Joint Alignment
+
+All panels on the same axis share identical finger transition points, computed at the assembly level:
+
+- `maxJointLength = axisLength - 2 × MT`
+- Pattern: alternating finger (tab) and hole (slot) sections
+- Minimum 3 sections required (finger-hole-finger)
 - Finger width is auto-constrained based on available space
-- Finger patterns are computed per-axis at the assembly level and shared by all panels
 
-### Divider Body Span Rules
+**Tab positions on dividers must match slot positions on faces.** Both derive from the same assembly-level finger data for the relevant axis. This ensures physical fit.
 
-- Divider body extends from void boundary to reach walls
-  - `bodyStart = atLowWall ? boundsLow : boundsLow - MT`
-  - `bodyEnd = atHighWall ? boundsHigh : boundsHigh + MT`
-- When bounded by solid faces: divider body = void size + 2*MT
+---
 
-### Slot Hole Constraints
+## 4. Voids and Subdivisions
 
-- Slots are created where dividers intersect face panels
-- Slot holes must NOT touch panel boundary edges (tolerance: 0.01mm)
-- Only perpendicular dividers create slots (same-axis dividers don't intersect)
+### 4.1 Root Void
 
-### Path Geometry Constraints (for THREE.js rendering)
+Every assembly contains a root void — the interior space:
 
-- **Winding order**: Outline must be CCW, holes must be CW
-- **Holes inside bounds**: All hole points must be strictly inside outline bounds
-- **No degenerate paths**:
-  - Minimum 3 points per path
-  - No duplicate consecutive points (tolerance: 0.001mm)
-  - Very small holes (< 1mm dimension) generate warnings
+- Root void = assembly dimensions - 2×MT on each axis
+- Void boundaries align with face panel inner surfaces
+- The root void is the parent of all subdivisions
 
-### Tolerance Values
+### 4.2 Subdivision Creates Child Voids
+
+When a void is subdivided on an axis, it produces:
+
+- A **divider panel** at the split position
+- **Child voids** on either side of the divider
+
+Child voids share planes with their parent void on all sides except the split axis, where one boundary is the new divider.
+
+### 4.3 Nested Subdivision
+
+Child voids can be further subdivided. Each level of nesting creates more divider panels and smaller child voids. A child void can share up to 5 planes with its parent (the 6th is replaced by the divider that created it).
+
+### 4.4 Grid Subdivision
+
+Grid subdivision creates multiple dividers on two axes simultaneously from a single parent void. Unlike sequential subdivision:
+
+- All dividers on each axis span the **full parent void** dimensions
+- Dividers from different axes **cross through** each other
+- The resulting voids are all direct children of the original void (flat, not nested)
+
+---
+
+## 5. Divider-to-Divider Joints
+
+When dividers on different axes exist in the same assembly, they interact at their intersection. The correct joint type depends on whether the dividers **cross** each other or one **terminates** at the other.
+
+### 5.1 Crossing vs Terminating
+
+A divider **crosses** another if it exists on **both sides** of the other divider — its void bounds extend well past the other divider's position in both directions.
+
+A divider **terminates** at another if it only exists on **one side** — its void bounds end at or near the other divider's position.
+
+```
+CROSSING (grid subdivision — both span full interior):
+┌─────────┬─────────┐
+│    │    │    │    │
+│────┼────│────┼────│   Both dividers pass through each other
+│    │    │    │    │
+└─────────┴─────────┘
+
+TERMINATING (sequential subdivision — shorter panel stops at longer one):
+┌─────────┬─────────┐
+│    │    │         │
+│────┤    │  Right  │   Z-divider stops at X-divider
+│    │    │  Void   │   (only spans left half)
+└─────────┴─────────┘
+```
+
+### 5.2 Cross-Lap Joints (Crossing Dividers Only)
+
+When two dividers **cross** each other, they use a cross-lap joint:
+
+- Each divider gets a half-depth notch cut from opposite edges
+- The notches interlock so both panels sit flush
+- **Axis priority** determines direction: alphabetically lower axis gets notch from top, higher from bottom
+  - X vs Z: X from top, Z from bottom
+  - X vs Y: X from top, Y from bottom
+  - Y vs Z: Y from top, Z from bottom
+
+Cross-lap joints should ONLY be generated when two dividers physically cross through each other. The test: does the other divider's void bounds extend past my position on **both** sides?
+
+### 5.3 Normal Joints (Terminating Dividers)
+
+When a shorter divider **terminates** at a longer divider, the junction is a normal finger joint — identical in principle to a divider meeting a face panel:
+
+- The **shorter divider's terminating edge** gets male gender (tabs out)
+- The **longer divider** gets slot holes where the shorter divider's tabs pass through
+- The shorter divider's body extends `MT` beyond its void to reach the longer divider's far surface
+- Finger tabs and slots use the same shared finger points as face-to-divider joints
+
+This is the natural behavior: the longer divider acts as a "wall" from the shorter divider's perspective, just like a face panel would.
+
+### 5.4 Cross-Lap Conflict Rule
+
+Voids on either side of a divider **cannot** be subdivided on the same axis with spacing that would cause cross-lap slots to collide on the shared parent divider. Minimum separation between cross-lap slots: `2 × MT`.
+
+For grid patterns (multiple compartments on two axes), use grid subdivision from the parent void rather than sequential subdivisions of child voids.
+
+---
+
+## 6. Divider Body Span
+
+### 6.1 Computation
+
+A divider's body extends beyond its void bounds to reach adjacent walls or dividers:
+
+```
+bodyStart = atLowWall ? 0 : boundsLow - MT
+bodyEnd   = atHighWall ? axisDim : boundsLow + boundsSize + MT
+```
+
+- **At a face wall** (`atLowWall`/`atHighWall`): body extends to the assembly boundary (position 0 or axisDim). This ensures the finger region matches the face panel's finger region.
+- **At another divider**: body extends `MT` beyond the void boundary to reach the far surface of the adjacent divider.
+
+### 6.2 Body Size with All Solid Faces
+
+When bounded by solid faces on both sides: `body = voidSize + 2 × MT`
+
+### 6.3 Finger Region Alignment
+
+The divider's finger region (where tabs and slots are computed) must equal the face panel's finger region on the same axis. Both use `maxJointLength = axisDim - 2 × MT`. This is why the body extends to position 0 / axisDim at walls — so after corner insets, the finger region aligns.
+
+---
+
+## 7. Edge Extensions
+
+Edge extensions add material beyond one edge of a face panel (e.g., feet on the bottom edge).
+
+### 7.1 Eligibility
+
+Only edges with **open** or **female** gender can be extended. Male edges have tabs that interlock with another panel — extending them would create a physical conflict.
+
+### 7.2 Full Width
+
+Extension sides span the full panel dimension perpendicular to the extended edge. Exception: if an adjacent edge is both extended AND female, the extension width is reduced by `MT` to avoid overlapping material in the corner.
+
+### 7.3 Far Edge Open
+
+The far edge (cap) of an extension has no finger joints — it's a straight line. There is no mating panel at the far edge of an extension.
+
+### 7.4 Corner Ownership
+
+When two adjacent face panels both have extensions on their shared edge, only one can occupy the corner. The female panel yields — its extension is inset by `MT`.
+
+### 7.5 Long Extensions
+
+When an extension exceeds `cornerGap + fingerWidth + MT`, it should develop finger joints along the joint between the extension and any adjacent extended panel. (This is currently a warning, not fully implemented.)
+
+---
+
+## 8. Sub-Assemblies
+
+### 8.1 Bounding Box Containment
+
+A sub-assembly's bounding box must fit entirely within its parent void. The sub-assembly is an independent box with its own faces, joints, and voids, but it is physically constrained to the parent void's volume.
+
+### 8.2 Independent Joint System
+
+Sub-assemblies have their own finger data, wall priorities, and gender rules. Their joints do not interact with the parent assembly's joints.
+
+---
+
+## 9. Path Geometry (for Rendering and Export)
+
+### 9.1 Winding Order
+
+- Panel outlines: counter-clockwise (CCW)
+- Holes (slots, cutouts): clockwise (CW)
+
+Opposite winding is required for correct triangulation in THREE.js.
+
+### 9.2 Holes Must Be Inside Outline
+
+All points of a hole must be strictly inside the outline's bounding box. Holes touching the outline boundary cause rendering artifacts.
+
+### 9.3 No Degenerate Paths
+
+- Minimum 3 points per path
+- No consecutive duplicate points (tolerance: 0.001mm)
+- Very small holes (< 1mm dimension) generate warnings
+
+### 9.4 Axis-Aligned Segments Only
+
+All segments must be horizontal or vertical. No diagonal segments. This is validated by `PathChecker.ts`.
+
+---
+
+## 10. Tolerance Values
 
 | Context | Tolerance | Usage |
 |---------|-----------|-------|
-| Material Thickness | `0.01` mm | Checking if void reaches walls |
-| Slot Boundary | `0.01` mm | Preventing slots at panel edges |
-| Duplicate Points | `0.001` mm | Path validation |
-| Hole Boundary | `0.01` mm | Hole inside-bounds check |
+| Wall detection | `0.01` mm | Checking if void reaches assembly walls |
+| Slot boundary | `0.01` mm | Preventing slots at panel edges |
+| Duplicate points | `0.001` mm | Path validation |
+| Hole boundary | `0.01` mm | Hole inside-bounds check |
+| Extension threshold | `0.001` mm | Minimum to consider an extension active |
 
 ---
 
-## Inconsistencies / Items Needing Clarification
+## 11. Validators
 
-### 1. Face Extension for Feet/Inset-Outset (CLARIFIED)
+### Geometry Checker (`src/engine/geometryChecker.ts`)
 
-The rules mention: "Face planes can be extended outside the bounding box with inset/outset & edges (for feet)."
+Validates: void bounds, face panel sizes, divider body spans, nested void planes, finger section minimums, slot positions, path winding, holes inside outlines, degenerate paths.
 
-**Clarification**: Both **feet** and **inset/outset** extend panels outside the bounding box, but finger joints remain anchored to the bounding box. This means:
-- Feet (edge extensions) and inset/outset add material beyond the bounding box boundary
-- Finger joint patterns are calculated based on the original bounding box dimensions
-- The mating edge (where joints connect) stays at the bounding box plane
+### Comprehensive Validator (`src/engine/validators/ComprehensiveValidator.ts`)
 
-This is correct behavior - the bounding box defines where panels mate, and extensions are purely additive.
+All-in-one validation for integration tests. Checks 3D positions, relative dimensions, joint alignment, finger point usage, parent/child slot intersections, and path validity.
 
-### 2. Push-Pull vs Inset/Outset (CLARIFIED)
+### Path Checker (`src/engine/validators/PathChecker.ts`)
 
-There are two distinct operations:
-- **Inset/Outset**: Extends panel surface beyond bounding box. Joints stay anchored to original bounding box. Does NOT change assembly dimensions.
-- **Push-Pull**: Actually moves the bounding box plane itself, changing assembly dimensions. Joints move with it.
+Validates path-specific rules: axis-aligned segments, minimum points, no consecutive duplicates.
 
-**Question remaining**: Is push-pull fully implemented? How does it recalculate finger patterns when dimensions change?
+### Edge Extension Checker (`src/engine/validators/EdgeExtensionChecker.ts`)
 
-### 3. Max 5 Shared Planes (CLARIFIED - Observation)
-
-The rule states nested voids can share "maximum of 5" planes with their parent.
-
-**Clarification**: This is an observation, not a rule to enforce. A child void can never share all 6 planes because subdivision always splits along one axis - by definition, the child void is smaller than the parent on at least one axis.
-
-### 4. Divider Extends to "Tips of Fingers" (CLARIFIED)
-
-The rule states dividers "should extend at their maximum to the assembly's boundaries (tips of fingers)".
-
-**Clarification**: When a divider meets a solid face:
-- The divider has **tabs** (finger joints) on that edge
-- Those tabs extend **through slots in the face panel** to reach the assembly boundary
-- "Tips of fingers" = the divider's tabs reaching the assembly outer surface
-
-This is the same principle as face-to-face joints - tabs from one panel go through slots in the mating panel to reach the outer boundary.
+Validates edge extension rules: eligibility, full width, far edge open, corner ownership, long fingers.
 
 ---
 
-## Geometry Checker
+## 12. Known Gaps (to be fixed)
 
-A geometry checking engine has been implemented at `src/engine/geometryChecker.ts` that validates:
+### 12.1 Terminating Divider Joints Not Implemented
 
-1. `void-bounds-2mt` - Root void = assembly - 2×MT
-2. `face-panel-body-size` - Face panels match assembly dimensions
-3. `divider-body-span` - Dividers span void + 2×MT
-4. `nested-void-shared-planes` - Max 5 shared planes
-5. `finger-3-section-minimum` - Adequate space for finger patterns
-6. `slot-within-panel` - Slots don't touch panel edges
-7. `path-winding-order` - CCW outline, CW holes
-8. `holes-inside-outline` - Holes within outline bounds
-9. `no-degenerate-paths` - Valid path geometry
+`DividerPanelNode.computeEdgeConfigs()` sets `meetsDividerId: null` for all edges. When a shorter divider terminates at a longer one, the terminating edge should get `gender: 'male'`, and the longer divider should get slot holes. Currently, it gets `gender: null` (straight edge) and a cross-lap notch is incorrectly generated instead.
 
-Usage:
-```typescript
-import { checkGeometry, formatGeometryCheckResult } from './engine/geometryChecker';
+See: `project-management/drafts/boxen/fix-terminating-divider-joints.md`
 
-const result = checkGeometry(engine);
-console.log(formatGeometryCheckResult(result));
-```
+### 12.2 Cross-Lap Slots Generated for Terminating Dividers
+
+`DividerPanelNode.computeCrossLapSlots()` does not distinguish crossing from terminating dividers. It checks whether the other divider's body reaches this panel's position, but that is always true (the body extends `MT` to butt against the adjacent divider). The check should verify the other divider's **void bounds** extend past this position on **both sides**.
+
+### 12.3 Divider-to-Divider Slots Disabled
+
+`DividerPanelNode.computeHoles()` has `continue` on line 278, skipping all divider-to-divider slot generation. This is correct for crossing dividers (handled by cross-lap) but wrong for terminating dividers (which need normal slots).
