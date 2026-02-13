@@ -32,6 +32,24 @@ If a function doesn't do what you need, that's a bug in the function — enqueue
 - Focus on the **success criteria** the agent should use to determine whether they are finished.
 - Ask the implementer to make notes during execution.
 
+## Debugging Bugs
+
+When the user reports a bug (with screenshot or description):
+
+1. **Follow the systematic playbook** in `.claude/rules/debugging-bugs.md`
+2. **Establish reproduction steps** - What operations led to the broken state?
+3. **Classify the issue** - Geometry bug, rendering bug, or logic error?
+4. **Write failing test first** - Reproduce via integration test before proposing fixes
+5. **Reference the playbook** when creating fix tasks for agents
+
+**Key principle:** Test must FAIL before the fix. This proves we can reproduce the bug and understand expected behavior.
+
+**Include in task description:**
+- Operations to reproduce
+- Expected vs actual behavior
+- Reference to `.claude/rules/debugging-bugs.md`
+- Requirement to write failing test first
+
 ## Reviewing Agent Work
 
 ### Rules
