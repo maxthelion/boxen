@@ -866,6 +866,7 @@ export abstract class BaseAssembly extends BaseNode {
                 axis,
                 position,
                 bounds: node.bounds, // Use the grid parent's full bounds
+                ownerBounds: node.bounds, // Grid dividers span the full parent void
               });
             }
           }
@@ -879,6 +880,7 @@ export abstract class BaseAssembly extends BaseNode {
           axis: node.splitAxis,
           position: node.splitPosition,
           bounds: parentBounds,
+          ownerBounds: parentBounds, // The parent void that was subdivided
         });
       }
 

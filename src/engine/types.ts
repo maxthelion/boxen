@@ -313,7 +313,8 @@ export interface Subdivision {
   id: string;           // Unique ID for this subdivision
   axis: Axis;           // Axis perpendicular to the divider (x, y, or z)
   position: number;     // World coordinate position of the divider
-  bounds: Bounds3D;     // Bounds of the void containing this divider
+  bounds: Bounds3D;     // Bounds of the parent void (used for face panel slot generation)
+  ownerBounds: Bounds3D; // Bounds of the void actually subdivided (for crossing vs terminating detection)
 }
 
 /**

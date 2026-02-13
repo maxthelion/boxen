@@ -27,16 +27,15 @@ import {
   PanelOutline,
   Point2D,
   EdgeStatusInfo,
+  Subdivision,
+  Bounds3D,
 } from '../types';
 import {
   ALL_EDGE_POSITIONS,
   getDividerAdjacentFace,
 } from '../../utils/faceGeometry';
 import { getDividerEdgeGender } from '../../utils/genderRules';
-import { debug, enableDebugTag } from '../../utils/debug';
-
-enableDebugTag('divider-holes');
-enableDebugTag('cross-lap');
+import { debug } from '../../utils/debug';
 
 export class DividerPanelNode extends BasePanel {
   readonly kind: NodeKind = 'divider-panel';
@@ -131,28 +130,231 @@ export class DividerPanelNode extends BasePanel {
     }
 
     const configs: EdgeConfig[] = [];
+    const subdivisions = assembly.getSubdivisions();
+    const mt = assembly.material.thickness;
+    const bounds = this._voidNode.bounds;
+    const tolerance = 0.01;
 
     for (const position of ALL_EDGE_POSITIONS) {
       const adjacentFaceId = getDividerAdjacentFace(this._axis, position);
-      const meetsFace = assembly.isFaceSolid(adjacentFaceId);
+      const faceIsSolid = assembly.isFaceSolid(adjacentFaceId);
 
-      // Dividers always have male joints (tabs) when meeting solid faces
-      const gender: JointGender | null = getDividerEdgeGender(meetsFace);
+      // Check if this edge actually reaches the wall (where the face is)
+      // Even if the face is solid, the divider may not reach it if another divider is in the way
+      const reachesWall = this.edgeReachesWall(position, bounds, assembly, mt, tolerance);
+      const meetsFace = faceIsSolid && reachesWall;
 
-      // Get the axis this edge runs along
-      const axis = meetsFace ? this.getEdgeAxisForPosition(position) : null;
+      // Check if this edge terminates at another divider (not at a face wall)
+      let meetsDividerId: string | null = null;
+      if (!reachesWall) {
+        meetsDividerId = this.findTerminatingDividerAtEdge(position, subdivisions, bounds, mt, tolerance);
+      }
+
+      // Dividers have male joints when meeting solid faces OR when terminating at another divider
+      let gender: JointGender | null;
+      let axis: Axis | null;
+      if (meetsFace) {
+        gender = getDividerEdgeGender(meetsFace);
+        axis = this.getEdgeAxisForPosition(position);
+      } else if (meetsDividerId) {
+        gender = 'male'; // Terminating edge gets male (tabs out into the longer divider)
+        axis = this.getEdgeAxisForPosition(position);
+      } else {
+        gender = null;
+        axis = null;
+      }
 
       configs.push({
         position,
         hasTabs: gender === 'male',
         meetsFaceId: meetsFace ? adjacentFaceId : null,
-        meetsDividerId: null, // TODO: Check for other dividers meeting this edge
+        meetsDividerId,
         gender,
         axis,
       });
     }
 
     return configs;
+  }
+
+  /**
+   * Check if this divider's edge at the given position reaches the assembly wall.
+   * If the void bounds don't extend to the wall, the edge terminates at another divider.
+   */
+  private edgeReachesWall(
+    edgePosition: EdgePosition,
+    bounds: Bounds3D,
+    assembly: BaseAssembly,
+    mt: number,
+    tolerance: number
+  ): boolean {
+    // Determine which axis and direction this edge faces
+    let boundsLow: number;
+    let boundsSize: number;
+    let axisDim: number;
+    let isHighEnd: boolean;
+
+    switch (this._axis) {
+      case 'x':
+        // X-divider: width=Z, height=Y
+        if (edgePosition === 'left') { // back
+          boundsLow = bounds.z; boundsSize = bounds.d; axisDim = assembly.depth; isHighEnd = false;
+        } else if (edgePosition === 'right') { // front
+          boundsLow = bounds.z; boundsSize = bounds.d; axisDim = assembly.depth; isHighEnd = true;
+        } else if (edgePosition === 'top') {
+          boundsLow = bounds.y; boundsSize = bounds.h; axisDim = assembly.height; isHighEnd = true;
+        } else { // bottom
+          boundsLow = bounds.y; boundsSize = bounds.h; axisDim = assembly.height; isHighEnd = false;
+        }
+        break;
+      case 'y':
+        // Y-divider: width=X, height=Z
+        if (edgePosition === 'left') {
+          boundsLow = bounds.x; boundsSize = bounds.w; axisDim = assembly.width; isHighEnd = false;
+        } else if (edgePosition === 'right') {
+          boundsLow = bounds.x; boundsSize = bounds.w; axisDim = assembly.width; isHighEnd = true;
+        } else if (edgePosition === 'top') { // back
+          boundsLow = bounds.z; boundsSize = bounds.d; axisDim = assembly.depth; isHighEnd = true;
+        } else { // front / bottom
+          boundsLow = bounds.z; boundsSize = bounds.d; axisDim = assembly.depth; isHighEnd = false;
+        }
+        break;
+      case 'z':
+      default:
+        // Z-divider: width=X, height=Y
+        if (edgePosition === 'left') {
+          boundsLow = bounds.x; boundsSize = bounds.w; axisDim = assembly.width; isHighEnd = false;
+        } else if (edgePosition === 'right') {
+          boundsLow = bounds.x; boundsSize = bounds.w; axisDim = assembly.width; isHighEnd = true;
+        } else if (edgePosition === 'top') {
+          boundsLow = bounds.y; boundsSize = bounds.h; axisDim = assembly.height; isHighEnd = true;
+        } else { // bottom
+          boundsLow = bounds.y; boundsSize = bounds.h; axisDim = assembly.height; isHighEnd = false;
+        }
+        break;
+    }
+
+    if (isHighEnd) {
+      return boundsLow + boundsSize >= axisDim - mt - tolerance;
+    } else {
+      return boundsLow <= mt + tolerance;
+    }
+  }
+
+  /**
+   * Check if this divider's edge at the given position terminates at another divider.
+   * Returns the subdivision ID if found, null otherwise.
+   */
+  private findTerminatingDividerAtEdge(
+    edgePosition: EdgePosition,
+    subdivisions: Subdivision[],
+    bounds: Bounds3D,
+    mt: number,
+    tolerance: number
+  ): string | null {
+    const assembly = this.findParentAssembly();
+    if (!assembly) return null;
+
+    // Determine which world-axis direction this edge faces
+    // and what position along that axis the edge is at
+    let edgeAxisDirection: Axis;
+    let edgeWorldPosition: number;
+    let isHighEnd: boolean;
+
+    switch (this._axis) {
+      case 'x':
+        // X-divider: width=Z, height=Y
+        // left edge = low Z (back), right edge = high Z (front)
+        // top edge = high Y, bottom edge = low Y
+        if (edgePosition === 'left') {
+          edgeAxisDirection = 'z';
+          edgeWorldPosition = bounds.z;
+          isHighEnd = false;
+        } else if (edgePosition === 'right') {
+          edgeAxisDirection = 'z';
+          edgeWorldPosition = bounds.z + bounds.d;
+          isHighEnd = true;
+        } else if (edgePosition === 'top') {
+          edgeAxisDirection = 'y';
+          edgeWorldPosition = bounds.y + bounds.h;
+          isHighEnd = true;
+        } else {
+          edgeAxisDirection = 'y';
+          edgeWorldPosition = bounds.y;
+          isHighEnd = false;
+        }
+        break;
+      case 'y':
+        // Y-divider: width=X, height=Z
+        // left edge = low X, right edge = high X
+        // top edge = high Z (back), bottom edge = low Z (front)
+        if (edgePosition === 'left') {
+          edgeAxisDirection = 'x';
+          edgeWorldPosition = bounds.x;
+          isHighEnd = false;
+        } else if (edgePosition === 'right') {
+          edgeAxisDirection = 'x';
+          edgeWorldPosition = bounds.x + bounds.w;
+          isHighEnd = true;
+        } else if (edgePosition === 'top') {
+          edgeAxisDirection = 'z';
+          edgeWorldPosition = bounds.z + bounds.d;
+          isHighEnd = true;
+        } else {
+          edgeAxisDirection = 'z';
+          edgeWorldPosition = bounds.z;
+          isHighEnd = false;
+        }
+        break;
+      case 'z':
+      default:
+        // Z-divider: width=X, height=Y
+        // left edge = low X, right edge = high X
+        // top edge = high Y, bottom edge = low Y
+        if (edgePosition === 'left') {
+          edgeAxisDirection = 'x';
+          edgeWorldPosition = bounds.x;
+          isHighEnd = false;
+        } else if (edgePosition === 'right') {
+          edgeAxisDirection = 'x';
+          edgeWorldPosition = bounds.x + bounds.w;
+          isHighEnd = true;
+        } else if (edgePosition === 'top') {
+          edgeAxisDirection = 'y';
+          edgeWorldPosition = bounds.y + bounds.h;
+          isHighEnd = true;
+        } else {
+          edgeAxisDirection = 'y';
+          edgeWorldPosition = bounds.y;
+          isHighEnd = false;
+        }
+        break;
+    }
+
+    // Check if this edge is NOT at a wall (interior surface)
+    const axisDim = edgeAxisDirection === 'x' ? assembly.width :
+                    edgeAxisDirection === 'y' ? assembly.height : assembly.depth;
+    const atLowWall = edgeWorldPosition <= mt + tolerance;
+    const atHighWall = edgeWorldPosition >= axisDim - mt - tolerance;
+
+    if (isHighEnd && atHighWall) return null; // At a face wall, not a divider
+    if (!isHighEnd && atLowWall) return null; // At a face wall, not a divider
+
+    // Look for a perpendicular divider at this edge position
+    for (const sub of subdivisions) {
+      if (sub.axis !== edgeAxisDirection) continue; // Must be on the same axis as the edge direction
+
+      // The other divider's position should be near our edge's world position
+      // Our void bounds end at edgeWorldPosition, and the divider is at the boundary
+      // The divider position should be approximately at edgeWorldPosition (within mt)
+      if (Math.abs(sub.position - edgeWorldPosition) < mt + tolerance) {
+        // This divider's void bounds end near the other divider's position
+        // That means this divider terminates at the other divider
+        return sub.id;
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -272,10 +474,18 @@ export class DividerPanelNode extends BasePanel {
       // Skip subdivisions on the same axis (parallel dividers don't intersect)
       if (sub.axis === myAxis) continue;
 
-      // Skip perpendicular divider intersections - these are handled by cross-lap slots
-      // Cross-lap slots are edge notches, not interior holes
-      // Only generate holes for sub-assembly slots or other special cases
-      continue; // All divider-to-divider intersections use cross-lap slots now
+      // For crossing dividers: skip - these are handled by cross-lap slots
+      // For terminating dividers: generate slot holes (like face panels do for divider tabs)
+      if (this.isCrossingDivider(sub)) {
+        continue; // Crossing dividers use cross-lap slots, not holes
+      }
+
+      // This is a terminating divider - check if it terminates AT this divider
+      // (i.e., the other divider's void bounds end near this divider's position)
+      // If so, this divider needs slot holes for the other divider's tabs
+      if (!this.isTerminatingAtMe(sub, mt)) {
+        continue; // Not terminating at this divider
+      }
 
       // Check if the other divider's void bounds span includes our position
       // Get the extent of the other divider along our axis
@@ -794,6 +1004,108 @@ export class DividerPanelNode extends BasePanel {
   }
 
   /**
+   * Determine if another subdivision's divider CROSSES through this divider's position,
+   * or merely TERMINATES at it.
+   *
+   * Crossing: the other divider's owner void bounds extend past this divider's position
+   * on BOTH sides (without mt extension). The dividers physically pass through each other.
+   *
+   * Terminating: the other divider's owner void bounds end at (or near) this divider's
+   * position on one side. The shorter divider stops at the longer one.
+   */
+  private isCrossingDivider(sub: Subdivision): boolean {
+    const tolerance = 0.1;
+    const bounds = this._voidNode.bounds;
+
+    // Check 1: Does the other divider's void extend past MY position on BOTH sides?
+    // (along this divider's axis)
+    let otherVoidLow: number;
+    let otherVoidHigh: number;
+
+    switch (this._axis) {
+      case 'x':
+        otherVoidLow = sub.ownerBounds.x;
+        otherVoidHigh = sub.ownerBounds.x + sub.ownerBounds.w;
+        break;
+      case 'y':
+        otherVoidLow = sub.ownerBounds.y;
+        otherVoidHigh = sub.ownerBounds.y + sub.ownerBounds.h;
+        break;
+      case 'z':
+        otherVoidLow = sub.ownerBounds.z;
+        otherVoidHigh = sub.ownerBounds.z + sub.ownerBounds.d;
+        break;
+    }
+
+    const otherCrossesThroughMe = otherVoidLow < this._position - tolerance && otherVoidHigh > this._position + tolerance;
+    if (!otherCrossesThroughMe) return false;
+
+    // Check 2: Does MY void extend past the OTHER divider's position on BOTH sides?
+    // (along the other divider's axis)
+    let myVoidLow: number;
+    let myVoidHigh: number;
+
+    switch (sub.axis) {
+      case 'x':
+        myVoidLow = bounds.x;
+        myVoidHigh = bounds.x + bounds.w;
+        break;
+      case 'y':
+        myVoidLow = bounds.y;
+        myVoidHigh = bounds.y + bounds.h;
+        break;
+      case 'z':
+        myVoidLow = bounds.z;
+        myVoidHigh = bounds.z + bounds.d;
+        break;
+    }
+
+    const iCrossThroughOther = myVoidLow < sub.position - tolerance && myVoidHigh > sub.position + tolerance;
+
+    // True crossing requires BOTH dividers to cross through each other
+    return iCrossThroughOther;
+  }
+
+  /**
+   * Check if the other subdivision's divider terminates AT this divider.
+   * This means the other divider's owner void bounds end near this divider's position
+   * on the axis perpendicular to the other divider.
+   *
+   * For a terminating relationship, THIS divider (the longer one) needs slot holes
+   * for the other divider's finger tabs.
+   */
+  private isTerminatingAtMe(sub: Subdivision, mt: number): boolean {
+    const tolerance = 0.1;
+
+    // The other divider's owner void bounds along THIS divider's axis
+    let otherVoidLow: number;
+    let otherVoidHigh: number;
+
+    switch (this._axis) {
+      case 'x':
+        otherVoidLow = sub.ownerBounds.x;
+        otherVoidHigh = sub.ownerBounds.x + sub.ownerBounds.w;
+        break;
+      case 'y':
+        otherVoidLow = sub.ownerBounds.y;
+        otherVoidHigh = sub.ownerBounds.y + sub.ownerBounds.h;
+        break;
+      case 'z':
+        otherVoidLow = sub.ownerBounds.z;
+        otherVoidHigh = sub.ownerBounds.z + sub.ownerBounds.d;
+        break;
+    }
+
+    // The other divider terminates at this one if its void bounds end near this position
+    // (within mt, since the body extends mt to reach this divider)
+    const lowEndNear = Math.abs(otherVoidLow - this._position) < mt + tolerance;
+    const highEndNear = Math.abs(otherVoidHigh - this._position) < mt + tolerance;
+
+    // It terminates if ONE end is near (but not both - both near would be very thin and not meaningful)
+    return (lowEndNear || highEndNear) && !(lowEndNear && highEndNear);
+  }
+
+  /**
    * Compute cross-lap slots for intersecting dividers
    * Cross-lap joints are half-depth notches that allow perpendicular dividers to interlock
    */
@@ -852,6 +1164,12 @@ export class DividerPanelNode extends BasePanel {
       }
 
       debug('cross-lap', `    PASSED extent check`);
+
+      // Check if this is a crossing divider (both sides extend past) or terminating (one side only)
+      if (!this.isCrossingDivider(sub)) {
+        debug('cross-lap', `    SKIPPED: terminating divider (not crossing)`);
+        continue;
+      }
 
       // This divider intersects with sub
       intersectingAxes.add(sub.axis);
