@@ -8,6 +8,7 @@ import { SaveProjectModal } from './components/SaveProjectModal';
 import { TemplateBrowserModal } from './components/TemplateBrowserModal';
 import { TemplateConfigModal } from './components/TemplateConfigModal';
 import { AboutModal } from './components/AboutModal';
+import { DesignPromptPanel } from './components/DesignPromptPanel';
 import { useBoxStore } from './store/useBoxStore';
 import { saveProject, loadProject, captureThumbnail } from './utils/projectStorage';
 import { ProjectState } from './utils/urlState';
@@ -54,6 +55,8 @@ function App() {
     getShareableUrl,
     saveToUrl,
     generatePanels,
+    designPanelOpen,
+    openDesignPanel,
   } = useBoxStore();
 
   // Load state from URL on initial mount and initialize engine
@@ -295,6 +298,13 @@ function App() {
           </button>
           <button
             className="header-btn secondary"
+            onClick={openDesignPanel}
+          >
+            <span className="header-btn-icon">AI</span>
+            AI Design
+          </button>
+          <button
+            className="header-btn secondary"
             onClick={() => setIsProjectBrowserOpen(true)}
           >
             <span className="header-btn-icon">📁</span>
@@ -347,12 +357,15 @@ function App() {
           <LeftSidebar />
         </aside>
 
-        <section className="viewport">
-          {viewMode === '3d' ? (
-            <Viewport3D ref={viewportRef} />
-          ) : (
-            <SketchView2D />
-          )}
+        <section className={`viewport${designPanelOpen ? ' with-design-panel' : ''}`}>
+          <div className="viewport-main">
+            {viewMode === '3d' ? (
+              <Viewport3D ref={viewportRef} />
+            ) : (
+              <SketchView2D />
+            )}
+          </div>
+          {designPanelOpen && <DesignPromptPanel />}
         </section>
 
         {renderRightSidebar() && (

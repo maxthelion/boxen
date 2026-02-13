@@ -62,6 +62,9 @@ project-management/processed/*
 .orchestrator/state.db-wal
 .orchestrator/state.db-shm
 
+# Generated scripts (design-box, etc.)
+scripts/.generated/
+
 # Playwright screenshots
 .playwright-mcp/
 qa-*.png
