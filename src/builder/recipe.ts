@@ -437,18 +437,22 @@ export function executeRecipe(recipe: AssemblyRecipe): { engine: Engine } {
   // Determine which subdivision axes would create inaccessible sealed compartments.
   // A divider parallel to an open face is fine (compartments face the opening).
   // A divider perpendicular to ALL open faces seals off compartments.
-  // Each face pair maps to the axis perpendicular to it:
-  //   top/bottom → y,  front/back → z,  left/right → x
-  // An axis is blocked if dividers along it would be parallel to a closed face
-  // that has no corresponding open face on either side.
+  // A divider along axis A is perpendicular to faces on OTHER axes.
+  // Compartments are accessible through any open face that's NOT parallel to the divider.
+  // So axis A is blocked only when no face on a different axis is open.
+  //
+  // Axis → parallel faces (same axis) → perpendicular faces (other axes)
+  //   Y  → top/bottom                 → front, back, left, right
+  //   X  → left/right                 → front, back, top, bottom
+  //   Z  → front/back                 → left, right, top, bottom
   const openFaceSet = new Set(recipe.openFaces ?? (recipe.type === 'basicBox' ? ['top'] : []));
   const blockedAxes = new Set<string>();
-  // Y-axis dividers are parallel to top/bottom — blocked unless top or bottom is open
-  if (!openFaceSet.has('top') && !openFaceSet.has('bottom')) blockedAxes.add('y');
-  // Z-axis dividers are parallel to front/back — blocked unless front or back is open
-  if (!openFaceSet.has('front') && !openFaceSet.has('back')) blockedAxes.add('z');
-  // X-axis dividers are parallel to left/right — blocked unless left or right is open
-  if (!openFaceSet.has('left') && !openFaceSet.has('right')) blockedAxes.add('x');
+  // Y dividers (horizontal shelves) — accessible through any vertical or side face
+  if (!openFaceSet.has('front') && !openFaceSet.has('back') && !openFaceSet.has('left') && !openFaceSet.has('right')) blockedAxes.add('y');
+  // X dividers (vertical left-right partitions) — accessible through front/back/top/bottom
+  if (!openFaceSet.has('front') && !openFaceSet.has('back') && !openFaceSet.has('top') && !openFaceSet.has('bottom')) blockedAxes.add('x');
+  // Z dividers (vertical front-back partitions) — accessible through left/right/top/bottom
+  if (!openFaceSet.has('left') && !openFaceSet.has('right') && !openFaceSet.has('top') && !openFaceSet.has('bottom')) blockedAxes.add('z');
 
   // Subdivisions
   if (recipe.subdivisions) {
