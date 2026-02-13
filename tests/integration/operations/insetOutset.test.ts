@@ -5,18 +5,18 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { Engine, createEngineWithAssembly } from '../../../src/engine/Engine';
+import type { Engine } from '../../../src/engine/Engine';
 import { useBoxStore } from '../../../src/store/useBoxStore';
 import { validateOperation } from '../../validators';
-import { defaultMaterial } from '../../fixtures';
 import { OPERATION_DEFINITIONS } from '../../../src/operations/registry';
 import { generatePanelsFromEngine } from '../../../src/engine/panelBridge';
+import { TestFixture } from '../../../src/test/fixtures';
 
 describe('Inset/Outset Operation', () => {
   let engine: Engine;
 
   beforeEach(() => {
-    engine = createEngineWithAssembly(100, 80, 60, defaultMaterial);
+    ({ engine } = TestFixture.enclosedBox(100, 80, 60).build());
     useBoxStore.setState({
       operationState: {
         activeOperation: null,
