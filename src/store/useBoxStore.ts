@@ -13,6 +13,7 @@ import { createViewSlice, ViewSlice } from './slices/viewSlice';
 import { createToolSlice, ToolSlice } from './slices/toolSlice';
 import { createOperationSlice, OperationSlice } from './slices/operationSlice';
 import { createUrlSlice, UrlSlice } from './slices/urlSlice';
+import { createDesignSlice, DesignSlice } from './slices/designSlice';
 
 // Import helpers for re-export
 import { createSimpleRootVoid } from './helpers/voidFactory';
@@ -32,7 +33,8 @@ export type BoxStore = ConfigSlice &
   ViewSlice &
   ToolSlice &
   OperationSlice &
-  UrlSlice;
+  UrlSlice &
+  DesignSlice;
 
 // =============================================================================
 // Create the Store
@@ -51,6 +53,7 @@ export const useBoxStore = create<BoxStore>()((...a) => ({
   ...createToolSlice(...a),
   ...createOperationSlice(...a),
   ...createUrlSlice(...a),
+  ...createDesignSlice(...a),
 
   // Override initial state that slices don't set correctly
   config: defaultConfig,

@@ -47,5 +47,9 @@ export type { Shape } from './shapes';
 export { permute, permuteNamed, countPermutations } from './permute';
 export type { PermutationConfig, PermutationResult } from './permute';
 
+// Recipe interpreter
+export { validateRecipe, executeRecipe, RecipeError } from './recipe';
+export type { AssemblyRecipe, SubdivisionStep, CutoutShape, PanelStep } from './recipe';
+
 // Types
 export type { FixtureResult, QueuedOperation } from './types';
