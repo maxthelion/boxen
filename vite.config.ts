@@ -6,7 +6,8 @@ import react from '@vitejs/plugin-react'
 /** Minimal system prompt for the dev proxy (matches the CF function's prompt) */
 const DEV_SYSTEM_PROMPT = `You are a laser-cut box design assistant. Return ONLY a valid JSON object (no markdown, no explanation) conforming to this schema:
 { "type": "basicBox"|"enclosedBox", "width": number, "height": number, "depth": number, "openFaces"?: string[], "material"?: { "thickness"?: number, "fingerWidth"?: number, "fingerGap"?: number }, "feet"?: { "height": number, "width": number, "inset": number }, "lid"?: { "face": "positive"|"negative", "tabDirection": "tabs-in"|"tabs-out" }, "axis"?: "x"|"y"|"z", "subdivisions"?: [{ "type": "grid"|"subdivideEvenly", "void": "root", "columns"?: number, "rows"?: number, "axis"?: "x"|"z", "count"?: number }], "panels"?: [{ "face": string, "extensions"?: Record<string,number>, "cutouts"?: [{ "shape": "rect"|"circle"|"polygon", ... }], "fillets"?: [{ "corners": string[], "radius": number }] }] }
-basicBox has top open by default. Dimensions are width×height×depth in mm. The "void" field in subdivisions must be "root" for the first subdivision (the main interior). After a subdivision creates child voids, use "child:0", "child:1", etc. to target them. Only open or female edges can be extended. Wall priority: front(1)<back(2)<left(3)<right(4)<top(5)<bottom(6), lower=male=tabs-out=NOT extensible.`
+basicBox has top open by default. Dimensions are width×height×depth in mm. The "void" field in subdivisions must be "root" for the first subdivision (the main interior). After a subdivision creates child voids, use "child:0", "child:1", etc. to target them. Only open or female edges can be extended. Wall priority: front(1)<back(2)<left(3)<right(4)<top(5)<bottom(6), lower=male=tabs-out=NOT extensible. Extension edge names are ONLY: "top","bottom","left","right" — never "height" or "width". Minimum dimension ~10mm (3x material thickness).
+If the request is not a laser-cut box (e.g. animals, curved shapes, mechanisms), return ONLY: { "error": "your message here" }. Write a specific, helpful message — e.g. { "error": "Boxen designs rectangular laser-cut boxes — I can't make an elephant shape, but I could make an animal-themed storage box with compartments. Try describing a box!" }. If vague but plausibly a box, make your best interpretation.`
 
 export default defineConfig({
   plugins: [
@@ -82,17 +83,24 @@ export default defineConfig({
               }
               content = content.trim()
 
-              let recipe: unknown
+              let parsed: Record<string, unknown>
               try {
-                recipe = JSON.parse(content)
+                parsed = JSON.parse(content)
               } catch {
                 res.statusCode = 502
                 res.end(JSON.stringify({ error: 'AI returned invalid JSON' }))
                 return
               }
 
+              // If the LLM returned an error instead of a recipe, pass it through
+              if (parsed.error && typeof parsed.error === 'string' && !parsed.type) {
+                res.setHeader('Content-Type', 'application/json')
+                res.end(JSON.stringify({ error: parsed.error }))
+                return
+              }
+
               res.setHeader('Content-Type', 'application/json')
-              res.end(JSON.stringify({ recipe }))
+              res.end(JSON.stringify({ recipe: parsed }))
             } catch {
               res.statusCode = 502
               res.end(JSON.stringify({ error: 'Failed to reach OpenAI' }))

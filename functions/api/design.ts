@@ -142,6 +142,27 @@ If the user doesn't specify:
 - Type: basicBox (open top)
 - No subdivisions, no extensions, no cutouts
 - Reasonable dimensions if unspecified (e.g., 150x100x80 for a "box")
+
+## When You Can't Help
+
+Boxen makes rectangular laser-cut boxes. It CANNOT make:
+- Curved or organic shapes (spheres, cylinders, animal shapes)
+- Non-box furniture (chairs, tables)
+- Mechanisms (hinges, sliding lids, clasps)
+- Non-woodworking items
+
+If the request is impossible or not a box, return ONLY a JSON object with an "error" field containing a specific, helpful message. Example:
+{ "error": "Boxen designs rectangular laser-cut boxes — I can't make an elephant shape, but I could make an animal-themed storage box with compartments. Try describing a box!" }
+
+If the request is vague but could be a box, make your best interpretation. Only return an error if the core request fundamentally cannot be a laser-cut box.
+
+## Extension Edge Names
+
+Extensions use the EDGE of the panel, not dimensions. Valid edge names are ONLY: "top", "bottom", "left", "right". Do NOT use "height" or "width" as edge names.
+
+## Minimum Dimensions
+
+Each dimension must be at least 3× the material thickness (default 3mm, so minimum ~10mm). Smaller boxes can't physically have finger joints.
 `;
 
 // ---------------------------------------------------------------------------
@@ -247,9 +268,9 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   }
   cleaned = cleaned.trim();
 
-  let recipe: unknown;
+  let parsed: Record<string, unknown>;
   try {
-    recipe = JSON.parse(cleaned);
+    parsed = JSON.parse(cleaned);
   } catch {
     return Response.json(
       { error: 'AI returned invalid JSON. Please try rephrasing.' },
@@ -257,5 +278,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     );
   }
 
-  return Response.json({ recipe });
+  // If the LLM returned an error instead of a recipe, pass it through
+  if (parsed.error && typeof parsed.error === 'string' && !parsed.type) {
+    return Response.json({ error: parsed.error });
+  }
+
+  return Response.json({ recipe: parsed });
 };

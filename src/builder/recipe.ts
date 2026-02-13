@@ -133,14 +133,26 @@ export function validateRecipe(raw: unknown): AssemblyRecipe {
   assertPositiveNumber(obj.height, 'height');
   assertPositiveNumber(obj.depth, 'depth');
 
-  if (obj.width > LIMITS.maxDimension) {
-    throw new RecipeError(`width exceeds maximum of ${LIMITS.maxDimension}mm`);
+  const mt = (obj.material as Record<string, unknown>)?.thickness;
+  const minDim = typeof mt === 'number' && mt > 0 ? mt * 3 : 10;
+
+  if ((obj.width as number) < minDim) {
+    throw new RecipeError(`Width ${obj.width}mm is too small — minimum is ${minDim}mm (3× material thickness). Try a larger dimension.`);
   }
-  if (obj.height > LIMITS.maxDimension) {
-    throw new RecipeError(`height exceeds maximum of ${LIMITS.maxDimension}mm`);
+  if ((obj.height as number) < minDim) {
+    throw new RecipeError(`Height ${obj.height}mm is too small — minimum is ${minDim}mm (3× material thickness). Try a larger dimension.`);
   }
-  if (obj.depth > LIMITS.maxDimension) {
-    throw new RecipeError(`depth exceeds maximum of ${LIMITS.maxDimension}mm`);
+  if ((obj.depth as number) < minDim) {
+    throw new RecipeError(`Depth ${obj.depth}mm is too small — minimum is ${minDim}mm (3× material thickness). Try a larger dimension.`);
+  }
+  if ((obj.width as number) > LIMITS.maxDimension) {
+    throw new RecipeError(`Width ${obj.width}mm exceeds the maximum of ${LIMITS.maxDimension}mm.`);
+  }
+  if ((obj.height as number) > LIMITS.maxDimension) {
+    throw new RecipeError(`Height ${obj.height}mm exceeds the maximum of ${LIMITS.maxDimension}mm.`);
+  }
+  if ((obj.depth as number) > LIMITS.maxDimension) {
+    throw new RecipeError(`Depth ${obj.depth}mm exceeds the maximum of ${LIMITS.maxDimension}mm.`);
   }
 
   // openFaces
@@ -279,7 +291,7 @@ export function validateRecipe(raw: unknown): AssemblyRecipe {
         const ext = panel.extensions as Record<string, unknown>;
         for (const [edge, value] of Object.entries(ext)) {
           if (!VALID_EDGES.includes(edge)) {
-            throw new RecipeError(`panels[${i}].extensions has invalid edge: "${edge}"`);
+            throw new RecipeError(`Can't extend edge "${edge}" on ${panel.face} panel — valid edges are: ${VALID_EDGES.join(', ')}. Try rephrasing your description.`);
           }
           assertPositiveNumber(value, `panels[${i}].extensions.${edge}`);
           if ((value as number) > LIMITS.maxExtension) {
