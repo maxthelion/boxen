@@ -1,7 +1,18 @@
 # Systematic Bug Debugging Playbook
 
-**Status:** Idea
+**Status:** Ready for Testing
 **Captured:** 2026-02-13
+**Updated:** 2026-02-13
+
+## Current Status
+
+The core playbook has been created (`.claude/rules/debugging-bugs.md`) and integrated into the PM interactive role. Ready to test with real bug reports from the user.
+
+**Future direction:**
+- Create dedicated bug task type (separate from feature implementation)
+- Create specialized bug investigation agent role
+- Integrate image handling (screenshots via GitHub issues or direct attachment)
+- Formalize bug reporting template based on learnings from testing phase
 
 ## Raw
 
@@ -157,9 +168,39 @@ Escalate to user/human if:
 
 ## Possible Next Steps
 
-1. **Write the playbook** - Create a step-by-step debugging guide in `.claude/rules/debugging-bugs.md`
-2. **Add to agent prompts** - Include playbook reference in implement/test agent prompts
-3. **Create bug report template** - Standardize how bugs are reported (operations, screenshot, expected vs actual)
-4. **Expand geometry validators** - Add helpers for common assertions (joints align, no overlap, etc.)
-5. **Document common patterns** - Catalog typical bug types and their debugging approaches
-6. **Train on examples** - Walk through 2-3 real bugs using the playbook to refine it
+### Immediate (Testing Phase)
+1. ✅ **Write the playbook** - Created `.claude/rules/debugging-bugs.md`
+2. ✅ **Add to PM prompt** - Referenced in `project-management/claude-interactive-role.md`
+3. **Test with real bugs** - Use the playbook for actual bug reports to refine the process
+
+### After Testing Phase
+4. **Add to agent prompts** - Include playbook reference in implement/test agent prompts
+5. **Expand geometry validators** - Add helpers for common assertions (joints align, no overlap, etc.)
+6. **Document common patterns** - Catalog typical bug types and their debugging approaches
+
+### Future: Dedicated Bug Investigation Workflow
+
+**Image-based bug reporting via GitHub:**
+- User creates GitHub issue with screenshot(s) attached
+- PM/agent reads issue via `gh issue view <number>` and views images
+- Issue becomes source of truth with visual evidence
+- Keeps images in GitHub (not cluttering repo) while remaining accessible
+
+**Dedicated bug investigation role:**
+- **Task type:** `role=bug_investigation` (separate from `role=implement`)
+- **Agent prompt:** References debugging playbook, focuses on reproduction and test creation
+- **Success criteria:**
+  - Failing test that reproduces the bug
+  - Diagnosis of root cause (not necessarily the fix)
+  - Clear description of what's broken and why
+- **Handoff model:**
+  - Bug investigation agent creates failing test
+  - Then creates follow-up implementation task with test as context
+  - Implementation agent fixes bug (test should pass after fix)
+  - Separates diagnosis from solution
+
+**Benefits:**
+- Bug investigation is a different skill than feature implementation
+- Failing test proves bug exists before work begins
+- Implementation agent has clear success criteria (make test pass)
+- Prevents "fix without understanding" band-aids
