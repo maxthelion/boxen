@@ -6,16 +6,16 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Engine, createEngineWithAssembly } from '../../../src/engine/Engine';
+import type { Engine } from '../../../src/engine/Engine';
 import { validateOperation } from '../../validators';
 import { checkOverlap, formatOverlapCheckResult } from '../../../src/engine/validators/OverlapChecker';
-import { defaultMaterial } from '../../fixtures';
+import { TestFixture } from '../../../src/test/fixtures';
 
 describe('Edge Extension Overlap', () => {
   let engine: Engine;
 
   beforeEach(() => {
-    engine = createEngineWithAssembly(100, 80, 60, defaultMaterial);
+    ({ engine } = TestFixture.enclosedBox(100, 80, 60).build());
   });
 
   // Helper to find a face panel by faceId

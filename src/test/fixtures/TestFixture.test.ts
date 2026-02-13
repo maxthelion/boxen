@@ -204,4 +204,249 @@ describe('TestFixture', () => {
       expect(panel!.visible).toBe(true);
     });
   });
+
+  describe('withDimensions', () => {
+    it('updates width', () => {
+      const { panels } = TestFixture.enclosedBox(100, 80, 60)
+        .withDimensions({ width: 200 })
+        .build();
+
+      const front = panels.find(p => p.source.faceId === 'front');
+      expect(front!.width).toBe(200);
+    });
+
+    it('updates multiple dimensions at once', () => {
+      const { panels } = TestFixture.enclosedBox(100, 80, 60)
+        .withDimensions({ width: 200, height: 150 })
+        .build();
+
+      const front = panels.find(p => p.source.faceId === 'front');
+      expect(front!.width).toBe(200);
+      expect(front!.height).toBe(150);
+    });
+
+    it('is chainable', () => {
+      const { panels } = TestFixture.enclosedBox(100, 80, 60)
+        .withDimensions({ width: 200 })
+        .withOpenFaces(['top'])
+        .build();
+
+      expect(panels.length).toBe(5);
+      const front = panels.find(p => p.source.faceId === 'front');
+      expect(front!.width).toBe(200);
+    });
+  });
+
+  describe('withMaterial', () => {
+    it('updates material thickness', () => {
+      const { engine } = TestFixture.enclosedBox(100, 80, 60)
+        .withMaterial({ thickness: 6 })
+        .build();
+
+      const snapshot = engine.getSnapshot();
+      expect(snapshot.children[0].props.material.thickness).toBe(6);
+    });
+
+    it('is chainable', () => {
+      const { engine } = TestFixture.enclosedBox(100, 80, 60)
+        .withMaterial({ thickness: 6 })
+        .withDimensions({ width: 200 })
+        .build();
+
+      const snapshot = engine.getSnapshot();
+      expect(snapshot.children[0].props.material.thickness).toBe(6);
+      expect(snapshot.children[0].props.width).toBe(200);
+    });
+  });
+
+  describe('withFeet', () => {
+    it('enables feet', () => {
+      const { engine } = TestFixture.basicBox(100, 80, 60)
+        .withFeet({ enabled: true, height: 10, width: 15, inset: 5, gap: 2 })
+        .build();
+
+      const snapshot = engine.getSnapshot();
+      expect(snapshot.children[0].props.feet?.enabled).toBe(true);
+      expect(snapshot.children[0].props.feet?.height).toBe(10);
+    });
+
+    it('disables feet with null', () => {
+      const { engine } = TestFixture.basicBox(100, 80, 60)
+        .withFeet({ enabled: true, height: 10, width: 15, inset: 5, gap: 2 })
+        .withFeet(null)
+        .build();
+
+      const snapshot = engine.getSnapshot();
+      expect(snapshot.children[0].props.feet).toBeUndefined();
+    });
+  });
+
+  describe('withLid', () => {
+    it('sets lid tab direction', () => {
+      const { engine } = TestFixture.enclosedBox(100, 80, 60)
+        .withLid('positive', { tabDirection: 'tabs-out' })
+        .build();
+
+      const snapshot = engine.getSnapshot();
+      expect(snapshot.children[0].props.assembly.lids.positive.tabDirection).toBe('tabs-out');
+    });
+  });
+
+  describe('withAxis', () => {
+    it('changes assembly axis', () => {
+      const { engine } = TestFixture.enclosedBox(100, 80, 60)
+        .withAxis('x')
+        .build();
+
+      const snapshot = engine.getSnapshot();
+      expect(snapshot.children[0].props.assembly.assemblyAxis).toBe('x');
+    });
+  });
+
+  describe('subdivide', () => {
+    it('adds a divider panel', () => {
+      const { panels } = TestFixture.basicBox(200, 100, 100)
+        .subdivide('root', 'x', 100)
+        .build();
+
+      const dividers = panels.filter(p => p.source.type === 'divider');
+      expect(dividers.length).toBe(1);
+    });
+
+    it('creates two child voids', () => {
+      const fixture = TestFixture.basicBox(200, 100, 100)
+        .subdivide('root', 'x', 100);
+
+      // Should be able to access both child voids
+      const id0 = fixture.childVoid(0);
+      const id1 = fixture.childVoid(1);
+      expect(id0).toBeDefined();
+      expect(id1).toBeDefined();
+      expect(id0).not.toBe(id1);
+    });
+
+    it('supports chained subdivisions using childVoid callback', () => {
+      const { panels } = TestFixture.basicBox(200, 100, 100)
+        .subdivide('root', 'x', 100)
+        .subdivide(f => f.childVoid(0), 'z', 50)
+        .build();
+
+      // Should have 2 dividers: one from root split, one from child split
+      const dividers = panels.filter(p => p.source.type === 'divider');
+      expect(dividers.length).toBe(2);
+    });
+
+    it('throws on out-of-range childVoid index', () => {
+      const fixture = TestFixture.basicBox(200, 100, 100)
+        .subdivide('root', 'x', 100);
+
+      expect(() => fixture.childVoid(2)).toThrow('index out of range');
+    });
+  });
+
+  describe('subdivideEvenly', () => {
+    it('creates even compartments', () => {
+      const { panels } = TestFixture.basicBox(200, 100, 100)
+        .subdivideEvenly('root', 'x', 3)
+        .build();
+
+      // 3 compartments = 2 dividers
+      const dividers = panels.filter(p => p.source.type === 'divider');
+      expect(dividers.length).toBe(2);
+    });
+
+    it('creates correct number of child voids', () => {
+      const fixture = TestFixture.basicBox(200, 100, 100)
+        .subdivideEvenly('root', 'x', 3);
+
+      expect(fixture.childVoid(0)).toBeDefined();
+      expect(fixture.childVoid(1)).toBeDefined();
+      expect(fixture.childVoid(2)).toBeDefined();
+      expect(() => fixture.childVoid(3)).toThrow('index out of range');
+    });
+
+    it('does nothing for count < 2', () => {
+      const { panels } = TestFixture.basicBox(200, 100, 100)
+        .subdivideEvenly('root', 'x', 1)
+        .build();
+
+      const dividers = panels.filter(p => p.source.type === 'divider');
+      expect(dividers.length).toBe(0);
+    });
+  });
+
+  describe('grid', () => {
+    it('creates a 2x2 grid', () => {
+      const { panels } = TestFixture.basicBox(200, 100, 200)
+        .grid('root', 2, 2)
+        .build();
+
+      // 2x2 grid = 1 x-divider + 1 z-divider = 2 divider panels
+      const dividers = panels.filter(p => p.source.type === 'divider');
+      expect(dividers.length).toBe(2);
+    });
+
+    it('creates 4 child voids for 2x2 grid', () => {
+      const fixture = TestFixture.basicBox(200, 100, 200)
+        .grid('root', 2, 2);
+
+      expect(fixture.childVoid(0)).toBeDefined();
+      expect(fixture.childVoid(1)).toBeDefined();
+      expect(fixture.childVoid(2)).toBeDefined();
+      expect(fixture.childVoid(3)).toBeDefined();
+      expect(() => fixture.childVoid(4)).toThrow('index out of range');
+    });
+
+    it('creates a 3x2 grid', () => {
+      const { panels } = TestFixture.basicBox(300, 100, 200)
+        .grid('root', 3, 2)
+        .build();
+
+      // 3x2 grid = 2 x-dividers + 1 z-divider = 3 divider panels
+      const dividers = panels.filter(p => p.source.type === 'divider');
+      expect(dividers.length).toBe(3);
+    });
+  });
+
+  describe('Integration: fluent subdivision scenario', () => {
+    it('builds a box with nested subdivisions entirely via fluent API', () => {
+      // Create a box, subdivide root on X, then subdivide the first child on Z
+      const { engine, panels } = TestFixture
+        .basicBox(200, 150, 100, { thickness: 6, fingerWidth: 10, fingerGap: 1.5 })
+        .subdivide('root', 'x', 100)
+        .subdivide(f => f.childVoid(0), 'z', 50)
+        .build();
+
+      // Verify engine is valid
+      expect(engine).toBeDefined();
+      expect(engine.assembly).toBeDefined();
+
+      // Should have face panels + divider panels
+      const facePanels = panels.filter(p => p.source.type === 'face');
+      const dividerPanels = panels.filter(p => p.source.type === 'divider');
+
+      // 5 face panels (open top) + 2 dividers
+      expect(facePanels.length).toBe(5);
+      expect(dividerPanels.length).toBe(2);
+
+      // All panels should have valid outlines with finger joints (many points)
+      for (const panel of panels) {
+        expect(panel.outline.points.length).toBeGreaterThan(4);
+      }
+    });
+
+    it('combines grid with configuration methods', () => {
+      const { panels, engine } = TestFixture
+        .basicBox(200, 100, 200)
+        .withMaterial({ thickness: 6 })
+        .grid('root', 2, 2)
+        .build();
+
+      const snapshot = engine.getSnapshot();
+      expect(snapshot.children[0].props.material.thickness).toBe(6);
+
+      const dividers = panels.filter(p => p.source.type === 'divider');
+      expect(dividers.length).toBe(2);
+    });
+  });
 });

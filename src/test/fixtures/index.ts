@@ -33,6 +33,7 @@
 
 // Core fixture class
 export { TestFixture } from './TestFixture';
+export type { VoidSelector } from './TestFixture';
 
 // Panel builder (may be needed for advanced usage)
 export { PanelBuilder } from './PanelBuilder';

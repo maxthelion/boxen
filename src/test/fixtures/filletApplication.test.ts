@@ -8,14 +8,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { TestFixture } from './index';
-import { createEngineWithAssembly, Engine } from '../../engine/Engine';
-import type { MaterialConfig } from '../../engine/types';
-
-const defaultMaterial: MaterialConfig = {
-  thickness: 3,
-  fingerWidth: 10,
-  fingerGap: 1.5,
-};
+import type { Engine } from '../../engine/Engine';
 
 describe('Fillet application', () => {
   describe('basic fillet geometry', () => {
@@ -224,12 +217,10 @@ describe('Fillet application', () => {
     let engine: Engine;
 
     beforeEach(() => {
-      engine = createEngineWithAssembly(100, 80, 60, defaultMaterial);
-      // Open all adjacent faces for front panel
-      engine.dispatch({ type: 'TOGGLE_FACE', targetId: 'main-assembly', payload: { faceId: 'top' } });
-      engine.dispatch({ type: 'TOGGLE_FACE', targetId: 'main-assembly', payload: { faceId: 'bottom' } });
-      engine.dispatch({ type: 'TOGGLE_FACE', targetId: 'main-assembly', payload: { faceId: 'left' } });
-      engine.dispatch({ type: 'TOGGLE_FACE', targetId: 'main-assembly', payload: { faceId: 'right' } });
+      ({ engine } = TestFixture
+        .enclosedBox(100, 80, 60)
+        .withOpenFaces(['top', 'bottom', 'left', 'right'])
+        .build());
     });
 
     it('preview shows fillet geometry', () => {
