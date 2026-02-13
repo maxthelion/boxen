@@ -73,7 +73,7 @@ Return ONLY a valid JSON object. No markdown fences, no explanation. The JSON mu
     {
       "type": "subdivideEvenly",
       "void": "root",
-      "axis": "x" | "z",
+      "axis": "x" | "y" | "z",
       "count": number
     }
   ],
@@ -100,7 +100,8 @@ Return ONLY a valid JSON object. No markdown fences, no explanation. The JSON mu
 2. **Dimensions** are width × height × depth in mm. If user says "150x100x80", that's width=150, height=100, depth=80.
 3. **openFaces**: Valid values: "top", "bottom", "left", "right", "front", "back".
 4. **Subdivisions**: "grid" creates a grid (columns along X, rows along Z). "subdivideEvenly" splits along one axis.
-5. **Void references**: "root" is the main interior. After a subdivision, child voids are "child:0", "child:1", etc.
+5. **Subdivision axis rule**: Only subdivide along axes where compartments remain accessible. A divider parallel to a closed face creates sealed spaces. For top-open: use x or z. For front-open (shelves): use x or y. For side-open: use y or z. The two valid axes are the ones NOT perpendicular to the open face.
+6. **Void references**: "root" is the main interior. After a subdivision, child voids are "child:0", "child:1", etc.
 6. **Extensions**: Only open or female edges can be extended. For basicBox (top open), the top edge of side walls is open and extensible.
 7. **Material**: Default thickness=3, fingerWidth=10, fingerGap=1.5. Only specify if user mentions material.
 8. **Feet**: For feet/legs on the bottom.

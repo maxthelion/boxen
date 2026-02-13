@@ -33,7 +33,7 @@ export interface AssemblyRecipe {
 export interface SubdivisionStep {
   type: 'grid' | 'subdivideEvenly';
   void: string;
-  axis?: 'x' | 'z';
+  axis?: 'x' | 'y' | 'z';
   columns?: number;
   rows?: number;
   count?: number;
@@ -81,7 +81,7 @@ const VALID_FACES: string[] = ['top', 'bottom', 'left', 'right', 'front', 'back'
 const VALID_EDGES: string[] = ['top', 'bottom', 'left', 'right'];
 const VALID_CORNERS: string[] = ['bottom:left', 'bottom:right', 'left:top', 'right:top'];
 const VALID_AXES: string[] = ['x', 'y', 'z'];
-const VALID_SUBDIVISION_AXES: string[] = ['x', 'z'];
+const VALID_SUBDIVISION_AXES: string[] = ['x', 'y', 'z'];
 
 function assertNumber(value: unknown, field: string): asserts value is number {
   if (typeof value !== 'number' || !isFinite(value)) {
@@ -434,6 +434,22 @@ export function executeRecipe(recipe: AssemblyRecipe): { engine: Engine } {
     voidMap.set('root', assembly.rootVoid.id);
   }
 
+  // Determine which subdivision axes would create inaccessible sealed compartments.
+  // A divider parallel to an open face is fine (compartments face the opening).
+  // A divider perpendicular to ALL open faces seals off compartments.
+  // Each face pair maps to the axis perpendicular to it:
+  //   top/bottom → y,  front/back → z,  left/right → x
+  // An axis is blocked if dividers along it would be parallel to a closed face
+  // that has no corresponding open face on either side.
+  const openFaceSet = new Set(recipe.openFaces ?? (recipe.type === 'basicBox' ? ['top'] : []));
+  const blockedAxes = new Set<string>();
+  // Y-axis dividers are parallel to top/bottom — blocked unless top or bottom is open
+  if (!openFaceSet.has('top') && !openFaceSet.has('bottom')) blockedAxes.add('y');
+  // Z-axis dividers are parallel to front/back — blocked unless front or back is open
+  if (!openFaceSet.has('front') && !openFaceSet.has('back')) blockedAxes.add('z');
+  // X-axis dividers are parallel to left/right — blocked unless left or right is open
+  if (!openFaceSet.has('left') && !openFaceSet.has('right')) blockedAxes.add('x');
+
   // Subdivisions
   if (recipe.subdivisions) {
     for (const step of recipe.subdivisions) {
@@ -458,6 +474,16 @@ export function executeRecipe(recipe: AssemblyRecipe): { engine: Engine } {
         // subdivideEvenly
         const axis = (step.axis ?? 'x') as Axis;
         const count = step.count ?? 2;
+
+        if (blockedAxes.has(axis)) {
+          const axisName = { x: 'left-right', y: 'horizontal', z: 'front-back' }[axis];
+          const suggestion = ['x', 'y', 'z'].filter(a => !blockedAxes.has(a)).join(' or ');
+          throw new RecipeError(
+            `Can't subdivide along the ${axis}-axis (${axisName}) — all compartments would be sealed with no open face to access them. ` +
+            (suggestion ? `Try the ${suggestion} axis instead.` : 'Open a face first.')
+          );
+        }
+
         builder.subdivideEvenly(() => voidId, axis, count);
 
         // Register child voids
