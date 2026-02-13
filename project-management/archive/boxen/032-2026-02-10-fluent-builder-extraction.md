@@ -1,6 +1,18 @@
+---
+**Processed:** 2026-02-13
+**Mode:** human-guided
+**Actions taken:**
+- Phase 1 (fill gaps) and Phase 3 (migrate tests) implemented across two branches, merged as PR #63
+- Remaining builder methods (sub-assembly, axis, remove subdivision) → draft 043
+- Remaining test migrations (custom materialConfig, internal API tests) → draft 044
+- Phase 2 extract + rename → task `project-management/tasks/extract-builder-to-src.md`
+- Open questions resolved: rename to AssemblyBuilder (yes), void selection (VoidSelector implemented), backward compat (prefer delete over shim)
+**Outstanding items:** none — follow-up work captured in drafts 043, 044, and the extract task
+---
+
 # Extract Fluent Builder from Test Suite
 
-**Status:** Idea
+**Status:** Complete
 **Captured:** 2026-02-10
 
 ## Raw
