@@ -127,7 +127,29 @@ Select a panel, apply operations, then return to the builder with `.and()`.
 
 **Corner keys:** `'bottom:left'`, `'bottom:right'`, `'left:top'`, `'right:top'`
 
-**Important:** Extensions only work on **open** or **female** edges. Male edges (edges with finger joint tabs) cannot be extended. If a face is open, `.withExtension()` on that panel is silently skipped.
+**Important — extension eligibility and lid tab direction:**
+
+Extensions only work on **open** or **female** edges. Male edges (edges with finger joint tabs) cannot be extended.
+
+**Lid panels (top/bottom on Y axis) default to `tabs-out` (male), which means their edges CANNOT be extended.** To make a lid panel's edges extensible, you must change its tab direction to `tabs-in` (female) first:
+
+```typescript
+// Bottom panel defaults to tabs-out (male) — extensions will silently fail
+AssemblyBuilder.basicBox(60, 100, 60)
+  .panel('bottom').withExtension('left', 10).and()  // ❌ Silently skipped — bottom edges are male
+
+// Fix: set bottom lid to tabs-in BEFORE applying extensions
+AssemblyBuilder.basicBox(60, 100, 60)
+  .withLid('negative', { tabDirection: 'tabs-in' })  // bottom becomes female
+  .panel('bottom').withExtension('left', 10).and()    // ✅ Works — bottom edges are now female
+```
+
+**Lid sides by axis:**
+- Y axis (default): `'positive'` = top, `'negative'` = bottom
+- Z axis: `'positive'` = front, `'negative'` = back
+- X axis: `'positive'` = right, `'negative'` = left
+
+**Side walls (front, back, left, right on Y axis) are NOT lids** — their edge gender is determined by wall priority and can't be changed with `withLid`. Side wall edges adjacent to an open face are always extensible.
 
 ### Shape Helpers
 
@@ -167,13 +189,124 @@ Cutout coordinates are in the panel's local 2D space. For example, to place a cu
 - Panel is 200 wide × 100 tall
 - Center is at (100, 50)
 
-## Geometry Constraints
+## Edge Gender and Extensibility Rules
+
+Understanding edge gender is critical — it determines which edges can be extended, filleted, or left straight.
+
+### Wall Priority
+
+Each face has a priority. When two faces meet at an edge, the lower-priority face is **male** (tabs out) and the higher-priority face is **female** (receives slots).
+
+| Face | Priority | Role at edges |
+|------|----------|---------------|
+| front | 1 | Male to all adjacent faces |
+| back | 2 | Male to left, right, top, bottom; female to front |
+| left | 3 | Male to top, bottom; female to front, back |
+| right | 4 | Male to top, bottom; female to front, back |
+| top | 5 (lid) | Female to all side walls |
+| bottom | 6 (lid) | Female to all side walls |
+
+### Edge Gender by Face (Y axis, default)
+
+For each face, every edge is either **male**, **female**, or **open** (adjacent face removed):
+
+| Face | Top Edge | Bottom Edge | Left Edge | Right Edge |
+|------|----------|-------------|-----------|------------|
+| front | male (or open if top removed) | male (or open if bottom removed) | male | male |
+| back | male (or open if top removed) | male (or open if bottom removed) | male | male |
+| left | male (or open if top removed) | male (or open if bottom removed) | female (meets front) | female (meets back) |
+| right | male (or open if top removed) | male (or open if bottom removed) | female (meets front) | female (meets back) |
+| top (lid) | female | female | female | female |
+| bottom (lid) | female | female | female | female |
+
+**BUT: Lid tab direction overrides this.** Top and bottom are lids. With the default `tabDirection: 'tabs-out'`, their edges become **male** instead of female. See the override table below.
+
+### Lid Tab Direction Override
+
+Lids (top/bottom on Y axis) have a configurable `tabDirection`:
+- `'tabs-out'` (DEFAULT) → lid edges are **male** → NOT extensible
+- `'tabs-in'` → lid edges are **female** → extensible
+
+| Lid | Default tabDirection | Default edge gender | Extensible? |
+|-----|---------------------|-------------------|-------------|
+| top | tabs-out | male | NO |
+| bottom | tabs-out | male | NO |
+| top (with tabs-in) | tabs-in | female | YES |
+| bottom (with tabs-in) | tabs-in | female | YES |
+
+### Extension Eligibility Summary
+
+An edge can be extended ONLY if it is **open** or **female**:
+
+| Edge state | Can extend? | How to achieve |
+|-----------|-------------|----------------|
+| Open (adjacent face removed) | YES | `.withOpenFaces(['top'])` makes top-adjacent edges open |
+| Female | YES | Side wall edges meeting lower-priority walls, or lid with `tabs-in` |
+| Male (tabs-out) | NO | Default for front/back edges and lids with `tabs-out` |
+
+### Practical Recipes
+
+**Extend a side wall's top edge (e.g., lip/rim):**
+```typescript
+.withOpenFaces(['top'])  // Makes top-adjacent edges open
+.panel('front').withExtension('top', 10).and()  // ✅ Works — top edge is now open
+```
+
+**Extend the bottom panel (e.g., base plate wider than box):**
+```typescript
+.withLid('negative', { tabDirection: 'tabs-in' })  // REQUIRED — makes bottom female
+.panel('bottom').withExtension('left', 10).and()    // ✅ Works
+```
+
+**Extend an enclosed box's top panel:**
+```typescript
+.withLid('positive', { tabDirection: 'tabs-in' })  // REQUIRED — makes top female
+.panel('top').withExtension('left', 10).and()       // ✅ Works
+```
+
+**Extend front panel's left/right edges:**
+Front is priority 1 (lowest), so its left and right edges are **male** where they meet left/right panels. These CANNOT be extended. To get a wider front panel, you would need to remove the adjacent face:
+```typescript
+.withOpenFaces(['top', 'left'])  // Left edge of front is now open
+.panel('front').withExtension('left', 10).and()  // ✅ Works — left edge is open
+```
+
+### Fillet Eligibility
+
+A corner can be filleted ONLY if **both** edges meeting at that corner are open or female. If either edge is male, the corner cannot be filleted.
+
+| Corner | Edges involved | Filleable on basicBox (top open)? |
+|--------|---------------|----------------------------------|
+| front `bottom:left` | bottom (male) + left (male) | NO — both male |
+| front `bottom:right` | bottom (male) + right (male) | NO — both male |
+| front `left:top` | left (male) + top (open) | NO — left is male |
+| front `right:top` | right (male) + top (open) | NO — right is male |
+| left `bottom:left` | bottom (male) + left (female) | NO — bottom is male |
+| left `left:top` | left (female) + top (open) | YES — both non-male |
+
+**To fillet the bottom panel's corners**, the bottom must have female edges:
+```typescript
+.withLid('negative', { tabDirection: 'tabs-in' })
+.panel('bottom')
+  .withFillet(['bottom:left', 'bottom:right', 'top:left', 'top:right'], 5)
+  .and()
+```
+
+**To fillet a side wall's corners**, the adjacent edges must be open:
+```typescript
+.withOpenFaces(['top', 'bottom', 'left', 'right'])  // All adjacent edges become open
+.panel('front')
+  .withFillet(['bottom:left', 'bottom:right', 'left:top', 'right:top'], 8)
+  .and()
+```
+
+## General Geometry Constraints
 
 1. **All paths are axis-aligned** — horizontal and vertical segments only, no diagonals
 2. **No overlapping material** — panels must not occupy the same physical space
-3. **Extension eligibility** — only open/female edges can extend (not male tabs-out edges)
-4. **Cutouts must be inside the panel** — the hole path must be strictly within the outline
-5. **Material thickness** affects joint geometry — typical values are 3mm (craft plywood) or 6mm (structural plywood)
+3. **Cutouts must be inside the panel** — the hole path must be strictly within the outline
+4. **Material thickness** affects joint geometry — typical values are 3mm (craft plywood) or 6mm (structural plywood)
+5. **Corner ownership** — when two adjacent panels both extend the same edge, the female panel yields by one material thickness to avoid overlap
 
 ## Examples
 
