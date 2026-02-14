@@ -1,6 +1,16 @@
+---
+**Processed:** 2026-02-13
+**Mode:** human-guided
+**Actions taken:**
+- Verified core functions implemented (get_task_worktree_path, get_task_branch, cleanup_task_worktree)
+- Confirmed scheduler still uses old agent-level worktrees for creation — hybrid state is acceptable
+- No tasks enqueued — current state works well enough
+**Outstanding items:** Scheduler migration to task-scoped creation deferred indefinitely
+---
+
 # Ephemeral Worktrees for All Tasks
 
-**Status:** Draft
+**Status:** Partially Implemented
 **Created:** 2026-02-10
 **Problem:** Persistent agent-level worktrees cause state pollution, leading to false commit attribution and agents claiming work they didn't do
 
