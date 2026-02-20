@@ -2706,6 +2706,9 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             let targetPoint = cursorPosition;
             if (isShiftHeld) {
               targetPoint = constrainAngle(lastPoint, cursorPosition);
+            } else if (snapResult) {
+              // No shift, snap active: ghost line follows the snap indicator
+              targetPoint = snapResult.point;
             }
 
             // Use appropriate color based on mode
