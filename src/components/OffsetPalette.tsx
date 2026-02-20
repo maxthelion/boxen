@@ -22,7 +22,7 @@ export interface PanelEdgeGroup {
   edges: PanelEdgeInfo[];
 }
 
-interface InsetPaletteProps {
+interface OffsetPaletteProps {
   visible: boolean;
   position: { x: number; y: number };
   panelEdgeGroups: PanelEdgeGroup[];
@@ -36,7 +36,7 @@ interface InsetPaletteProps {
   closeOnClickOutside?: boolean;
 }
 
-export const InsetPalette: React.FC<InsetPaletteProps> = ({
+export const OffsetPalette: React.FC<OffsetPaletteProps> = ({
   visible,
   position,
   panelEdgeGroups,
@@ -60,7 +60,7 @@ export const InsetPalette: React.FC<InsetPaletteProps> = ({
   }
 
   const edgeLabel = selectedEdgeCount === 1 ? '1 edge' : `${selectedEdgeCount} edges`;
-  const title = `Inset/Outset: ${edgeLabel}`;
+  const title = `Offset: ${edgeLabel}`;
 
   // Get colors from config
   const colors = getColors();

@@ -528,7 +528,7 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
 
   'inset-outset': {
     id: 'inset-outset',
-    name: 'Inset/Outset',
+    name: 'Offset',
     type: 'parameter',
     selectionType: 'edge',
     minSelection: 1,
