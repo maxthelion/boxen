@@ -51,7 +51,7 @@ describe('validateRecipe', () => {
   it('rejects over-limit dimensions', () => {
     expect(() =>
       validateRecipe({ type: 'basicBox', width: 3000, height: 100, depth: 100 })
-    ).toThrow('width exceeds maximum of 2000mm');
+    ).toThrow('Width 3000mm exceeds the maximum of 2000mm.');
   });
 
   it('rejects non-numeric dimensions', () => {
