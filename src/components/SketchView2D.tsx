@@ -423,6 +423,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     draftPoints,
     startDraft,
     addDraftPoint,
+    updateDraftTarget,
     commit: commitDraft,
     cancel: cancelDraft,
   } = useEditor();
@@ -2468,9 +2469,22 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             let previewPoints: { x: number; y: number }[];
 
             if (isEdgePathDraft && draftTarget?.edge) {
-              // Edge-path mode: convert from edge-relative coordinates
-              previewPoints = draftPoints
-                .map(p => edgeCoordsToSvg(p.x, p.y, draftTarget.edge!))
+              // Edge-path mode: convert from edge-relative coordinates.
+              // If mirroring is enabled, also include the reflected points (t -> 1-t)
+              // so the user sees the full symmetric preview in real time.
+              let edgeRelPoints = draftPoints.map(p => ({ t: p.x, offset: p.y }));
+
+              if (draftTarget.mirrored && edgeRelPoints.length > 0) {
+                // Mirror: for each point with t < 0.5 (or not exactly 0.5), add t = 1-t
+                const mirroredExtra = [...edgeRelPoints]
+                  .reverse()
+                  .filter(pt => Math.abs(pt.t - 0.5) > 0.001)
+                  .map(pt => ({ t: 1 - pt.t, offset: pt.offset }));
+                edgeRelPoints = [...edgeRelPoints, ...mirroredExtra];
+              }
+
+              previewPoints = edgeRelPoints
+                .map(p => edgeCoordsToSvg(p.t, p.offset, draftTarget.edge!))
                 .filter((p): p is { x: number; y: number } => p !== null);
             } else if (isPolygonDraft) {
               // Polygon mode: points are already in SVG coordinates
@@ -3078,9 +3092,21 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
               <div style={{ fontSize: '12px', marginBottom: '8px', opacity: 0.8 }}>
                 Click to add points along the edge. Points will define a custom outline.
               </div>
-              <div style={{ fontSize: '12px', marginBottom: '12px' }}>
+              <div style={{ fontSize: '12px', marginBottom: '8px' }}>
                 Points: <strong>{draftPoints.length}</strong>
               </div>
+              <PaletteCheckbox
+                label="Mirror"
+                checked={draftTarget?.mirrored ?? false}
+                onChange={() => {
+                  updateDraftTarget({ mirrored: !(draftTarget?.mirrored ?? false) });
+                }}
+              />
+              {(draftTarget?.mirrored ?? false) && (
+                <div style={{ fontSize: '11px', marginBottom: '8px', opacity: 0.6 }}>
+                  Draw t=0..0.5; second half is auto-mirrored
+                </div>
+              )}
               <PaletteButtonRow>
                 <PaletteButton
                   variant="primary"

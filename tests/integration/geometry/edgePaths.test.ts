@@ -829,4 +829,137 @@ describe('Edge Path Integration', () => {
       });
     });
   });
+
+  // ===========================================================================
+  // Mirrored Edge Paths
+  // ===========================================================================
+
+  describe('Mirrored Edge Paths', () => {
+    beforeEach(() => {
+      engine.createAssembly(100, 80, 60, {
+        thickness: 3,
+        fingerWidth: 10,
+        fingerGap: 1.5,
+      });
+
+      // Remove top face to make front panel's top edge open
+      engine.dispatch({
+        type: 'TOGGLE_FACE',
+        targetId: 'main-assembly',
+        payload: { faceId: 'top' },
+      });
+    });
+
+    it('mirrored=true produces symmetrical outline around center of edge', () => {
+      const panelBefore = getFacePanelSnapshot(engine, 'front')!;
+      expect(panelBefore).toBeDefined();
+
+      // Create a mirrored edge path for the top edge.
+      // Only define points from t=0 to t=0.5 (the first half).
+      // The engine should mirror t=0..0.5 to produce points at t=0.5..1.0.
+      // Top edge of a 100x80 panel: t=0 is x=-50, t=0.5 is x=0, t=1 is x=50
+      const mirroredPath = {
+        edge: 'top' as const,
+        baseOffset: 0,
+        mirrored: true,
+        points: [
+          { t: 0.0, offset: 0 },     // t=0 → x=-50, at the edge
+          { t: 0.25, offset: -10 },  // t=0.25 → x=-25, 10mm notch
+          { t: 0.5, offset: -10 },   // t=0.5 → x=0 (center), 10mm notch
+        ],
+      };
+
+      engine.dispatch({
+        type: 'SET_EDGE_PATH',
+        targetId: 'main-assembly',
+        payload: {
+          panelId: panelBefore.id,
+          path: mirroredPath,
+        },
+      });
+
+      const panelAfter = getFacePanelSnapshot(engine, 'front')!;
+      const points = panelAfter.derived.outline.points;
+
+      // The mirrored path should create notch points on BOTH sides:
+      // Left side: notch near x=-25 (from t=0.25)
+      // Right side: notch near x=+25 (mirrored from t=0.75)
+
+      // Check for notch on left side (x=-25, y < 40)
+      const hasLeftNotch = points.some(p => Math.abs(p.x - (-25)) < 3 && p.y < 37);
+      // Check for notch on right side (x=+25, y < 40)
+      const hasRightNotch = points.some(p => Math.abs(p.x - 25) < 3 && p.y < 37);
+
+      expect(hasLeftNotch).toBe(true);
+      expect(hasRightNotch).toBe(true);
+
+      // Verify approximate symmetry: points near the top edge should be roughly symmetric
+      // For each point with a notch (y < 35), there should be a symmetric counterpart
+      const notchPoints = points.filter(p => p.y < 37 && p.y > -37);
+      const tolerance = 2.0;
+      for (const pt of notchPoints) {
+        const mirroredX = -pt.x;
+        const hasMirrored = points.some(p =>
+          Math.abs(p.x - mirroredX) < tolerance && Math.abs(p.y - pt.y) < tolerance
+        );
+        expect(hasMirrored).toBe(true);
+      }
+    });
+
+    it('mirrored=true with half-path has more points than mirrored=false with same half-path', () => {
+      // A mirrored path with t=0..0.5 should produce the same outline shape as
+      // an unmirrored path with both halves explicitly defined.
+      // It should have more outline points than an unmirrored path with only t=0..0.5.
+      const panelBefore = getFacePanelSnapshot(engine, 'front')!;
+
+      // Apply half path without mirroring - only left half
+      const halfOnlyPath = {
+        edge: 'top' as const,
+        baseOffset: 0,
+        mirrored: false,
+        points: [
+          { t: 0.0, offset: 0 },
+          { t: 0.25, offset: -10 },
+          { t: 0.5, offset: -10 },
+        ],
+      };
+
+      engine.dispatch({
+        type: 'SET_EDGE_PATH',
+        targetId: 'main-assembly',
+        payload: { panelId: panelBefore.id, path: halfOnlyPath },
+      });
+
+      const pointsWithoutMirror = getFacePanelSnapshot(engine, 'front')!.derived.outline.points;
+
+      // Now apply same path with mirroring enabled
+      const mirroredHalfPath = {
+        edge: 'top' as const,
+        baseOffset: 0,
+        mirrored: true,
+        points: [
+          { t: 0.0, offset: 0 },
+          { t: 0.25, offset: -10 },
+          { t: 0.5, offset: -10 },
+        ],
+      };
+
+      // Need to recreate engine for clean state
+      const engine2 = createEngine();
+      engine2.createAssembly(100, 80, 60, { thickness: 3, fingerWidth: 10, fingerGap: 1.5 });
+      engine2.dispatch({ type: 'TOGGLE_FACE', targetId: 'main-assembly', payload: { faceId: 'top' } });
+      const panel2 = getFacePanelSnapshot(engine2, 'front')!;
+
+      engine2.dispatch({
+        type: 'SET_EDGE_PATH',
+        targetId: 'main-assembly',
+        payload: { panelId: panel2.id, path: mirroredHalfPath },
+      });
+
+      const pointsWithMirror = getFacePanelSnapshot(engine2, 'front')!.derived.outline.points;
+
+      // Mirrored path should produce more outline points (the second half is generated)
+      expect(pointsWithMirror.length).toBeGreaterThan(pointsWithoutMirror.length);
+    });
+  });
 });
