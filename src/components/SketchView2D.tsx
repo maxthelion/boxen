@@ -10,6 +10,7 @@ import { FloatingPalette, PaletteSliderInput, PaletteToggleGroup, PaletteButtonR
 import { getColors } from '../config/colors';
 import { SafeSpaceRegion, isRectInSafeSpace, isCircleInSafeSpace, isPointInSafeSpace, analyzePath, getEdgeMarginsForFace, rectToEdgePath, circleToEdgePath } from '../engine/safeSpace';
 import { createRectPolygon, createCirclePolygon, classifyPolygon } from '../utils/polygonBoolean';
+import { computeGuideLines, computeSnapPoints, computeEdgeSegments, findSnapPoint, GuideLine, SnapResult, SnapPoint, EdgeSegment } from '../utils/snapGuides';
 import { FaceConfig } from '../types';
 import { debug, enableDebugTag } from '../utils/debug';
 
@@ -452,8 +453,12 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   const [palettePosition, setPalettePosition] = useState({ x: 200, y: 100 });
 
   // Legend hover state - which element type is being highlighted
-  type LegendHighlight = 'locked-edge' | 'editable-edge' | 'boundary' | 'safe-zone' | 'corner' | null;
+  type LegendHighlight = 'locked-edge' | 'editable-edge' | 'boundary' | 'safe-zone' | 'corner' | 'guide-lines' | null;
   const [legendHighlight, setLegendHighlight] = useState<LegendHighlight>(null);
+
+  // Guide lines and snapping state
+  const [showGuideLines, setShowGuideLines] = useState(true);
+  const [snapResult, setSnapResult] = useState<SnapResult | null>(null);
 
   // Chamfer/fillet operation params - extracted from editor context
   const isChamferOperationActive = operationId === 'chamfer-fillet';
@@ -619,6 +624,24 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     const margin = config.materialThickness * 2;
     return { top: margin, bottom: margin, left: margin, right: margin };
   }, [panel, faces, config.materialThickness]);
+
+  // Compute guide lines from panel geometry
+  const guideLines = useMemo((): GuideLine[] => {
+    if (!panel) return [];
+    return computeGuideLines(panel.width, panel.height, panel.outline.points);
+  }, [panel]);
+
+  // Compute snap points from outline vertices (for point snapping)
+  const snapPoints = useMemo((): SnapPoint[] => {
+    if (!panel) return [];
+    return computeSnapPoints(panel.outline.points);
+  }, [panel]);
+
+  // Compute edge segments for edge snapping (uses same classification tolerance as edgeSegments)
+  const snapEdgeSegments = useMemo((): EdgeSegment[] => {
+    if (!panel) return [];
+    return computeEdgeSegments(panel.outline.points, panel.width, panel.height);
+  }, [panel]);
 
   // Detect corners for potential finishing
   // Uses usePanelEligibility hook which reads from MAIN scene (not preview)
@@ -1662,11 +1685,12 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             }
           }
 
-          // Apply angle constraint if Shift is held
-          let newPoint = { x: svgPos.x, y: svgPos.y };
+          // Apply snapping first, then angle constraint if Shift is held
+          const snappedPos = snapResult ? snapResult.point : svgPos;
+          let newPoint = { x: snappedPos.x, y: snappedPos.y };
           if (isShiftHeld && draftPoints.length > 0) {
             const lastPoint = draftPoints[draftPoints.length - 1];
-            newPoint = constrainAngle(lastPoint, svgPos);
+            newPoint = constrainAngle(lastPoint, snappedPos);
           }
 
           debug('path-tool', `Adding polygon point: ${JSON.stringify(newPoint)}`);
@@ -1690,15 +1714,16 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         const editable = isEdgeEditable(edge);
         if (editable) {
           debug('path-tool', `Starting forked mode on edge: ${edge}`);
+          const startPos = snapResult ? snapResult.point : svgPos;
           startDraft('edge-path', {
             panelId: panel.id,
             edge,
             pathMode: 'forked',
-            forkStart: { x: svgPos.x, y: svgPos.y },
+            forkStart: { x: startPos.x, y: startPos.y },
           });
           // Add first point in edge-relative coordinates
           // Snap offset to the current edge path value at this t position
-          const edgeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, edge);
+          const edgeCoords = svgToEdgeCoords(startPos.x, startPos.y, edge);
           if (edgeCoords) {
             const currentOffset = getEdgePathOffsetAtT(
               panel.customEdgePaths ?? [],
@@ -1719,7 +1744,8 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           panelId: panel.id,
           pathMode: 'polygon',
         });
-        addDraftPoint({ x: svgPos.x, y: svgPos.y });
+        const startPos = snapResult ? snapResult.point : svgPos;
+        addDraftPoint({ x: startPos.x, y: startPos.y });
         setPathPalettePosition({ x: e.clientX + 20, y: e.clientY - 50 });
         return;
       }
@@ -1764,16 +1790,18 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
     // Rectangle cutout tool: start drawing rectangle
     if (activeTool === 'rectangle' && panel) {
+      const startPos = snapResult ? snapResult.point : svgPos;
       setIsDrawingRect(true);
-      setRectStart(svgPos);
-      setRectCurrent(svgPos);
+      setRectStart(startPos);
+      setRectCurrent(startPos);
       return;
     }
 
     // Circle cutout tool: start drawing circle
     if (activeTool === 'circle' && panel) {
+      const startPos = snapResult ? snapResult.point : svgPos;
       setIsDrawingCircle(true);
-      setCircleCenter(svgPos);
+      setCircleCenter(startPos);
       setCircleRadius(0);
       return;
     }
@@ -1781,11 +1809,24 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     // Default: start panning
     setIsPanning(true);
     setPanStart({ x: e.clientX, y: e.clientY });
-  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel, activeTool, findCornerAtPoint, handleCornerClick, isInsetOperationActive, startOperation, updateParams, isPathDraftActive, draftTarget, draftPoints, svgToEdgeCoords, addDraftPoint, startDraft, safeSpace, edgeSegments, isEdgePathDraft, isPolygonDraft, isShiftHeld, cancelDraft, commitDraft, polygonMode, setActiveTool]);
+  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel, activeTool, findCornerAtPoint, handleCornerClick, isInsetOperationActive, startOperation, updateParams, isPathDraftActive, draftTarget, draftPoints, svgToEdgeCoords, addDraftPoint, startDraft, safeSpace, edgeSegments, isEdgePathDraft, isPolygonDraft, isShiftHeld, cancelDraft, commitDraft, polygonMode, setActiveTool, snapResult]);
 
   // Handle mouse move
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const svgPos = screenToSvg(e.clientX, e.clientY);
+
+    // Compute snap once for all branches that need it
+    const isDrawingMode = activeTool === 'path' || activeTool === 'rectangle' || activeTool === 'circle';
+    let snap: SnapResult | null = null;
+    if (svgPos && showGuideLines && isDrawingMode) {
+      const snapThreshold = Math.max(viewBox.width, viewBox.height) / 40;
+      snap = findSnapPoint(
+        svgPos.x, svgPos.y, guideLines, snapThreshold,
+        snapPoints, snapEdgeSegments,
+        panel?.width, panel?.height,
+      );
+    }
+    const snappedPos = snap ? snap.point : svgPos;
 
     if (isDraggingEdge && dragEdge && svgPos && panel && isInsetOperationActive) {
       // Calculate drag delta
@@ -1808,12 +1849,13 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         offset: clampedOffset,
       });
     } else if (isDrawingRect && svgPos) {
-      // Update rectangle preview
-      setRectCurrent(svgPos);
+      setSnapResult(snap);
+      setRectCurrent(snappedPos!);
     } else if (isDrawingCircle && circleCenter && svgPos) {
-      // Update circle radius based on distance from center
-      const dx = svgPos.x - circleCenter.x;
-      const dy = svgPos.y - circleCenter.y;
+      setSnapResult(snap);
+      const target = snappedPos!;
+      const dx = target.x - circleCenter.x;
+      const dy = target.y - circleCenter.y;
       setCircleRadius(Math.sqrt(dx * dx + dy * dy));
     } else if (isPanning) {
       const svg = svgRef.current;
@@ -1831,14 +1873,16 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       setPanStart({ x: e.clientX, y: e.clientY });
     } else if (svgPos) {
       // Update hovered edge when inset or path tool is active
-      if (activeTool === 'inset' || activeTool === 'path') {
+      if (activeTool === 'path' && !isPathDraftActive) {
+        // In path mode (not drafting), derive edge hover from snap result
+        // The snap system handles edge proximity detection, so we use it
+        // instead of the separate findEdgeAtPoint()
+        const edgeFromSnap = snap?.type === 'edge' ? (snap.edgePosition as EdgePosition | undefined) : undefined;
+        setHoveredEdge(edgeFromSnap && isEdgeEditable(edgeFromSnap) ? edgeFromSnap : null);
+      } else if (activeTool === 'inset') {
+        // Inset tool still uses direct edge detection (no snap system interaction)
         const edge = findEdgeAtPoint(svgPos.x, svgPos.y);
-        // For path tool, only show hover on editable edges when not in a draft
-        if (activeTool === 'path' && !isPathDraftActive) {
-          setHoveredEdge(edge && isEdgeEditable(edge) ? edge : null);
-        } else {
-          setHoveredEdge(edge);
-        }
+        setHoveredEdge(edge);
       } else {
         setHoveredEdge(null);
       }
@@ -1857,8 +1901,10 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       } else {
         setCursorPosition(null);
       }
+
+      setSnapResult(snap);
     }
-  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, config.materialThickness, activeTool, findCornerAtPoint, isInsetOperationActive, updateParams, isPathDraftActive, isEdgeEditable, isDrawingRect, isDrawingCircle, circleCenter]);
+  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, config.materialThickness, activeTool, findCornerAtPoint, isInsetOperationActive, updateParams, isPathDraftActive, isEdgeEditable, isDrawingRect, isDrawingCircle, circleCenter, showGuideLines, guideLines, snapPoints, snapEdgeSegments]);
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
@@ -1890,6 +1936,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     setIsPanning(false);
     setIsDraggingEdge(false);
     setDragEdge(null);
+    setSnapResult(null);
   }, [isDrawingRect, rectStart, rectCurrent, handleCreateRectCutout, isDrawingCircle, circleCenter, circleRadius, handleCreateCircleCutout]);
 
   // Handle keyboard shortcuts
@@ -2150,6 +2197,50 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
         {/* Y-axis is flipped in SVG, so we apply a transform */}
         <g transform="scale(1, -1)">
+          {/* Guide lines for snapping (center lines + edge extension lines) */}
+          {showGuideLines && guideLines.length > 0 && (() => {
+            const guideStrokeWidth = Math.max(viewBox.width, viewBox.height) / 800;
+            const extent = Math.max(viewBox.width, viewBox.height) * 3;
+            const isLegendHighlightedGuide = legendHighlight === 'guide-lines';
+
+            return (
+              <g>
+                {guideLines.map((guide, i) => {
+                  const isHighlighted = isLegendHighlightedGuide ||
+                    (snapResult?.guides.some(g =>
+                      g.orientation === guide.orientation && g.position === guide.position
+                    ) ?? false);
+                  const color = isHighlighted
+                    ? colors.sketch.guides.highlight
+                    : guide.type === 'center'
+                      ? colors.sketch.guides.centerLine
+                      : colors.sketch.guides.edgeLine;
+                  const opacity = isHighlighted ? 0.8 : guide.type === 'center' ? 0.5 : 0.3;
+                  const strokeW = isHighlighted ? guideStrokeWidth * 2 : guideStrokeWidth;
+                  const isH = guide.orientation === 'horizontal';
+
+                  return (
+                    <line
+                      key={`guide-${isH ? 'h' : 'v'}-${i}`}
+                      x1={isH ? -extent : guide.position}
+                      y1={isH ? guide.position : -extent}
+                      x2={isH ? extent : guide.position}
+                      y2={isH ? guide.position : extent}
+                      stroke={color}
+                      strokeWidth={strokeW}
+                      strokeDasharray={guide.type === 'center'
+                        ? `${6 * guideStrokeWidth} ${4 * guideStrokeWidth}`
+                        : `${3 * guideStrokeWidth} ${3 * guideStrokeWidth}`
+                      }
+                      opacity={opacity}
+                      style={{ transition: 'opacity 0.1s, stroke 0.1s' }}
+                    />
+                  );
+                })}
+              </g>
+            );
+          })()}
+
           {/* Adjacent panel side profiles - shows cross-section of neighboring panels */}
           {panel && adjacentPanelProfiles.map(profile => {
             if (!profile.exists) return null;
@@ -2778,6 +2869,32 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
               </g>
             );
           })}
+
+          {/* Snap indicator - circle at snap point, styled by type */}
+          {snapResult && showGuideLines && (() => {
+            const indicatorR = Math.max(viewBox.width, viewBox.height) / 100;
+            const isEdgeSnap = snapResult.type === 'edge';
+            const isPointSnap = snapResult.type === 'point';
+            const isForkIndicator = isEdgeSnap && activeTool === 'path' && !isPathDraftActive;
+
+            // Edge snaps in path mode (fork indicator) use a slightly larger, more prominent circle
+            const r = isForkIndicator ? indicatorR * 1.3 : isPointSnap ? indicatorR * 0.8 : indicatorR;
+            const fillOpacity = isForkIndicator ? 0.4 : isPointSnap ? 0.5 : 0.3;
+            const strokeW = isForkIndicator ? r * 0.4 : r * 0.3;
+
+            return (
+              <circle
+                cx={snapResult.point.x}
+                cy={snapResult.point.y}
+                r={r}
+                fill={colors.sketch.guides.snapIndicator}
+                fillOpacity={fillOpacity}
+                stroke={colors.sketch.guides.snapIndicator}
+                strokeWidth={strokeW}
+                opacity={0.9}
+              />
+            );
+          })()}
         </g>
 
         {/* Dimension labels - positioned outside drawing with scaled font */}
@@ -3448,6 +3565,22 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             >
               <span className="legend-swatch" style={{ backgroundColor: colors.sketch.editable.base }} />
               <span>Safe zone (for cutouts)</span>
+            </div>
+            <div
+              className={`legend-row ${legendHighlight === 'guide-lines' ? 'highlighted' : ''}`}
+              onMouseEnter={() => setLegendHighlight('guide-lines')}
+              onMouseLeave={() => setLegendHighlight(null)}
+              onClick={() => setShowGuideLines(!showGuideLines)}
+              style={{ cursor: 'pointer' }}
+            >
+              <span
+                className="legend-swatch"
+                style={{
+                  backgroundColor: showGuideLines ? colors.sketch.guides.centerLine : 'transparent',
+                  border: showGuideLines ? 'none' : `1px solid ${colors.sketch.guides.centerLine}`,
+                }}
+              />
+              <span>Guide lines {showGuideLines ? '(on)' : '(off)'}</span>
             </div>
             {activeTool === 'chamfer' && (
               <div
