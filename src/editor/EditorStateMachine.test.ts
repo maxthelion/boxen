@@ -337,6 +337,67 @@ describe('EditorStateMachine', () => {
     it('getDraftPoints returns empty array when not in draft mode', () => {
       expect(getDraftPoints(initialEditorState)).toEqual([]);
     });
+
+    it('UPDATE_DRAFT_TARGET updates mirrored flag on draft target', () => {
+      let state = editorReducer(initialEditorState, {
+        type: 'START_DRAFT',
+        draftType: 'edge-path',
+        target: { panelId: 'panel-1', edge: 'top' },
+      });
+
+      // Initially mirrored should be undefined (falsy)
+      expect(state.draft?.target.mirrored).toBeUndefined();
+
+      // Update the target to enable mirroring
+      state = editorReducer(state, {
+        type: 'UPDATE_DRAFT_TARGET',
+        targetUpdate: { mirrored: true },
+      });
+
+      expect(state.draft?.target.mirrored).toBe(true);
+
+      // Update again to disable mirroring
+      state = editorReducer(state, {
+        type: 'UPDATE_DRAFT_TARGET',
+        targetUpdate: { mirrored: false },
+      });
+
+      expect(state.draft?.target.mirrored).toBe(false);
+    });
+
+    it('UPDATE_DRAFT_TARGET preserves existing draft points', () => {
+      let state = editorReducer(initialEditorState, {
+        type: 'START_DRAFT',
+        draftType: 'edge-path',
+        target: { panelId: 'panel-1', edge: 'top' },
+      });
+
+      state = editorReducer(state, { type: 'ADD_DRAFT_POINT', point: { x: 0.1, y: 0 } });
+      state = editorReducer(state, { type: 'ADD_DRAFT_POINT', point: { x: 0.3, y: -5 } });
+
+      state = editorReducer(state, {
+        type: 'UPDATE_DRAFT_TARGET',
+        targetUpdate: { mirrored: true },
+      });
+
+      // Points should be preserved
+      expect(state.draft?.points).toHaveLength(2);
+      expect(state.draft?.points[0]).toEqual({ x: 0.1, y: 0 });
+      expect(state.draft?.points[1]).toEqual({ x: 0.3, y: -5 });
+      // Target should be updated
+      expect(state.draft?.target.mirrored).toBe(true);
+    });
+
+    it('UPDATE_DRAFT_TARGET is ignored when not in draft mode', () => {
+      const state = editorReducer(initialEditorState, {
+        type: 'UPDATE_DRAFT_TARGET',
+        targetUpdate: { mirrored: true },
+      });
+
+      // Should remain idle, no draft created
+      expect(state.mode).toBe('idle');
+      expect(state.draft).toBeUndefined();
+    });
   });
 
   // ===========================================================================

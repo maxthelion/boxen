@@ -61,6 +61,7 @@ export interface EditorContextValue {
   addDraftPoint: (point: PathPoint) => void;
   updateDraftPoint: (index: number, point: PathPoint) => void;
   removeDraftPoint: (index: number) => void;
+  updateDraftTarget: (targetUpdate: Partial<DraftTarget>) => void;
   startEditSession: (targetId: string, targetType: EditSessionState['targetType'], snapshot: unknown) => void;
   recordEdit: (edit: MicroEdit) => void;
   undo: () => void;
@@ -224,7 +225,7 @@ export function useEditorContext(): EditorContextValue {
                 edge: state.draft.target.edge,
                 baseOffset: 0, // Default: no offset from joint face
                 points: mergedPoints,
-                mirrored: false, // For now, don't auto-mirror
+                mirrored: state.draft.target.mirrored ?? false,
               },
             },
           });
@@ -294,6 +295,10 @@ export function useEditorContext(): EditorContextValue {
     dispatch({ type: 'REMOVE_DRAFT_POINT', index });
   }, []);
 
+  const updateDraftTarget = useCallback((targetUpdate: Partial<DraftTarget>) => {
+    dispatch({ type: 'UPDATE_DRAFT_TARGET', targetUpdate });
+  }, []);
+
   const startEditSession = useCallback((
     targetId: string,
     targetType: EditSessionState['targetType'],
@@ -359,6 +364,7 @@ export function useEditorContext(): EditorContextValue {
     addDraftPoint,
     updateDraftPoint,
     removeDraftPoint,
+    updateDraftTarget,
     startEditSession,
     recordEdit,
     undo,
@@ -375,6 +381,7 @@ export function useEditorContext(): EditorContextValue {
     addDraftPoint,
     updateDraftPoint,
     removeDraftPoint,
+    updateDraftTarget,
     startEditSession,
     recordEdit,
     undo,

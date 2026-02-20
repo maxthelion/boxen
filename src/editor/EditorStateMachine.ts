@@ -134,6 +134,18 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         },
       };
 
+    case 'UPDATE_DRAFT_TARGET':
+      if (state.mode !== 'draft' || !state.draft) {
+        return state;
+      }
+      return {
+        ...state,
+        draft: {
+          ...state.draft,
+          target: { ...state.draft.target, ...action.targetUpdate },
+        },
+      };
+
     // =========================================================================
     // Edit Session Actions
     // =========================================================================

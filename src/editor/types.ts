@@ -46,6 +46,8 @@ export interface DraftTarget {
   pathMode?: PathDrawMode;
   /** For forked mode: the fork start point on the boundary (SVG coordinates) */
   forkStart?: { x: number; y: number };
+  /** For edge-path drafts: whether to mirror the path around the midpoint (t=0.5) */
+  mirrored?: boolean;
 }
 
 export interface DraftState {
@@ -114,6 +116,7 @@ export type EditorAction =
   | { type: 'ADD_DRAFT_POINT'; point: PathPoint }
   | { type: 'UPDATE_DRAFT_POINT'; index: number; point: PathPoint }
   | { type: 'REMOVE_DRAFT_POINT'; index: number }
+  | { type: 'UPDATE_DRAFT_TARGET'; targetUpdate: Partial<DraftTarget> }
 
   // Edit session actions
   | { type: 'RECORD_EDIT'; edit: MicroEdit }
