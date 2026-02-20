@@ -8,6 +8,7 @@ import {
   GuideLine,
   SnapPoint,
   EdgeSegment,
+  ConstraintAxis,
 } from '../../../src/utils/snapGuides';
 
 describe('computeGuideLines', () => {
@@ -412,6 +413,111 @@ describe('findSnapPoint', () => {
         undefined, edgeSegments, 100, 80,
       );
       expect(result).toBeNull();
+    });
+  });
+
+  describe('constrained snapping (shift + guideline composition)', () => {
+    // Guides: center at (0,0), edge at y=±40, x=±50
+    const constraintGuides: GuideLine[] = [
+      { orientation: 'horizontal', position: 0, type: 'center' },
+      { orientation: 'vertical', position: 0, type: 'center' },
+      { orientation: 'horizontal', position: 40, type: 'edge' },
+      { orientation: 'horizontal', position: -40, type: 'edge' },
+      { orientation: 'vertical', position: 50, type: 'edge' },
+      { orientation: 'vertical', position: -50, type: 'edge' },
+    ];
+
+    it('should snap to a vertical guide on a horizontal constraint ray', () => {
+      // lastPoint at origin, moving right (0° angle)
+      // Constraint ray: y=0, horizontal
+      // Cursor at (52, 3) — near x=50 vertical guide, slightly above constraint ray
+      const constraintAxis: ConstraintAxis = { fromPoint: { x: 0, y: 0 }, angle: 0 };
+      const result = findSnapPoint(52, 3, constraintGuides, 10, undefined, undefined, undefined, undefined, constraintAxis);
+      expect(result).not.toBeNull();
+      expect(result!.point.x).toBe(50);
+      expect(result!.point.y).toBe(0); // On the constraint ray (y=fromPoint.y)
+      expect(result!.type).toBe('guide-line');
+    });
+
+    it('should snap to guide-guide intersection on a 45-degree constraint ray', () => {
+      // lastPoint at (10, 0), moving at 45°
+      // At 45° from (10, 0), the ray y=x-10 hits:
+      //   horizontal guide at y=40: x = 40+10 = 50 → intersection (50, 40)
+      //   vertical guide at x=50:   y = 50-10 = 40 → intersection (50, 40)
+      // These coincide → guide-guide intersection on constraint ray
+      const constraintAxis: ConstraintAxis = { fromPoint: { x: 10, y: 0 }, angle: Math.PI / 4 };
+      // Cursor somewhere near (50, 40) along the ray
+      const result = findSnapPoint(48, 38, constraintGuides, 10, undefined, undefined, undefined, undefined, constraintAxis);
+      expect(result).not.toBeNull();
+      expect(result!.point.x).toBeCloseTo(50, 1);
+      expect(result!.point.y).toBeCloseTo(40, 1);
+      expect(result!.type).toBe('intersection');
+      expect(result!.guides).toHaveLength(2);
+    });
+
+    it('should return null when shift is held but no guide is within threshold', () => {
+      // lastPoint at origin, horizontal ray; cursor at (25, 0)
+      // No vertical guide near x=25 (guides at x=0 and x=±50)
+      const constraintAxis: ConstraintAxis = { fromPoint: { x: 0, y: 0 }, angle: 0 };
+      const result = findSnapPoint(25, 0, constraintGuides, 5, undefined, undefined, undefined, undefined, constraintAxis);
+      expect(result).toBeNull();
+    });
+
+    it('should not snap to guides parallel to the constraint ray', () => {
+      // Horizontal ray from (0,0); horizontal guides at y=0 and y=40 are parallel → skipped
+      // Cursor at (25, 38) is near the y=40 horizontal guide, but that guide cannot
+      // intersect a horizontal constraint ray (they are parallel)
+      const constraintAxis: ConstraintAxis = { fromPoint: { x: 0, y: 0 }, angle: 0 };
+      const result = findSnapPoint(25, 38, constraintGuides, 5, undefined, undefined, undefined, undefined, constraintAxis);
+      // The cursor is not near any vertical guide either (x=0 is 25 away, x=50 is 25 away)
+      expect(result).toBeNull();
+    });
+
+    it('should snap to vertical center guide on a vertical constraint ray', () => {
+      // Vertical ray (90°) from (0, 0); hits horizontal guides
+      // Cursor at (3, 38) — near y=40 horizontal guide, slightly beside the vertical ray
+      const constraintAxis: ConstraintAxis = { fromPoint: { x: 0, y: 0 }, angle: Math.PI / 2 };
+      const result = findSnapPoint(3, 38, constraintGuides, 10, undefined, undefined, undefined, undefined, constraintAxis);
+      expect(result).not.toBeNull();
+      expect(result!.point.x).toBeCloseTo(0, 1); // On the vertical constraint ray (x=fromPoint.x)
+      expect(result!.point.y).toBe(40);
+      expect(result!.type).toBe('guide-line');
+    });
+
+    it('should work correctly for 135-degree constraint ray', () => {
+      // 135° from (50, 0): going up-left; ray: x + y = 50
+      // This ray hits:
+      //   horizontal at y=40: x = 50-40 = 10 → (10, 40)
+      //   vertical at x=0: y = 50-0 = 50 — but y=50 is not a guide, skip
+      //   horizontal at y=0: x = 50 → intersection at (50, 0) which is the fromPoint (t=0, valid but t≥0)
+      // Let's use cursor at (12, 38) — near (10, 40)
+      const constraintAxis: ConstraintAxis = { fromPoint: { x: 50, y: 0 }, angle: 3 * Math.PI / 4 };
+      const result = findSnapPoint(12, 38, constraintGuides, 10, undefined, undefined, undefined, undefined, constraintAxis);
+      expect(result).not.toBeNull();
+      expect(result!.point.x).toBeCloseTo(10, 1);
+      expect(result!.point.y).toBeCloseTo(40, 1);
+    });
+
+    it('should ignore snap points and edge segments when constraint axis is given', () => {
+      // With constraint axis, only guide intersections matter — snap points are ignored
+      const snapPoints: SnapPoint[] = [{ x: 53, y: 1 }]; // Very close to cursor, but not on guide
+      const constraintAxis: ConstraintAxis = { fromPoint: { x: 0, y: 0 }, angle: 0 };
+      // Cursor at (52, 0) — near vertex (53, 1) AND near vertical guide at x=50
+      const result = findSnapPoint(52, 0, constraintGuides, 10, snapPoints, undefined, undefined, undefined, constraintAxis);
+      // Should snap to the guide, NOT the vertex
+      expect(result).not.toBeNull();
+      expect(result!.point.x).toBe(50);
+      expect(result!.point.y).toBe(0);
+      expect(result!.type).toBe('guide-line'); // Not 'point'
+    });
+
+    it('should snap indicator position match the placed point (no shift regression)', () => {
+      // Without constraintAxis, normal snapping still works
+      const result = findSnapPoint(2, 3, constraintGuides, 10);
+      expect(result).not.toBeNull();
+      expect(result!.point.x).toBe(0);
+      expect(result!.point.y).toBe(0);
+      expect(result!.type).toBe('intersection');
     });
   });
 

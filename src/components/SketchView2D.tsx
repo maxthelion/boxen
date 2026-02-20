@@ -10,7 +10,7 @@ import { FloatingPalette, PaletteSliderInput, PaletteToggleGroup, PaletteButtonR
 import { getColors } from '../config/colors';
 import { SafeSpaceRegion, isRectInSafeSpace, isCircleInSafeSpace, isPointInSafeSpace, analyzePath, getEdgeMarginsForFace, rectToEdgePath, circleToEdgePath } from '../engine/safeSpace';
 import { createRectPolygon, createCirclePolygon, classifyPolygon } from '../utils/polygonBoolean';
-import { computeGuideLines, computeSnapPoints, computeEdgeSegments, findSnapPoint, GuideLine, SnapResult, SnapPoint, EdgeSegment } from '../utils/snapGuides';
+import { computeGuideLines, computeSnapPoints, computeEdgeSegments, findSnapPoint, GuideLine, SnapResult, SnapPoint, EdgeSegment, ConstraintAxis } from '../utils/snapGuides';
 import { FaceConfig } from '../types';
 import { debug, enableDebugTag } from '../utils/debug';
 
@@ -1685,12 +1685,23 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             }
           }
 
-          // Apply snapping first, then angle constraint if Shift is held
-          const snappedPos = snapResult ? snapResult.point : svgPos;
-          let newPoint = { x: snappedPos.x, y: snappedPos.y };
+          // Compose angle constraint and guide snapping:
+          // handleMouseMove already passed a constraintAxis to findSnapPoint when shift is held,
+          // so snapResult.point is guaranteed to be both angle-constrained AND on a guide.
+          // If no guide was found on the constraint ray, snapResult is null — fall back to
+          // pure angle constraint. Without shift, just use the snap result or raw position.
+          let newPoint: { x: number; y: number };
           if (isShiftHeld && draftPoints.length > 0) {
             const lastPoint = draftPoints[draftPoints.length - 1];
-            newPoint = constrainAngle(lastPoint, snappedPos);
+            if (snapResult) {
+              // Snap result already accounts for angle constraint
+              newPoint = snapResult.point;
+            } else {
+              // No guide on the constraint ray; apply pure angle constraint
+              newPoint = constrainAngle(lastPoint, svgPos);
+            }
+          } else {
+            newPoint = snapResult ? { x: snapResult.point.x, y: snapResult.point.y } : { x: svgPos.x, y: svgPos.y };
           }
 
           debug('path-tool', `Adding polygon point: ${JSON.stringify(newPoint)}`);
@@ -1820,10 +1831,27 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     let snap: SnapResult | null = null;
     if (svgPos && showGuideLines && isDrawingMode) {
       const snapThreshold = Math.max(viewBox.width, viewBox.height) / 40;
+
+      // When shift is held while drawing a polygon, compose guide snapping with angle constraint.
+      // Compute the constraint axis so findSnapPoint only considers guides that intersect the
+      // constraint ray — giving a result that is BOTH angle-constrained AND on a guideline.
+      let constraintAxis: ConstraintAxis | undefined;
+      if (isShiftHeld && isPolygonDraft && draftPoints.length > 0) {
+        const lastPt = draftPoints[draftPoints.length - 1];
+        const dx = svgPos.x - lastPt.x;
+        const dy = svgPos.y - lastPt.y;
+        if (Math.sqrt(dx * dx + dy * dy) > 0.001) {
+          const rawAngle = Math.atan2(dy, dx);
+          const snapAngle = Math.round(rawAngle / (Math.PI / 4)) * (Math.PI / 4);
+          constraintAxis = { fromPoint: { x: lastPt.x, y: lastPt.y }, angle: snapAngle };
+        }
+      }
+
       snap = findSnapPoint(
         svgPos.x, svgPos.y, guideLines, snapThreshold,
         snapPoints, snapEdgeSegments,
         panel?.width, panel?.height,
+        constraintAxis,
       );
     }
     const snappedPos = snap ? snap.point : svgPos;
@@ -1904,7 +1932,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
       setSnapResult(snap);
     }
-  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, config.materialThickness, activeTool, findCornerAtPoint, isInsetOperationActive, updateParams, isPathDraftActive, isEdgeEditable, isDrawingRect, isDrawingCircle, circleCenter, showGuideLines, guideLines, snapPoints, snapEdgeSegments]);
+  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, config.materialThickness, activeTool, findCornerAtPoint, isInsetOperationActive, updateParams, isPathDraftActive, isEdgeEditable, isDrawingRect, isDrawingCircle, circleCenter, showGuideLines, guideLines, snapPoints, snapEdgeSegments, isShiftHeld, isPolygonDraft, draftPoints]);
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
@@ -2688,9 +2716,16 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
               lastPoint = draftPoints[draftPoints.length - 1];
             }
 
-            // Apply angle constraint if Shift is held
-            let targetPoint = cursorPosition;
-            if (isShiftHeld) {
+            // Apply angle constraint and/or guide snap to determine ghost line target.
+            // When shift is held and a guide was found on the constraint ray, snapResult.point
+            // is the composed (angle-constrained + snapped) position — use it directly so the
+            // ghost line matches the snap indicator and the actual placed point.
+            let targetPoint: { x: number; y: number } = cursorPosition;
+            if (isShiftHeld && isPolygonDraft && snapResult) {
+              // Constrained snap: use the guide intersection on the constraint ray
+              targetPoint = snapResult.point;
+            } else if (isShiftHeld) {
+              // No guide on constraint ray; apply pure angle constraint
               targetPoint = constrainAngle(lastPoint, cursorPosition);
             }
 
