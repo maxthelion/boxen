@@ -139,16 +139,18 @@ export function useEditorContext(): EditorContextValue {
       // Create operation from draft based on draft type
       if (state.draft.type === 'edge-path' && state.draft.target.edge) {
         // Convert draft points to EdgePathPoints and dispatch SET_EDGE_PATH
-        const rawPoints = state.draft.points.map(p => ({
-          t: p.x,      // x stores the t value (0-1 along edge)
-          offset: p.y, // y stores the offset (perpendicular distance)
-        }));
+        // Sort by t so the path is always monotonically increasing along the edge,
+        // regardless of whether the user drew left-to-right or right-to-left.
+        const rawPoints = state.draft.points
+          .map(p => ({
+            t: p.x,      // x stores the t value (0-1 along edge)
+            offset: p.y, // y stores the offset (perpendicular distance)
+          }))
+          .sort((a, b) => a.t - b.t);
 
         if (rawPoints.length >= 2) {
-          // Find the t-range of the new path (without sorting - preserve click order)
-          const tValues = rawPoints.map(p => p.t);
-          const firstT = Math.min(...tValues);
-          const lastT = Math.max(...tValues);
+          const firstT = rawPoints[0].t;
+          const lastT = rawPoints[rawPoints.length - 1].t;
 
           // Get existing edge path for this edge (to merge with)
           const panelId = state.draft.target.panelId;
@@ -195,7 +197,7 @@ export function useEditorContext(): EditorContextValue {
             }
           }
 
-          // Add all the new custom path points (preserve click order)
+          // Add new path points (already sorted by t)
           mergedPoints.push(...rawPoints);
 
           // Add existing points AFTER the new path ends
@@ -220,11 +222,6 @@ export function useEditorContext(): EditorContextValue {
               mergedPoints.push({ t: 1, offset: 0 });
             }
           }
-
-          // Note: We do NOT sort the final merged points by t.
-          // The user's points are kept in click order, which preserves
-          // their intended path shape (e.g., peaks, zigzags).
-          // Existing points before/after are already in order.
 
           // Validate: check for self-intersection in the new user-drawn path
           if (detectEdgePathSelfIntersection(rawPoints)) {
