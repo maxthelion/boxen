@@ -139,14 +139,17 @@ export function useEditorContext(): EditorContextValue {
       // Create operation from draft based on draft type
       if (state.draft.type === 'edge-path' && state.draft.target.edge) {
         // Convert draft points to EdgePathPoints and dispatch SET_EDGE_PATH
-        // Sort by t so the path is always monotonically increasing along the edge,
-        // regardless of whether the user drew left-to-right or right-to-left.
-        const rawPoints = state.draft.points
-          .map(p => ({
-            t: p.x,      // x stores the t value (0-1 along edge)
-            offset: p.y, // y stores the offset (perpendicular distance)
-          }))
-          .sort((a, b) => a.t - b.t);
+        const rawPoints = state.draft.points.map(p => ({
+          t: p.x,      // x stores the t value (0-1 along edge)
+          offset: p.y, // y stores the offset (perpendicular distance)
+        }));
+
+        // If the user drew right-to-left (first point has higher t than last),
+        // reverse the array so the path runs low-t → high-t. This preserves
+        // the shape (relative point order) while fixing the overall direction.
+        if (rawPoints.length >= 2 && rawPoints[0].t > rawPoints[rawPoints.length - 1].t) {
+          rawPoints.reverse();
+        }
 
         if (rawPoints.length >= 2) {
           const firstT = rawPoints[0].t;
