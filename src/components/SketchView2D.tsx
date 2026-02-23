@@ -11,10 +11,9 @@ import { getColors } from '../config/colors';
 import { SafeSpaceRegion, isRectInSafeSpace, isCircleInSafeSpace, analyzePath, getEdgeMarginsForFace, rectToEdgePath, circleToEdgePath } from '../engine/safeSpace';
 import { createRectPolygon, createCirclePolygon, classifyPolygon } from '../utils/polygonBoolean';
 import { FaceConfig } from '../types';
-import { debug, enableDebugTag } from '../utils/debug';
+import { debug, enableDebugTag, isDebugTagActive } from '../utils/debug';
 import {
   type EdgePosition,
-  constrainAngle,
   getEdgePathOffsetAtT,
   getEdgeSegments,
   getConceptualBoundary,
@@ -27,6 +26,12 @@ import {
   findCornerAtPoint as findCornerAtPointUtil,
   computeHitThreshold,
 } from '../utils/sketchCoordinates';
+import {
+  snapPoint as snapPointEngine,
+  getToolSnapConfig,
+  type SnapResult,
+  type SnapContext,
+} from '../utils/snapEngine';
 
 // Ensure safe-space tag is active for this component
 enableDebugTag('safe-space');
@@ -210,6 +215,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   const [isShiftHeld, setIsShiftHeld] = useState(false);
   const [polygonMode, setPolygonMode] = useState<'additive' | 'subtractive'>('subtractive');
   const [cursorPosition, setCursorPosition] = useState<{ x: number; y: number } | null>(null);
+  const [activeSnapResult, setActiveSnapResult] = useState<SnapResult | null>(null);
   const isPathDraftActive = editorMode === 'draft' && (draftType === 'edge-path' || draftType === 'freeform-polygon');
   const isEdgePathDraft = editorMode === 'draft' && draftType === 'edge-path';
   const isPolygonDraft = editorMode === 'draft' && draftType === 'freeform-polygon';
@@ -1171,25 +1177,21 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     // Path tool: add points or start new draft
     if (activeTool === 'path' && panel) {
       const hitThreshold = Math.max(8, viewBox.width / 25);
-      const halfW = panel.width / 2;
-      const halfH = panel.height / 2;
       debug('path-tool', `Path tool click at SVG(${svgPos.x.toFixed(1)}, ${svgPos.y.toFixed(1)})`);
 
       // Already in a draft - add a point
       if (isPathDraftActive) {
-        if (isEdgePathDraft && draftTarget?.edge) {
-          // Edge path mode: check if clicking back on the boundary to merge
-          const edge = draftTarget.edge;
-          const distToBoundary = edge === 'top' ? Math.abs(svgPos.y - halfH) :
-                                 edge === 'bottom' ? Math.abs(svgPos.y + halfH) :
-                                 edge === 'left' ? Math.abs(svgPos.x + halfW) :
-                                 Math.abs(svgPos.x - halfW);
+        // Use snap result for position resolution (handles grid, guide, angle, close-polygon, merge)
+        const snapped = activeSnapResult?.point ?? svgPos;
+        const snapType = activeSnapResult?.target?.type;
 
-          // If clicking back on the boundary (and we have at least 2 points), this is a merge
-          if (distToBoundary < hitThreshold && draftPoints.length >= 2) {
+        if (isEdgePathDraft && draftTarget?.edge) {
+          const edge = draftTarget.edge;
+
+          // Snap engine detected merge-boundary: clicking back on the edge boundary
+          if (snapType === 'merge-boundary' && draftPoints.length >= 2) {
             debug('path-tool', 'Merge detected! Adding final point on boundary');
-            // Add the merge point - snap to the current edge path value at this t position
-            const mergeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, edge);
+            const mergeCoords = svgToEdgeCoords(snapped.x, snapped.y, edge);
             if (mergeCoords && panel) {
               const currentOffset = getEdgePathOffsetAtT(
                 panel.customEdgePaths ?? [],
@@ -1198,101 +1200,87 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
               );
               addDraftPoint({ x: mergeCoords.t, y: currentOffset });
             }
-            // Path is now ready to apply - user can click Apply button
             return;
           }
 
           // Normal point addition - convert to edge-relative coordinates
-          const edgeCoords = svgToEdgeCoords(svgPos.x, svgPos.y, edge);
+          const edgeCoords = svgToEdgeCoords(snapped.x, snapped.y, edge);
           debug('path-tool', `Adding edge point: ${JSON.stringify(edgeCoords)}`);
           if (edgeCoords) {
             addDraftPoint({ x: edgeCoords.t, y: edgeCoords.offset });
           }
         } else if (isPolygonDraft) {
-          // Polygon mode: check if clicking near start point to close
-          if (draftPoints.length >= 3) {
-            const startPoint = draftPoints[0];
-            const distToStart = Math.sqrt(
-              (svgPos.x - startPoint.x) ** 2 + (svgPos.y - startPoint.y) ** 2
-            );
-            if (distToStart < hitThreshold) {
-              // Close the polygon and apply the operation directly
-              debug('path-tool', 'Closing polygon - applying operation');
-              const engine = getEngine();
-              if (engine && panel) {
-                const points = [...draftPoints];
-                const halfW = panel.width / 2;
-                const halfH = panel.height / 2;
-                const panelOutline = createRectPolygon(-halfW, -halfH, halfW, halfH);
-                const classification = classifyPolygon(points, panelOutline, 1.0);
+          // Snap engine detected close-polygon: clicking near start point
+          if (snapType === 'close-polygon') {
+            debug('path-tool', 'Closing polygon - applying operation');
+            const engine = getEngine();
+            if (engine && panel) {
+              const points = [...draftPoints];
+              const halfW = panel.width / 2;
+              const halfH = panel.height / 2;
+              const panelOutline = createRectPolygon(-halfW, -halfH, halfW, halfH);
+              const classification = classifyPolygon(points, panelOutline, 1.0);
 
-                let success = false;
+              let success = false;
 
-                if (classification === 'interior') {
-                  if (polygonMode === 'subtractive') {
-                    const centerX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
-                    const centerY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
-                    const relativePoints = points.map(p => ({
-                      x: p.x - centerX,
-                      y: p.y - centerY,
-                    }));
+              if (classification === 'interior') {
+                if (polygonMode === 'subtractive') {
+                  const centerX = points.reduce((sum, p) => sum + p.x, 0) / points.length;
+                  const centerY = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+                  const relativePoints = points.map(p => ({
+                    x: p.x - centerX,
+                    y: p.y - centerY,
+                  }));
 
-                    success = engine.dispatch({
-                      type: 'ADD_CUTOUT',
-                      targetId: 'main-assembly',
-                      payload: {
-                        panelId: panel.id,
-                        cutout: {
-                          id: crypto.randomUUID(),
-                          type: 'path',
-                          center: { x: centerX, y: centerY },
-                          points: relativePoints,
-                        },
+                  success = engine.dispatch({
+                    type: 'ADD_CUTOUT',
+                    targetId: 'main-assembly',
+                    payload: {
+                      panelId: panel.id,
+                      cutout: {
+                        id: crypto.randomUUID(),
+                        type: 'path',
+                        center: { x: centerX, y: centerY },
+                        points: relativePoints,
                       },
-                    });
-                  }
-                } else if (classification === 'boundary') {
-                  const operation = polygonMode === 'additive' ? 'union' : 'difference';
-                  success = engine.dispatch({
-                    type: 'APPLY_EDGE_OPERATION',
-                    targetId: 'main-assembly',
-                    payload: {
-                      panelId: panel.id,
-                      operation,
-                      shape: points,
-                    },
-                  });
-                } else if (classification === 'exterior' && polygonMode === 'additive') {
-                  success = engine.dispatch({
-                    type: 'APPLY_EDGE_OPERATION',
-                    targetId: 'main-assembly',
-                    payload: {
-                      panelId: panel.id,
-                      operation: 'union',
-                      shape: points,
                     },
                   });
                 }
-
-                if (success) {
-                  notifyEngineStateChanged();
-                }
+              } else if (classification === 'boundary') {
+                const operation = polygonMode === 'additive' ? 'union' : 'difference';
+                success = engine.dispatch({
+                  type: 'APPLY_EDGE_OPERATION',
+                  targetId: 'main-assembly',
+                  payload: {
+                    panelId: panel.id,
+                    operation,
+                    shape: points,
+                  },
+                });
+              } else if (classification === 'exterior' && polygonMode === 'additive') {
+                success = engine.dispatch({
+                  type: 'APPLY_EDGE_OPERATION',
+                  targetId: 'main-assembly',
+                  payload: {
+                    panelId: panel.id,
+                    operation: 'union',
+                    shape: points,
+                  },
+                });
               }
-              cancelDraft();
-              setActiveTool('select');
-              return;
+
+              if (success) {
+                notifyEngineStateChanged();
+              }
             }
+            cancelDraft();
+            setActiveTool('select');
+            return;
           }
 
-          // Apply angle constraint if Shift is held
-          let newPoint = { x: svgPos.x, y: svgPos.y };
-          if (isShiftHeld && draftPoints.length > 0) {
-            const lastPoint = draftPoints[draftPoints.length - 1];
-            newPoint = constrainAngle(lastPoint, svgPos);
-          }
-
-          debug('path-tool', `Adding polygon point: ${JSON.stringify(newPoint)}`);
-          addDraftPoint(newPoint);
+          // Use snapped point (handles grid, guide, angle, point snapping)
+          debug('path-tool', `Adding polygon point: ${JSON.stringify(snapped)}`);
+          addDraftPoint(snapped);
         }
         return;
       }
@@ -1384,26 +1372,43 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       }
     }
 
-    // Rectangle cutout tool: start drawing rectangle
+    // Rectangle cutout tool: start drawing rectangle (snap start point)
     if (activeTool === 'rectangle' && panel) {
+      const gridSize = 10;
+      const snapConfig = getToolSnapConfig('rectangle', undefined, viewBox.width, gridSize);
+      const snapCtx: SnapContext = {
+        panelWidth: panel.width, panelHeight: panel.height,
+        outlinePoints: panel.outline?.points ?? [], draftPoints: [], gridSize,
+      };
+      const result = snapPointEngine(svgPos, snapConfig, snapCtx);
+      const snappedStart = result.point;
       setIsDrawingRect(true);
-      setRectStart(svgPos);
-      setRectCurrent(svgPos);
+      setRectStart(snappedStart);
+      setRectCurrent(snappedStart);
+      setActiveSnapResult(result);
       return;
     }
 
-    // Circle cutout tool: start drawing circle
+    // Circle cutout tool: start drawing circle (snap center point)
     if (activeTool === 'circle' && panel) {
+      const gridSize = 10;
+      const snapConfig = getToolSnapConfig('circle', undefined, viewBox.width, gridSize);
+      const snapCtx: SnapContext = {
+        panelWidth: panel.width, panelHeight: panel.height,
+        outlinePoints: panel.outline?.points ?? [], draftPoints: [], gridSize,
+      };
+      const result = snapPointEngine(svgPos, snapConfig, snapCtx);
       setIsDrawingCircle(true);
-      setCircleCenter(svgPos);
+      setCircleCenter(result.point);
       setCircleRadius(0);
+      setActiveSnapResult(result);
       return;
     }
 
     // Default: start panning
     setIsPanning(true);
     setPanStart({ x: e.clientX, y: e.clientY });
-  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel, activeTool, findCornerAtPoint, handleCornerClick, isInsetOperationActive, startOperation, updateParams, isPathDraftActive, draftTarget, draftPoints, svgToEdgeCoords, addDraftPoint, startDraft, safeSpace, edgeSegments, isEdgePathDraft, isPolygonDraft, isShiftHeld, cancelDraft, commitDraft, polygonMode, setActiveTool]);
+  }, [screenToSvg, findEdgeAtPoint, isEdgeEditable, panel, activeTool, findCornerAtPoint, handleCornerClick, isInsetOperationActive, startOperation, updateParams, isPathDraftActive, draftTarget, draftPoints, svgToEdgeCoords, addDraftPoint, startDraft, safeSpace, edgeSegments, isEdgePathDraft, isPolygonDraft, isShiftHeld, cancelDraft, commitDraft, polygonMode, setActiveTool, activeSnapResult]);
 
   // Handle mouse move
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -1429,11 +1434,19 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       updateParams({
         offset: clampedOffset,
       });
-    } else if (isDrawingRect && svgPos) {
-      // Update rectangle preview
-      setRectCurrent(svgPos);
+    } else if (isDrawingRect && svgPos && panel) {
+      // Update rectangle preview — snap drag point
+      const gridSize = 10;
+      const snapConfig = getToolSnapConfig('rectangle', undefined, viewBox.width, gridSize);
+      const snapCtx: SnapContext = {
+        panelWidth: panel.width, panelHeight: panel.height,
+        outlinePoints: panel.outline?.points ?? [], draftPoints: [], gridSize,
+      };
+      const result = snapPointEngine(svgPos, snapConfig, snapCtx);
+      setRectCurrent(result.point);
+      setActiveSnapResult(result);
     } else if (isDrawingCircle && circleCenter && svgPos) {
-      // Update circle radius based on distance from center
+      // Update circle radius based on distance from center (radius stays continuous)
       const dx = svgPos.x - circleCenter.x;
       const dy = svgPos.y - circleCenter.y;
       setCircleRadius(Math.sqrt(dx * dx + dy * dy));
@@ -1473,14 +1486,49 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
         setHoveredCornerId(null);
       }
 
-      // Track cursor position for ghost line when path tool is active
-      if (isPathDraftActive) {
+      // Track cursor position and compute snap for path/rect/circle tools
+      if ((isPathDraftActive || isDrawingRect || isDrawingCircle) && panel) {
         setCursorPosition(svgPos);
+
+        // Compute snap
+        const gridSize = 10;
+        const pathMode = isEdgePathDraft ? 'forked' as const : 'polygon' as const;
+        const tool = isDrawingRect ? 'rectangle' as const : isDrawingCircle ? 'circle' as const : 'polygon' as const;
+        const snapConfig = getToolSnapConfig(tool, isPathDraftActive ? pathMode : undefined, viewBox.width, gridSize);
+
+        // Apply Shift state
+        snapConfig.shiftHeld = isShiftHeld;
+        if (isShiftHeld && isPathDraftActive && draftPoints.length > 0) {
+          const lastDraftPt = draftPoints[draftPoints.length - 1];
+          if (isEdgePathDraft && draftTarget?.edge) {
+            const converted = edgeCoordsToSvg(lastDraftPt.x, lastDraftPt.y, draftTarget.edge);
+            if (converted) snapConfig.angleReference = converted;
+          } else {
+            snapConfig.angleReference = lastDraftPt;
+          }
+        }
+
+        const snapContext: SnapContext = {
+          panelWidth: panel.width,
+          panelHeight: panel.height,
+          outlinePoints: panel.outline?.points ?? [],
+          draftPoints: isPathDraftActive ? draftPoints : [],
+          gridSize,
+          draftEdge: isEdgePathDraft ? draftTarget?.edge : undefined,
+        };
+
+        const result = snapPointEngine(svgPos, snapConfig, snapContext);
+        setActiveSnapResult(result);
+      } else if (activeTool === 'path' && !isPathDraftActive) {
+        // Not in draft yet — still track cursor for hover but clear snap
+        setCursorPosition(svgPos);
+        setActiveSnapResult(null);
       } else {
         setCursorPosition(null);
+        setActiveSnapResult(null);
       }
     }
-  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, config.materialThickness, activeTool, findCornerAtPoint, isInsetOperationActive, updateParams, isPathDraftActive, isEdgeEditable, isDrawingRect, isDrawingCircle, circleCenter]);
+  }, [isDraggingEdge, dragEdge, dragStartPos, dragStartExtension, isPanning, panStart, viewBox, screenToSvg, findEdgeAtPoint, panel, config.materialThickness, activeTool, findCornerAtPoint, isInsetOperationActive, updateParams, isPathDraftActive, isEdgeEditable, isDrawingRect, isDrawingCircle, circleCenter, isShiftHeld, draftPoints, isEdgePathDraft, draftTarget, edgeCoordsToSvg]);
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
@@ -2214,12 +2262,11 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             );
           })()}
 
-          {/* Ghost line from last point to cursor */}
+          {/* Ghost line from last point to cursor — uses snap result */}
           {isPathDraftActive && draftPoints.length > 0 && cursorPosition && (() => {
             let lastPoint: { x: number; y: number };
 
             if (isEdgePathDraft && draftTarget?.edge) {
-              // Edge-path mode: convert last point from edge-relative coordinates
               const converted = edgeCoordsToSvg(
                 draftPoints[draftPoints.length - 1].x,
                 draftPoints[draftPoints.length - 1].y,
@@ -2228,15 +2275,11 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
               if (!converted) return null;
               lastPoint = converted;
             } else {
-              // Polygon mode: points are already in SVG coordinates
               lastPoint = draftPoints[draftPoints.length - 1];
             }
 
-            // Apply angle constraint if Shift is held
-            let targetPoint = cursorPosition;
-            if (isShiftHeld) {
-              targetPoint = constrainAngle(lastPoint, cursorPosition);
-            }
+            // Ghost line target = snap result (already includes angle constraint + grid/guide snap)
+            const targetPoint = activeSnapResult?.point ?? cursorPosition;
 
             // Use appropriate color based on mode
             const strokeColor = isPolygonDraft
@@ -2254,6 +2297,137 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                 strokeDasharray={`${3 * strokeScale} ${2 * strokeScale}`}
                 opacity={0.6}
               />
+            );
+          })()}
+
+          {/* Snap indicator and guide lines */}
+          {activeSnapResult?.target && (() => {
+            const snapPt = activeSnapResult.point;
+            const snapColor = colors.sketch.snap.indicator;
+            const guideColor = colors.sketch.snap.guide;
+
+            return (
+              <g>
+                {/* Active guide lines */}
+                {activeSnapResult.activeGuides.map((guide, i) => (
+                  guide.axis === 'x' ? (
+                    <line
+                      key={`guide-${i}`}
+                      x1={guide.position}
+                      y1={viewBox.y}
+                      x2={guide.position}
+                      y2={viewBox.y + viewBox.height}
+                      stroke={guideColor}
+                      strokeWidth={strokeScale * 0.5}
+                      strokeDasharray={`${2 * strokeScale} ${2 * strokeScale}`}
+                      opacity={0.3}
+                    />
+                  ) : (
+                    <line
+                      key={`guide-${i}`}
+                      x1={viewBox.x}
+                      y1={guide.position}
+                      x2={viewBox.x + viewBox.width}
+                      y2={guide.position}
+                      stroke={guideColor}
+                      strokeWidth={strokeScale * 0.5}
+                      strokeDasharray={`${2 * strokeScale} ${2 * strokeScale}`}
+                      opacity={0.3}
+                    />
+                  )
+                ))}
+                {/* Snap point indicator */}
+                <circle
+                  cx={snapPt.x}
+                  cy={snapPt.y}
+                  r={Math.max(2, strokeScale * 3)}
+                  fill="none"
+                  stroke={snapColor}
+                  strokeWidth={strokeScale}
+                  opacity={0.8}
+                />
+                {/* Inner dot */}
+                <circle
+                  cx={snapPt.x}
+                  cy={snapPt.y}
+                  r={Math.max(1, strokeScale)}
+                  fill={snapColor}
+                  opacity={0.6}
+                />
+              </g>
+            );
+          })()}
+
+          {/* Angle constraint ray when Shift held */}
+          {activeSnapResult?.angleConstrained && isShiftHeld && isPathDraftActive && draftPoints.length > 0 && (() => {
+            let angleRef: { x: number; y: number } | null = null;
+            if (isEdgePathDraft && draftTarget?.edge) {
+              angleRef = edgeCoordsToSvg(
+                draftPoints[draftPoints.length - 1].x,
+                draftPoints[draftPoints.length - 1].y,
+                draftTarget.edge
+              );
+            } else {
+              angleRef = draftPoints[draftPoints.length - 1];
+            }
+            if (!angleRef) return null;
+
+            const rayColor = colors.sketch.snap.ray;
+            const target = activeSnapResult.point;
+            // Extend the ray beyond the snap point for visual clarity
+            const dx = target.x - angleRef.x;
+            const dy = target.y - angleRef.y;
+            const len = Math.sqrt(dx * dx + dy * dy);
+            if (len < 0.001) return null;
+            const scale = (len + viewBox.width * 0.3) / len;
+
+            return (
+              <line
+                x1={angleRef.x}
+                y1={angleRef.y}
+                x2={angleRef.x + dx * scale}
+                y2={angleRef.y + dy * scale}
+                stroke={rayColor}
+                strokeWidth={strokeScale * 0.5}
+                strokeDasharray={`${3 * strokeScale} ${3 * strokeScale}`}
+                opacity={0.3}
+              />
+            );
+          })()}
+
+          {/* Snap debug overlay — toggle via enableDebugTag('snap') */}
+          {isDebugTagActive('snap') && cursorPosition && activeSnapResult && (() => {
+            const raw = cursorPosition;
+            const snapped = activeSnapResult.point;
+            const target = activeSnapResult.target;
+
+            return (
+              <g>
+                {/* Raw cursor (red dot) */}
+                <circle cx={raw.x} cy={raw.y} r={Math.max(1.5, strokeScale * 2)}
+                  fill="#e74c3c" opacity={0.7} />
+                {/* Snapped cursor (green dot) */}
+                <circle cx={snapped.x} cy={snapped.y} r={Math.max(1.5, strokeScale * 2)}
+                  fill="#2ecc71" opacity={0.7} />
+                {/* Line from raw to snapped */}
+                {target && (
+                  <line x1={raw.x} y1={raw.y} x2={snapped.x} y2={snapped.y}
+                    stroke="#fff" strokeWidth={strokeScale * 0.3} opacity={0.4} />
+                )}
+                {/* Snap type label */}
+                {target && (
+                  <text
+                    x={snapped.x + 3 * strokeScale}
+                    y={-(snapped.y + 3 * strokeScale)}
+                    fill="#2ecc71"
+                    fontSize={Math.max(3, strokeScale * 2.5)}
+                    transform="scale(1, -1)"
+                    opacity={0.6}
+                  >
+                    {target.type}
+                  </text>
+                )}
+              </g>
             );
           })()}
 

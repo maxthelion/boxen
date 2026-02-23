@@ -93,6 +93,11 @@ export interface ColorConfig {
     extension: string;         // Extension visualization on adjacent panels
     hole: StateColors;         // Slot/hole rendering
     label: string;             // Dimension and annotation labels
+    snap: {
+      indicator: string;       // Snap point indicator circle
+      guide: string;           // Active guide line highlight
+      ray: string;             // Angle constraint ray
+    };
   };
 
   // ===== Opacity Presets =====
@@ -181,6 +186,11 @@ export const defaultColors: ColorConfig = {
     extension: '#e53e3e',
     hole: { base: '#1a1a2e', hover: '#666' },
     label: '#888',
+    snap: {
+      indicator: '#00e5ff',
+      guide: '#00e5ff',
+      ray: '#ffaa00',
+    },
   },
 
   opacity: {
