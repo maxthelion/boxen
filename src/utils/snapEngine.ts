@@ -552,7 +552,7 @@ export function filterToConstraintRay(
   const dx = cursor.x - angleRef.x;
   const dy = cursor.y - angleRef.y;
   const rawAngle = Math.atan2(dy, dx);
-  const snapAngle = Math.round(rawAngle / (Math.PI / 4)) * (Math.PI / 4);
+  const snapAngle = Math.round(rawAngle / (Math.PI / 2)) * (Math.PI / 2);
 
   // Unit direction vector of the ray
   const dirX = Math.cos(snapAngle);

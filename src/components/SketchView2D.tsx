@@ -1510,11 +1510,23 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           }
         }
 
+        // Convert draft points to SVG coordinates for alignment snapping
+        let svgDraftPoints: { x: number; y: number }[] = [];
+        if (isPathDraftActive && draftPoints.length > 0) {
+          if (isEdgePathDraft && draftTarget?.edge) {
+            svgDraftPoints = draftPoints
+              .map(p => edgeCoordsToSvg(p.x, p.y, draftTarget.edge!))
+              .filter((p): p is { x: number; y: number } => p !== null);
+          } else {
+            svgDraftPoints = draftPoints.map(p => ({ x: p.x, y: p.y }));
+          }
+        }
+
         const snapContext: SnapContext = {
           panelWidth: panel.width,
           panelHeight: panel.height,
           outlinePoints: panel.outline?.points ?? [],
-          draftPoints: isPathDraftActive ? draftPoints : [],
+          draftPoints: svgDraftPoints,
           gridSize,
           draftEdge: isEdgePathDraft ? draftTarget?.edge : undefined,
         };

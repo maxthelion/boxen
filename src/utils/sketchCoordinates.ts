@@ -78,7 +78,7 @@ export const constrainAngle = (
   if (distance < 0.001) return { x: fromPoint.x, y: fromPoint.y };
 
   const angle = Math.atan2(dy, dx);
-  const snapAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
+  const snapAngle = Math.round(angle / (Math.PI / 2)) * (Math.PI / 2);
 
   return {
     x: fromPoint.x + distance * Math.cos(snapAngle),

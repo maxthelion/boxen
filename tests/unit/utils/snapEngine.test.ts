@@ -420,16 +420,16 @@ describe('filterToConstraintRay', () => {
     expect(filtered.length).toBe(0);
   });
 
-  it('works with 45° diagonal ray', () => {
+  it('works with 90° vertical ray', () => {
     const angleRef = { x: 0, y: 0 };
-    const cursor = { x: 20, y: 20 }; // 45° ray
+    const cursor = { x: 1, y: 20 }; // Nearly vertical → snaps to 90° ray
     const candidates: SnapTarget[] = [
-      { type: 'grid', point: { x: 10, y: 10 }, priority: 4 }, // on the 45° ray
-      { type: 'grid', point: { x: 10, y: 0 }, priority: 4 },  // not on ray
+      { type: 'grid', point: { x: 0, y: 10 }, priority: 5 }, // on the 90° ray
+      { type: 'grid', point: { x: 10, y: 0 }, priority: 5 },  // not on ray
     ];
     const filtered = filterToConstraintRay(candidates, angleRef, cursor, 2);
     expect(filtered.length).toBe(1);
-    expect(filtered[0].point).toEqual({ x: 10, y: 10 });
+    expect(filtered[0].point).toEqual({ x: 0, y: 10 });
   });
 });
 

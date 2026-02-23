@@ -53,10 +53,10 @@ describe('constrainAngle', () => {
     expect(result.y).toBeCloseTo(0);
   });
 
-  it('snaps ~40° to 45°', () => {
-    const result = constrainAngle(origin, { x: 8, y: 7 }); // ~41°
+  it('snaps ~40° to 0° (90° increments)', () => {
+    const result = constrainAngle(origin, { x: 8, y: 7 }); // ~41° → 0°
     const angle = Math.atan2(result.y, result.x);
-    expect(angle).toBeCloseTo(Math.PI / 4);
+    expect(angle).toBeCloseTo(0);
   });
 
   it('snaps ~85° to 90°', () => {
@@ -65,10 +65,10 @@ describe('constrainAngle', () => {
     expect(angle).toBeCloseTo(Math.PI / 2);
   });
 
-  it('snaps ~130° to 135°', () => {
-    const result = constrainAngle(origin, { x: -7, y: 8 }); // ~131°
+  it('snaps ~130° to 90° (90° increments)', () => {
+    const result = constrainAngle(origin, { x: -7, y: 8 }); // ~131° → 90°
     const angle = Math.atan2(result.y, result.x);
-    expect(angle).toBeCloseTo((3 * Math.PI) / 4);
+    expect(angle).toBeCloseTo(Math.PI / 2);
   });
 
   it('keeps 180°', () => {
