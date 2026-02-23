@@ -2189,6 +2189,8 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                   .filter(pt => Math.abs(pt.t - 0.5) > 0.001)
                   .map(pt => ({ t: 1 - pt.t, offset: pt.offset }));
                 edgeRelPoints = [...edgeRelPoints, ...mirroredExtra];
+                // Sort by t to ensure monotonically increasing order regardless of draw direction or which half was drawn
+                edgeRelPoints = [...edgeRelPoints].sort((a, b) => a.t - b.t);
               }
 
               previewPoints = edgeRelPoints

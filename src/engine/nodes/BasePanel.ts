@@ -1335,6 +1335,8 @@ export abstract class BasePanel extends BaseNode {
         });
       }
       pathPoints = expandedPoints;
+      // Sort by t to ensure monotonically increasing order regardless of draw direction or which half was drawn
+      pathPoints = [...pathPoints].sort((a, b) => a.t - b.t);
     }
 
     // Remap t and offset from body-frame to finger-frame if needed.
