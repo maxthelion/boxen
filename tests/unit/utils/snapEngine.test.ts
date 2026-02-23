@@ -3,6 +3,7 @@ import {
   computeGuideLines,
   gridCandidates,
   pointCandidates,
+  edgeSegmentCandidates,
   intersectionCandidates,
   closePolygonCandidate,
   mergeBoundaryCandidate,
@@ -38,6 +39,43 @@ describe('computeGuideLines', () => {
     const guides = computeGuideLines(100, 80, [], 10);
     // At least 3 x-guides (left, center, right) + 3 y-guides (bottom, center, top)
     expect(guides.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('includes finger joint tip positions as edge guides', () => {
+    // Simulated outline with finger joints on top: tips at y=43 (MT=3)
+    const outline = [
+      { x: -50, y: -40 },
+      { x: 50, y: -40 },
+      { x: 50, y: 40 },
+      { x: 30, y: 40 },
+      { x: 30, y: 43 },
+      { x: 10, y: 43 },
+      { x: 10, y: 40 },
+      { x: -50, y: 40 },
+    ];
+    const guides = computeGuideLines(100, 80, outline, 10);
+    // Should have a y-guide at y=43 (finger tip line)
+    const tipGuide = guides.find(g => g.axis === 'y' && Math.abs(g.position - 43) < 0.01);
+    expect(tipGuide).toBeDefined();
+    expect(tipGuide!.type).toBe('edge');
+  });
+
+  it('includes both body and tip y-positions from finger joints', () => {
+    const outline = [
+      { x: -50, y: -40 },
+      { x: 50, y: -40 },
+      { x: 50, y: 40 },
+      { x: 30, y: 40 },
+      { x: 30, y: 43 },
+      { x: 10, y: 43 },
+      { x: 10, y: 40 },
+      { x: -50, y: 40 },
+    ];
+    const guides = computeGuideLines(100, 80, outline, 10);
+    const yPositions = guides.filter(g => g.axis === 'y').map(g => g.position);
+    expect(yPositions).toContain(40);
+    expect(yPositions).toContain(43);
+    expect(yPositions).toContain(-40);
   });
 });
 
@@ -99,6 +137,69 @@ describe('pointCandidates', () => {
     ];
     const candidates = pointCandidates({ x: 11, y: 10 }, closePoints, 5);
     expect(candidates.length).toBe(2);
+  });
+
+  it('deduplicates overlapping outline vertices', () => {
+    const dupePoints = [
+      { x: 10, y: 20 },
+      { x: 10, y: 20 }, // duplicate
+      { x: 10, y: 20 }, // duplicate
+    ];
+    const candidates = pointCandidates({ x: 10.5, y: 20.5 }, dupePoints, 5);
+    expect(candidates.length).toBe(1);
+  });
+});
+
+// ── edgeSegmentCandidates ────────────────────────────────────────────────────
+
+describe('edgeSegmentCandidates', () => {
+  // Simple rectangle outline: 100x80 panel
+  const outline = [
+    { x: -50, y: -40 },
+    { x: 50, y: -40 },
+    { x: 50, y: 40 },
+    { x: -50, y: 40 },
+  ];
+
+  it('snaps to nearest point on top edge segment', () => {
+    // Cursor near the top edge at x=20 (between corners)
+    const candidates = edgeSegmentCandidates({ x: 20, y: 38 }, outline, 100, 80, 5);
+    expect(candidates.length).toBeGreaterThanOrEqual(1);
+    const best = candidates[0];
+    expect(best.type).toBe('edge-segment');
+    expect(best.point.y).toBeCloseTo(40);
+    expect(best.point.x).toBeCloseTo(20); // preserves X position along edge
+  });
+
+  it('snaps to nearest point on right edge segment', () => {
+    const candidates = edgeSegmentCandidates({ x: 48, y: 10 }, outline, 100, 80, 5);
+    expect(candidates.length).toBeGreaterThanOrEqual(1);
+    expect(candidates[0].point.x).toBeCloseTo(50);
+    expect(candidates[0].point.y).toBeCloseTo(10);
+  });
+
+  it('returns empty when cursor is far from all edges', () => {
+    const candidates = edgeSegmentCandidates({ x: 0, y: 0 }, outline, 100, 80, 5);
+    expect(candidates.length).toBe(0);
+  });
+
+  it('works with finger joint outline', () => {
+    const jointOutline = [
+      { x: -50, y: -40 },
+      { x: 50, y: -40 },
+      { x: 50, y: 40 },
+      { x: 30, y: 40 },
+      { x: 30, y: 43 },
+      { x: 10, y: 43 },
+      { x: 10, y: 40 },
+      { x: -50, y: 40 },
+    ];
+    // Cursor near the finger tip segment at y=43
+    const candidates = edgeSegmentCandidates({ x: 20, y: 42 }, jointOutline, 100, 80, 5);
+    expect(candidates.length).toBeGreaterThanOrEqual(1);
+    // Should snap to the segment at y=43
+    const tipSnap = candidates.find(c => Math.abs(c.point.y - 43) < 1);
+    expect(tipSnap).toBeDefined();
   });
 });
 
@@ -433,12 +534,13 @@ describe('snapPoint', () => {
 // ── getToolSnapConfig ────────────────────────────────────────────────────────
 
 describe('getToolSnapConfig', () => {
-  it('polygon tool enables grid, center, edge-line, point, midpoint, intersection, close-polygon', () => {
+  it('polygon tool enables grid, center, edge-line, point, edge-segment, midpoint, intersection, close-polygon', () => {
     const config = getToolSnapConfig('polygon', 'polygon', 500, 10);
     expect(config.enabledTypes.has('grid')).toBe(true);
     expect(config.enabledTypes.has('center')).toBe(true);
     expect(config.enabledTypes.has('edge-line')).toBe(true);
     expect(config.enabledTypes.has('point')).toBe(true);
+    expect(config.enabledTypes.has('edge-segment')).toBe(true);
     expect(config.enabledTypes.has('midpoint')).toBe(true);
     expect(config.enabledTypes.has('intersection')).toBe(true);
     expect(config.enabledTypes.has('close-polygon')).toBe(true);

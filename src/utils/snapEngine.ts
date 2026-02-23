@@ -19,6 +19,7 @@ export type SnapTargetType =
   | 'center'          // Panel center axis (x=0 or y=0)
   | 'edge-line'       // Panel boundary line (halfW, halfH)
   | 'point'           // Existing vertex (outline corner, cutout vertex)
+  | 'edge-segment'    // Nearest point on a panel boundary segment
   | 'midpoint'        // Midpoint of a segment
   | 'intersection'    // Where two guide lines cross
   | 'close-polygon'   // Near start point of current polygon draft
@@ -71,6 +72,7 @@ const PRIORITY: Record<SnapTargetType, number> = {
   'merge-boundary': 0,
   'point': 1,
   'intersection': 2,
+  'edge-segment': 2.5,
   'midpoint': 3,
   'grid': 4,
   'center': 5,
@@ -79,29 +81,73 @@ const PRIORITY: Record<SnapTargetType, number> = {
 
 // ── Guide line computation ───────────────────────────────────────────────────
 
+function roundTo(value: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
 /**
- * Compute guide lines from panel dimensions and existing points.
- * Returns center axes, panel edge lines.
+ * Compute guide lines from panel dimensions and outline geometry.
+ *
+ * Returns center axes, panel edge lines, and — when outline points are
+ * available — guide lines derived from finger joint tips and other
+ * horizontal/vertical segments near the panel boundary. This means
+ * users can snap to the inner edge of finger joint regions, not just
+ * the conceptual boundary.
  */
 export function computeGuideLines(
   panelWidth: number,
   panelHeight: number,
-  _outlinePoints: readonly { x: number; y: number }[],
+  outlinePoints: readonly { x: number; y: number }[],
   _gridSize: number,
 ): GuideLine[] {
   const halfW = panelWidth / 2;
   const halfH = panelHeight / 2;
   const guides: GuideLine[] = [];
+  const tolerance = 0.01;
 
   // Center axes
   guides.push({ axis: 'x', position: 0, type: 'center' });
   guides.push({ axis: 'y', position: 0, type: 'center' });
 
-  // Panel edges
-  guides.push({ axis: 'x', position: -halfW, type: 'edge' });
-  guides.push({ axis: 'x', position: halfW, type: 'edge' });
-  guides.push({ axis: 'y', position: -halfH, type: 'edge' });
-  guides.push({ axis: 'y', position: halfH, type: 'edge' });
+  // Collect unique edge positions from outline segments.
+  // Horizontal segments near top/bottom → y-guides.
+  // Vertical segments near left/right → x-guides.
+  const horizontalYs = new Set<number>();
+  const verticalXs = new Set<number>();
+
+  for (let i = 0; i < outlinePoints.length; i++) {
+    const p1 = outlinePoints[i];
+    const p2 = outlinePoints[(i + 1) % outlinePoints.length];
+    const dx = Math.abs(p2.x - p1.x);
+    const dy = Math.abs(p2.y - p1.y);
+
+    // Horizontal segment near top/bottom edge
+    if (dx > tolerance && dy < tolerance && Math.abs(p1.y) > halfH * 0.5) {
+      horizontalYs.add(roundTo(p1.y, 4));
+    }
+    // Vertical segment near left/right edge
+    if (dy > tolerance && dx < tolerance && Math.abs(p1.x) > halfW * 0.5) {
+      verticalXs.add(roundTo(p1.x, 4));
+    }
+  }
+
+  // Always include the conceptual boundary edges
+  horizontalYs.add(roundTo(halfH, 4));
+  horizontalYs.add(roundTo(-halfH, 4));
+  verticalXs.add(roundTo(halfW, 4));
+  verticalXs.add(roundTo(-halfW, 4));
+
+  for (const y of horizontalYs) {
+    if (Math.abs(y) > tolerance) {
+      guides.push({ axis: 'y', position: y, type: 'edge' });
+    }
+  }
+  for (const x of verticalXs) {
+    if (Math.abs(x) > tolerance) {
+      guides.push({ axis: 'x', position: x, type: 'edge' });
+    }
+  }
 
   return guides;
 }
@@ -149,6 +195,8 @@ export function gridCandidates(
 
 /**
  * Find existing vertices near the cursor.
+ * Deduplicates points at the same position so overlapping outline
+ * vertices don't produce multiple candidates.
  */
 export function pointCandidates(
   cursor: { x: number; y: number },
@@ -156,8 +204,13 @@ export function pointCandidates(
   threshold: number,
 ): SnapTarget[] {
   const results: SnapTarget[] = [];
+  const seen = new Set<string>();
 
   for (const pt of existingPoints) {
+    const key = `${roundTo(pt.x, 4)},${roundTo(pt.y, 4)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
     const d = dist(cursor, pt);
     if (d <= threshold) {
       results.push({
@@ -197,6 +250,78 @@ export function midpointCandidates(
   }
 
   return results;
+}
+
+/**
+ * Find nearest point on panel boundary segments near the cursor.
+ *
+ * Unlike `pointCandidates` which snaps to vertices, this snaps to any
+ * point along a boundary segment — useful for clicking "between" finger
+ * joint corners on an edge.
+ */
+export function edgeSegmentCandidates(
+  cursor: { x: number; y: number },
+  outlinePoints: readonly { x: number; y: number }[],
+  panelWidth: number,
+  panelHeight: number,
+  threshold: number,
+): SnapTarget[] {
+  const results: SnapTarget[] = [];
+  if (outlinePoints.length < 2) return results;
+
+  const halfW = panelWidth / 2;
+  const halfH = panelHeight / 2;
+  const edgeTolerance = 5;
+
+  for (let i = 0; i < outlinePoints.length; i++) {
+    const s = outlinePoints[i];
+    const e = outlinePoints[(i + 1) % outlinePoints.length];
+
+    // Only include segments on or near the panel boundary
+    const onTop = Math.abs(s.y - halfH) < edgeTolerance && Math.abs(e.y - halfH) < edgeTolerance;
+    const onBottom = Math.abs(s.y + halfH) < edgeTolerance && Math.abs(e.y + halfH) < edgeTolerance;
+    const onLeft = Math.abs(s.x + halfW) < edgeTolerance && Math.abs(e.x + halfW) < edgeTolerance;
+    const onRight = Math.abs(s.x - halfW) < edgeTolerance && Math.abs(e.x - halfW) < edgeTolerance;
+    if (!(onTop || onBottom || onLeft || onRight)) continue;
+
+    const nearest = nearestPointOnSegment(cursor.x, cursor.y, s.x, s.y, e.x, e.y);
+    if (nearest.distance <= threshold) {
+      results.push({
+        type: 'edge-segment',
+        point: { x: nearest.x, y: nearest.y },
+        priority: PRIORITY['edge-segment'],
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Find the nearest point on a line segment to a given point.
+ */
+function nearestPointOnSegment(
+  px: number, py: number,
+  x1: number, y1: number,
+  x2: number, y2: number,
+): { x: number; y: number; distance: number } {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+
+  if (lengthSq === 0) {
+    const d = Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
+    return { x: x1, y: y1, distance: d };
+  }
+
+  let t = ((px - x1) * dx + (py - y1) * dy) / lengthSq;
+  t = Math.max(0, Math.min(1, t));
+
+  const nearX = x1 + t * dx;
+  const nearY = y1 + t * dy;
+  const d = Math.sqrt((px - nearX) ** 2 + (py - nearY) ** 2);
+
+  return { x: nearX, y: nearY, distance: d };
 }
 
 /**
@@ -435,6 +560,10 @@ export function snapPoint(
     allCandidates.push(...midpointCandidates(rawCursor, outlinePoints, threshold));
   }
 
+  if (enabledTypes.has('edge-segment')) {
+    allCandidates.push(...edgeSegmentCandidates(rawCursor, outlinePoints, panelWidth, panelHeight, threshold));
+  }
+
   if (enabledTypes.has('center') || enabledTypes.has('edge-line')) {
     allCandidates.push(...guideLineCandidates(rawCursor, guides, threshold, enabledTypes));
   }
@@ -536,7 +665,7 @@ export function getToolSnapConfig(
 ): SnapConfig {
   const threshold = Math.max(8, viewBoxWidth / 25);
 
-  const baseTypes: SnapTargetType[] = ['grid', 'center', 'edge-line', 'point', 'intersection'];
+  const baseTypes: SnapTargetType[] = ['grid', 'center', 'edge-line', 'point', 'edge-segment', 'intersection'];
 
   let enabledTypes: Set<SnapTargetType>;
 
