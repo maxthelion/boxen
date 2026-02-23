@@ -1533,10 +1533,26 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
 
         const result = snapPointEngine(svgPos, snapConfig, snapContext);
         setActiveSnapResult(result);
-      } else if (activeTool === 'path' && !isPathDraftActive) {
-        // Not in draft yet — still track cursor for hover but clear snap
+      } else if (activeTool === 'path' && !isPathDraftActive && panel) {
+        // Not in draft yet — compute snap for fork preview on editable edges
         setCursorPosition(svgPos);
-        setActiveSnapResult(null);
+        const edge = findEdgeAtPoint(svgPos.x, svgPos.y);
+        if (edge && isEdgeEditable(edge)) {
+          // Snap to edge segment for fork preview indicator
+          const gridSize = 10;
+          const snapConfig = getToolSnapConfig('edge-path', undefined, viewBox.width, gridSize);
+          const snapCtx: SnapContext = {
+            panelWidth: panel.width,
+            panelHeight: panel.height,
+            outlinePoints: panel.outline?.points ?? [],
+            draftPoints: [],
+            gridSize,
+          };
+          const result = snapPointEngine(svgPos, snapConfig, snapCtx);
+          setActiveSnapResult(result);
+        } else {
+          setActiveSnapResult(null);
+        }
       } else {
         setCursorPosition(null);
         setActiveSnapResult(null);
@@ -2367,14 +2383,31 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
           {/* Snap indicator - circle at snap point, styled by type */}
           {activeSnapResult?.target && (() => {
             const snapPt = activeSnapResult.point;
-            const indicatorR = Math.max(viewBox.width, viewBox.height) / 100;
             const isEdgeSnap = activeSnapResult.target!.type === 'edge-segment' || activeSnapResult.target!.type === 'merge-boundary';
-            const isPointSnap = activeSnapResult.target!.type === 'point' || activeSnapResult.target!.type === 'close-polygon';
             const isForkIndicator = isEdgeSnap && activeTool === 'path' && !isPathDraftActive;
 
-            const r = isForkIndicator ? indicatorR * 1.3 : isPointSnap ? indicatorR * 0.8 : indicatorR;
-            const fillOpacity = isForkIndicator ? 0.4 : isPointSnap ? 0.5 : 0.3;
-            const strokeW = isForkIndicator ? r * 0.4 : r * 0.3;
+            if (isForkIndicator) {
+              // Fork preview: render as a path node (same style as draft point markers)
+              const nodeR = Math.max(1, strokeScale * 2);
+              return (
+                <circle
+                  cx={snapPt.x}
+                  cy={snapPt.y}
+                  r={nodeR}
+                  fill={colors.operation.positive.base}
+                  stroke="white"
+                  strokeWidth={strokeScale * 0.5}
+                  opacity={0.9}
+                />
+              );
+            }
+
+            // Standard snap indicator
+            const indicatorR = Math.max(viewBox.width, viewBox.height) / 100;
+            const isPointSnap = activeSnapResult.target!.type === 'point' || activeSnapResult.target!.type === 'close-polygon';
+            const r = isPointSnap ? indicatorR * 0.8 : indicatorR;
+            const fillOpacity = isPointSnap ? 0.5 : 0.3;
+            const strokeW = r * 0.3;
 
             return (
               <circle
