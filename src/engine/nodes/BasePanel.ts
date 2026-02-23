@@ -866,7 +866,7 @@ export abstract class BasePanel extends BaseNode {
     // Apply custom edge paths
     if (this._customEdgePaths.size > 0) {
       for (const [edge, customPath] of this._customEdgePaths) {
-        this.applyCustomEdgePathToOutline(points, edge, customPath, fingerCorners, extendedCorners, extensions);
+        this.applyCustomEdgePathToOutline(points, edge, customPath, fingerCorners, extendedCorners, extensions, outerCorners);
       }
     }
 
@@ -1240,13 +1240,16 @@ export abstract class BasePanel extends BaseNode {
     customPath: CustomEdgePath,
     fingerCorners: { topLeft: Point2D; topRight: Point2D; bottomRight: Point2D; bottomLeft: Point2D },
     extendedCorners: { topLeft: Point2D; topRight: Point2D; bottomRight: Point2D; bottomLeft: Point2D },
-    extensions: { top: number; right: number; bottom: number; left: number }
+    extensions: { top: number; right: number; bottom: number; left: number },
+    bodyCorners?: { topLeft: Point2D; topRight: Point2D; bottomRight: Point2D; bottomLeft: Point2D },
   ): void {
     if (customPath.points.length === 0) return;
 
     // Determine edge corners (start and end of the edge in path traversal order)
-    // Use fingerCorners for finding the segment in the outline (since outline is built from fingerCorners)
-    // Use extendedCorners for edge length calculation ONLY if there are actual extensions on that axis
+    // fingerCorners are used for: (1) finding the segment in the outline, (2) positioning converted points
+    // bodyCorners (when provided) define the coordinate frame that svgToEdgeCoords uses (body edge at ±halfW/±halfH)
+    // When bodyCorners differ from fingerCorners (male edges inset by MT), we remap t values so points
+    // land at the correct SVG positions.
     let startCorner: Point2D, endCorner: Point2D;
     let searchStartCorner: Point2D, searchEndCorner: Point2D;
     let outwardDirection: { x: number; y: number };
@@ -1334,8 +1337,66 @@ export abstract class BasePanel extends BaseNode {
       pathPoints = expandedPoints;
     }
 
+    // Remap t and offset from body-frame to finger-frame if needed.
+    // The 2D sketch view computes (t, offset) relative to the body edge at ±halfW/±halfH
+    // (via svgToEdgeCoords), but the outline is built from fingerCorners which may be inset
+    // by MT on male edges. We remap so the final SVG positions match where the user drew.
+    let remappedPoints = pathPoints;
+    if (bodyCorners) {
+      let bodyStart: Point2D, bodyEnd: Point2D;
+      switch (edge) {
+        case 'top':
+          bodyStart = bodyCorners.topLeft;
+          bodyEnd = bodyCorners.topRight;
+          break;
+        case 'right':
+          bodyStart = bodyCorners.topRight;
+          bodyEnd = bodyCorners.bottomRight;
+          break;
+        case 'bottom':
+          bodyStart = bodyCorners.bottomRight;
+          bodyEnd = bodyCorners.bottomLeft;
+          break;
+        case 'left':
+          bodyStart = bodyCorners.bottomLeft;
+          bodyEnd = bodyCorners.topLeft;
+          break;
+      }
+
+      const bodyEdgeVec = { x: bodyEnd.x - bodyStart.x, y: bodyEnd.y - bodyStart.y };
+      const bodyLength = Math.sqrt(bodyEdgeVec.x * bodyEdgeVec.x + bodyEdgeVec.y * bodyEdgeVec.y);
+
+      if (bodyLength > 0.001 && Math.abs(bodyLength - edgeLength) > 0.001) {
+        // Body and finger frames differ — remap t values
+        // bodyPos = bodyStart + bodyEdgeVec * t_body
+        // fingerT = (bodyPos - startCorner) · edgeDir / edgeLength
+        const edgeDir = { x: edgeVector.x / edgeLength, y: edgeVector.y / edgeLength };
+
+        // Perpendicular offset adjustment: body edge is at halfW/halfH,
+        // finger edge may be at halfH - MT. The offset difference is the
+        // dot product of (bodyStart - startCorner) with outwardDirection.
+        const offsetShift =
+          (bodyStart.x - startCorner.x) * outwardDirection.x +
+          (bodyStart.y - startCorner.y) * outwardDirection.y;
+
+        remappedPoints = pathPoints.map(pt => {
+          // Convert body-frame t to actual position, then to finger-frame t
+          const bodyPos = {
+            x: bodyStart.x + bodyEdgeVec.x * pt.t,
+            y: bodyStart.y + bodyEdgeVec.y * pt.t,
+          };
+          const newT = ((bodyPos.x - startCorner.x) * edgeDir.x +
+                        (bodyPos.y - startCorner.y) * edgeDir.y) / edgeLength;
+          return {
+            t: Math.max(0, Math.min(1, newT)),
+            offset: pt.offset + offsetShift,
+          };
+        });
+      }
+    }
+
     // Convert normalized path points to actual coordinates
-    const convertedPoints: Point2D[] = pathPoints.map((pt) => {
+    const convertedPoints: Point2D[] = remappedPoints.map((pt) => {
       // Position along edge
       const alongEdge = {
         x: startCorner.x + edgeVector.x * pt.t,
