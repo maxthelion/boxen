@@ -31,6 +31,7 @@ import {
   getFaceEdges,
   getMatingEdge,
 } from './faceGeometry';
+import { FACE_AXIS_MAPPINGS, MeetsBoundary } from './dividerSlotMappings';
 
 // Helper to get edge axis position range for finger system
 // Returns [startPos, endPos] along the axis where:
@@ -1410,208 +1411,35 @@ const generateDividerSlotHoles = (
     return dividerPanel?.edgeExtensions ?? defaultEdgeExtensions;
   };
 
-  for (const sub of subdivisions) {
-    let slotX: number | null = null;
-    let slotY: number | null = null;
-    let slotLength: number = 0;
-    let isHorizontal: boolean = false;
-    let startInset: number = 0;  // Inset at start of slot (mm)
-    let endInset: number = 0;    // Inset at end of slot (mm)
-    let extensionStart: number = 0;  // Extension at start of slot edge
-    let extensionEnd: number = 0;    // Extension at end of slot edge
-    let slotCenterOffset: number = 0;  // Offset to center slots within bounds
+  const dims = { width, height, depth };
 
+  for (const sub of subdivisions) {
     const { bounds, position, axis } = sub;
     const extensions = getDividerExtensions(sub.id);
 
-    // Helper to check if divider meets an outer face (accounting for lid insets)
-    const meetsBottom = bounds.y <= bottomInset + tolerance;
-    const meetsTop = bounds.y + bounds.h >= height - topInset - tolerance;
-    const meetsLeft = bounds.x <= leftInset + tolerance;
-    const meetsRight = bounds.x + bounds.w >= width - rightInset - tolerance;
-    const meetsBack = bounds.z <= backInset + tolerance;
-    const meetsFront = bounds.z + bounds.d >= depth - frontInset - tolerance;
+    const mapping = FACE_AXIS_MAPPINGS[faceId]?.[axis];
+    if (!mapping) continue;
 
-    // For divider edges: determine which unlocked edges affect the slot endpoints
-    // The divider's edge meeting this face - extensions on perpendicular unlocked edges affect length
-    const getExtForEdge = (edgeName: 'top' | 'bottom' | 'left' | 'right', meetsCondition: boolean): number => {
-      // If the perpendicular face is solid, edge is locked, no extension applies
-      // If perpendicular face is open, edge is unlocked, extension applies
-      return meetsCondition ? 0 : extensions[edgeName];
+    const meets: MeetsBoundary = {
+      meetsBottom: bounds.y <= bottomInset + tolerance,
+      meetsTop:    bounds.y + bounds.h >= height - topInset - tolerance,
+      meetsLeft:   bounds.x <= leftInset + tolerance,
+      meetsRight:  bounds.x + bounds.w >= width - rightInset - tolerance,
+      meetsBack:   bounds.z <= backInset + tolerance,
+      meetsFront:  bounds.z + bounds.d >= depth - frontInset - tolerance,
     };
 
-    // Check if this subdivision touches this face
-    // For each case, calculate slotCenterOffset to position slots within sub-void bounds
-    switch (faceId) {
-      case 'front':
-        if (meetsFront) {
-          if (axis === 'x') {
-            slotX = position - width / 2;
-            slotLength = bounds.h;
-            isHorizontal = false;
-            // Vertical slot runs in Y direction - offset based on bounds.y
-            slotCenterOffset = (bounds.y + bounds.h / 2) - height / 2;
-            // Vertical slot: start=bottom, end=top
-            startInset = meetsBottom && isFaceSolid('bottom') ? materialThickness : 0;
-            endInset = meetsTop && isFaceSolid('top') ? materialThickness : 0;
-            // For X-axis divider meeting front: right edge meets front face
-            // Slot runs vertically (bottom to top), extensions: bottom/top affect length
-            extensionStart = getExtForEdge('bottom', meetsBottom && isFaceSolid('bottom'));
-            extensionEnd = getExtForEdge('top', meetsTop && isFaceSolid('top'));
-          } else if (axis === 'y') {
-            slotY = position - height / 2;
-            slotLength = bounds.w;
-            isHorizontal = true;
-            // Horizontal slot runs in X direction - offset based on bounds.x
-            slotCenterOffset = (bounds.x + bounds.w / 2) - width / 2;
-            // Horizontal slot: start=left, end=right
-            startInset = meetsLeft && isFaceSolid('left') ? materialThickness : 0;
-            endInset = meetsRight && isFaceSolid('right') ? materialThickness : 0;
-            extensionStart = getExtForEdge('left', meetsLeft && isFaceSolid('left'));
-            extensionEnd = getExtForEdge('right', meetsRight && isFaceSolid('right'));
-          }
-        }
-        break;
-      case 'back':
-        if (meetsBack) {
-          if (axis === 'x') {
-            slotX = -(position - width / 2);
-            slotLength = bounds.h;
-            isHorizontal = false;
-            // Vertical slot runs in Y direction - offset based on bounds.y
-            slotCenterOffset = (bounds.y + bounds.h / 2) - height / 2;
-            startInset = meetsBottom && isFaceSolid('bottom') ? materialThickness : 0;
-            endInset = meetsTop && isFaceSolid('top') ? materialThickness : 0;
-            extensionStart = getExtForEdge('bottom', meetsBottom && isFaceSolid('bottom'));
-            extensionEnd = getExtForEdge('top', meetsTop && isFaceSolid('top'));
-          } else if (axis === 'y') {
-            slotY = position - height / 2;
-            slotLength = bounds.w;
-            isHorizontal = true;
-            // Horizontal slot runs in X direction (mirrored) - offset based on bounds.x
-            slotCenterOffset = -((bounds.x + bounds.w / 2) - width / 2);
-            startInset = meetsLeft && isFaceSolid('left') ? materialThickness : 0;
-            endInset = meetsRight && isFaceSolid('right') ? materialThickness : 0;
-            extensionStart = getExtForEdge('left', meetsLeft && isFaceSolid('left'));
-            extensionEnd = getExtForEdge('right', meetsRight && isFaceSolid('right'));
-          }
-        }
-        break;
-      case 'left':
-        if (meetsLeft) {
-          if (axis === 'z') {
-            slotX = position - depth / 2;
-            slotLength = bounds.h;
-            isHorizontal = false;
-            // Vertical slot runs in Y direction - offset based on bounds.y
-            slotCenterOffset = (bounds.y + bounds.h / 2) - height / 2;
-            startInset = meetsBottom && isFaceSolid('bottom') ? materialThickness : 0;
-            endInset = meetsTop && isFaceSolid('top') ? materialThickness : 0;
-            extensionStart = getExtForEdge('bottom', meetsBottom && isFaceSolid('bottom'));
-            extensionEnd = getExtForEdge('top', meetsTop && isFaceSolid('top'));
-          } else if (axis === 'y') {
-            slotY = position - height / 2;
-            slotLength = bounds.d;
-            isHorizontal = true;
-            // Horizontal slot runs in Z direction - offset based on bounds.z
-            slotCenterOffset = (bounds.z + bounds.d / 2) - depth / 2;
-            // Horizontal slot on left: start=back, end=front
-            startInset = meetsBack && isFaceSolid('back') ? materialThickness : 0;
-            endInset = meetsFront && isFaceSolid('front') ? materialThickness : 0;
-            // For Y-axis divider: left edge, slots run front-to-back
-            // In divider's 2D: "left" corresponds to back, "right" to front
-            extensionStart = getExtForEdge('left', meetsBack && isFaceSolid('back'));
-            extensionEnd = getExtForEdge('right', meetsFront && isFaceSolid('front'));
-          }
-        }
-        break;
-      case 'right':
-        if (meetsRight) {
-          if (axis === 'z') {
-            slotX = -(position - depth / 2);
-            slotLength = bounds.h;
-            isHorizontal = false;
-            // Vertical slot runs in Y direction - offset based on bounds.y
-            slotCenterOffset = (bounds.y + bounds.h / 2) - height / 2;
-            startInset = meetsBottom && isFaceSolid('bottom') ? materialThickness : 0;
-            endInset = meetsTop && isFaceSolid('top') ? materialThickness : 0;
-            extensionStart = getExtForEdge('bottom', meetsBottom && isFaceSolid('bottom'));
-            extensionEnd = getExtForEdge('top', meetsTop && isFaceSolid('top'));
-          } else if (axis === 'y') {
-            slotY = position - height / 2;
-            slotLength = bounds.d;
-            isHorizontal = true;
-            // Horizontal slot runs in Z direction (mirrored) - offset based on bounds.z
-            slotCenterOffset = -((bounds.z + bounds.d / 2) - depth / 2);
-            // Horizontal slot on right: start=front, end=back (mirrored from left)
-            startInset = meetsFront && isFaceSolid('front') ? materialThickness : 0;
-            endInset = meetsBack && isFaceSolid('back') ? materialThickness : 0;
-            extensionStart = getExtForEdge('right', meetsFront && isFaceSolid('front'));
-            extensionEnd = getExtForEdge('left', meetsBack && isFaceSolid('back'));
-          }
-        }
-        break;
-      case 'top':
-        if (meetsTop) {
-          if (axis === 'x') {
-            slotX = position - width / 2;
-            slotLength = bounds.d;
-            isHorizontal = false;
-            // Vertical slot runs in Z direction (mapped to local Y) - offset based on bounds.z
-            // Top face rotation [-π/2, 0, 0]: local Y → world -Z
-            // So negative slotY = positive world Z (toward front)
-            slotCenterOffset = -((bounds.z + bounds.d / 2) - depth / 2);
-            // For top: start=front (positive local Y maps to back), end=back
-            startInset = meetsFront && isFaceSolid('front') ? materialThickness : 0;
-            endInset = meetsBack && isFaceSolid('back') ? materialThickness : 0;
-            extensionStart = getExtForEdge('right', meetsFront && isFaceSolid('front'));
-            extensionEnd = getExtForEdge('left', meetsBack && isFaceSolid('back'));
-          } else if (axis === 'z') {
-            // Top face rotation [-π/2, 0, 0]: local Y → world -Z
-            // To place slot at world Z = position, need slotY = -(position - depth/2)
-            slotY = -(position - depth / 2);
-            slotLength = bounds.w;
-            isHorizontal = true;
-            // Horizontal slot runs in X direction - offset based on bounds.x
-            slotCenterOffset = (bounds.x + bounds.w / 2) - width / 2;
-            startInset = meetsLeft && isFaceSolid('left') ? materialThickness : 0;
-            endInset = meetsRight && isFaceSolid('right') ? materialThickness : 0;
-            extensionStart = getExtForEdge('left', meetsLeft && isFaceSolid('left'));
-            extensionEnd = getExtForEdge('right', meetsRight && isFaceSolid('right'));
-          }
-        }
-        break;
-      case 'bottom':
-        if (meetsBottom) {
-          if (axis === 'x') {
-            slotX = position - width / 2;
-            slotLength = bounds.d;
-            isHorizontal = false;
-            // Vertical slot runs in Z direction (mapped to local Y) - offset based on bounds.z
-            // Bottom face rotation [π/2, 0, 0]: local Y → world +Z
-            // So positive slotY = positive world Z (toward front)
-            slotCenterOffset = (bounds.z + bounds.d / 2) - depth / 2;
-            // For bottom: start=back (negative local Y), end=front (positive local Y)
-            startInset = meetsBack && isFaceSolid('back') ? materialThickness : 0;
-            endInset = meetsFront && isFaceSolid('front') ? materialThickness : 0;
-            extensionStart = getExtForEdge('left', meetsBack && isFaceSolid('back'));
-            extensionEnd = getExtForEdge('right', meetsFront && isFaceSolid('front'));
-          } else if (axis === 'z') {
-            // Bottom face rotation [π/2, 0, 0]: local Y → world +Z
-            // To place slot at world Z = position, need slotY = position - depth/2
-            slotY = position - depth / 2;
-            slotLength = bounds.w;
-            isHorizontal = true;
-            // Horizontal slot runs in X direction - offset based on bounds.x
-            slotCenterOffset = (bounds.x + bounds.w / 2) - width / 2;
-            startInset = meetsLeft && isFaceSolid('left') ? materialThickness : 0;
-            endInset = meetsRight && isFaceSolid('right') ? materialThickness : 0;
-            extensionStart = getExtForEdge('left', meetsLeft && isFaceSolid('left'));
-            extensionEnd = getExtForEdge('right', meetsRight && isFaceSolid('right'));
-          }
-        }
-        break;
-    }
+    if (!mapping.matches(meets)) continue;
+
+    const slotX          = mapping.getSlotX ? mapping.getSlotX(position, dims) : null;
+    const slotY          = mapping.getSlotY ? mapping.getSlotY(position, dims) : null;
+    const isHorizontal   = mapping.isHorizontal;
+    const slotLength     = mapping.getLength(bounds);
+    const slotCenterOffset = mapping.getCenterOffset(bounds, dims);
+    const startInset     = mapping.getStartInset(meets, isFaceSolid, materialThickness);
+    const endInset       = mapping.getEndInset(meets, isFaceSolid, materialThickness);
+    const extensionStart = mapping.getExtStart(meets, isFaceSolid, extensions);
+    const extensionEnd   = mapping.getExtEnd(meets, isFaceSolid, extensions);
 
     // Generate finger slot holes using V2 finger points for alignment
     if (slotX !== null || slotY !== null) {
