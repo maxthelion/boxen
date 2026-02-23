@@ -72,8 +72,8 @@ const PRIORITY: Record<SnapTargetType, number> = {
   'close-polygon': 0,
   'merge-boundary': 0,
   'point': 1,
+  'intersection': 1.5,
   'alignment': 2,
-  'intersection': 2,
   'edge-segment': 2.5,
   'center': 3,
   'edge-line': 3,
@@ -514,6 +514,59 @@ function guideLineCandidates(
   return results;
 }
 
+/**
+ * Synthesize intersection candidates from single-axis snap candidates.
+ *
+ * When one candidate constrains X (its point.x differs from cursor.x)
+ * and another constrains Y (its point.y differs from cursor.y), their
+ * crossing is a two-axis intersection that should beat either alone.
+ *
+ * This catches alignment×guide, alignment×alignment, and guide×guide
+ * crossings that intersectionCandidates() misses.
+ */
+function synthesizeAxisIntersections(
+  candidates: SnapTarget[],
+  cursor: { x: number; y: number },
+  threshold: number,
+): SnapTarget[] {
+  const tolerance = 0.5;
+
+  // Collect candidates that constrain X (point.x ≠ cursor.x, point.y ≈ cursor.y)
+  const xConstraining = candidates.filter(c =>
+    Math.abs(c.point.x - cursor.x) > tolerance &&
+    Math.abs(c.point.y - cursor.y) <= tolerance
+  );
+
+  // Collect candidates that constrain Y (point.y ≠ cursor.y, point.x ≈ cursor.x)
+  const yConstraining = candidates.filter(c =>
+    Math.abs(c.point.y - cursor.y) > tolerance &&
+    Math.abs(c.point.x - cursor.x) <= tolerance
+  );
+
+  const results: SnapTarget[] = [];
+  const seen = new Set<string>();
+
+  for (const xc of xConstraining) {
+    for (const yc of yConstraining) {
+      const pt = { x: xc.point.x, y: yc.point.y };
+      const key = `${roundTo(pt.x, 4)},${roundTo(pt.y, 4)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const d = dist(cursor, pt);
+      if (d <= threshold) {
+        results.push({
+          type: 'intersection',
+          point: pt,
+          priority: PRIORITY.intersection,
+        });
+      }
+    }
+  }
+
+  return results;
+}
+
 // ── Selection ────────────────────────────────────────────────────────────────
 
 /**
@@ -636,6 +689,12 @@ export function snapPoint(
   if (enabledTypes.has('merge-boundary') && draftEdge) {
     const mb = mergeBoundaryCandidate(rawCursor, draftEdge, panelWidth, panelHeight, threshold, 2);
     if (mb) allCandidates.push(mb);
+  }
+
+  // Synthesize cross-axis intersections from single-axis snaps
+  // (alignment × guide, alignment × alignment, guide × guide)
+  if (enabledTypes.has('intersection')) {
+    allCandidates.push(...synthesizeAxisIntersections(allCandidates, rawCursor, threshold));
   }
 
   // Shift composition

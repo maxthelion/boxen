@@ -645,6 +645,73 @@ describe('priority ordering', () => {
     expect(result.target).not.toBeNull();
     expect(result.target!.type).toBe('point');
   });
+  it('synthesizes intersection when two single-axis snaps cross', () => {
+    // Two draft points: one at x=20, one at y=30
+    // Cursor near (20, 30) — should snap to the intersection, not just one axis
+    const context: SnapContext = {
+      panelWidth: 100,
+      panelHeight: 80,
+      outlinePoints: [],
+      draftPoints: [{ x: 20, y: 10 }, { x: 5, y: 30 }],
+      gridSize: 10,
+    };
+    const config: SnapConfig = {
+      enabledTypes: new Set(['alignment', 'intersection']),
+      threshold: 8,
+      gridSize: 10,
+      shiftHeld: false,
+    };
+    const result = snapPoint({ x: 22, y: 32 }, config, context);
+    expect(result.target).not.toBeNull();
+    expect(result.target!.type).toBe('intersection');
+    expect(result.target!.point.x).toBe(20);
+    expect(result.target!.point.y).toBe(30);
+  });
+
+  it('synthesizes intersection from alignment + guide crossing', () => {
+    // Draft point at x=15, center guide at y=0
+    // Cursor near (15, 0) — intersection of alignment x=15 and center y=0
+    const context: SnapContext = {
+      panelWidth: 100,
+      panelHeight: 80,
+      outlinePoints: [],
+      draftPoints: [{ x: 15, y: 20 }],
+      gridSize: 10,
+    };
+    const config: SnapConfig = {
+      enabledTypes: new Set(['alignment', 'center', 'intersection']),
+      threshold: 8,
+      gridSize: 10,
+      shiftHeld: false,
+    };
+    const result = snapPoint({ x: 16, y: 1 }, config, context);
+    expect(result.target).not.toBeNull();
+    expect(result.target!.type).toBe('intersection');
+    expect(result.target!.point.x).toBe(15);
+    expect(result.target!.point.y).toBeCloseTo(0);
+  });
+
+  it('intersection beats single-axis alignment', () => {
+    // Same setup as above — intersection should win over alignment
+    const context: SnapContext = {
+      panelWidth: 100,
+      panelHeight: 80,
+      outlinePoints: [],
+      draftPoints: [{ x: 20, y: 10 }, { x: 5, y: 30 }],
+      gridSize: 10,
+    };
+    const config: SnapConfig = {
+      enabledTypes: new Set(['alignment', 'intersection']),
+      threshold: 8,
+      gridSize: 10,
+      shiftHeld: false,
+    };
+    // Cursor closer to the x=20 alignment line than to the intersection
+    const result = snapPoint({ x: 21, y: 28 }, config, context);
+    expect(result.target).not.toBeNull();
+    // Intersection at (20, 30) should win over alignment at (20, 28) due to priority
+    expect(result.target!.type).toBe('intersection');
+  });
 });
 
 // ── getToolSnapConfig ────────────────────────────────────────────────────────
