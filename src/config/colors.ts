@@ -93,9 +93,11 @@ export interface ColorConfig {
     extension: string;         // Extension visualization on adjacent panels
     hole: StateColors;         // Slot/hole rendering
     label: string;             // Dimension and annotation labels
-    snap: {
-      indicator: string;       // Snap point indicator circle
-      guide: string;           // Active guide line highlight
+    guides: {
+      centerLine: string;      // Center lines (through panel midpoint)
+      edgeLine: string;        // Edge/finger-tip guide lines
+      highlight: string;       // Highlighted guide (cursor snapping to it)
+      snapIndicator: string;   // Snap point circle indicator
       ray: string;             // Angle constraint ray
     };
   };
@@ -186,10 +188,12 @@ export const defaultColors: ColorConfig = {
     extension: '#e53e3e',
     hole: { base: '#1a1a2e', hover: '#666' },
     label: '#888',
-    snap: {
-      indicator: '#00e5ff',
-      guide: '#00e5ff',
-      ray: '#ffaa00',
+    guides: {
+      centerLine: '#4a4a6a',      // Subtle, like grid axes
+      edgeLine: '#3a4a5a',        // Subtle blue-gray
+      highlight: '#6ab0f9',       // Bright blue when snapping
+      snapIndicator: '#6ab0f9',   // Bright blue snap dot
+      ray: '#ffaa00',             // Angle constraint ray (orange)
     },
   },
 

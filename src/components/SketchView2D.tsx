@@ -29,8 +29,10 @@ import {
 import {
   snapPoint as snapPointEngine,
   getToolSnapConfig,
+  computeGuideLines,
   type SnapResult,
   type SnapContext,
+  type GuideLine,
 } from '../utils/snapEngine';
 
 // Ensure safe-space tag is active for this component
@@ -1688,6 +1690,13 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   }
 
   const gridSize = 10;
+
+  // Compute guide lines from panel geometry (center lines, edge lines, finger tip lines)
+  const guideLines = useMemo((): GuideLine[] => {
+    if (!panel) return [];
+    return computeGuideLines(panel.width, panel.height, panel.outline.points, gridSize);
+  }, [panel]);
+
   const strokeScale = Math.min(viewBox.width, viewBox.height) / 200;
   const outlineStrokeWidth = Math.max(0.3, Math.min(1, strokeScale));
   const holeStrokeWidth = Math.max(0.2, Math.min(0.5, strokeScale * 0.5));
@@ -2300,61 +2309,72 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             );
           })()}
 
-          {/* Snap indicator and guide lines */}
-          {activeSnapResult?.target && (() => {
-            const snapPt = activeSnapResult.point;
-            const snapColor = colors.sketch.snap.indicator;
-            const guideColor = colors.sketch.snap.guide;
+          {/* Guide lines for snapping (center lines + edge/finger-tip lines) */}
+          {guideLines.length > 0 && (() => {
+            const guideStrokeWidth = Math.max(viewBox.width, viewBox.height) / 800;
+            const extent = Math.max(viewBox.width, viewBox.height) * 3;
+            const activeGuides = activeSnapResult?.activeGuides ?? [];
 
             return (
               <g>
-                {/* Active guide lines */}
-                {activeSnapResult.activeGuides.map((guide, i) => (
-                  guide.axis === 'x' ? (
+                {guideLines.map((guide, i) => {
+                  const isHighlighted = activeGuides.some(g =>
+                    g.axis === guide.axis && Math.abs(g.position - guide.position) < 0.01
+                  );
+                  const color = isHighlighted
+                    ? colors.sketch.guides.highlight
+                    : guide.type === 'center'
+                      ? colors.sketch.guides.centerLine
+                      : colors.sketch.guides.edgeLine;
+                  const opacity = isHighlighted ? 0.8 : guide.type === 'center' ? 0.5 : 0.3;
+                  const strokeW = isHighlighted ? guideStrokeWidth * 2 : guideStrokeWidth;
+                  const isH = guide.axis === 'y'; // y-axis = horizontal line
+
+                  return (
                     <line
-                      key={`guide-${i}`}
-                      x1={guide.position}
-                      y1={viewBox.y}
-                      x2={guide.position}
-                      y2={viewBox.y + viewBox.height}
-                      stroke={guideColor}
-                      strokeWidth={strokeScale * 0.5}
-                      strokeDasharray={`${2 * strokeScale} ${2 * strokeScale}`}
-                      opacity={0.3}
+                      key={`guide-${isH ? 'h' : 'v'}-${i}`}
+                      x1={isH ? -extent : guide.position}
+                      y1={isH ? guide.position : -extent}
+                      x2={isH ? extent : guide.position}
+                      y2={isH ? guide.position : extent}
+                      stroke={color}
+                      strokeWidth={strokeW}
+                      strokeDasharray={guide.type === 'center'
+                        ? `${6 * guideStrokeWidth} ${4 * guideStrokeWidth}`
+                        : `${3 * guideStrokeWidth} ${3 * guideStrokeWidth}`
+                      }
+                      opacity={opacity}
+                      style={{ transition: 'opacity 0.1s, stroke 0.1s' }}
                     />
-                  ) : (
-                    <line
-                      key={`guide-${i}`}
-                      x1={viewBox.x}
-                      y1={guide.position}
-                      x2={viewBox.x + viewBox.width}
-                      y2={guide.position}
-                      stroke={guideColor}
-                      strokeWidth={strokeScale * 0.5}
-                      strokeDasharray={`${2 * strokeScale} ${2 * strokeScale}`}
-                      opacity={0.3}
-                    />
-                  )
-                ))}
-                {/* Snap point indicator */}
-                <circle
-                  cx={snapPt.x}
-                  cy={snapPt.y}
-                  r={Math.max(2, strokeScale * 3)}
-                  fill="none"
-                  stroke={snapColor}
-                  strokeWidth={strokeScale}
-                  opacity={0.8}
-                />
-                {/* Inner dot */}
-                <circle
-                  cx={snapPt.x}
-                  cy={snapPt.y}
-                  r={Math.max(1, strokeScale)}
-                  fill={snapColor}
-                  opacity={0.6}
-                />
+                  );
+                })}
               </g>
+            );
+          })()}
+
+          {/* Snap indicator - circle at snap point, styled by type */}
+          {activeSnapResult?.target && (() => {
+            const snapPt = activeSnapResult.point;
+            const indicatorR = Math.max(viewBox.width, viewBox.height) / 100;
+            const isEdgeSnap = activeSnapResult.target!.type === 'edge-segment' || activeSnapResult.target!.type === 'merge-boundary';
+            const isPointSnap = activeSnapResult.target!.type === 'point' || activeSnapResult.target!.type === 'close-polygon';
+            const isForkIndicator = isEdgeSnap && activeTool === 'path' && !isPathDraftActive;
+
+            const r = isForkIndicator ? indicatorR * 1.3 : isPointSnap ? indicatorR * 0.8 : indicatorR;
+            const fillOpacity = isForkIndicator ? 0.4 : isPointSnap ? 0.5 : 0.3;
+            const strokeW = isForkIndicator ? r * 0.4 : r * 0.3;
+
+            return (
+              <circle
+                cx={snapPt.x}
+                cy={snapPt.y}
+                r={r}
+                fill={colors.sketch.guides.snapIndicator}
+                fillOpacity={fillOpacity}
+                stroke={colors.sketch.guides.snapIndicator}
+                strokeWidth={strokeW}
+                opacity={0.9}
+              />
             );
           })()}
 
@@ -2372,7 +2392,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
             }
             if (!angleRef) return null;
 
-            const rayColor = colors.sketch.snap.ray;
+            const rayColor = colors.sketch.guides.ray;
             const target = activeSnapResult.point;
             // Extend the ray beyond the snap point for visual clarity
             const dx = target.x - angleRef.x;
