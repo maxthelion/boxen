@@ -173,6 +173,8 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
     updateDraftTarget,
     commit: commitDraft,
     cancel: cancelDraft,
+    lastCommitError,
+    clearLastCommitError,
   } = useEditor();
 
   // Pan and zoom state
@@ -2967,6 +2969,19 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                   Draw t=0..0.5; second half is auto-mirrored
                 </div>
               )}
+              {lastCommitError && (
+                <div style={{
+                  fontSize: '11px',
+                  marginBottom: '10px',
+                  padding: '6px 8px',
+                  backgroundColor: 'rgba(220,50,50,0.15)',
+                  border: '1px solid rgba(220,50,50,0.4)',
+                  borderRadius: '4px',
+                  color: '#e05555',
+                }}>
+                  {lastCommitError}
+                </div>
+              )}
               <PaletteButtonRow>
                 <PaletteButton
                   variant="primary"
@@ -2983,6 +2998,7 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
                 <PaletteButton
                   variant="secondary"
                   onClick={() => {
+                    clearLastCommitError();
                     cancelDraft();
                     setActiveTool('select');
                   }}

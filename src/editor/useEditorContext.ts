@@ -5,7 +5,7 @@
  * Connects state machine to the engine for preview/commit operations.
  */
 
-import { useReducer, useCallback, useEffect, useMemo } from 'react';
+import { useReducer, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   editorReducer,
   canUndo,
@@ -27,6 +27,7 @@ import { PathPoint } from '../types';
 import { getEngine, notifyEngineStateChanged } from '../engine';
 import { getOperation } from '../operations/registry';
 import { OperationId } from '../operations/types';
+import { detectEdgePathSelfIntersection, detectEdgePathCrossing } from '../utils/edgePathValidation';
 
 export interface EditorContextValue {
   // State
@@ -47,6 +48,10 @@ export interface EditorContextValue {
   // Edit session mode
   editTargetId: string | undefined;
   editTargetType: EditSessionState['targetType'] | undefined;
+
+  // Validation errors
+  lastCommitError: string | null;
+  clearLastCommitError: () => void;
 
   // Capabilities
   canUndo: boolean;
@@ -73,6 +78,11 @@ export interface EditorContextValue {
 
 export function useEditorContext(): EditorContextValue {
   const [state, dispatch] = useReducer(editorReducer, initialEditorState);
+  const [lastCommitError, setLastCommitError] = useState<string | null>(null);
+
+  const clearLastCommitError = useCallback(() => {
+    setLastCommitError(null);
+  }, []);
 
   // ===========================================================================
   // Engine Integration for Operation Mode
@@ -216,6 +226,26 @@ export function useEditorContext(): EditorContextValue {
           // their intended path shape (e.g., peaks, zigzags).
           // Existing points before/after are already in order.
 
+          // Validate: check for self-intersection in the new user-drawn path
+          if (detectEdgePathSelfIntersection(rawPoints)) {
+            setLastCommitError('Path crosses itself — redraw to avoid the crossing.');
+            return;
+          }
+
+          // Validate: check for self-intersection in the merged path
+          if (detectEdgePathSelfIntersection(mergedPoints)) {
+            setLastCommitError('New path would cross the existing edge path — redraw to avoid the crossing.');
+            return;
+          }
+
+          // Validate: check for crossing between new raw path and existing path
+          if (existingPath.length >= 2 && detectEdgePathCrossing(existingPath, rawPoints)) {
+            setLastCommitError('New path crosses the existing edge path — redraw to avoid the crossing.');
+            return;
+          }
+
+          setLastCommitError(null);
+
           engine.dispatch({
             type: 'SET_EDGE_PATH',
             targetId: 'main-assembly',
@@ -351,6 +381,10 @@ export function useEditorContext(): EditorContextValue {
     editTargetId: state.editSession?.targetId,
     editTargetType: state.editSession?.targetType,
 
+    // Validation errors
+    lastCommitError,
+    clearLastCommitError,
+
     // Capabilities
     canUndo: canUndo(state),
     canRedo: canRedo(state),
@@ -374,6 +408,8 @@ export function useEditorContext(): EditorContextValue {
     setView,
   }), [
     state,
+    lastCommitError,
+    clearLastCommitError,
     canSwitchToView,
     startOperation,
     updateParams,
