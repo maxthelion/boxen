@@ -64,11 +64,58 @@ export interface SafeSpaceRegion {
   resultPaths: PathPoint[][];
 }
 
-type EdgePosition = 'top' | 'bottom' | 'left' | 'right';
+export type EdgePosition = 'top' | 'bottom' | 'left' | 'right';
 
 // =============================================================================
 // Path Analysis Types
 // =============================================================================
+
+/**
+ * Encodes the coordinate geometry for one edge direction.
+ * Built once before the per-point loop in analyzePath so that all
+ * 4-directional checks can share a single loop body.
+ *
+ * Exported for direct unit testing — callers should use buildEdgeCheckConfigs().
+ */
+export interface EdgeCheckConfig {
+  /** Which edge this config applies to */
+  edge: EdgePosition;
+  /** Extract the relevant coordinate (x or y) from a point */
+  getCoord: (p: PathPoint) => number;
+  /** Inner boundary of the joint margin (safe space border) */
+  safeThreshold: number;
+  /** Outer body edge (including any extension beyond bounding box) */
+  bodyThreshold: number;
+  /** True for top/right (positive side), false for bottom/left (negative side) */
+  isPositive: boolean;
+  /** The edge margin value (> 0 when joints present, 0 when open) */
+  margin: number;
+}
+
+/**
+ * Build the 4-entry EdgeCheckConfig table for analyzePath.
+ *
+ * Exported so unit tests can verify each entry's coordinate extraction
+ * and sign logic without running the full function.
+ */
+export function buildEdgeCheckConfigs(
+  safeMinX: number,
+  safeMaxX: number,
+  safeMinY: number,
+  safeMaxY: number,
+  bodyMinX: number,
+  bodyMaxX: number,
+  bodyMinY: number,
+  bodyMaxY: number,
+  edgeMargins: Record<EdgePosition, number>
+): EdgeCheckConfig[] {
+  return [
+    { edge: 'top',    getCoord: p => p.y, safeThreshold: safeMaxY, bodyThreshold: bodyMaxY, isPositive: true,  margin: edgeMargins.top    },
+    { edge: 'bottom', getCoord: p => p.y, safeThreshold: safeMinY, bodyThreshold: bodyMinY, isPositive: false, margin: edgeMargins.bottom  },
+    { edge: 'left',   getCoord: p => p.x, safeThreshold: safeMinX, bodyThreshold: bodyMinX, isPositive: false, margin: edgeMargins.left    },
+    { edge: 'right',  getCoord: p => p.x, safeThreshold: safeMaxX, bodyThreshold: bodyMaxX, isPositive: true,  margin: edgeMargins.right   },
+  ];
+}
 
 /**
  * Result of analyzing a drawn path to determine its type and behavior.
@@ -1060,17 +1107,6 @@ export function analyzePath(
   const halfW = panelWidth / 2;
   const halfH = panelHeight / 2;
 
-  // Identify which edges are open (no joints)
-  const openEdges: EdgePosition[] = [];
-  const closedEdges: EdgePosition[] = [];
-  for (const edge of ['top', 'bottom', 'left', 'right'] as EdgePosition[]) {
-    if (edgeMargins[edge] === 0) {
-      openEdges.push(edge);
-    } else {
-      closedEdges.push(edge);
-    }
-  }
-
   // Get safe space boundary (the inner edge of the joint margins)
   const safeMinX = -halfW + (edgeMargins.left > 0 ? edgeMargins.left : 0);
   const safeMaxX = halfW - (edgeMargins.right > 0 ? edgeMargins.right : 0);
@@ -1091,98 +1127,45 @@ export function analyzePath(
   let spansOpenEdge = false;
   let touchesClosedEdge = false;
 
-  for (const point of points) {
-    const { x, y } = point;
+  // Build table once; the 4-fold per-edge repetition becomes a single shared loop body.
+  const edgeConfigs = buildEdgeCheckConfigs(
+    safeMinX, safeMaxX, safeMinY, safeMaxY,
+    bodyMinX, bodyMaxX, bodyMinY, bodyMaxY,
+    edgeMargins
+  );
 
+  for (const point of points) {
     // Check if point is in safe space
-    const inSafeSpace = isPointInSafeSpace(x, y, safeSpace);
-    if (!inSafeSpace) {
+    if (!isPointInSafeSpace(point.x, point.y, safeSpace)) {
       whollyInSafeSpace = false;
     }
 
-    // Check if point touches safe space border (inner edge of joint margins)
-    // For open edges, the "border" is the body edge
-    const touchesTopBorder = Math.abs(y - safeMaxY) < tolerance && edgeMargins.top > 0;
-    const touchesBottomBorder = Math.abs(y - safeMinY) < tolerance && edgeMargins.bottom > 0;
-    const touchesLeftBorder = Math.abs(x - safeMinX) < tolerance && edgeMargins.left > 0;
-    const touchesRightBorder = Math.abs(x - safeMaxX) < tolerance && edgeMargins.right > 0;
+    for (const cfg of edgeConfigs) {
+      const coord = cfg.getCoord(point);
 
-    // For open edges, check if point touches the body edge
-    const touchesTopBody = Math.abs(y - bodyMaxY) < tolerance && edgeMargins.top === 0;
-    const touchesBottomBody = Math.abs(y - bodyMinY) < tolerance && edgeMargins.bottom === 0;
-    const touchesLeftBody = Math.abs(x - bodyMinX) < tolerance && edgeMargins.left === 0;
-    const touchesRightBody = Math.abs(x - bodyMaxX) < tolerance && edgeMargins.right === 0;
+      // Touches the inner edge of a joint margin (safe space border) on a jointed edge
+      const touchesBorder = Math.abs(coord - cfg.safeThreshold) < tolerance && cfg.margin > 0;
+      // Touches the outer body edge on an open (unjointd) edge
+      const touchesBody   = Math.abs(coord - cfg.bodyThreshold) < tolerance && cfg.margin === 0;
+      // Extends beyond the body boundary on the positive or negative side
+      const beyond = cfg.isPositive
+        ? coord > cfg.bodyThreshold + tolerance
+        : coord < cfg.bodyThreshold - tolerance;
+      // Sits inside the joint margin of a closed (jointed) edge
+      const inClosedRegion = cfg.isPositive
+        ? coord > cfg.safeThreshold - tolerance
+        : coord < cfg.safeThreshold + tolerance;
 
-    // Record which edges are bordered
-    if (touchesTopBorder || touchesTopBody) {
-      if (!borderedEdges.includes('top')) borderedEdges.push('top');
-      if (touchesTopBorder) touchesSafeSpaceBorder = true;
-      if (touchesTopBody) {
-        if (!openEdgesSpanned.includes('top')) openEdgesSpanned.push('top');
+      if (touchesBorder || touchesBody) {
+        if (!borderedEdges.includes(cfg.edge)) borderedEdges.push(cfg.edge);
+        if (touchesBorder) touchesSafeSpaceBorder = true;
+        if (touchesBody && !openEdgesSpanned.includes(cfg.edge)) openEdgesSpanned.push(cfg.edge);
       }
-    }
-    if (touchesBottomBorder || touchesBottomBody) {
-      if (!borderedEdges.includes('bottom')) borderedEdges.push('bottom');
-      if (touchesBottomBorder) touchesSafeSpaceBorder = true;
-      if (touchesBottomBody) {
-        if (!openEdgesSpanned.includes('bottom')) openEdgesSpanned.push('bottom');
+      if (beyond && cfg.margin === 0) {
+        spansOpenEdge = true;
+        if (!openEdgesSpanned.includes(cfg.edge)) openEdgesSpanned.push(cfg.edge);
       }
-    }
-    if (touchesLeftBorder || touchesLeftBody) {
-      if (!borderedEdges.includes('left')) borderedEdges.push('left');
-      if (touchesLeftBorder) touchesSafeSpaceBorder = true;
-      if (touchesLeftBody) {
-        if (!openEdgesSpanned.includes('left')) openEdgesSpanned.push('left');
-      }
-    }
-    if (touchesRightBorder || touchesRightBody) {
-      if (!borderedEdges.includes('right')) borderedEdges.push('right');
-      if (touchesRightBorder) touchesSafeSpaceBorder = true;
-      if (touchesRightBody) {
-        if (!openEdgesSpanned.includes('right')) openEdgesSpanned.push('right');
-      }
-    }
-
-    // Check if point extends beyond body boundary (only valid on open edges)
-    const beyondTop = y > bodyMaxY + tolerance;
-    const beyondBottom = y < bodyMinY - tolerance;
-    const beyondLeft = x < bodyMinX - tolerance;
-    const beyondRight = x > bodyMaxX + tolerance;
-
-    if (beyondTop && edgeMargins.top === 0) {
-      spansOpenEdge = true;
-      if (!openEdgesSpanned.includes('top')) openEdgesSpanned.push('top');
-    }
-    if (beyondBottom && edgeMargins.bottom === 0) {
-      spansOpenEdge = true;
-      if (!openEdgesSpanned.includes('bottom')) openEdgesSpanned.push('bottom');
-    }
-    if (beyondLeft && edgeMargins.left === 0) {
-      spansOpenEdge = true;
-      if (!openEdgesSpanned.includes('left')) openEdgesSpanned.push('left');
-    }
-    if (beyondRight && edgeMargins.right === 0) {
-      spansOpenEdge = true;
-      if (!openEdgesSpanned.includes('right')) openEdgesSpanned.push('right');
-    }
-
-    // Check if point is in a closed edge region (joints on all sides)
-    // A point touches a closed edge if it's in the joint margin of a jointed edge
-    for (const edge of closedEdges) {
-      switch (edge) {
-        case 'top':
-          if (y > safeMaxY - tolerance) touchesClosedEdge = true;
-          break;
-        case 'bottom':
-          if (y < safeMinY + tolerance) touchesClosedEdge = true;
-          break;
-        case 'left':
-          if (x < safeMinX + tolerance) touchesClosedEdge = true;
-          break;
-        case 'right':
-          if (x > safeMaxX - tolerance) touchesClosedEdge = true;
-          break;
-      }
+      if (cfg.margin > 0 && inClosedRegion) touchesClosedEdge = true;
     }
   }
 
