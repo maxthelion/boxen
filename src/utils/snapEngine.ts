@@ -19,6 +19,7 @@ export type SnapTargetType =
   | 'center'          // Panel center axis (x=0 or y=0)
   | 'edge-line'       // Panel boundary line (halfW, halfH)
   | 'point'           // Existing vertex (outline corner, cutout vertex)
+  | 'alignment'       // Horizontal/vertical alignment with existing point
   | 'edge-segment'    // Nearest point on a panel boundary segment
   | 'midpoint'        // Midpoint of a segment
   | 'intersection'    // Where two guide lines cross
@@ -71,12 +72,13 @@ const PRIORITY: Record<SnapTargetType, number> = {
   'close-polygon': 0,
   'merge-boundary': 0,
   'point': 1,
+  'alignment': 2,
   'intersection': 2,
   'edge-segment': 2.5,
-  'midpoint': 3,
-  'grid': 4,
-  'center': 5,
-  'edge-line': 5,
+  'center': 3,
+  'edge-line': 3,
+  'midpoint': 4,
+  'grid': 5,
 };
 
 // ── Guide line computation ───────────────────────────────────────────────────
@@ -246,6 +248,55 @@ export function midpointCandidates(
         point: mid,
         priority: PRIORITY.midpoint,
       });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Find horizontal/vertical alignment with existing points.
+ *
+ * For each reference point, checks if the cursor is near its X or Y
+ * coordinate. If so, produces a snap target at (refPoint.x, cursor.y)
+ * or (cursor.x, refPoint.y) — i.e. alignment along that axis while
+ * keeping the cursor's position on the other axis.
+ */
+export function alignmentCandidates(
+  cursor: { x: number; y: number },
+  referencePoints: readonly { x: number; y: number }[],
+  threshold: number,
+): SnapTarget[] {
+  const results: SnapTarget[] = [];
+  const seen = new Set<string>();
+
+  for (const pt of referencePoints) {
+    // Vertical alignment (same X)
+    const dx = Math.abs(cursor.x - pt.x);
+    if (dx <= threshold) {
+      const key = `v:${roundTo(pt.x, 4)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push({
+          type: 'alignment',
+          point: { x: pt.x, y: cursor.y },
+          priority: PRIORITY.alignment,
+        });
+      }
+    }
+
+    // Horizontal alignment (same Y)
+    const dy = Math.abs(cursor.y - pt.y);
+    if (dy <= threshold) {
+      const key = `h:${roundTo(pt.y, 4)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        results.push({
+          type: 'alignment',
+          point: { x: cursor.x, y: pt.y },
+          priority: PRIORITY.alignment,
+        });
+      }
     }
   }
 
@@ -544,6 +595,7 @@ export function snapPoint(
 
   // Precompute guide lines
   const guides = computeGuideLines(panelWidth, panelHeight, outlinePoints, gridSize);
+  const refPoints = [...draftPoints, ...outlinePoints];
 
   // Gather all candidates
   const allCandidates: SnapTarget[] = [];
@@ -558,6 +610,10 @@ export function snapPoint(
 
   if (enabledTypes.has('midpoint')) {
     allCandidates.push(...midpointCandidates(rawCursor, outlinePoints, threshold));
+  }
+
+  if (enabledTypes.has('alignment')) {
+    allCandidates.push(...alignmentCandidates(rawCursor, refPoints, threshold));
   }
 
   if (enabledTypes.has('edge-segment')) {
@@ -589,7 +645,7 @@ export function snapPoint(
 
     if (best) {
       // Snap target ON the constraint ray — satisfies both constraints
-      const activeGuides = findActiveGuides(best.point, guides, threshold);
+      const activeGuides = findActiveGuides(best.point, guides, threshold, refPoints);
       return {
         point: best.point,
         target: best,
@@ -617,7 +673,7 @@ export function snapPoint(
   const best = pickBest(allCandidates, rawCursor);
 
   if (best) {
-    const activeGuides = findActiveGuides(best.point, guides, threshold);
+    const activeGuides = findActiveGuides(best.point, guides, threshold, refPoints);
     return {
       point: best.point,
       target: best,
@@ -640,16 +696,41 @@ export function snapPoint(
 /**
  * Find guide lines that pass through (or very near) a point.
  * Used to highlight active guides in the UI.
+ *
+ * Also synthesizes temporary alignment guide lines when the snap point
+ * aligns with reference points (draft points, outline vertices).
  */
 function findActiveGuides(
   point: { x: number; y: number },
   guides: GuideLine[],
   tolerance: number,
+  referencePoints?: readonly { x: number; y: number }[],
 ): GuideLine[] {
-  return guides.filter(g => {
+  const result = guides.filter(g => {
     if (g.axis === 'x') return Math.abs(point.x - g.position) < tolerance;
     return Math.abs(point.y - g.position) < tolerance;
   });
+
+  // Add alignment guide lines for reference points that match
+  if (referencePoints) {
+    const seenX = new Set(result.filter(g => g.axis === 'x').map(g => roundTo(g.position, 4)));
+    const seenY = new Set(result.filter(g => g.axis === 'y').map(g => roundTo(g.position, 4)));
+
+    for (const pt of referencePoints) {
+      const rx = roundTo(pt.x, 4);
+      if (Math.abs(point.x - pt.x) < tolerance && !seenX.has(rx)) {
+        seenX.add(rx);
+        result.push({ axis: 'x', position: pt.x, type: 'edge' });
+      }
+      const ry = roundTo(pt.y, 4);
+      if (Math.abs(point.y - pt.y) < tolerance && !seenY.has(ry)) {
+        seenY.add(ry);
+        result.push({ axis: 'y', position: pt.y, type: 'edge' });
+      }
+    }
+  }
+
+  return result;
 }
 
 // ── Tool presets ─────────────────────────────────────────────────────────────
@@ -665,7 +746,7 @@ export function getToolSnapConfig(
 ): SnapConfig {
   const threshold = Math.max(8, viewBoxWidth / 25);
 
-  const baseTypes: SnapTargetType[] = ['grid', 'center', 'edge-line', 'point', 'edge-segment', 'intersection'];
+  const baseTypes: SnapTargetType[] = ['grid', 'center', 'edge-line', 'point', 'alignment', 'edge-segment', 'intersection'];
 
   let enabledTypes: Set<SnapTargetType>;
 

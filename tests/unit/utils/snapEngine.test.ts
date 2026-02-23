@@ -3,6 +3,7 @@ import {
   computeGuideLines,
   gridCandidates,
   pointCandidates,
+  alignmentCandidates,
   edgeSegmentCandidates,
   intersectionCandidates,
   closePolygonCandidate,
@@ -531,15 +532,131 @@ describe('snapPoint', () => {
   });
 });
 
+// ── alignmentCandidates ──────────────────────────────────────────────────────
+
+describe('alignmentCandidates', () => {
+  it('snaps to vertical alignment (same X) with reference point', () => {
+    const cursor = { x: 21, y: 50 };
+    const refs = [{ x: 20, y: 10 }]; // ref at x=20
+    const results = alignmentCandidates(cursor, refs, 3);
+    expect(results.length).toBe(1);
+    expect(results[0].type).toBe('alignment');
+    expect(results[0].point.x).toBe(20);
+    expect(results[0].point.y).toBe(50); // keeps cursor Y
+  });
+
+  it('snaps to horizontal alignment (same Y) with reference point', () => {
+    const cursor = { x: 50, y: 11 };
+    const refs = [{ x: 20, y: 10 }]; // ref at y=10
+    const results = alignmentCandidates(cursor, refs, 3);
+    expect(results.length).toBe(1);
+    expect(results[0].type).toBe('alignment');
+    expect(results[0].point.x).toBe(50); // keeps cursor X
+    expect(results[0].point.y).toBe(10);
+  });
+
+  it('returns both X and Y alignment when cursor is near both axes', () => {
+    const cursor = { x: 21, y: 11 };
+    const refs = [{ x: 20, y: 10 }];
+    const results = alignmentCandidates(cursor, refs, 3);
+    expect(results.length).toBe(2);
+    const types = results.map(r => `${r.point.x},${r.point.y}`);
+    expect(types).toContain('20,11'); // vertical alignment
+    expect(types).toContain('21,10'); // horizontal alignment
+  });
+
+  it('deduplicates alignment at the same position', () => {
+    const cursor = { x: 21, y: 50 };
+    const refs = [{ x: 20, y: 10 }, { x: 20, y: 30 }]; // both at x=20
+    const results = alignmentCandidates(cursor, refs, 3);
+    // Should only produce one vertical alignment at x=20
+    const verticals = results.filter(r => r.point.x === 20);
+    expect(verticals.length).toBe(1);
+  });
+
+  it('ignores reference points outside threshold', () => {
+    const cursor = { x: 50, y: 50 };
+    const refs = [{ x: 20, y: 10 }]; // too far
+    const results = alignmentCandidates(cursor, refs, 3);
+    expect(results.length).toBe(0);
+  });
+});
+
+// ── Priority ordering ────────────────────────────────────────────────────────
+
+describe('priority ordering', () => {
+  it('prefers alignment over grid when both within threshold', () => {
+    const context: SnapContext = {
+      panelWidth: 100,
+      panelHeight: 80,
+      outlinePoints: [{ x: 15, y: 30 }], // existing point at x=15
+      draftPoints: [],
+      gridSize: 10,
+    };
+    const config: SnapConfig = {
+      enabledTypes: new Set(['grid', 'alignment']),
+      threshold: 8,
+      gridSize: 10,
+      shiftHeld: false,
+    };
+    // Cursor at (14, 19) — near grid (10,20) AND alignment x=15
+    const result = snapPoint({ x: 14, y: 19 }, config, context);
+    expect(result.target).not.toBeNull();
+    expect(result.target!.type).toBe('alignment');
+  });
+
+  it('prefers center/edge-line guides over grid', () => {
+    const context: SnapContext = {
+      panelWidth: 100,
+      panelHeight: 80,
+      outlinePoints: [],
+      draftPoints: [],
+      gridSize: 10,
+    };
+    const config: SnapConfig = {
+      enabledTypes: new Set(['grid', 'center']),
+      threshold: 8,
+      gridSize: 10,
+      shiftHeld: false,
+    };
+    // Cursor at (2, 19) — near center x=0 AND grid (0,20)
+    // Center is priority 3, grid is priority 5 — center wins
+    const result = snapPoint({ x: 2, y: 19 }, config, context);
+    expect(result.target).not.toBeNull();
+    expect(result.target!.type).toBe('center');
+  });
+
+  it('prefers point over alignment', () => {
+    const context: SnapContext = {
+      panelWidth: 100,
+      panelHeight: 80,
+      outlinePoints: [{ x: 15, y: 30 }],
+      draftPoints: [],
+      gridSize: 10,
+    };
+    const config: SnapConfig = {
+      enabledTypes: new Set(['point', 'alignment']),
+      threshold: 8,
+      gridSize: 10,
+      shiftHeld: false,
+    };
+    // Cursor near the actual point — should prefer exact point over alignment
+    const result = snapPoint({ x: 15.5, y: 30.5 }, config, context);
+    expect(result.target).not.toBeNull();
+    expect(result.target!.type).toBe('point');
+  });
+});
+
 // ── getToolSnapConfig ────────────────────────────────────────────────────────
 
 describe('getToolSnapConfig', () => {
-  it('polygon tool enables grid, center, edge-line, point, edge-segment, midpoint, intersection, close-polygon', () => {
+  it('polygon tool enables grid, center, edge-line, point, alignment, edge-segment, midpoint, intersection, close-polygon', () => {
     const config = getToolSnapConfig('polygon', 'polygon', 500, 10);
     expect(config.enabledTypes.has('grid')).toBe(true);
     expect(config.enabledTypes.has('center')).toBe(true);
     expect(config.enabledTypes.has('edge-line')).toBe(true);
     expect(config.enabledTypes.has('point')).toBe(true);
+    expect(config.enabledTypes.has('alignment')).toBe(true);
     expect(config.enabledTypes.has('edge-segment')).toBe(true);
     expect(config.enabledTypes.has('midpoint')).toBe(true);
     expect(config.enabledTypes.has('intersection')).toBe(true);
