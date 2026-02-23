@@ -8,10 +8,25 @@ import { DetectedCorner } from '../utils/cornerFinish';
 import { EditorToolbar, EditorTool } from './EditorToolbar';
 import { FloatingPalette, PaletteSliderInput, PaletteToggleGroup, PaletteButtonRow, PaletteButton, PaletteCheckbox, PaletteCheckboxGroup, PaletteNumberInput } from './FloatingPalette';
 import { getColors } from '../config/colors';
-import { SafeSpaceRegion, isRectInSafeSpace, isCircleInSafeSpace, isPointInSafeSpace, analyzePath, getEdgeMarginsForFace, rectToEdgePath, circleToEdgePath } from '../engine/safeSpace';
+import { SafeSpaceRegion, isRectInSafeSpace, isCircleInSafeSpace, analyzePath, getEdgeMarginsForFace, rectToEdgePath, circleToEdgePath } from '../engine/safeSpace';
 import { createRectPolygon, createCirclePolygon, classifyPolygon } from '../utils/polygonBoolean';
 import { FaceConfig } from '../types';
 import { debug, enableDebugTag } from '../utils/debug';
+import {
+  type EdgePosition,
+  constrainAngle,
+  getEdgePathOffsetAtT,
+  getEdgeSegments,
+  getConceptualBoundary,
+  getJointSegments,
+  classifyClickLocation,
+  screenToSvgCoords,
+  svgToEdgeCoords as svgToEdgeCoordsUtil,
+  edgeCoordsToSvg as edgeCoordsToSvgUtil,
+  findEdgeAtPoint as findEdgeAtPointUtil,
+  findCornerAtPoint as findCornerAtPointUtil,
+  computeHitThreshold,
+} from '../utils/sketchCoordinates';
 
 // Ensure safe-space tag is active for this component
 enableDebugTag('safe-space');
@@ -21,8 +36,6 @@ enableDebugTag('path-tool'); // Enable to debug path tool
 interface SketchView2DProps {
   className?: string;
 }
-
-type EdgePosition = 'top' | 'bottom' | 'left' | 'right';
 
 // Convert path points to SVG path string
 const pathToSvgD = (points: PathPoint[], closed: boolean): string => {
@@ -34,279 +47,6 @@ const pathToSvgD = (points: PathPoint[], closed: boolean): string => {
   return segments.join(' ');
 };
 
-// Classify a line segment to an edge based on position
-// Note: tolerance needs to be larger than material thickness (typically 3mm) to account for
-// corner insets from finger joints. Using 5mm as default.
-const classifySegment = (
-  p1: PathPoint,
-  p2: PathPoint,
-  panelWidth: number,
-  panelHeight: number,
-  tolerance: number = 5
-): EdgePosition | null => {
-  const halfW = panelWidth / 2;
-  const halfH = panelHeight / 2;
-
-  // Check if both points are near the same edge
-  const nearTop = (p: PathPoint) => Math.abs(p.y - halfH) < tolerance;
-  const nearBottom = (p: PathPoint) => Math.abs(p.y + halfH) < tolerance;
-  const nearLeft = (p: PathPoint) => Math.abs(p.x + halfW) < tolerance;
-  const nearRight = (p: PathPoint) => Math.abs(p.x - halfW) < tolerance;
-
-  if (nearTop(p1) && nearTop(p2)) return 'top';
-  if (nearBottom(p1) && nearBottom(p2)) return 'bottom';
-  if (nearLeft(p1) && nearLeft(p2)) return 'left';
-  if (nearRight(p1) && nearRight(p2)) return 'right';
-
-  return null;
-};
-
-// Get segments grouped by edge
-const getEdgeSegments = (
-  points: PathPoint[],
-  panelWidth: number,
-  panelHeight: number
-): Record<EdgePosition, { start: PathPoint; end: PathPoint }[]> => {
-  const edges: Record<EdgePosition, { start: PathPoint; end: PathPoint }[]> = {
-    top: [],
-    bottom: [],
-    left: [],
-    right: [],
-  };
-
-  for (let i = 0; i < points.length; i++) {
-    const p1 = points[i];
-    const p2 = points[(i + 1) % points.length];
-    const edge = classifySegment(p1, p2, panelWidth, panelHeight);
-    if (edge) {
-      edges[edge].push({ start: p1, end: p2 });
-    }
-  }
-
-  return edges;
-};
-
-// Calculate distance from point to line segment
-const distanceToSegment = (
-  px: number,
-  py: number,
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number
-): number => {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const lengthSq = dx * dx + dy * dy;
-
-  if (lengthSq === 0) {
-    return Math.sqrt((px - x1) ** 2 + (py - y1) ** 2);
-  }
-
-  let t = ((px - x1) * dx + (py - y1) * dy) / lengthSq;
-  t = Math.max(0, Math.min(1, t));
-
-  const nearX = x1 + t * dx;
-  const nearY = y1 + t * dy;
-
-  return Math.sqrt((px - nearX) ** 2 + (py - nearY) ** 2);
-};
-
-/**
- * Classify where a click occurred relative to the panel.
- * Used by the path tool to determine whether to start forked mode or polygon mode.
- */
-type ClickLocation =
-  | { type: 'boundary'; edge: EdgePosition }  // On panel outline - forked mode
-  | { type: 'safe-space' }                     // Inside safe space - polygon mode
-  | { type: 'open-space' }                     // Outside panel - polygon mode
-  | { type: 'restricted' };                    // In joint margin - invalid
-
-/**
- * Determine what kind of space a point is in.
- *
- * Priority: boundary > open-space > safe-space > restricted
- *
- * Note: Boundary detection must happen FIRST because finger joint tabs extend
- * beyond the panel body bounds. A click on a tab would be "outside bounds"
- * but should still be detected as a boundary click.
- */
-const classifyClickLocation = (
-  svgX: number,
-  svgY: number,
-  panelWidth: number,
-  panelHeight: number,
-  safeSpace: SafeSpaceRegion | null,
-  edgeSegments: Record<EdgePosition, { start: PathPoint; end: PathPoint }[]> | null,
-  hitThreshold: number
-): ClickLocation => {
-  const halfW = panelWidth / 2;
-  const halfH = panelHeight / 2;
-
-  // Calculate distances to conceptual panel edges
-  const distToTop = Math.abs(svgY - halfH);
-  const distToBottom = Math.abs(svgY + halfH);
-  const distToLeft = Math.abs(svgX + halfW);
-  const distToRight = Math.abs(svgX - halfW);
-
-  // Check BOUNDARY FIRST - important because finger joints extend beyond panel body
-  // A generous threshold allows clicking on finger joint tabs
-  const boundaryThreshold = hitThreshold * 2;
-
-  // Check if near any conceptual edge and within X bounds (for top/bottom) or Y bounds (for left/right)
-  // Top edge: y ≈ halfH, x within [-halfW, halfW] (with some tolerance for corners)
-  if (distToTop < boundaryThreshold && svgX >= -halfW - boundaryThreshold && svgX <= halfW + boundaryThreshold) {
-    return { type: 'boundary', edge: 'top' };
-  }
-  if (distToBottom < boundaryThreshold && svgX >= -halfW - boundaryThreshold && svgX <= halfW + boundaryThreshold) {
-    return { type: 'boundary', edge: 'bottom' };
-  }
-  if (distToLeft < boundaryThreshold && svgY >= -halfH - boundaryThreshold && svgY <= halfH + boundaryThreshold) {
-    return { type: 'boundary', edge: 'left' };
-  }
-  if (distToRight < boundaryThreshold && svgY >= -halfH - boundaryThreshold && svgY <= halfH + boundaryThreshold) {
-    return { type: 'boundary', edge: 'right' };
-  }
-
-  // Check if outside panel body (open space)
-  const inPanelBounds = svgX >= -halfW && svgX <= halfW && svgY >= -halfH && svgY <= halfH;
-  if (!inPanelBounds) {
-    return { type: 'open-space' };
-  }
-
-  // Check if in safe space (interior area that can be modified)
-  if (safeSpace && isPointInSafeSpace(svgX, svgY, safeSpace)) {
-    return { type: 'safe-space' };
-  }
-
-  // Otherwise it's in restricted space (joint margins)
-  return { type: 'restricted' };
-};
-
-/**
- * Constrain a point to 90° or 45° angles from a reference point.
- * Used when Shift is held during path drawing.
- */
-const constrainAngle = (
-  fromPoint: PathPoint,
-  toPoint: { x: number; y: number }
-): PathPoint => {
-  const dx = toPoint.x - fromPoint.x;
-  const dy = toPoint.y - fromPoint.y;
-  const distance = Math.sqrt(dx * dx + dy * dy);
-
-  if (distance < 0.001) return { x: fromPoint.x, y: fromPoint.y };
-
-  // Get angle in radians
-  const angle = Math.atan2(dy, dx);
-
-  // Snap to nearest 45° increment (0, 45, 90, 135, 180, -135, -90, -45)
-  const snapAngle = Math.round(angle / (Math.PI / 4)) * (Math.PI / 4);
-
-  return {
-    x: fromPoint.x + distance * Math.cos(snapAngle),
-    y: fromPoint.y + distance * Math.sin(snapAngle),
-  };
-};
-
-/**
- * Get the offset of the current edge path at a given t position.
- * If no custom path exists for this edge, returns 0 (original boundary).
- * If a custom path exists, interpolates between points to find the offset.
- */
-const getEdgePathOffsetAtT = (
-  customEdgePaths: Array<{ edge: string; points: Array<{ t: number; offset: number }> }>,
-  edge: EdgePosition,
-  t: number
-): number => {
-  // Find the custom path for this edge
-  const edgePath = customEdgePaths.find(p => p.edge === edge);
-  if (!edgePath || edgePath.points.length === 0) {
-    return 0; // No custom path, use original boundary
-  }
-
-  const points = edgePath.points;
-
-  // Sort points by t value
-  const sorted = [...points].sort((a, b) => a.t - b.t);
-
-  // If t is before first point, use first point's offset
-  if (t <= sorted[0].t) {
-    return sorted[0].offset;
-  }
-
-  // If t is after last point, use last point's offset
-  if (t >= sorted[sorted.length - 1].t) {
-    return sorted[sorted.length - 1].offset;
-  }
-
-  // Find the two points that bracket t and interpolate
-  for (let i = 0; i < sorted.length - 1; i++) {
-    if (t >= sorted[i].t && t <= sorted[i + 1].t) {
-      const t0 = sorted[i].t;
-      const t1 = sorted[i + 1].t;
-      const o0 = sorted[i].offset;
-      const o1 = sorted[i + 1].offset;
-
-      // Linear interpolation
-      const ratio = (t - t0) / (t1 - t0);
-      return o0 + ratio * (o1 - o0);
-    }
-  }
-
-  return 0; // Fallback
-};
-
-// Get the conceptual boundary lines for the panel (where edges would be without joints)
-const getConceptualBoundary = (
-  panelWidth: number,
-  panelHeight: number
-): Record<EdgePosition, { start: PathPoint; end: PathPoint }> => {
-  const halfW = panelWidth / 2;
-  const halfH = panelHeight / 2;
-
-  return {
-    top: { start: { x: -halfW, y: halfH }, end: { x: halfW, y: halfH } },
-    bottom: { start: { x: -halfW, y: -halfH }, end: { x: halfW, y: -halfH } },
-    left: { start: { x: -halfW, y: -halfH }, end: { x: -halfW, y: halfH } },
-    right: { start: { x: halfW, y: -halfH }, end: { x: halfW, y: halfH } },
-  };
-};
-
-// Identify joint segments (perpendicular to edges, connecting fingers)
-const getJointSegments = (
-  points: PathPoint[],
-  panelWidth: number,
-  panelHeight: number,
-  tolerance: number = 1
-): { start: PathPoint; end: PathPoint; nearEdge: EdgePosition }[] => {
-  const joints: { start: PathPoint; end: PathPoint; nearEdge: EdgePosition }[] = [];
-  const halfW = panelWidth / 2;
-  const halfH = panelHeight / 2;
-
-  for (let i = 0; i < points.length; i++) {
-    const p1 = points[i];
-    const p2 = points[(i + 1) % points.length];
-
-    // Skip if this is an edge segment
-    const edge = classifySegment(p1, p2, panelWidth, panelHeight, tolerance);
-    if (edge) continue;
-
-    // This is a joint segment - determine which edge it's near
-    const avgX = (p1.x + p2.x) / 2;
-    const avgY = (p1.y + p2.y) / 2;
-
-    let nearEdge: EdgePosition = 'top';
-    if (Math.abs(avgY - halfH) < tolerance * 2) nearEdge = 'top';
-    else if (Math.abs(avgY + halfH) < tolerance * 2) nearEdge = 'bottom';
-    else if (Math.abs(avgX + halfW) < tolerance * 2) nearEdge = 'left';
-    else if (Math.abs(avgX - halfW) < tolerance * 2) nearEdge = 'right';
-
-    joints.push({ start: p1, end: p2, nearEdge });
-  }
-
-  return joints;
-};
 
 // Grid pattern component
 const GridPattern: React.FC<{
@@ -870,63 +610,12 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   // offset: perpendicular distance from edge (positive = outward)
   const svgToEdgeCoords = useCallback((svgX: number, svgY: number, edge: EdgePosition): { t: number; offset: number } | null => {
     if (!panel) return null;
-
-    const halfW = panel.width / 2;
-    const halfH = panel.height / 2;
-
-    let t: number;
-    let offset: number;
-
-    switch (edge) {
-      case 'top':
-        // Top edge: left to right, positive y is outward
-        t = (svgX + halfW) / panel.width;
-        offset = svgY - halfH;
-        break;
-      case 'bottom':
-        // Bottom edge: left to right, negative y is outward
-        t = (svgX + halfW) / panel.width;
-        offset = -(svgY + halfH);
-        break;
-      case 'left':
-        // Left edge: bottom to top, negative x is outward
-        t = (svgY + halfH) / panel.height;
-        offset = -(svgX + halfW);
-        break;
-      case 'right':
-        // Right edge: bottom to top, positive x is outward
-        t = (svgY + halfH) / panel.height;
-        offset = svgX - halfW;
-        break;
-      default:
-        return null;
-    }
-
-    // Clamp t to [0, 1]
-    t = Math.max(0, Math.min(1, t));
-
-    return { t, offset };
+    return svgToEdgeCoordsUtil(svgX, svgY, edge, panel.width, panel.height);
   }, [panel]);
 
-  // Convert edge-relative coordinates back to SVG coordinates for preview
   const edgeCoordsToSvg = useCallback((t: number, offset: number, edge: EdgePosition): { x: number; y: number } | null => {
     if (!panel) return null;
-
-    const halfW = panel.width / 2;
-    const halfH = panel.height / 2;
-
-    switch (edge) {
-      case 'top':
-        return { x: t * panel.width - halfW, y: halfH + offset };
-      case 'bottom':
-        return { x: t * panel.width - halfW, y: -halfH - offset };
-      case 'left':
-        return { x: -halfW - offset, y: t * panel.height - halfH };
-      case 'right':
-        return { x: halfW + offset, y: t * panel.height - halfH };
-      default:
-        return null;
-    }
+    return edgeCoordsToSvgUtil(t, offset, edge, panel.width, panel.height);
   }, [panel]);
 
   // Handle tool change
@@ -951,20 +640,8 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   // Find which corner (if any) is near a point
   const findCornerAtPoint = useCallback((svgX: number, svgY: number): DetectedCorner | null => {
     if (activeTool !== 'chamfer') return null;
-
-    const hitDistance = Math.max(10, viewBox.width / 20); // Scale hit area with zoom - made larger
-
-    for (const corner of detectedCorners) {
-      if (!corner.eligible) continue;
-      const dx = svgX - corner.position.x;
-      const dy = svgY - corner.position.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      debug('corner-click', `Corner ${corner.id}: pos(${corner.position.x.toFixed(1)}, ${corner.position.y.toFixed(1)}), mouse(${svgX.toFixed(1)}, ${svgY.toFixed(1)}), dist: ${dist.toFixed(1)}, hitDist: ${hitDistance.toFixed(1)}`);
-      if (dist < hitDistance) {
-        return corner;
-      }
-    }
-    return null;
+    const hitDistance = computeHitThreshold(viewBox.width, 'corner');
+    return findCornerAtPointUtil(svgX, svgY, detectedCorners, hitDistance);
   }, [activeTool, detectedCorners, viewBox.width]);
 
   // Handle corner click - toggle selection and update operation
@@ -1426,74 +1103,18 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
   }, []);
 
   // Convert screen coordinates to SVG coordinates
-  // Accounts for preserveAspectRatio="xMidYMid meet" (the default) which centers content
   const screenToSvg = useCallback((clientX: number, clientY: number): { x: number; y: number } | null => {
     const svg = svgRef.current;
     if (!svg) return null;
-
     const rect = svg.getBoundingClientRect();
-
-    // Calculate aspect ratios
-    const svgAspect = rect.width / rect.height;
-    const viewBoxAspect = viewBox.width / viewBox.height;
-
-    // Calculate the actual rendered area within the SVG element
-    // With "xMidYMid meet", the viewBox is scaled uniformly and centered
-    let renderWidth: number;
-    let renderHeight: number;
-    let offsetX: number;
-    let offsetY: number;
-
-    if (svgAspect > viewBoxAspect) {
-      // SVG is wider than viewBox - content is centered horizontally
-      renderHeight = rect.height;
-      renderWidth = rect.height * viewBoxAspect;
-      offsetX = (rect.width - renderWidth) / 2;
-      offsetY = 0;
-    } else {
-      // SVG is taller than viewBox - content is centered vertically
-      renderWidth = rect.width;
-      renderHeight = rect.width / viewBoxAspect;
-      offsetX = 0;
-      offsetY = (rect.height - renderHeight) / 2;
-    }
-
-    // Map screen coordinates to viewBox coordinates, accounting for offset
-    const localX = clientX - rect.left - offsetX;
-    const localY = clientY - rect.top - offsetY;
-
-    // Convert to viewBox coordinates
-    const x = (localX / renderWidth) * viewBox.width + viewBox.x;
-    // Note: Y is flipped in our rendering via scale(1, -1)
-    const y = -((localY / renderHeight) * viewBox.height + viewBox.y);
-
-    debug('corner-click', `screenToSvg: client(${clientX.toFixed(0)}, ${clientY.toFixed(0)}) offset(${offsetX.toFixed(0)}, ${offsetY.toFixed(0)}) render(${renderWidth.toFixed(0)}x${renderHeight.toFixed(0)}) => svg(${x.toFixed(1)}, ${y.toFixed(1)})`);
-
-    return { x, y };
+    return screenToSvgCoords(clientX, clientY, rect, viewBox);
   }, [viewBox]);
 
   // Find which edge (if any) is near a point
   const findEdgeAtPoint = useCallback((svgX: number, svgY: number): EdgePosition | null => {
-    if (!edgeSegments || !panel) {
-      debug('path-tool', `findEdgeAtPoint: edgeSegments=${!!edgeSegments}, panel=${!!panel}`);
-      return null;
-    }
-
-    const hitDistance = Math.max(4, viewBox.width / 50); // D2 fix: smaller hit area to avoid false edge detection
-    debug('path-tool', `findEdgeAtPoint: hitDistance=${hitDistance.toFixed(1)}, viewBox.width=${viewBox.width.toFixed(1)}`);
-
-    for (const edge of ['top', 'bottom', 'left', 'right'] as EdgePosition[]) {
-      const segments = edgeSegments[edge];
-      for (const seg of segments) {
-        const dist = distanceToSegment(svgX, svgY, seg.start.x, seg.start.y, seg.end.x, seg.end.y);
-        debug('path-tool', `  ${edge} segment (${seg.start.x.toFixed(1)},${seg.start.y.toFixed(1)})-(${seg.end.x.toFixed(1)},${seg.end.y.toFixed(1)}): dist=${dist.toFixed(1)}`);
-        if (dist < hitDistance) {
-          return edge;
-        }
-      }
-    }
-
-    return null;
+    if (!edgeSegments || !panel) return null;
+    const hitDistance = computeHitThreshold(viewBox.width, 'edge');
+    return findEdgeAtPointUtil(svgX, svgY, edgeSegments, hitDistance);
   }, [edgeSegments, panel, viewBox.width]);
 
   // Initialize viewBox based on panel dimensions
