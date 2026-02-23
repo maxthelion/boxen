@@ -10,7 +10,7 @@ Pause or resume the entire orchestrator system with a single command.
 
 ## What It Does
 
-Toggles the top-level `paused` flag in `.orchestrator/agents.yaml`.
+Toggles the top-level `paused` flag in `.octopoid/agents.yaml`.
 
 When paused:
 - Scheduler exits immediately without evaluating any agents

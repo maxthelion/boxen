@@ -1,24 +1,44 @@
-# Agent Definitions
-# Configure agents that run on this orchestrator
+paused: false
+
+queue_limits:
+  max_claimed: 3
+  max_incoming: 20
+  max_provisional: 10
 
 agents:
-  - name: implementer-1
+  implementer:
     role: implement
+    spawn_mode: scripts
+    max_instances: 1
+    interval_seconds: 60
+    max_turns: 150
     model: sonnet
-    max_concurrent: 1
-    enabled: true
+    agent_dir: .octopoid/agents/implementer
 
-  - name: breakdown-1
+  sanity-check-gatekeeper:
+    role: gatekeeper
+    spawn_mode: scripts
+    claim_from: provisional
+    interval_seconds: 120
+    max_turns: 50
+    model: sonnet
+    agent_dir: .octopoid/agents/gatekeeper
+    max_instances: 1
+
+  qa-gatekeeper:
+    role: gatekeeper
+    spawn_mode: scripts
+    claim_from: sanity_approved
+    interval_seconds: 120
+    max_turns: 80
+    model: sonnet
+    agent_dir: .octopoid/agents/qa-gatekeeper
+    max_instances: 1
+
+  breakdown:
     role: breakdown
+    max_instances: 1
+    interval_seconds: 120
+    max_turns: 30
     model: sonnet
-    max_concurrent: 1
-    enabled: true
-
-  - name: gatekeeper-1
-    role: review
-    model: opus
-    max_concurrent: 1
-    enabled: true
-
-# Add more agents as needed
-# Each agent will claim tasks matching its role
+    paused: true

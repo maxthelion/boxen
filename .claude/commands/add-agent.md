@@ -22,7 +22,7 @@ I'll ask for:
 
 ## Configuration File
 
-Agents are configured in `.orchestrator/agents.yaml`:
+Agents are configured in `.octopoid/agents.yaml`:
 
 ```yaml
 agents:
@@ -76,8 +76,8 @@ Ports allocated per agent:
 ## After Adding
 
 1. The scheduler will pick up the new agent on next tick
-2. A worktree will be created in `.orchestrator/agents/{name}/worktree/`
-3. State will be tracked in `.orchestrator/agents/{name}/state.json`
+2. A worktree will be created in `.octopoid/runtime/agents/{name}/worktree/`
+3. State will be tracked in `.octopoid/runtime/agents/{name}/state.json`
 
 ## Related Commands
 

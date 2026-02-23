@@ -2,74 +2,66 @@
 
 Display the current state of the task queue.
 
-## Usage
-
-```
-/queue-status
-```
-
-## What It Shows
-
-### Queue Counts
-```
-Queue Status
-============
-Incoming:         5 tasks
-Claimed:          2 tasks
-Needs Continuation: 1 task
-Done:             12 tasks
-Failed:           1 task
-Open PRs:         3
-```
-
-### Queue Limits
-```
-Limits
-------
-Max Incoming: 20
-Max Claimed:  5
-Max Open PRs: 10
-```
-
-### Task Details
-
-For each queue, shows tasks sorted by priority:
-
-```
-Incoming Tasks
---------------
-P0 | TASK-abc123 | Fix security vulnerability | 2h ago
-P1 | TASK-def456 | Add user dashboard        | 5h ago
-P2 | TASK-ghi789 | Update dependencies       | 1d ago
-
-Claimed Tasks
--------------
-TASK-jkl012 | Implement auth | impl-agent-1 | claimed 10m ago
-
-Needs Continuation
-------------------
-TASK-xyz987 | Implement fillet | uncommitted_changes | branch: agent/xyz987-... | 2h ago
-
-Failed Tasks
-------------
-TASK-mno345 | Add logging | Error: Test failures | failed 3h ago
-```
-
-### Needs Continuation Queue
-
-Tasks in this queue were started but not fully completed (e.g., agent hit max turns with uncommitted changes). When an implementer agent starts, it will automatically check for and resume these tasks before claiming new ones.
-
 ## Implementation
 
-To get queue status programmatically:
+Run this Python script to fetch and display queue status:
 
 ```python
-from orchestrator.orchestrator.queue_utils import get_queue_status
+from orchestrator.queue_utils import get_sdk
+from datetime import datetime, timezone
 
-status = get_queue_status()
-print(f"Incoming: {status['incoming']['count']}")
-print(f"Claimed: {status['claimed']['count']}")
-print(f"Open PRs: {status['open_prs']}")
+sdk = get_sdk()
+
+# Get last heartbeat from orchestrator
+try:
+    orchs = sdk._request('GET', '/api/v1/orchestrators')
+    if orchs.get('orchestrators'):
+        last_hb = orchs['orchestrators'][0].get('last_heartbeat')
+        if last_hb:
+            hb_time = datetime.fromisoformat(last_hb.replace('Z', '+00:00'))
+            delta = datetime.now(timezone.utc) - hb_time
+            mins = int(delta.total_seconds() / 60)
+            if mins < 60:
+                ago = f"{mins}m ago"
+            elif mins < 1440:
+                ago = f"{mins // 60}h {mins % 60}m ago"
+            else:
+                ago = f"{mins // 1440}d ago"
+            print(f"Last tick: {ago}")
+except Exception:
+    pass
+
+# Fetch and display tasks by queue
+for queue in ['incoming', 'claimed', 'done', 'failed']:
+    tasks = sdk.tasks.list(queue=queue)
+    print(f"\n{queue.upper()} ({len(tasks)} tasks)")
+    if tasks:
+        for t in tasks:
+            title = (t.get('title') or t.get('id', '?'))[:50]
+            priority = t.get('priority', '?')
+            tid = t.get('id', '?')
+            extra = ''
+            if queue == 'claimed':
+                extra = f" | {t.get('claimed_by', '?')}"
+            print(f"  {priority} | {tid:<28} | {title}{extra}")
+```
+
+## Output Format
+
+```
+Last tick: 5m ago
+
+INCOMING (5 tasks)
+  P1 | gh-9-71fac947              | [GH-9] Add debugging endpoints
+
+CLAIMED (1 tasks)
+  P1 | gh-11-2f54e962             | [GH-11] Fix file path inconsistency | implementer-2
+
+DONE (1 tasks)
+  P1 | gh-8-2a4ad137              | [GH-8] Improve octopoid init UX
+
+FAILED (2 tasks)
+  P1 | gh-7-3b950eb4              | [GH-7] Declare command whitelist
 ```
 
 ## Related Commands

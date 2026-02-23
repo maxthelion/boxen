@@ -3,7 +3,7 @@
  * from this module to serialize an engine to a share link URL.
  */
 
-import { serializeProject } from '../src/utils/urlState';
+import { serializeProject, getPanelCanonicalKeyFromPath, serializePanelOperations, deserializePanelOperations } from '../src/utils/urlState';
 import type { ProjectState } from '../src/utils/urlState';
 import type { Engine } from '../src/engine/Engine';
 import type { AssemblySnapshot, VoidSnapshot } from '../src/engine/types';
@@ -72,6 +72,7 @@ function buildProjectState(engine: Engine): ProjectState {
   );
   if (!rootVoidSnapshot) throw new Error('No root void found in assembly');
 
+  // Use canonical keys for edge extensions (matches getShareableUrl() in urlSlice.ts)
   const panelCollection = engine.generatePanelsFromNodes();
   const edgeExtensions: Record<string, EdgeExtensions> = {};
   for (const panel of panelCollection.panels) {
@@ -82,15 +83,20 @@ function buildProjectState(engine: Engine): ProjectState {
         panel.edgeExtensions.left !== 0 ||
         panel.edgeExtensions.right !== 0)
     ) {
-      edgeExtensions[panel.id] = panel.edgeExtensions;
+      edgeExtensions[getPanelCanonicalKeyFromPath(panel)] = panel.edgeExtensions;
     }
   }
+
+  // Serialize panel operations (fillets, cutouts, edge paths)
+  const serializedOps = assembly ? serializePanelOperations(assembly) : undefined;
+  const panelOperations = serializedOps ? deserializePanelOperations(serializedOps) : undefined;
 
   return {
     config: assemblySnapshotToConfig(assembly),
     faces: assembly.props.faces.map((fc) => ({ id: fc.id, solid: fc.solid })),
     rootVoid: voidSnapshotToVoid(rootVoidSnapshot),
     edgeExtensions,
+    panelOperations,
   };
 }
 

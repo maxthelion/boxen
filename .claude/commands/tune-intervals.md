@@ -21,7 +21,7 @@ agents:
 
 ## Configuration
 
-Edit `.orchestrator/agents.yaml`:
+Edit `.octopoid/agents.yaml`:
 
 ```yaml
 agents:

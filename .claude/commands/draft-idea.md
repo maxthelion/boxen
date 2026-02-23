@@ -10,36 +10,48 @@ Capture a rough idea, observation, or suggestion as a draft document for later c
 
 Extract:
 - **Topic** — a short slug for the filename (e.g. `agent-progress-tracking`)
+- **Title** — a human-readable title (e.g. "Agent Progress Tracking")
 - **Idea** — the user's description, however rough
 
 ### 2. Check for duplicates
 
-Before creating anything, scan existing drafts in both `project-management/drafts/boxen/` and `project-management/drafts/octopoid/` for ideas that overlap with this one. Read filenames and titles — if something looks similar, read the draft to confirm.
+Fetch existing drafts via the SDK:
 
-If a duplicate or near-duplicate exists:
-- Tell the user which draft already covers this idea
-- Ask whether to: update the existing draft with the new details, or create a new one anyway
-- Do **not** increment the counter or create a file until the user confirms
-
-### 3. Classify the idea
-
-Determine whether the idea is about:
-- **Boxen** (the app) — features, geometry, UI, 2D/3D editing, SVG export, share links, testing the app
-- **Octopoid** (the orchestrator) — agents, task queue, scheduling, gatekeepers, breakdowns, dashboard, project management tooling
-
-### 4. Generate the filename
-
-Run the helper script to get the next filename:
-
-```bash
-project-management/scripts/next-draft.sh <boxen|octopoid> <topic-slug>
+```python
+from orchestrator.queue_utils import get_sdk
+sdk = get_sdk()
+existing = sdk.drafts.list()
 ```
 
-This reads and increments the shared counter at `project-management/drafts/.counter`, and outputs the full path like `project-management/drafts/boxen/025-2026-02-08-agent-progress-tracking.md`.
+Scan titles for ideas that overlap with this one. If a duplicate or near-duplicate exists:
+- Tell the user which draft already covers this idea
+- Ask whether to: update the existing draft with the new details, or create a new one anyway
+- Do **not** create a file until the user confirms
 
-### 5. Write the draft
+### 3. Register draft via SDK
 
-Create the file at the path returned by the script.
+Register the draft on the server. The server auto-assigns the next integer ID.
+
+```python
+from orchestrator.queue_utils import get_sdk
+sdk = get_sdk()
+result = sdk.drafts.create(
+    title=title,
+    author="human",
+    status="idea"
+)
+draft_number = result["id"]  # Server-assigned integer
+```
+
+### 4. Write the draft file
+
+Use the server-assigned number to build the filename:
+
+```
+project-management/drafts/<number>-<YYYY-MM-DD>-<topic-slug>.md
+```
+
+For example: `project-management/drafts/3-2026-02-13-agent-progress-tracking.md`
 
 Content:
 
@@ -72,29 +84,14 @@ Content:
 
 Keep it concise. The point is to park the idea, not design the solution.
 
-### 6. Register draft in database
+### 5. Update draft with file path
 
-After writing the markdown file, insert a row in the drafts table:
+After writing the file, update the draft record with the file path:
 
 ```python
-from orchestrator.db import create_draft
-
-# Extract draft ID from filename (e.g., "025" from "025-2026-02-08-topic.md")
-draft_id = file_path.split('/')[-1].split('-')[0]
-
-# Call DB function
-create_draft(
-    draft_id=draft_id,
-    title=title,  # The title from step 5 markdown content
-    author="human",
-    file_path=file_path,
-    domain=domain,  # "boxen" or "octopoid" from step 3
-    status="idea"
-)
+sdk._request("PATCH", f"/api/v1/drafts/{draft_number}", json={"file_path": file_path})
 ```
 
-**Graceful degradation:** If the DB insertion fails (e.g., table doesn't exist in older installations), log the error but don't fail the command. The markdown file is the source of truth; the DB is for indexing only.
+### 6. Confirm
 
-### 7. Confirm
-
-Tell the user the file was created and suggest committing it.
+Tell the user the file was created (include the path and assigned number) and suggest committing it.

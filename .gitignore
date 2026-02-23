@@ -70,3 +70,11 @@ scripts/.generated/
 qa-*.png
 .orchestrator-v1-old/
 .env
+
+# Octopoid secrets
+.octopoid/.api_key
+
+# Octopoid
+# Octopoid runtime files
+.octopoid/runtime/
+.octopoid/tasks/

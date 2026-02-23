@@ -10,19 +10,6 @@ Run `/enqueue` to interactively create a task, or provide details:
 /enqueue "Add rate limiting to API"
 ```
 
-## Check for Duplicates
-
-Before creating anything, scan existing tasks for duplicates:
-
-1. Run the status script or list tasks in `incoming/`, `claimed/`, and `provisional/` queues
-2. Compare the proposed title and description against existing task titles
-3. If a duplicate or near-duplicate exists:
-   - Tell the user which task already covers this work (show task ID and title)
-   - Ask whether to: proceed anyway, or skip creation
-   - Do **not** create a task until the user confirms
-
-This prevents the same task being enqueued twice, which wastes agent turns.
-
 ## Interactive Mode
 
 When run without arguments, I'll ask for:
@@ -32,69 +19,73 @@ When run without arguments, I'll ask for:
    - `implement` - Code changes
    - `test` - Testing tasks
    - `review` - Code review
-   - `breakdown` - Task decomposition
-   - `orchestrator_impl` - Orchestrator infrastructure changes
-3. **Priority** - How urgent (defaults to P1):
+3. **Priority** - How urgent:
    - `P0` - Critical (security, broken builds)
    - `P1` - High (important features)
-   - `P2` - Normal (improvements)
-4. **Branch** - Base branch (usually `main`)
-5. **Context** - Background and motivation
-6. **Acceptance Criteria** - Specific requirements (checklist format)
+   - `P2` - Normal (default)
+   - `P3` - Low (nice-to-have)
+4. **Context** - Background and motivation
+5. **Acceptance Criteria** - Specific requirements
 
-## Creating the Task
+## Implementation
 
-Use the canonical task creation script:
+Use `create_task()` from `orchestrator.tasks` to create tasks. This function writes the task file to `.octopoid/tasks/` **and** registers it on the server in one step:
 
-```bash
-orchestrator/venv/bin/python orchestrator/scripts/create_task.py \
-  --title "Your task title" \
-  --role "implement" \
-  --priority "P1" \
-  --branch "main" \
-  --context "Background and context for the task" \
-  --acceptance-criteria "- [ ] First criterion
-- [ ] Second criterion
-- [ ] Third criterion"
+```python
+from orchestrator.tasks import create_task
+
+create_task(
+    title="Add rate limiting to API",
+    role="implement",
+    priority="P1",
+    context="Our API endpoints have no rate limiting...",
+    acceptance_criteria=[
+        "Rate limiting middleware added to all API routes",
+        "Default limit: 100 requests per minute per IP",
+        "Returns 429 Too Many Requests when exceeded",
+    ],
+    # branch is optional — defaults to repo.base_branch from config
+)
 ```
 
-**Required arguments:**
-- `--title` - Task title
-- `--role` - Target role (implement, test, review, breakdown, orchestrator_impl)
-- `--branch` - Base branch
-- `--context` - Context description
-- `--acceptance-criteria` - Newline-separated checklist
+Do **not** write task files manually or place them in any queue directory. Always use `create_task()`.
 
-**Optional arguments:**
-- `--priority` - P0, P1, or P2 (default: P1)
-- `--created-by` - Who created the task (default: human)
-- `--blocked-by` - Comma-separated task IDs that block this task
-- `--project-id` - Parent project ID
-- `--checks` - Comma-separated gatekeeper check names
+## Task File Location
 
-**Output:** The script prints the task ID (e.g., `TASK-abc12345`) on success.
+Tasks are written to:
+```
+.octopoid/tasks/TASK-{uuid}.md
+```
 
-## Example
+## Example Task File
 
-```bash
-orchestrator/venv/bin/python orchestrator/scripts/create_task.py \
-  --title "Add rate limiting to API" \
-  --role "implement" \
-  --priority "P1" \
-  --branch "main" \
-  --context "Our API endpoints have no rate limiting, making them vulnerable to abuse and DoS attacks. We need to add rate limiting to protect the service." \
-  --acceptance-criteria "- [ ] Rate limiting middleware added to all API routes
+```markdown
+# [TASK-f8e7d6c5] Add rate limiting to API
+
+ROLE: implement
+PRIORITY: P1
+BRANCH: feature/client-server-architecture
+CREATED: 2024-01-15T14:30:00Z
+CREATED_BY: human
+
+## Context
+Our API endpoints have no rate limiting, making them vulnerable
+to abuse and DoS attacks. We need to add rate limiting to protect
+the service.
+
+## Acceptance Criteria
+- [ ] Rate limiting middleware added to all API routes
 - [ ] Default limit: 100 requests per minute per IP
 - [ ] Returns 429 Too Many Requests when exceeded
 - [ ] Rate limit headers included in responses
-- [ ] Configuration via environment variables"
+- [ ] Configuration via environment variables
 ```
 
 ## After Creation
 
 The task will be:
-1. Picked up by the scheduler on next tick
-2. Claimed by an agent with matching role
+1. Registered on the server and visible in the queue immediately
+2. Claimed by an agent with matching role on next scheduler tick
 3. Worked on and moved to done/failed
 
 Check status with `/queue-status`.
