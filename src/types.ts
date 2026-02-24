@@ -478,6 +478,35 @@ export const defaultEdgeExtensions: EdgeExtensions = {
   top: 0, bottom: 0, left: 0, right: 0
 };
 
+// =============================================================================
+// Kerf Edge Config - Stores per-edge data for kerf-compensated SVG export
+// =============================================================================
+
+/**
+ * Per-edge configuration for generating kerf-compensated finger joint paths.
+ * Stored in PanelPath so SVG export can regenerate paths with kerf applied.
+ * Only populated for edges with actual finger joints (not open/straight edges).
+ */
+export interface KerfEdgeConfig {
+  position: EdgePosition;
+  /** Edge start in panel-local 2D coordinates (origin at center, yUp=true) */
+  edgeStart: { x: number; y: number };
+  /** Edge end in panel-local 2D coordinates */
+  edgeEnd: { x: number; y: number };
+  gender: JointGender;
+  materialThickness: number;
+  /** Outward perpendicular direction (unit vector) */
+  outwardDirection: { x: number; y: number };
+  /** Pre-calculated assembly-level finger points for this edge's axis */
+  fingerPoints: AxisFingerPoints;
+  /** Start position of this edge along the assembly axis */
+  edgeStartPos: number;
+  /** End position of this edge along the assembly axis */
+  edgeEndPos: number;
+  /** Axis positions where fingers are blocked (e.g. cross-lap slots) */
+  fingerBlockingRanges: { start: number; end: number }[];
+}
+
 // Corner finish types
 export type CornerFinishType = 'none' | 'chamfer' | 'fillet';
 
@@ -530,6 +559,11 @@ export interface PanelPath {
 
   // Custom edge paths for edge modifications (derived from engine)
   customEdgePaths?: import('./engine/types').CustomEdgePath[];
+
+  // Per-edge data for kerf-compensated SVG export.
+  // Only present for engine-generated panels (not legacy SVG paths).
+  // Only populated for edges that have finger joints.
+  kerfEdgeConfigs?: KerfEdgeConfig[];
 }
 
 // Augmentation types that can be added to panels

@@ -1,5 +1,5 @@
-import { BoxConfig, Face, FaceId, Void, SubdivisionPanel, SubdivisionIntersection, Subdivision, Bounds, getFaceRole, getLidSide, getWallPriority, getLidFaceId, AssemblyConfig, PanelPath, PanelCollection, PathPoint } from '../types';
-import { EdgeType, getEdgePath, Point } from './fingerJoints';
+import { BoxConfig, Face, FaceId, Void, SubdivisionPanel, SubdivisionIntersection, Subdivision, Bounds, getFaceRole, getLidSide, getWallPriority, getLidFaceId, AssemblyConfig, PanelPath, PanelCollection, PathPoint, KerfEdgeConfig, EdgePosition } from '../types';
+import { EdgeType, getEdgePath, Point, generateFingerJointPathV2 } from './fingerJoints';
 import { getAllSubdivisions } from '../store/useBoxStore';
 import { getFaceDimensions, getFaceEdges, EdgeInfo } from './panelGenerator';
 
@@ -337,6 +337,94 @@ const pathPointsToSVGPath = (
   return path;
 };
 
+/**
+ * Reconstruct the panel outline with kerf compensation applied to finger joints.
+ *
+ * Uses the KerfEdgeConfig data stored in the panel to re-invoke generateFingerJointPathV2
+ * with the kerf value, producing wider male tabs and narrower female slots.
+ *
+ * Returns null if kerf compensation is not available (no configs, kerf=0, etc.).
+ * Falls back to panel.outline.points in that case.
+ *
+ * Edge order matches BasePanel.computeOutline():
+ *   top (topLeft→topRight) → right (topRight→bottomRight) → bottom (bottomRight→bottomLeft) → left (bottomLeft→topLeft)
+ */
+function reconstructOutlineWithKerf(panel: PanelPath, kerf: number): PathPoint[] | null {
+  const configs = panel.kerfEdgeConfigs;
+  if (!configs || configs.length === 0 || kerf <= 0) return null;
+
+  // Build a lookup from edge position to its config
+  const edgeMap = new Map<EdgePosition, KerfEdgeConfig>();
+  for (const cfg of configs) {
+    edgeMap.set(cfg.position, cfg);
+  }
+
+  // Derive the four panel corners from config edgeStart/edgeEnd values.
+  // Edge ordering: top (TL→TR), right (TR→BR), bottom (BR→BL), left (BL→TL)
+  let topLeft: { x: number; y: number } | undefined;
+  let topRight: { x: number; y: number } | undefined;
+  let bottomRight: { x: number; y: number } | undefined;
+  let bottomLeft: { x: number; y: number } | undefined;
+
+  const topCfg = edgeMap.get('top');
+  const rightCfg = edgeMap.get('right');
+  const bottomCfg = edgeMap.get('bottom');
+  const leftCfg = edgeMap.get('left');
+
+  if (topCfg)    { topLeft = topCfg.edgeStart;    topRight   = topCfg.edgeEnd;    }
+  if (rightCfg)  { topRight ??= rightCfg.edgeStart; bottomRight = rightCfg.edgeEnd;  }
+  if (bottomCfg) { bottomRight ??= bottomCfg.edgeStart; bottomLeft = bottomCfg.edgeEnd; }
+  if (leftCfg)   { bottomLeft ??= leftCfg.edgeStart; topLeft ??= leftCfg.edgeEnd; }
+
+  // Fall back to panel dimensions if any corner is still unknown
+  const hw = panel.width / 2;
+  const hh = panel.height / 2;
+  topLeft    ??= { x: -hw, y:  hh };
+  topRight   ??= { x:  hw, y:  hh };
+  bottomRight ??= { x:  hw, y: -hh };
+  bottomLeft  ??= { x: -hw, y: -hh };
+
+  // Edge traversal order matches computeOutline in BasePanel
+  const edgeDefs: Array<{ pos: EdgePosition; start: { x: number; y: number }; end: { x: number; y: number } }> = [
+    { pos: 'top',    start: topLeft,      end: topRight     },
+    { pos: 'right',  start: topRight,     end: bottomRight  },
+    { pos: 'bottom', start: bottomRight,  end: bottomLeft   },
+    { pos: 'left',   start: bottomLeft,   end: topLeft      },
+  ];
+
+  const allPoints: PathPoint[] = [];
+  for (const { pos, start, end } of edgeDefs) {
+    const cfg = edgeMap.get(pos);
+    let edgePath: { x: number; y: number }[];
+
+    if (cfg) {
+      // Re-generate finger joint path with kerf compensation
+      edgePath = generateFingerJointPathV2(start, end, {
+        fingerPoints: cfg.fingerPoints,
+        gender: cfg.gender,
+        materialThickness: cfg.materialThickness,
+        edgeStartPos: cfg.edgeStartPos,
+        edgeEndPos: cfg.edgeEndPos,
+        outwardDirection: cfg.outwardDirection,
+        fingerBlockingRanges: cfg.fingerBlockingRanges,
+        yUp: true,
+        kerf,
+      });
+    } else {
+      // Straight (open) edge: just the two endpoints
+      edgePath = [start, end];
+    }
+
+    // Chain edges together, skipping the shared start corner on subsequent edges
+    const skip = allPoints.length === 0 ? 0 : 1;
+    for (let i = skip; i < edgePath.length; i++) {
+      allPoints.push(edgePath[i]);
+    }
+  }
+
+  return allPoints;
+}
+
 // Generate SVG for a single panel using stored PanelPath
 export const generatePanelPathSVG = (
   panel: PanelPath,
@@ -350,7 +438,9 @@ export const generatePanelPathSVG = (
   const offsetX = svgWidth / 2;
   const offsetY = svgHeight / 2;
 
-  const outlinePath = pathPointsToSVGPath(panel.outline.points, offsetX, offsetY);
+  // Apply kerf compensation to finger joints if available; fall back to stored outline
+  const outlinePoints = reconstructOutlineWithKerf(panel, kerf) ?? panel.outline.points;
+  const outlinePath = pathPointsToSVGPath(outlinePoints, offsetX, offsetY);
 
   let svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
@@ -419,9 +509,12 @@ const generatePackedBedSVG = (
     let outlinePath: string;
     let holePaths: string[] = [];
 
+    // Get kerf-compensated outline points (or fall back to stored outline)
+    const kerfOutlinePoints = reconstructOutlineWithKerf(item.panel, kerf) ?? item.panel.outline.points;
+
     if (item.rotated) {
       // Rotate points 90° clockwise: (x, y) -> (y, -x)
-      const rotatedOutline = item.panel.outline.points.map(p => ({
+      const rotatedOutline = kerfOutlinePoints.map(p => ({
         x: p.y,
         y: -p.x,
       }));
@@ -436,7 +529,7 @@ const generatePackedBedSVG = (
         holePaths.push(pathPointsToSVGPath(rotatedHole, panelH / 2, panelW / 2));
       }
     } else {
-      outlinePath = pathPointsToSVGPath(item.panel.outline.points, offsetX, offsetY);
+      outlinePath = pathPointsToSVGPath(kerfOutlinePoints, offsetX, offsetY);
 
       for (const hole of item.panel.holes) {
         holePaths.push(pathPointsToSVGPath(hole.path.points, offsetX, offsetY));

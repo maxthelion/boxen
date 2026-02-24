@@ -310,6 +310,9 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
   const cornerEligibility = derived.cornerEligibility;
   const allCornerEligibility = derived.allCornerEligibility;
 
+  // Pass through kerf edge configs for SVG export with kerf compensation
+  const kerfEdgeConfigs = derived.kerfEdgeConfigs;
+
   return {
     id,
     source,
@@ -329,6 +332,7 @@ export function panelSnapshotToPanelPath(snapshot: PanelSnapshot): PanelPath {
     cornerEligibility,
     allCornerEligibility,
     customEdgePaths: props.customEdgePaths,
+    kerfEdgeConfigs,
   };
 }
 

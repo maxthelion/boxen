@@ -258,6 +258,7 @@ export interface FingerJointConfigV2 {
   yUp?: boolean;                    // Coordinate system (default: true for Three.js)
   outwardDirection?: Point;         // Explicit outward direction for tabs (normalized vector)
   fingerBlockingRanges?: { start: number; end: number }[];  // Axis positions where fingers should be skipped (e.g., cross-lap positions)
+  kerf?: number;                    // Kerf compensation in mm (default: 0). Male tabs widen by kerf, female slots narrow by kerf.
 }
 
 /**
@@ -416,10 +417,45 @@ export const generateFingerJointPathV2 = (
     }))
     .sort((a, b) => Math.min(a.startEdge, a.endEdge) - Math.min(b.startEdge, b.endEdge));
 
+  // Kerf compensation: male tabs widen by kerf, female slots narrow by kerf.
+  // halfKerf is added to the far side of a tab/slot and subtracted from the near side.
+  // For male: kerfAdjSign = +1 → start - halfKerf, end + halfKerf (wider tab)
+  // For female: kerfAdjSign = -1 → start + halfKerf, end - halfKerf (narrower slot)
+  const halfKerf = (config.kerf ?? 0) / 2;
+  const kerfAdjSign = gender === 'male' ? 1 : -1;
+
+  // Precompute adjusted finger boundaries for all finger sections.
+  // This lets gap sections correctly end at the next finger's adjusted start.
+  interface SortedSection {
+    startAxis: number;
+    endAxis: number;
+    isFinger: boolean;
+    startEdge: number;
+    endEdge: number;
+  }
+  interface AdjFingerBounds {
+    adjStart: number;
+    adjEnd: number;
+  }
+  const adjFingerMap = new Map<SortedSection, AdjFingerBounds>();
+  if (halfKerf > 0) {
+    for (const section of sortedSections) {
+      if (section.isFinger) {
+        const rawStart = Math.min(section.startEdge, section.endEdge);
+        const rawEnd = Math.max(section.startEdge, section.endEdge);
+        adjFingerMap.set(section, {
+          adjStart: Math.max(0, rawStart - kerfAdjSign * halfKerf),
+          adjEnd: Math.min(actualLength, rawEnd + kerfAdjSign * halfKerf),
+        });
+      }
+    }
+  }
+
   // Track where we need to draw
   let currentEdgePos = 0;
 
-  for (const section of sortedSections) {
+  for (let i = 0; i < sortedSections.length; i++) {
+    const section = sortedSections[i];
     // Get edge positions (handle reversed edges)
     const sectionStartEdge = Math.min(section.startEdge, section.endEdge);
     const sectionEndEdge = Math.max(section.startEdge, section.endEdge);
@@ -427,26 +463,55 @@ export const generateFingerJointPathV2 = (
     // Skip sections with negligible length
     if (sectionEndEdge - sectionStartEdge < 0.001) continue;
 
-    // Add straight segment from current position to section start if needed
-    if (sectionStartEdge > currentEdgePos + 0.001) {
-      pathPoints.push(pointAtEdge(sectionStartEdge));
-    }
-
     if (section.isFinger) {
+      // Apply kerf to finger section boundaries
+      const adj = adjFingerMap.get(section);
+      const fingerStart = adj ? adj.adjStart : sectionStartEdge;
+      const fingerEnd = adj ? adj.adjEnd : sectionEndEdge;
+
+      // Skip degenerate sections (e.g., female slot narrowed to nothing by large kerf)
+      if (fingerEnd <= fingerStart + 0.001) {
+        currentEdgePos = sectionEndEdge;
+        continue;
+      }
+
+      // Add straight segment from current position to (kerf-adjusted) finger start
+      if (fingerStart > currentEdgePos + 0.001) {
+        pathPoints.push(pointAtEdge(fingerStart));
+      }
+
       // Finger section: generate tab (male) or slot (female)
-      pathPoints.push(pointAtEdge(sectionStartEdge, depth * depthSign));
-      pathPoints.push(pointAtEdge(sectionEndEdge, depth * depthSign));
-      pathPoints.push(pointAtEdge(sectionEndEdge));
+      pathPoints.push(pointAtEdge(fingerStart, depth * depthSign));
+      pathPoints.push(pointAtEdge(fingerEnd, depth * depthSign));
+      pathPoints.push(pointAtEdge(fingerEnd));
+
+      currentEdgePos = fingerEnd;
     } else {
-      // Hole section: straight line
-      const endPt = pointAtEdge(sectionEndEdge);
-      const lastPt = pathPoints[pathPoints.length - 1];
-      if (Math.abs(endPt.x - lastPt.x) > 0.001 || Math.abs(endPt.y - lastPt.y) > 0.001) {
-        pathPoints.push(endPt);
+      // Hole/gap section. When kerf is applied, the gap end shrinks to the next
+      // finger's adjusted start position rather than its raw start.
+      let adjSectionEnd = sectionEndEdge;
+      if (halfKerf > 0) {
+        // Look ahead for the next finger section's adjusted start
+        for (let j = i + 1; j < sortedSections.length; j++) {
+          if (sortedSections[j].isFinger) {
+            const nextAdj = adjFingerMap.get(sortedSections[j]);
+            if (nextAdj) {
+              adjSectionEnd = nextAdj.adjStart;
+            }
+            break;
+          }
+        }
+      }
+
+      if (adjSectionEnd > currentEdgePos + 0.001) {
+        const endPt = pointAtEdge(adjSectionEnd);
+        const lastPt = pathPoints[pathPoints.length - 1];
+        if (Math.abs(endPt.x - lastPt.x) > 0.001 || Math.abs(endPt.y - lastPt.y) > 0.001) {
+          pathPoints.push(endPt);
+        }
+        currentEdgePos = adjSectionEnd;
       }
     }
-
-    currentEdgePos = sectionEndEdge;
   }
 
   // Ensure we end at the end point
