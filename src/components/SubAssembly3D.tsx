@@ -56,8 +56,9 @@ export const SubAssembly3D: React.FC<SubAssembly3DProps> = ({
   return (
     <group position={[subCenterX, subCenterY, subCenterZ]}>
       {/* Wireframe outline for sub-assembly selection */}
+      {/* Scale slightly to prevent z-fighting with coplanar panel surfaces */}
       <lineSegments>
-        <edgesGeometry args={[new THREE.BoxGeometry(scaledW, scaledH, scaledD)]} />
+        <edgesGeometry args={[new THREE.BoxGeometry(scaledW * 1.001, scaledH * 1.001, scaledD * 1.001)]} />
         <lineBasicMaterial color={isSelected ? '#e74c3c' : '#666'} />
       </lineSegments>
 
