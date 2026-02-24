@@ -44,6 +44,7 @@ import {
   RectCutout,
   CircleCutout,
   PathCutout,
+  KerfEdgeConfig,
 } from '../types';
 import {
   detectAllPanelCorners,
@@ -95,6 +96,8 @@ export abstract class BasePanel extends BaseNode {
   protected _cachedTransform: Transform3D | null = null;
   protected _cachedEdgeAnchors: EdgeAnchor[] | null = null;
   protected _cachedCornerEligibility: CornerEligibility[] | null = null;
+  // undefined = not yet computed, null = computed but not applicable (modified outline)
+  protected _cachedKerfEdgeConfigs: KerfEdgeConfig[] | null | undefined = undefined;
 
   constructor(id?: string) {
     super(id);
@@ -623,6 +626,94 @@ export abstract class BasePanel extends BaseNode {
       this._cachedOutline = this.computeOutline();
     }
     return this._cachedOutline;
+  }
+
+  /**
+   * Get per-edge finger joint configs for kerf-compensated SVG export (cached).
+   * Returns null when a modified outline polygon is in use (kerf not applicable).
+   * Returns only edges that actually have finger joints.
+   */
+  getKerfEdgeConfigs(): KerfEdgeConfig[] | null {
+    if (this._cachedKerfEdgeConfigs === undefined) {
+      this._cachedKerfEdgeConfigs = this.computeKerfEdgeConfigs();
+    }
+    return this._cachedKerfEdgeConfigs;
+  }
+
+  /**
+   * Compute per-edge finger joint configs for kerf-compensated SVG export.
+   */
+  protected computeKerfEdgeConfigs(): KerfEdgeConfig[] | null {
+    // If using a modified outline polygon, kerf compensation is not applicable
+    if (this._modifiedOutlinePolygon && this._modifiedOutlinePolygon.length >= 3) {
+      return null;
+    }
+
+    const dims = this.getDimensions();
+    const edgeConfigs = this.computeEdgeConfigs();
+    const material = this.getMaterial();
+    const fingerData = this.getFingerData();
+
+    if (!fingerData) return null;
+
+    const halfW = dims.width / 2;
+    const halfH = dims.height / 2;
+    const mt = material.thickness;
+
+    const getEdgeConfig = (pos: EdgePosition): EdgeConfig | undefined =>
+      edgeConfigs.find(e => e.position === pos);
+
+    const topEdge = getEdgeConfig('top');
+    const bottomEdge = getEdgeConfig('bottom');
+    const leftEdge = getEdgeConfig('left');
+    const rightEdge = getEdgeConfig('right');
+
+    const edgeIsMale = (edge: EdgeConfig | undefined): boolean => edge?.gender === 'male';
+    const topHasTabs = edgeIsMale(topEdge);
+    const bottomHasTabs = edgeIsMale(bottomEdge);
+    const leftHasTabs = edgeIsMale(leftEdge);
+    const rightHasTabs = edgeIsMale(rightEdge);
+
+    const fingerCorners = {
+      topLeft:     { x: -halfW + (leftHasTabs ? mt : 0),   y: halfH - (topHasTabs ? mt : 0) },
+      topRight:    { x:  halfW - (rightHasTabs ? mt : 0),  y: halfH - (topHasTabs ? mt : 0) },
+      bottomRight: { x:  halfW - (rightHasTabs ? mt : 0),  y: -halfH + (bottomHasTabs ? mt : 0) },
+      bottomLeft:  { x: -halfW + (leftHasTabs ? mt : 0),   y: -halfH + (bottomHasTabs ? mt : 0) },
+    };
+
+    const fingerBlockingRangesMap = this.getFingerBlockingRanges();
+    const configs: KerfEdgeConfig[] = [];
+
+    const addEdgeConfig = (
+      position: EdgePosition,
+      edgeStart: Point2D,
+      edgeEnd: Point2D,
+      edgeConfig: EdgeConfig | undefined,
+    ) => {
+      if (!edgeConfig?.gender || !edgeConfig?.axis) return;
+      const axisFingerPoints = fingerData[edgeConfig.axis];
+      if (!axisFingerPoints || axisFingerPoints.points.length === 0) return;
+
+      configs.push({
+        position,
+        edgeStart,
+        edgeEnd,
+        gender: edgeConfig.gender,
+        materialThickness: mt,
+        outwardDirection: this.getEdgeOutwardDirection(position),
+        fingerPoints: axisFingerPoints,
+        edgeStartPos: this.computeEdgeAxisPosition(position, 'start', edgeConfig.axis),
+        edgeEndPos: this.computeEdgeAxisPosition(position, 'end', edgeConfig.axis),
+        fingerBlockingRanges: fingerBlockingRangesMap.get(position) || [],
+      });
+    };
+
+    addEdgeConfig('top',    fingerCorners.topLeft,     fingerCorners.topRight,    topEdge);
+    addEdgeConfig('right',  fingerCorners.topRight,    fingerCorners.bottomRight, rightEdge);
+    addEdgeConfig('bottom', fingerCorners.bottomRight, fingerCorners.bottomLeft,  bottomEdge);
+    addEdgeConfig('left',   fingerCorners.bottomLeft,  fingerCorners.topLeft,     leftEdge);
+
+    return configs;
   }
 
   /**
@@ -2057,6 +2148,7 @@ export abstract class BasePanel extends BaseNode {
     this._cachedTransform = null;
     this._cachedEdgeAnchors = null;
     this._cachedCornerEligibility = null;
+    this._cachedKerfEdgeConfigs = undefined;
   }
 
   // ==========================================================================
@@ -2139,6 +2231,7 @@ export abstract class BasePanel extends BaseNode {
         edgeStatuses: this.computeEdgeStatuses(),
         cornerEligibility: this.getCornerEligibility(),
         allCornerEligibility: this.getAllCornerEligibility(),
+        kerfEdgeConfigs: this.getKerfEdgeConfigs() ?? undefined,
       },
     };
   }

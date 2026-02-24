@@ -621,6 +621,23 @@ export interface VoidSnapshot extends BaseSnapshot {
 }
 
 /**
+ * Per-edge data for kerf-compensated SVG export.
+ * Stored in panel snapshots so the SVG exporter can regenerate paths with kerf.
+ */
+export interface KerfEdgeConfig {
+  position: EdgePosition;
+  edgeStart: Point2D;
+  edgeEnd: Point2D;
+  gender: JointGender;
+  materialThickness: number;
+  outwardDirection: Point2D;
+  fingerPoints: AxisFingerPoints;
+  edgeStartPos: number;
+  edgeEndPos: number;
+  fingerBlockingRanges: { start: number; end: number }[];
+}
+
+/**
  * Base panel snapshot - shared between face and divider panels
  * Panels are leaf nodes (no children)
  */
@@ -663,6 +680,11 @@ export interface BasePanelSnapshot extends BaseSnapshot {
 
     // All-corner eligibility for any corner in panel geometry
     allCornerEligibility: AllCornerEligibility[];
+
+    // Per-edge data for kerf-compensated SVG export.
+    // Only populated for edges with finger joints (not open/straight edges).
+    // Not set when panel uses a modified outline polygon (edge extensions, etc.).
+    kerfEdgeConfigs?: KerfEdgeConfig[];
   };
 }
 
