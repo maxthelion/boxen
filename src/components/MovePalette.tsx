@@ -106,6 +106,32 @@ function findChildVoidForDivider(
   return null;
 }
 
+/** Serializable move definition stored in operationState.params so the
+ *  AxisGizmo can read it without duplicating the analysis logic. */
+export interface MoveDef {
+  subdivisionId: string;      // childVoidId
+  currentPosition: number;
+  isGridDivider?: boolean;
+  gridPositionIndex?: number;
+  parentVoidId?: string;
+  axis: Axis;
+}
+
+/** Compute position delta bounds from a MoveOperationInfo. */
+function computeBoundsFromMoveInfo(info: MoveOperationInfo): { min: number; max: number } {
+  if (!info.isValid || info.moves.length === 0) {
+    return { min: -50, max: 50 };
+  }
+  const firstMove = info.moves[0];
+  let minDelta = firstMove.minPosition - firstMove.currentPosition;
+  let maxDelta = firstMove.maxPosition - firstMove.currentPosition;
+  for (const move of info.moves.slice(1)) {
+    minDelta = Math.max(minDelta, move.minPosition - move.currentPosition);
+    maxDelta = Math.min(maxDelta, move.maxPosition - move.currentPosition);
+  }
+  return { min: minDelta, max: maxDelta };
+}
+
 /**
  * Analyze selected panels for move operation validity
  */
@@ -242,8 +268,10 @@ export const MovePalette: React.FC<MovePaletteProps> = ({
   const applyOperation = useBoxStore((state) => state.applyOperation);
   const cancelOperation = useBoxStore((state) => state.cancelOperation);
 
-  // Track delta position for moving
-  const [delta, setDelta] = useState(0);
+  // Local delta for immediate UI responsiveness.
+  // Kept in sync with operationState.params.delta so the AxisGizmo can also
+  // update this value by writing to params.
+  const [localDelta, setLocalDelta] = useState(0);
 
   // Check if operation is active
   const isActive = operationState.activeOperation === 'move';
@@ -260,26 +288,7 @@ export const MovePalette: React.FC<MovePaletteProps> = ({
   const moveInfo = isActive && cachedMoveInfoRef.current ? cachedMoveInfoRef.current : freshMoveInfo;
 
   // Calculate position bounds (intersection of all selected dividers' bounds)
-  const positionBounds = useMemo(() => {
-    if (!moveInfo.isValid || moveInfo.moves.length === 0) {
-      return { min: -50, max: 50 };
-    }
-
-    // For a single divider, use its bounds directly
-    const firstMove = moveInfo.moves[0];
-    let minDelta = firstMove.minPosition - firstMove.currentPosition;
-    let maxDelta = firstMove.maxPosition - firstMove.currentPosition;
-
-    // For multiple dividers, use the intersection of their delta ranges
-    for (const move of moveInfo.moves.slice(1)) {
-      const moveMinDelta = move.minPosition - move.currentPosition;
-      const moveMaxDelta = move.maxPosition - move.currentPosition;
-      minDelta = Math.max(minDelta, moveMinDelta);
-      maxDelta = Math.min(maxDelta, moveMaxDelta);
-    }
-
-    return { min: minDelta, max: maxDelta };
-  }, [moveInfo]);
+  const positionBounds = useMemo(() => computeBoundsFromMoveInfo(moveInfo), [moveInfo]);
 
   // Auto-start operation when valid selection
   const hasAutoStarted = useRef(false);
@@ -290,11 +299,21 @@ export const MovePalette: React.FC<MovePaletteProps> = ({
     hasAutoStarted.current = true;
     // Cache the move info at the start of the operation
     cachedMoveInfoRef.current = freshMoveInfo;
-    setDelta(0);
+    setLocalDelta(0);
     startOperation('move');
 
-    // Don't dispatch any preview yet - wait for user to change the slider
-  }, [freshMoveInfo.isValid, freshMoveInfo, isActive, startOperation]);
+    // Store moveDefs and bounds in params so AxisGizmo can read them.
+    const bounds = computeBoundsFromMoveInfo(freshMoveInfo);
+    const moveDefs: MoveDef[] = freshMoveInfo.moves.map(m => ({
+      subdivisionId: m.childVoidId,
+      currentPosition: m.currentPosition,
+      isGridDivider: m.isGridDivider,
+      gridPositionIndex: m.gridPositionIndex,
+      parentVoidId: m.parentVoidId,
+      axis: freshMoveInfo.axis!,
+    }));
+    updateOperationParams({ moveDefs, minDelta: bounds.min, maxDelta: bounds.max, delta: 0 });
+  }, [freshMoveInfo.isValid, freshMoveInfo, isActive, startOperation, updateOperationParams]);
 
   // Reset auto-start flag and cached info when selection changes or operation ends
   // Use a ref to track previous isActive to only reset when transitioning from active to inactive
@@ -304,16 +323,26 @@ export const MovePalette: React.FC<MovePaletteProps> = ({
     if (wasActiveRef.current && !isActive) {
       hasAutoStarted.current = false;
       cachedMoveInfoRef.current = null;
-      setDelta(0);
+      setLocalDelta(0);
     }
     wasActiveRef.current = isActive;
   }, [selectedPanelIds, isActive]);
 
-  // Handle delta change
+  // Sync localDelta when AxisGizmo updates params.delta from outside.
+  const paramsDelta = isActive ? (operationState.params as { delta?: number }).delta : undefined;
+  useEffect(() => {
+    if (!isActive || paramsDelta === undefined) return;
+    setLocalDelta(paramsDelta);
+  }, [paramsDelta, isActive]);
+
+  // delta = the authoritative display value
+  const delta = localDelta;
+
+  // Handle delta change (from slider or external callers)
   const handleDeltaChange = useCallback((newDelta: number) => {
     // Clamp to valid range
     const clampedDelta = Math.max(positionBounds.min, Math.min(positionBounds.max, newDelta));
-    setDelta(clampedDelta);
+    setLocalDelta(clampedDelta);
 
     // Read current operation state directly from store to avoid stale closure
     const currentState = useBoxStore.getState();
@@ -334,7 +363,8 @@ export const MovePalette: React.FC<MovePaletteProps> = ({
         axis: cachedInfo.axis,
       }));
 
-      updateOperationParams({ moves });
+      // Include delta so AxisGizmo stays in sync via operationState.params.delta
+      updateOperationParams({ moves, delta: clampedDelta });
     }
   }, [positionBounds, updateOperationParams]);
 

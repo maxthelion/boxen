@@ -13,7 +13,8 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useState, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment } from '@react-three/drei';
-import { Box3D, PushPullCallbacks } from './Box3D';
+import { Box3D, PushPullCallbacks, MoveGizmoCallbacks, InsetCallbacks } from './Box3D';
+import { MoveDef } from './MovePalette';
 import { ViewportToolbar } from './ViewportToolbar';
 import { EditorToolbar } from './EditorToolbar';
 import { PushPullPalette, PushPullMode } from './PushPullPalette';
@@ -76,6 +77,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // Move palette state (local UI state only)
   const [movePalettePosition, setMovePalettePosition] = useState({ x: 20, y: 150 });
+  const [isDraggingMoveGizmo, setIsDraggingMoveGizmo] = useState(false);
 
   // Create sub-assembly palette state (local UI state only)
   const [createSubAssemblyPalettePosition, setCreateSubAssemblyPalettePosition] = useState({ x: 20, y: 150 });
@@ -193,6 +195,38 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     onDragStart: () => setIsDraggingArrow(true),
     onDragEnd: () => setIsDraggingArrow(false),
   }), [handlePreviewOffsetChange]);
+
+  // Move gizmo callbacks for Box3D (AxisGizmo dragging)
+  const moveGizmoCallbacks: MoveGizmoCallbacks = useMemo(() => ({
+    onDeltaChange: (newDelta: number) => {
+      // Read current params from the store (stable via getState)
+      const currentState = useBoxStore.getState();
+      const params = currentState.operationState.params as {
+        moveDefs?: MoveDef[];
+        minDelta?: number;
+        maxDelta?: number;
+      };
+      const { moveDefs, minDelta = -50, maxDelta = 50 } = params;
+      if (!moveDefs?.length) return;
+
+      const clamped = Math.max(minDelta, Math.min(maxDelta, newDelta));
+
+      // Build the moves array for the engine preview action
+      const moves = moveDefs.map(m => ({
+        subdivisionId: m.subdivisionId,
+        newPosition: m.currentPosition + clamped,
+        isGridDivider: m.isGridDivider,
+        gridPositionIndex: m.gridPositionIndex,
+        parentVoidId: m.parentVoidId,
+        axis: m.axis,
+      }));
+
+      // Update params: moves (for preview) + delta (so palette slider syncs)
+      updateOperationParams({ moves, delta: clamped });
+    },
+    onDragStart: () => setIsDraggingMoveGizmo(true),
+    onDragEnd: () => setIsDraggingMoveGizmo(false),
+  }), [updateOperationParams]);
 
   // Handle inset face (open face + create divider at offset)
   const handleInsetFace = useCallback(() => {
@@ -441,6 +475,14 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     setInsetOffset(0);
     setActiveTool('select');
   }, [cancelOperation, setActiveTool]);
+
+  // Inset gizmo callbacks for Box3D (AxisGizmo dragging on edges)
+  const insetCallbacks: InsetCallbacks = useMemo(() => ({
+    offset: insetOffset,
+    onOffsetChange: handleInsetOffsetChange,
+    onDragStart: undefined,
+    onDragEnd: undefined,
+  }), [insetOffset, handleInsetOffsetChange]);
 
   // =========================================================================
   // Fillet operation handlers
@@ -867,7 +909,11 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         <directionalLight position={[10, 10, 5]} intensity={1} />
         <pointLight position={[-10, -10, -5]} intensity={0.5} />
 
-        <Box3D pushPullCallbacks={pushPullCallbacks} />
+        <Box3D
+          pushPullCallbacks={pushPullCallbacks}
+          moveGizmoCallbacks={moveGizmoCallbacks}
+          insetCallbacks={insetCallbacks}
+        />
 
         <Grid
           args={[200, 200]}
@@ -885,9 +931,9 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
         <OrbitControls
           makeDefault
-          enablePan={!isDraggingArrow}
-          enableZoom={!isDraggingArrow}
-          enableRotate={!isDraggingArrow}
+          enablePan={!isDraggingArrow && !isDraggingMoveGizmo}
+          enableZoom={!isDraggingArrow && !isDraggingMoveGizmo}
+          enableRotate={!isDraggingArrow && !isDraggingMoveGizmo}
           minDistance={50}
           maxDistance={500}
           target={[0, 0, 0]}

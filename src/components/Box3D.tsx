@@ -7,9 +7,11 @@ import { PanelCollectionRenderer } from './PanelPathRenderer';
 import { PanelEdgeRenderer } from './PanelEdgeRenderer';
 import { PanelCornerRenderer } from './PanelCornerRenderer';
 import { PushPullArrow } from './PushPullArrow';
+import { AxisGizmo } from './AxisGizmo';
 import { AssemblyAxisIndicator, LidFaceHighlight } from './AssemblyAxisIndicator';
 import { PanelToggleOverlay } from './PanelToggleOverlay';
-import { FaceId } from '../types';
+import { FaceId, EdgePosition } from '../types';
+import { MoveDef } from './MovePalette';
 import { logPushPull } from '../utils/pushPullDebug';
 import { getSelectionBehaviorForTool, getOperationForTool, getOperation } from '../operations/registry';
 import * as THREE from 'three';
@@ -20,11 +22,27 @@ export interface PushPullCallbacks {
   onDragEnd: () => void;
 }
 
-interface Box3DProps {
-  pushPullCallbacks?: PushPullCallbacks;
+export interface MoveGizmoCallbacks {
+  onDeltaChange: (newDelta: number) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
 }
 
-export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
+export interface InsetCallbacks {
+  /** Current extension offset in mm – passed to the gizmo as the drag baseline */
+  offset: number;
+  onOffsetChange: (newOffset: number) => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+}
+
+interface Box3DProps {
+  pushPullCallbacks?: PushPullCallbacks;
+  moveGizmoCallbacks?: MoveGizmoCallbacks;
+  insetCallbacks?: InsetCallbacks;
+}
+
+export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallbacks, insetCallbacks }) => {
   // Model state from engine (returns preview state when preview is active)
   const config = useEngineConfig();
   const rootVoid = useEngineVoidTree();
@@ -277,6 +295,139 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
             onDragEnd={pushPullCallbacks.onDragEnd}
           />
         );
+      })()}
+
+      {/* AxisGizmo for Move tool - shows when a divider panel is selected */}
+      {activeTool === 'move' && mainPanelCollection && moveGizmoCallbacks && (() => {
+        // Read gizmo params from operation state (set by MovePalette at operation start)
+        const params = operationState.params as {
+          moveDefs?: MoveDef[];
+          minDelta?: number;
+          maxDelta?: number;
+          delta?: number;
+        };
+        const { moveDefs, minDelta, maxDelta, delta: paramsDelta } = params;
+        if (!moveDefs?.length) return null;
+
+        // Find the first selected divider panel for positioning
+        // Use MAIN panel collection (stable during preview) for position
+        const selectedPanel = mainPanelCollection.panels.find(p =>
+          selectedPanelIds.has(p.id) && p.source.type === 'divider'
+        );
+        if (!selectedPanel) return null;
+
+        const axis = selectedPanel.source.axis;
+        if (!axis || (axis !== 'x' && axis !== 'y' && axis !== 'z')) return null;
+
+        // Map axis string to world-space unit vector
+        const axisVectors: Record<'x' | 'y' | 'z', THREE.Vector3> = {
+          x: new THREE.Vector3(1, 0, 0),
+          y: new THREE.Vector3(0, 1, 0),
+          z: new THREE.Vector3(0, 0, 1),
+        };
+        const axisVector = axisVectors[axis];
+
+        const currentDelta = paramsDelta ?? 0;
+        const gizmoSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.4;
+
+        const handleMoveDelta = (deltaMm: number) => {
+          const newDelta = currentDelta + deltaMm;
+          const clamped = Math.max(minDelta ?? -50, Math.min(maxDelta ?? 50, newDelta));
+          moveGizmoCallbacks.onDeltaChange(clamped);
+        };
+
+        return (
+          <AxisGizmo
+            position={selectedPanel.position}
+            axis={axisVector}
+            scale={scale}
+            size={gizmoSize}
+            bidirectional={true}
+            onDelta={handleMoveDelta}
+            onDragStart={moveGizmoCallbacks.onDragStart}
+            onDragEnd={moveGizmoCallbacks.onDragEnd}
+          />
+        );
+      })()}
+
+      {/* Axis gizmos for inset/outset tool – one per selected edge */}
+      {activeTool === 'inset' && mainPanelCollection && insetCallbacks && selectedEdges.size > 0 && (() => {
+        const gizmoSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.4;
+        const gizmos: React.ReactElement[] = [];
+
+        for (const edgeKey of selectedEdges) {
+          const colonIndex = edgeKey.lastIndexOf(':');
+          if (colonIndex < 0) continue;
+          const panelId = edgeKey.slice(0, colonIndex);
+          const edge = edgeKey.slice(colonIndex + 1) as EdgePosition;
+
+          const panel = mainPanelCollection.panels.find(p => p.id === panelId);
+          if (!panel) continue;
+
+          const halfWidth = (panel.width * scale) / 2;
+          const halfHeight = (panel.height * scale) / 2;
+
+          // Clearance so the gizmo floats slightly beyond the edge surface
+          const clearance = gizmoSize * 0.25;
+
+          // Compute local-space offset and outward normal for this edge
+          let localOffset: THREE.Vector3;
+          let localNormal: THREE.Vector3;
+          switch (edge) {
+            case 'top':
+              localOffset = new THREE.Vector3(0, halfHeight + clearance, 0);
+              localNormal = new THREE.Vector3(0, 1, 0);
+              break;
+            case 'bottom':
+              localOffset = new THREE.Vector3(0, -(halfHeight + clearance), 0);
+              localNormal = new THREE.Vector3(0, -1, 0);
+              break;
+            case 'left':
+              localOffset = new THREE.Vector3(-(halfWidth + clearance), 0, 0);
+              localNormal = new THREE.Vector3(-1, 0, 0);
+              break;
+            case 'right':
+            default:
+              localOffset = new THREE.Vector3(halfWidth + clearance, 0, 0);
+              localNormal = new THREE.Vector3(1, 0, 0);
+              break;
+          }
+
+          // Transform local offset and normal to world space using panel rotation
+          const panelEuler = new THREE.Euler(panel.rotation[0], panel.rotation[1], panel.rotation[2], 'XYZ');
+          const panelQuat = new THREE.Quaternion().setFromEuler(panelEuler);
+
+          const worldOffset = localOffset.clone().applyQuaternion(panelQuat);
+          const gizmoPosition: [number, number, number] = [
+            panel.position[0] + worldOffset.x,
+            panel.position[1] + worldOffset.y,
+            panel.position[2] + worldOffset.z,
+          ];
+
+          const worldNormal = localNormal.clone().applyQuaternion(panelQuat);
+          const currentOffset = insetCallbacks.offset;
+
+          const handleInsetDelta = (deltaMm: number) => {
+            const newOffset = Math.round(currentOffset + deltaMm);
+            insetCallbacks.onOffsetChange(newOffset);
+          };
+
+          gizmos.push(
+            <AxisGizmo
+              key={edgeKey}
+              position={gizmoPosition}
+              axis={worldNormal}
+              scale={scale}
+              size={gizmoSize}
+              bidirectional={false}
+              onDelta={handleInsetDelta}
+              onDragStart={insetCallbacks.onDragStart}
+              onDragEnd={insetCallbacks.onDragEnd}
+            />,
+          );
+        }
+
+        return <>{gizmos}</>;
       })()}
 
       {/* Sub-assembly creation preview (wireframe box) */}
