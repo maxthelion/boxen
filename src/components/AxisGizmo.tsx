@@ -2,17 +2,15 @@
  * AxisGizmo - A reusable 3D drag-along-axis gizmo component.
  *
  * Renders arrow(s) along a specified world-space axis at a given position.
- * Handles raycasting, drag projection onto the constrained axis, and reports
- * displacement via an `onDelta` callback.
- *
- * Used by push-pull, move, and offset/inset tools for consistent drag behavior.
+ * Meshes are passive raycast targets — all drag logic lives in InteractionController.
+ * Sets userData.interactionTarget on every mesh so InteractionController can
+ * start a drag when the user clicks.
  *
  * Usage example:
  *
  *   <AxisGizmo
  *     position={[0, 0, 0]}
  *     axis={new THREE.Vector3(0, 0, 1)}
- *     scale={worldUnitsPerMm}
  *     size={20}
  *     onDelta={(deltaMm) => setOffset(offset + deltaMm)}
  *     onDragStart={() => beginOperation()}
@@ -20,9 +18,9 @@
  *   />
  */
 
-import React, { useMemo, useRef, useState, useCallback } from 'react';
-import { useThree, ThreeEvent } from '@react-three/fiber';
+import React, { useMemo, useState, useCallback, useId } from 'react';
 import * as THREE from 'three';
+import type { InteractionTarget } from '../interaction/InteractionManager';
 
 /**
  * Project a world-space delta vector onto an axis and convert to mm.
@@ -51,9 +49,10 @@ export interface AxisGizmoProps {
 
   /**
    * World units per mm.
-   * Used to convert world-space displacement to mm for the onDelta callback.
+   * @deprecated No longer used by AxisGizmo (drag math is in InteractionController).
+   * Kept for backward compatibility with callers.
    */
-  scale: number;
+  scale?: number;
 
   /** Size of the arrow (in world units). Controls all proportional dimensions. Default: 20 */
   size?: number;
@@ -70,7 +69,11 @@ export interface AxisGizmoProps {
   /** Color when hovered. Default: '#81d4fa' */
   hoverColor?: string;
 
-  /** Color when dragging. Default: '#ff9800' */
+  /**
+   * Color when dragging.
+   * @deprecated No longer used (drag state is managed by InteractionController).
+   * Kept for backward compatibility with callers.
+   */
   draggingColor?: string;
 
   /**
@@ -100,26 +103,49 @@ function computeRotationForAxis(axis: THREE.Vector3): THREE.Euler {
 export const AxisGizmo: React.FC<AxisGizmoProps> = ({
   position,
   axis,
-  scale,
   size = 20,
   bidirectional = true,
   color = '#4fc3f7',
   hoverColor = '#81d4fa',
-  draggingColor = '#ff9800',
   onDelta,
   onDragStart,
   onDragEnd,
 }) => {
-  const { camera, gl } = useThree();
-  const [isDragging, setIsDragging] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
-  const dragStartWorldPos = useRef<THREE.Vector3 | null>(null);
+
+  // Stable gizmo identity for InteractionManager drag tracking
+  const rawId = useId();
+  const gizmoId = `gizmo-${rawId}`;
 
   // Normalise the axis to guard against non-unit vectors
   const normalizedAxis = useMemo(() => axis.clone().normalize(), [axis]);
 
   // Compute rotation to align +Z arrows with the target axis
   const rotation = useMemo(() => computeRotationForAxis(normalizedAxis), [normalizedAxis]);
+
+  // World-space gizmo position (position prop is already in Three.js world space)
+  const worldPos = useMemo(
+    () => new THREE.Vector3(position[0], position[1], position[2]),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [position[0], position[1], position[2]],
+  );
+
+  // InteractionTarget set on every mesh so InteractionController can start a drag.
+  // Functions are captured by InteractionManager at drag-start time.
+  const interactionTarget: InteractionTarget = useMemo(
+    () => ({
+      type: 'gizmo',
+      gizmoId,
+      axis: normalizedAxis,
+      worldPos,
+      onDelta,
+      onDragStart: onDragStart ?? (() => {}),
+      onDragEnd: onDragEnd ?? (() => {}),
+    }),
+    // gizmoId is stable; normalizedAxis/worldPos update on prop changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gizmoId, normalizedAxis, worldPos, onDelta, onDragStart, onDragEnd],
+  );
 
   // Arrow and hit-area geometries
   const geometry = useMemo(() => {
@@ -145,104 +171,20 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
     return { shaftGeometry, headGeometry, hitAreaGeometry, arrowLength };
   }, [size, bidirectional]);
 
-  /**
-   * Project the current pointer onto a plane through the gizmo position,
-   * perpendicular to the camera view direction. Returns the world-space intersection.
-   */
-  const getWorldPointerPos = useCallback(
-    (event: ThreeEvent<PointerEvent>): THREE.Vector3 | null => {
-      const pointer = event.pointer;
-      if (!pointer) return null;
-
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(pointer, camera);
-
-      // Plane perpendicular to camera direction, through gizmo position
-      const planeNormal = camera.getWorldDirection(new THREE.Vector3());
-      const plane = new THREE.Plane();
-      plane.setFromNormalAndCoplanarPoint(planeNormal, new THREE.Vector3(...position));
-
-      const intersection = new THREE.Vector3();
-      if (raycaster.ray.intersectPlane(plane, intersection)) {
-        return intersection;
-      }
-      return null;
-    },
-    [camera, position],
-  );
-
-  const handlePointerDown = useCallback(
-    (event: ThreeEvent<PointerEvent>) => {
-      event.stopPropagation();
-      setIsDragging(true);
-      onDragStart?.();
-
-      const worldPos = getWorldPointerPos(event);
-      dragStartWorldPos.current = worldPos;
-
-      (gl.domElement as HTMLElement).setPointerCapture(event.pointerId);
-    },
-    [getWorldPointerPos, gl.domElement, onDragStart],
-  );
-
-  const handlePointerMove = useCallback(
-    (event: ThreeEvent<PointerEvent>) => {
-      if (!isDragging || !dragStartWorldPos.current) return;
-      event.stopPropagation();
-
-      const worldPos = getWorldPointerPos(event);
-      if (!worldPos) return;
-
-      const delta = worldPos.clone().sub(dragStartWorldPos.current);
-      const deltaMm = projectDeltaToAxis(delta, normalizedAxis, scale);
-      onDelta(deltaMm);
-    },
-    [isDragging, getWorldPointerPos, normalizedAxis, scale, onDelta],
-  );
-
-  const endDrag = useCallback(
-    (event: ThreeEvent<PointerEvent>) => {
-      if (!isDragging) return;
-      setIsDragging(false);
-      dragStartWorldPos.current = null;
-      onDragEnd?.();
-      (gl.domElement as HTMLElement).releasePointerCapture(event.pointerId);
-    },
-    [isDragging, gl.domElement, onDragEnd],
-  );
-
-  const handlePointerUp = useCallback(
-    (event: ThreeEvent<PointerEvent>) => {
-      event.stopPropagation();
-      endDrag(event);
-    },
-    [endDrag],
-  );
-
   const handlePointerEnter = useCallback(() => {
     setIsHovered(true);
     document.body.style.cursor = 'move';
   }, []);
 
-  const handlePointerLeave = useCallback(
-    (event: ThreeEvent<PointerEvent>) => {
-      setIsHovered(false);
-      document.body.style.cursor = 'auto';
-      // End drag if the pointer leaves while dragging (e.g. fast movement)
-      if (isDragging) {
-        endDrag(event);
-      }
-    },
-    [isDragging, endDrag],
-  );
+  const handlePointerLeave = useCallback(() => {
+    setIsHovered(false);
+    document.body.style.cursor = 'auto';
+  }, []);
 
-  const arrowColor = isDragging ? draggingColor : isHovered ? hoverColor : color;
+  const arrowColor = isHovered ? hoverColor : color;
   const emissiveIntensity = isHovered ? 0.5 : 0.3;
 
   const meshHandlers = {
-    onPointerDown: handlePointerDown,
-    onPointerMove: handlePointerMove,
-    onPointerUp: handlePointerUp,
     onPointerEnter: handlePointerEnter,
     onPointerLeave: handlePointerLeave,
   };
@@ -250,12 +192,12 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
   return (
     <group position={position} rotation={rotation}>
       {/* Transparent hit area for easier interaction */}
-      <mesh geometry={geometry.hitAreaGeometry} {...meshHandlers}>
+      <mesh geometry={geometry.hitAreaGeometry} {...meshHandlers} userData={{ interactionTarget }}>
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
 
       {/* Positive-direction arrow */}
-      <mesh geometry={geometry.shaftGeometry} {...meshHandlers}>
+      <mesh geometry={geometry.shaftGeometry} {...meshHandlers} userData={{ interactionTarget }}>
         <meshStandardMaterial
           color={arrowColor}
           emissive={arrowColor}
@@ -264,7 +206,7 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
           opacity={0.95}
         />
       </mesh>
-      <mesh geometry={geometry.headGeometry} {...meshHandlers}>
+      <mesh geometry={geometry.headGeometry} {...meshHandlers} userData={{ interactionTarget }}>
         <meshStandardMaterial
           color={arrowColor}
           emissive={arrowColor}
@@ -277,14 +219,14 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
       {/* Negative-direction arrow (shown fainter, only when bidirectional) */}
       {bidirectional && (
         <group rotation={[0, Math.PI, 0]}>
-          <mesh geometry={geometry.shaftGeometry} {...meshHandlers}>
+          <mesh geometry={geometry.shaftGeometry} {...meshHandlers} userData={{ interactionTarget }}>
             <meshStandardMaterial
               color={isHovered ? '#888' : '#666'}
               transparent
               opacity={isHovered ? 0.6 : 0.4}
             />
           </mesh>
-          <mesh geometry={geometry.headGeometry} {...meshHandlers}>
+          <mesh geometry={geometry.headGeometry} {...meshHandlers} userData={{ interactionTarget }}>
             <meshStandardMaterial
               color={isHovered ? '#888' : '#666'}
               transparent
@@ -295,7 +237,7 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
       )}
 
       {/* Center disc */}
-      <mesh rotation={[Math.PI / 2, 0, 0]} {...meshHandlers}>
+      <mesh rotation={[Math.PI / 2, 0, 0]} {...meshHandlers} userData={{ interactionTarget }}>
         <circleGeometry args={[size * 0.035, 16]} />
         <meshStandardMaterial
           color="#fff"

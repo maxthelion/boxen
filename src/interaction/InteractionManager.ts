@@ -31,6 +31,8 @@ export type InteractionTarget =
       type: 'gizmo';
       gizmoId: string;
       axis: THREE.Vector3;
+      /** World-space position of the gizmo centre — used to set up the drag projection plane */
+      worldPos?: THREE.Vector3;
       onDelta: (d: number) => void;
       onDragStart: () => void;
       onDragEnd: () => void;
@@ -335,10 +337,12 @@ export function raycastScene(
 // InteractionManager (stateful class)
 // ============================================================================
 
-interface ActiveDrag {
+export interface ActiveDrag {
   gizmoId: string;
   axis: THREE.Vector3;
   startWorldPos: THREE.Vector3;
+  /** Gizmo world position for setting up the drag projection plane on subsequent frames */
+  gizmoWorldPos: THREE.Vector3;
   callbacks: {
     onDelta: (d: number) => void;
     onDragStart: () => void;
@@ -360,16 +364,30 @@ export class InteractionManager {
 
   /**
    * Start a drag operation on a gizmo.
+   *
+   * @param gizmoId - Unique identifier for the gizmo being dragged
+   * @param axis - Unit vector defining the constrained drag axis
+   * @param startWorldPos - World-space pointer position at drag start (on the projection plane)
+   * @param callbacks - Drag lifecycle callbacks
+   * @param gizmoWorldPos - World-space centre of the gizmo (used for projection plane on subsequent frames).
+   *                        Defaults to startWorldPos if not provided.
    */
   startDrag(
     gizmoId: string,
     axis: THREE.Vector3,
     startWorldPos: THREE.Vector3,
     callbacks: ActiveDrag['callbacks'],
+    gizmoWorldPos?: THREE.Vector3,
   ): void {
     this.isDragging = true;
     this.cameraEnabled = false;
-    this.activeDrag = { gizmoId, axis, startWorldPos, callbacks };
+    this.activeDrag = {
+      gizmoId,
+      axis,
+      startWorldPos,
+      gizmoWorldPos: gizmoWorldPos ?? startWorldPos.clone(),
+      callbacks,
+    };
     callbacks.onDragStart();
   }
 

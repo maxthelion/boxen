@@ -16,6 +16,7 @@ import { useColors } from '../hooks/useColors';
 const ALL_EDGES: EdgePosition[] = ['top', 'bottom', 'left', 'right'];
 
 interface EdgeMeshProps {
+  panelId: string;
   edge: EdgePosition;
   status: EdgeStatus;
   isSelected: boolean;
@@ -27,13 +28,13 @@ interface EdgeMeshProps {
   thickness: number;
   scale: number;
   onHover: (hovered: boolean) => void;
-  onClick: (event: React.MouseEvent) => void;
 }
 
 /**
  * Single edge mesh component
  */
 const EdgeMesh: React.FC<EdgeMeshProps> = ({
+  panelId,
   edge,
   status,
   isSelected,
@@ -45,7 +46,6 @@ const EdgeMesh: React.FC<EdgeMeshProps> = ({
   thickness,
   scale,
   onHover,
-  onClick,
 }) => {
   const colors = useColors();
 
@@ -148,13 +148,6 @@ const EdgeMesh: React.FC<EdgeMeshProps> = ({
     return { edgePosition: worldPosition, edgeRotation: worldRotation };
   }, [edge, position, rotation, width, height, thickness, scale]);
 
-  const handleClick = useCallback((e: any) => {
-    e.stopPropagation?.();
-    if (status !== 'locked') {
-      onClick(e.nativeEvent || e);
-    }
-  }, [status, onClick]);
-
   const handlePointerOver = useCallback((e: any) => {
     e.stopPropagation?.();
     onHover(true);
@@ -173,9 +166,9 @@ const EdgeMesh: React.FC<EdgeMeshProps> = ({
       geometry={geometry}
       position={edgePosition}
       rotation={edgeRotation}
-      onClick={handleClick}
       onPointerOver={handlePointerOver}
       onPointerOut={handlePointerOut}
+      userData={{ interactionTarget: { type: 'edge', panelId, edge, locked: status === 'locked' } }}
     >
       <meshStandardMaterial
         color={color}
@@ -202,23 +195,7 @@ export const PanelEdgeRenderer: React.FC<PanelEdgeRendererProps> = ({ scale }) =
   const activeTool = useBoxStore((state) => state.activeTool);
   const selectedEdges = useBoxStore((state) => state.selectedEdges);
   const hoveredEdge = useBoxStore((state) => state.hoveredEdge);
-  const selectEdge = useBoxStore((state) => state.selectEdge);
   const setHoveredEdge = useBoxStore((state) => state.setHoveredEdge);
-  const operationState = useBoxStore((state) => state.operationState);
-
-  // Hooks must be called before any early returns
-  const handleEdgeClick = useCallback((panelId: string, edge: EdgePosition, event: React.MouseEvent) => {
-    // During an active operation, only shift+click modifies selection
-    // Regular clicks pass through to camera controls
-    const isOperationActive = operationState.activeOperation !== null;
-    if (isOperationActive && !event.shiftKey) {
-      return; // Let camera controls handle this click
-    }
-
-    // Use additive mode (toggle) when shift is held
-    const additive = event.shiftKey;
-    selectEdge(panelId, edge, additive);
-  }, [selectEdge, operationState.activeOperation]);
 
   const handleEdgeHover = useCallback((panelId: string, edge: EdgePosition, hovered: boolean) => {
     if (hovered) {
@@ -251,6 +228,7 @@ export const PanelEdgeRenderer: React.FC<PanelEdgeRendererProps> = ({ scale }) =
           return (
             <EdgeMesh
               key={edgeKey}
+              panelId={panel.id}
               edge={edge}
               status={status}
               isSelected={isSelected}
@@ -262,7 +240,6 @@ export const PanelEdgeRenderer: React.FC<PanelEdgeRendererProps> = ({ scale }) =
               thickness={panel.thickness}
               scale={scale}
               onHover={(hovered) => handleEdgeHover(panel.id, edge, hovered)}
-              onClick={(event) => handleEdgeClick(panel.id, edge, event)}
             />
           );
         });
