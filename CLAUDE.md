@@ -321,6 +321,17 @@ When adding a new operation, follow the step-by-step guide in [`docs/adding-oper
 - Preview pattern (`startPreview→mutate→commit/discard`)
 - Coordinate transforms (use `sketchCoordinates.ts`)
 
+## Coordinate Spaces
+
+**Before writing 3D rendering code, gizmos, or any transform math**, read [`docs/coordinate-spaces.md`](docs/coordinate-spaces.md). It documents:
+
+- Assembly-local space (void bounds, 0..W/H/D mm)
+- Panel-local 2D space (outline geometry, centred at panel)
+- Engine world space (panel positions in mm, origin at assembly centre)
+- Three.js world space (normalised units, scale = 100/max_dim)
+- SVG/sketch space (2D editing view, Y-flipped)
+- Full transform chain: panel-local → engine world → Three.js world
+
 Three operations are tagged `// REFERENCE IMPLEMENTATION` in the codebase:
 
 | Type | File |
