@@ -10,7 +10,7 @@
  * - Slot holes (divider intersections) with MT margin
  */
 
-import { PanelPath, FaceConfig, BoxConfig, PathPoint, EdgeExtensions } from '../types';
+import { PanelPath, FaceConfig, BoxConfig, PathPoint, EdgeExtensions, EdgeStatusInfo } from '../types';
 import { debug, setDebugTags, disableDebugTag } from '../utils/debug';
 
 // Enable only safe-space debug tag, disable noisy ones
@@ -224,22 +224,38 @@ function getFaceEdgeMargins(
 }
 
 /**
- * Get edge margins for a divider panel (joints on all edges)
+ * Get edge margins for a divider panel.
  *
- * Divider panels have finger joints on all four edges (they connect to face panels
- * on two edges and potentially to other dividers via cross-lap joints on the other
- * two edges). Therefore all edges need the 2×MT margin.
+ * Edges with joints (outward-only or locked status) need 2×MT margin.
+ * Edges that are unlocked (adjacent face is open — no joint) need 0 margin.
+ *
+ * @param materialThickness - Assembly material thickness
+ * @param edgeStatuses - Optional per-edge status info from the panel node.
+ *   When absent, falls back to conservative 2×MT on all edges.
  *
  * @see getFaceEdgeMargins for explanation of why 2×MT is used
  */
-function getDividerEdgeMargins(materialThickness: number): Record<EdgePosition, number> {
+function getDividerEdgeMargins(
+  materialThickness: number,
+  edgeStatuses?: EdgeStatusInfo[],
+): Record<EdgePosition, number> {
   const margin = materialThickness * 2;
-  return {
-    top: margin,
-    bottom: margin,
-    left: margin,
-    right: margin,
-  };
+
+  if (!edgeStatuses || edgeStatuses.length === 0) {
+    return { top: margin, bottom: margin, left: margin, right: margin };
+  }
+
+  const edges: EdgePosition[] = ['top', 'bottom', 'left', 'right'];
+  const margins = { top: 0, bottom: 0, left: 0, right: 0 } as Record<EdgePosition, number>;
+
+  for (const edge of edges) {
+    const info = edgeStatuses.find(e => e.position === edge);
+    // 'unlocked' = open face = no finger joint = no margin needed
+    // 'outward-only' or 'locked' = has joint = need 2×MT margin
+    margins[edge] = !info || info.status === 'unlocked' ? 0 : margin;
+  }
+
+  return margins;
 }
 
 // =============================================================================
@@ -923,7 +939,7 @@ export function calculateSafeSpace(
   if (panel.source.type === 'face' && panel.source.faceId) {
     edgeMargins = getFaceEdgeMargins(panel.source.faceId, faces, materialThickness);
   } else if (panel.source.type === 'divider') {
-    edgeMargins = getDividerEdgeMargins(materialThickness);
+    edgeMargins = getDividerEdgeMargins(materialThickness, panel.edgeStatuses);
   } else {
     // Unknown panel type - use conservative margins
     edgeMargins = getDividerEdgeMargins(materialThickness);

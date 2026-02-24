@@ -1259,6 +1259,28 @@ export abstract class BaseAssembly extends BaseNode {
               }
             }
 
+            // Apply stored custom edge paths
+            const storedPaths = this._panelCustomEdgePaths.get(dividerNode.id);
+            if (storedPaths) {
+              for (const path of storedPaths.values()) {
+                dividerNode.setCustomEdgePath(path);
+              }
+            }
+
+            // Apply edge paths from modified safe area (boolean operations take precedence)
+            const modifiedSafeArea = this._panelModifiedSafeAreas.get(dividerNode.id);
+            if (modifiedSafeArea) {
+              this.applyModifiedSafeAreaToPanel(dividerNode, modifiedSafeArea);
+            }
+
+            // Apply stored cutouts
+            const storedCutouts = this._panelCutouts.get(dividerNode.id);
+            if (storedCutouts) {
+              for (const cutout of storedCutouts.values()) {
+                dividerNode.addCutout(cutout);
+              }
+            }
+
             panels.push(dividerNode.serialize());
           }
         }
@@ -1317,6 +1339,28 @@ export abstract class BaseAssembly extends BaseNode {
         if (storedAllCornerFillets) {
           for (const [cornerId, radius] of storedAllCornerFillets) {
             dividerNode.setAllCornerFillet(cornerId, radius);
+          }
+        }
+
+        // Apply stored custom edge paths
+        const storedPaths = this._panelCustomEdgePaths.get(dividerNode.id);
+        if (storedPaths) {
+          for (const path of storedPaths.values()) {
+            dividerNode.setCustomEdgePath(path);
+          }
+        }
+
+        // Apply edge paths from modified safe area (boolean operations take precedence)
+        const modifiedSafeArea = this._panelModifiedSafeAreas.get(dividerNode.id);
+        if (modifiedSafeArea) {
+          this.applyModifiedSafeAreaToPanel(dividerNode, modifiedSafeArea);
+        }
+
+        // Apply stored cutouts
+        const storedCutouts = this._panelCutouts.get(dividerNode.id);
+        if (storedCutouts) {
+          for (const cutout of storedCutouts.values()) {
+            dividerNode.addCutout(cutout);
           }
         }
 

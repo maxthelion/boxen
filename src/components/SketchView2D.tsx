@@ -373,9 +373,17 @@ export const SketchView2D: React.FC<SketchView2DProps> = ({ className }) => {
       return getEdgeMarginsForFace(panel.source.faceId, faceConfigs, config.materialThickness);
     }
 
-    // Divider panels have joints on all edges
+    // Divider panels: use edge statuses to determine margins.
+    // 'unlocked' means the adjacent face is open — no joint, so no margin needed.
+    // 'outward-only' or 'locked' means there is a joint — use 2×MT margin.
     const margin = config.materialThickness * 2;
-    return { top: margin, bottom: margin, left: margin, right: margin };
+    const statuses = panel.edgeStatuses ?? [];
+    return {
+      top: statuses.find(e => e.position === 'top')?.status === 'unlocked' ? 0 : margin,
+      bottom: statuses.find(e => e.position === 'bottom')?.status === 'unlocked' ? 0 : margin,
+      left: statuses.find(e => e.position === 'left')?.status === 'unlocked' ? 0 : margin,
+      right: statuses.find(e => e.position === 'right')?.status === 'unlocked' ? 0 : margin,
+    };
   }, [panel, faces, config.materialThickness]);
 
   // Detect corners for potential finishing
