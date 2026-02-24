@@ -1,6 +1,10 @@
 # Adding New Operations
 
-Operations are user actions that modify the model (or view). They follow a consistent pattern:
+Operations are user actions that modify the model (or view). They follow a consistent pattern.
+
+> **Before starting:** Read [`docs/canonical-patterns.md`](canonical-patterns.md) for the full patterns
+> (store→engine wiring, preview lifecycle, reference implementations). This guide covers the step-by-step
+> mechanics; canonical-patterns.md explains *why* each piece exists and shows real reference examples.
 
 ## 1. Define in Registry
 

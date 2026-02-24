@@ -1,3 +1,8 @@
+// REFERENCE IMPLEMENTATION (immediate operation) — see docs/canonical-patterns.md
+// This file demonstrates the canonical pattern for immediate operations (no preview):
+//   engine.dispatch(action) directly → notifyEngineStateChanged()
+// See the toggleFace() function for the reference immediate-op implementation.
+
 import { StateCreator } from 'zustand';
 import { Void, BoxConfig, Face, FaceId, Bounds, SplitPositionMode, PanelCollection } from '../../types';
 import { ensureEngine, getEngine, dispatchToEngine, notifyEngineStateChanged, getEngineSnapshot } from '../../engine';

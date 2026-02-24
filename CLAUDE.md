@@ -310,6 +310,25 @@ if (!result.valid) {
 
 When adding a new operation, follow the step-by-step guide in [`docs/adding-operations.md`](docs/adding-operations.md). Also see `.claude/rules/operations.md` for quick reference.
 
+## Canonical Patterns
+
+**Before writing any new operation or geometry utility**, read [`docs/canonical-patterns.md`](docs/canonical-patterns.md). It covers:
+
+- Adding operations (store→engine→snapshot→UI wiring)
+- Panel generation (always `generatePanelsFromNodes`)
+- Finger joints (always `fingerJoints.ts`)
+- Dispatching (always `engine.dispatch`)
+- Preview pattern (`startPreview→mutate→commit/discard`)
+- Coordinate transforms (use `sketchCoordinates.ts`)
+
+Three operations are tagged `// REFERENCE IMPLEMENTATION` in the codebase:
+
+| Type | File |
+|------|------|
+| Parameter op | `src/components/ScalePalette.tsx` |
+| Immediate op | `src/store/slices/panelSlice.ts` |
+| 2D drawing op | `src/components/SketchView2D.tsx` |
+
 ## Protected Validators
 
 The following validator modules contain critical geometric rules that should NOT be modified without consulting the user first:
