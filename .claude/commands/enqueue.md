@@ -27,6 +27,22 @@ When run without arguments, I'll ask for:
 4. **Context** - Background and motivation
 5. **Acceptance Criteria** - Specific requirements
 
+## Flow Selection
+
+Two flows are available. Default is `fast`. Prompt the user to use `qa` when appropriate.
+
+| Flow | Pipeline | Use when |
+|------|----------|----------|
+| `fast` | implement → sanity check → auto-merge | Default. Refactors, bug fixes, internal changes, non-visual work |
+| `qa` | implement → sanity check → visual QA → human review → merge | UI features, geometry changes, rendering fixes, anything user-visible |
+
+**Prompt the user to use `qa` flow when the task involves:**
+- Changes to components (React, SVG, 3D rendering)
+- Geometry modifications (panel outlines, finger joints, slots, extensions)
+- New or modified operations visible in the 2D/3D editors
+- Bug fixes that affect visual output
+- Any change where "does it look right?" matters
+
 ## Implementation
 
 Use `create_task()` from `orchestrator.tasks` to create tasks. This function writes the task file to `.octopoid/tasks/` **and** registers it on the server in one step:
@@ -44,6 +60,7 @@ create_task(
         "Default limit: 100 requests per minute per IP",
         "Returns 429 Too Many Requests when exceeded",
     ],
+    flow="fast",  # or "qa" for visual/UI tasks
     # branch is optional — defaults to repo.base_branch from config
 )
 ```
@@ -57,35 +74,11 @@ Tasks are written to:
 .octopoid/tasks/TASK-{uuid}.md
 ```
 
-## Example Task File
-
-```markdown
-# [TASK-f8e7d6c5] Add rate limiting to API
-
-ROLE: implement
-PRIORITY: P1
-BRANCH: feature/client-server-architecture
-CREATED: 2024-01-15T14:30:00Z
-CREATED_BY: human
-
-## Context
-Our API endpoints have no rate limiting, making them vulnerable
-to abuse and DoS attacks. We need to add rate limiting to protect
-the service.
-
-## Acceptance Criteria
-- [ ] Rate limiting middleware added to all API routes
-- [ ] Default limit: 100 requests per minute per IP
-- [ ] Returns 429 Too Many Requests when exceeded
-- [ ] Rate limit headers included in responses
-- [ ] Configuration via environment variables
-```
-
 ## After Creation
 
 The task will be:
 1. Registered on the server and visible in the queue immediately
 2. Claimed by an agent with matching role on next scheduler tick
-3. Worked on and moved to done/failed
+3. Worked on and moved through the flow's pipeline
 
 Check status with `/queue-status`.

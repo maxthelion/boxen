@@ -73,46 +73,16 @@ If the draft contains architecture-level content, check whether an existing doc 
 
 **If running in automated mode:** include proposed rules and architecture docs in the inbox message. Do not modify rule files or docs directly — flag them for human review.
 
-### 4. Decide whether to archive
+### 4. Decide on status and update server
 
-**Archive the draft if:**
-- All proposed work is complete (tasks done, changes merged, decisions implemented)
-- No outstanding work remains to be scheduled
-- The draft served its purpose and is now historical reference
+Determine the appropriate status:
+- `complete` — all work done, decisions implemented
+- `superseded` — replaced by a newer draft or plan
+- `active` — work in progress (task enqueued)
+- `partial` — some work done, more to do
+- `idea` — not yet acted on (default)
 
-**Keep in drafts/ if:**
-- Work has been started but not finished (tasks enqueued but not complete)
-- Multi-phase plan with later phases not yet started
-- Still actively being referenced for ongoing work
-- Open questions remain unanswered
-
-**Update the status field:**
-- If archiving: `**Status:** Complete` or `**Status:** Superseded`
-- If keeping: `**Status:** In Progress` or `**Status:** Partial`
-
-### 5. Add processing summary (whether archiving or not)
-
-Prepend a processing summary block to track what's been done:
-
-```markdown
----
-**Processed:** <date>
-**Mode:** <human-guided | automated | mixed>
-**Actions taken:**
-- <brief description of each action, e.g. "Enqueued as TASK-xxx", "Extracted rule to .claude/rules/foo.md">
-- <...>
-**Outstanding items:** <none | list of items still to do, or "keeping in drafts/">
----
-```
-
-**Mode definitions:**
-- `human-guided` — human reviewed each step and made decisions (the normal `/process-draft` flow)
-- `automated` — processed by an agent without human intervention (e.g. post-accept hook)
-- `mixed` — some steps automated, some required human input
-
-### 6. Update status on server
-
-Update the draft status via SDK:
+Update the status on the server:
 
 ```python
 from orchestrator.queue_utils import get_sdk
@@ -120,6 +90,4 @@ sdk = get_sdk()
 sdk._request("PATCH", f"/api/v1/drafts/{draft_id}", json={"status": new_status})
 ```
 
-Where `new_status` is `"complete"`, `"superseded"`, `"in_progress"`, or `"partial"` based on the decision in step 4.
-
-The local file in `project-management/drafts/` is just a cache — the server is the source of truth.
+**Do NOT move files on disk.** The server status is the source of truth. All draft files stay in `project-management/drafts/` regardless of status.
