@@ -8,7 +8,7 @@
  * Usage: render <InteractionController onCameraEnabledChange={...} /> inside Canvas.
  */
 
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
@@ -69,8 +69,10 @@ export const InteractionController: React.FC<InteractionControllerProps> = ({
     return { type: 'select', target: 'panel' };
   }, [activeTool, operationState.activeOperation, selectionMode]);
 
-  // Keep refs in sync with reactive state
-  useEffect(() => { modeRef.current = derivedMode; }, [derivedMode]);
+  // Keep refs in sync with reactive state.
+  // useLayoutEffect ensures modeRef is updated before the browser paints,
+  // so clicks on newly-visible gizmos always see the correct mode ('operate').
+  useLayoutEffect(() => { modeRef.current = derivedMode; }, [derivedMode]);
   useEffect(() => { panelCollectionRef.current = panelCollection; }, [panelCollection]);
   useEffect(() => { cameraRef.current = camera; }, [camera]);
   useEffect(() => { sceneRef.current = scene; }, [scene]);
