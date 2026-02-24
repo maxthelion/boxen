@@ -1,3 +1,8 @@
+// REFERENCE IMPLEMENTATION (parameter operation) — see docs/canonical-patterns.md
+// This file demonstrates the canonical pattern for a parameter operation palette:
+//   startOperation → updateOperationParams (triggers preview) → applyOperation/cancelOperation
+// Read this before adding a new parameter operation.
+
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import {
   FloatingPalette,

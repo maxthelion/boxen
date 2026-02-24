@@ -1,3 +1,10 @@
+// REFERENCE IMPLEMENTATION (2D drawing operation) — see docs/canonical-patterns.md
+// This file demonstrates the canonical pattern for 2D drawing tools and sketch operations:
+//   - Use sketchCoordinates.ts for all coordinate transforms (screenToSvgCoords, svgToEdgeCoords, etc.)
+//   - Use snapEngine.ts for point snapping and guide lines
+//   - Dispatch engine actions via engine.dispatch() to apply drawn shapes
+// Search for "path tool" comments within this file for the path-tool reference.
+
 import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { useBoxStore, getAllSubdivisions } from '../store/useBoxStore';
 import { useEngineConfig, useEngineFaces, useEngineVoidTree, useEnginePanels, usePanelEligibility, getEngine, notifyEngineStateChanged } from '../engine';
