@@ -28,7 +28,7 @@ import { FilletAllCornersPalette, PanelAllCornerGroup } from './FilletAllCorners
 import { IneligibilityTooltip } from './IneligibilityTooltip';
 import { useBoxStore } from '../store/useBoxStore';
 import { EdgePosition, EdgeStatus } from '../types';
-import { useEnginePanels, useEngineMainPanels, getEngine } from '../engine';
+import { useEnginePanels, useEngineMainPanels, getEngine, useEngineConfig } from '../engine';
 import { AllCornerId } from '../engine/types';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
@@ -43,6 +43,8 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const panelCollection = useEnginePanels();
   // Main scene panels for eligibility (doesn't change during preview)
   const mainPanelCollection = useEngineMainPanels();
+  // Engine config for grid positioning (use preview config so grid tracks live changes)
+  const engineConfig = useEngineConfig();
 
   // UI state and actions from store
   const clearSelection = useBoxStore((state) => state.clearSelection);
@@ -106,6 +108,27 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // AI Design error
   const designError = useBoxStore((state) => state.designError);
+
+  // Grid positioning — track box bottom face and scale coverage with box size.
+  // Three.js world space normalizes the longest box dimension to 100 units:
+  //   scale = 100 / max(W, H, D)
+  // The box is centered at the origin, so the bottom face is at y = -scaledH/2.
+  const gridProps = useMemo(() => {
+    if (!engineConfig) {
+      return { gridY: -60, gridSize: 400, fadeDistance: 400 };
+    }
+    const { width, height, depth } = engineConfig;
+    const scale = 100 / Math.max(width, height, depth);
+    const scaledH = height * scale;
+    const scaledW = width * scale;
+    const scaledD = depth * scale;
+    const gridY = -scaledH / 2;
+    // Extend grid well beyond the box footprint (5× the footprint max)
+    const gridSize = Math.max(scaledW, scaledD) * 5;
+    // Fade distance proportional to the overall box size
+    const fadeDistance = Math.max(scaledW, scaledH, scaledD) * 5;
+    return { gridY, gridSize, fadeDistance };
+  }, [engineConfig]);
 
   // Get selected face ID and assembly ID for push-pull tool
   // Panel IDs are UUIDs, so we need to look up the panel source metadata
@@ -916,17 +939,17 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         />
 
         <Grid
-          args={[200, 200]}
+          args={[gridProps.gridSize, gridProps.gridSize]}
           cellSize={10}
           cellThickness={0.5}
           cellColor="#444"
           sectionSize={50}
           sectionThickness={1}
           sectionColor="#666"
-          fadeDistance={400}
+          fadeDistance={gridProps.fadeDistance}
           fadeStrength={1}
           followCamera={false}
-          position={[0, -60, 0]}
+          position={[0, gridProps.gridY, 0]}
         />
 
         <OrbitControls
