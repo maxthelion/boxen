@@ -246,8 +246,8 @@ export const Box3D: React.FC = () => {
         if (!moveDefs?.length) return null;
 
         // Find the first selected divider panel for positioning
-        // Use MAIN panel collection (stable during preview) for position
-        const selectedPanel = mainPanelCollection.panels.find(p =>
+        // Use PREVIEW panel collection so the gizmo follows the divider during drag
+        const selectedPanel = panelCollection?.panels.find(p =>
           selectedPanelIds.has(p.id) && p.source.type === 'divider'
         );
         if (!selectedPanel) return null;
@@ -324,25 +324,33 @@ export const Box3D: React.FC = () => {
           // Clearance so the gizmo floats slightly beyond the edge surface
           const clearance = gizmoSize * 0.25;
 
+          // Read current inset offset from operation params (needed for gizmo position)
+          const insetParams = operationState.params as any;
+          const currentOffset: number = insetParams?.offset ?? 0;
+          const currentEdges: string[] = insetParams?.edges ?? [];
+          const currentBaseExtensions: Record<string, number> = insetParams?.baseExtensions ?? {};
+
           // Compute local-space offset and outward normal for this edge
+          // Include currentOffset so the gizmo follows the preview edge during drag
+          const scaledOffset = currentOffset * scale;
           let localOffset: THREE.Vector3;
           let localNormal: THREE.Vector3;
           switch (edge) {
             case 'top':
-              localOffset = new THREE.Vector3(0, halfHeight + clearance, 0);
+              localOffset = new THREE.Vector3(0, halfHeight + clearance + scaledOffset, 0);
               localNormal = new THREE.Vector3(0, 1, 0);
               break;
             case 'bottom':
-              localOffset = new THREE.Vector3(0, -(halfHeight + clearance), 0);
+              localOffset = new THREE.Vector3(0, -(halfHeight + clearance + scaledOffset), 0);
               localNormal = new THREE.Vector3(0, -1, 0);
               break;
             case 'left':
-              localOffset = new THREE.Vector3(-(halfWidth + clearance), 0, 0);
+              localOffset = new THREE.Vector3(-(halfWidth + clearance + scaledOffset), 0, 0);
               localNormal = new THREE.Vector3(-1, 0, 0);
               break;
             case 'right':
             default:
-              localOffset = new THREE.Vector3(halfWidth + clearance, 0, 0);
+              localOffset = new THREE.Vector3(halfWidth + clearance + scaledOffset, 0, 0);
               localNormal = new THREE.Vector3(1, 0, 0);
               break;
           }
@@ -359,12 +367,6 @@ export const Box3D: React.FC = () => {
           ];
 
           const worldNormal = localNormal.clone().applyQuaternion(panelQuat);
-
-          // Read current inset offset from operation params
-          const insetParams = operationState.params as any;
-          const currentOffset: number = insetParams?.offset ?? 0;
-          const currentEdges: string[] = insetParams?.edges ?? [];
-          const currentBaseExtensions: Record<string, number> = insetParams?.baseExtensions ?? {};
 
           const handleInsetDelta = (deltaMm: number) => {
             const newOffset = Math.round(currentOffset + deltaMm);

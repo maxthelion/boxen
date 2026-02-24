@@ -130,7 +130,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     const scaledH = height * scale;
     const scaledW = width * scale;
     const scaledD = depth * scale;
-    const gridY = -scaledH / 2;
+    const gridY = -scaledH / 2 - 0.5;
     // Extend grid well beyond the box footprint (5× the footprint max)
     const gridSize = Math.max(scaledW, scaledD) * 5;
     // Fade distance proportional to the overall box size
