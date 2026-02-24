@@ -115,8 +115,9 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
   return (
     <group>
       {/* Wireframe box outline - shows current assembly dimensions */}
+      {/* Scale slightly larger than panels (1.001x) to prevent z-fighting with coplanar panel surfaces */}
       <lineSegments>
-        <edgesGeometry args={[new THREE.BoxGeometry(boundingBoxW, boundingBoxH, boundingBoxD)]} />
+        <edgesGeometry args={[new THREE.BoxGeometry(boundingBoxW * 1.001, boundingBoxH * 1.001, boundingBoxD * 1.001)]} />
         <lineBasicMaterial color={isPreviewActive ? '#ffcc00' : '#ff0000'} linewidth={2} />
       </lineSegments>
 
@@ -290,9 +291,9 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks }) => {
 
         return (
           <group position={[centerX, centerY, centerZ]}>
-            {/* Wireframe outline */}
+            {/* Wireframe outline - scale slightly to prevent z-fighting with panel surfaces */}
             <lineSegments>
-              <edgesGeometry args={[new THREE.BoxGeometry(scaledW, scaledH, scaledD)]} />
+              <edgesGeometry args={[new THREE.BoxGeometry(scaledW * 1.001, scaledH * 1.001, scaledD * 1.001)]} />
               <lineBasicMaterial color="#2ecc71" linewidth={2} />
             </lineSegments>
             {/* Semi-transparent fill */}
