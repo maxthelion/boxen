@@ -241,7 +241,15 @@ export const applyChamfer = (
 /**
  * Apply a fillet (rounded corner) to a corner
  *
- * Replaces the corner point with an arc approximation
+ * Replaces the corner point with an arc approximation using the angle bisector
+ * method, which correctly handles corners at any angle (not just 90 degrees).
+ *
+ * Derivation (corner at origin, inNorm = (1,0), outNorm = (cos α, sin α)):
+ *   - Tangent point on incoming edge: P1 = -t·inNorm
+ *   - Tangent point on outgoing edge: P2 =  t·outNorm
+ *   - Arc perpendicular at P1: center must be at (-t, r) [for CCW turn]
+ *   - Solving: t = r·tan(α/2), centerDist = r/cos(α/2)
+ *   - Bisector direction: normalize(outNorm - inNorm) = (-sin(α/2), cos(α/2))
  */
 export const applyFillet = (
   corner: PathPoint,
@@ -250,53 +258,87 @@ export const applyFillet = (
   radius: number,
   segments: number = 8
 ): PathPoint[] => {
-  const vectors = computeCornerVectors(corner, prevPoint, nextPoint, radius);
-  if (!vectors) return [corner];
+  // Direction vectors
+  const inVec = { x: corner.x - prevPoint.x, y: corner.y - prevPoint.y };
+  const outVec = { x: nextPoint.x - corner.x, y: nextPoint.y - corner.y };
 
-  const { inNorm, outNorm, clampedRadius } = vectors;
+  const inLen = Math.sqrt(inVec.x * inVec.x + inVec.y * inVec.y);
+  const outLen = Math.sqrt(outVec.x * outVec.x + outVec.y * outVec.y);
 
-  // Calculate the two tangent points (where the arc starts and ends)
-  const startPoint: PathPoint = {
-    x: corner.x - inNorm.x * clampedRadius,
-    y: corner.y - inNorm.y * clampedRadius,
-  };
+  if (inLen === 0 || outLen === 0) return [corner];
 
-  const endPoint: PathPoint = {
-    x: corner.x + outNorm.x * clampedRadius,
-    y: corner.y + outNorm.y * clampedRadius,
-  };
+  // Normalize edge directions
+  const inNorm = { x: inVec.x / inLen, y: inVec.y / inLen };
+  const outNorm = { x: outVec.x / outLen, y: outVec.y / outLen };
 
-  // Calculate the arc center
-  // The center is at distance radius from both the start and end points
-  // It's perpendicular to each edge at the tangent points
-
-  // Perpendicular directions (inward toward center)
-  const perpIn = { x: inNorm.y, y: -inNorm.x };
-  const perpOut = { x: -outNorm.y, y: outNorm.x };
-
-  // Cross product to determine which side the center is on
+  // Cross product to determine turn direction (positive = CCW turn)
   const cross = inNorm.x * outNorm.y - inNorm.y * outNorm.x;
 
-  // Adjust perpendicular based on corner direction (convex vs concave)
-  const inwardPerpIn = cross > 0 ? perpIn : { x: -perpIn.x, y: -perpIn.y };
-  const inwardPerpOut = cross > 0 ? perpOut : { x: -perpOut.x, y: -perpOut.y };
+  // Corner angle (angle between the two edge directions, i.e. the turn angle)
+  const dotVal = Math.max(-1, Math.min(1, inNorm.x * outNorm.x + inNorm.y * outNorm.y));
+  const alpha = Math.acos(dotVal);
 
-  // Calculate center (average of the two perpendicular approaches)
-  const center: PathPoint = {
-    x: (startPoint.x + inwardPerpIn.x * clampedRadius + endPoint.x + inwardPerpOut.x * clampedRadius) / 2,
-    y: (startPoint.y + inwardPerpIn.y * clampedRadius + endPoint.y + inwardPerpOut.y * clampedRadius) / 2,
+  // Degenerate: nearly straight line — no fillet needed
+  if (alpha < 1e-9) return [corner];
+
+  const halfAngle = alpha / 2;
+  const tanHalf = Math.tan(halfAngle);
+  const cosHalf = Math.cos(halfAngle);
+
+  // Degenerate: nearly a hairpin (180° turn)
+  if (cosHalf < 1e-9) return [corner];
+
+  // Tangent distance: t = r·tan(α/2)
+  // This is how far from the corner the arc touches each edge.
+  // For a 90° corner: t = r·tan(45°) = r (matching simple case)
+  // For a sharp corner (large α): t grows, arc tangent points move farther from corner
+  const tangentDist = radius * tanHalf;
+
+  // Clamp tangent distance so tangent points stay within each edge
+  const maxTangentDist = Math.min(inLen * 0.5, outLen * 0.5);
+  const clampedTangentDist = Math.min(tangentDist, maxTangentDist);
+
+  // Actual radius after clamping: r = t/tan(α/2)
+  const clampedRadius = clampedTangentDist / tanHalf;
+
+  // Tangent points (where the arc is tangent to each edge)
+  const startPoint: PathPoint = {
+    x: corner.x - inNorm.x * clampedTangentDist,
+    y: corner.y - inNorm.y * clampedTangentDist,
+  };
+  const endPoint: PathPoint = {
+    x: corner.x + outNorm.x * clampedTangentDist,
+    y: corner.y + outNorm.y * clampedTangentDist,
   };
 
-  // Calculate start and end angles
+  // Arc center: on the inward angle bisector at distance r/cos(α/2) from corner
+  // Bisector direction = normalize(outNorm - inNorm) = (-sin(α/2), cos(α/2))
+  const bisX = outNorm.x - inNorm.x;
+  const bisY = outNorm.y - inNorm.y;
+  const bisLen = Math.sqrt(bisX * bisX + bisY * bisY);
+
+  if (bisLen < 1e-9) return [corner];
+
+  const bisNorm = { x: bisX / bisLen, y: bisY / bisLen };
+  const centerDist = clampedRadius / cosHalf;
+
+  const center: PathPoint = {
+    x: corner.x + bisNorm.x * centerDist,
+    y: corner.y + bisNorm.y * centerDist,
+  };
+
+  // Calculate start and end angles from center
   const startAngle = Math.atan2(startPoint.y - center.y, startPoint.x - center.x);
   const endAngle = Math.atan2(endPoint.y - center.y, endPoint.x - center.x);
 
-  // Determine arc direction
+  // Sweep direction:
+  //   cross > 0 (CCW turn): sweep CCW → positive angleDiff
+  //   cross < 0 (CW turn): sweep CW → negative angleDiff
   let angleDiff = endAngle - startAngle;
   if (cross > 0) {
-    if (angleDiff > 0) angleDiff -= 2 * Math.PI;
-  } else {
     if (angleDiff < 0) angleDiff += 2 * Math.PI;
+  } else {
+    if (angleDiff > 0) angleDiff -= 2 * Math.PI;
   }
 
   // Generate arc points
