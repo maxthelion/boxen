@@ -3,6 +3,7 @@ import { useBoxStore } from '../store/useBoxStore';
 import { SubAssembly, Bounds } from '../types';
 import * as THREE from 'three';
 import { AssemblyAxisIndicator, LidFaceHighlight } from './AssemblyAxisIndicator';
+import { useColors } from '../hooks/useColors';
 
 interface SubAssembly3DProps {
   subAssembly: SubAssembly;
@@ -18,6 +19,7 @@ export const SubAssembly3D: React.FC<SubAssembly3DProps> = ({
   boxCenter,
 }) => {
   const { selectedSubAssemblyIds, selectSubAssembly, selectionMode, selectedAssemblyId, selectAssembly, operationState } = useBoxStore();
+  const colors = useColors();
 
   const isSelectedSubAssembly = selectedSubAssemblyIds.has(subAssembly.id);
   const isSelectedAssembly = selectedAssemblyId === subAssembly.id;
@@ -62,7 +64,7 @@ export const SubAssembly3D: React.FC<SubAssembly3DProps> = ({
       {/* Scale slightly to prevent z-fighting with coplanar panel surfaces */}
       <lineSegments>
         <edgesGeometry args={[new THREE.BoxGeometry(scaledW * 1.001, scaledH * 1.001, scaledD * 1.001)]} />
-        <lineBasicMaterial color={isSelected ? '#e74c3c' : '#666'} />
+        <lineBasicMaterial color={isSelected ? colors.subAssemblyOutline.selected : colors.subAssemblyOutline.unselected} />
       </lineSegments>
 
       {/* Invisible clickable box for selection (only in void/assembly mode) */}

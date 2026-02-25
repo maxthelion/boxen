@@ -78,6 +78,36 @@ export interface ColorConfig {
     previewActive: string;     // During active preview
   };
 
+  // ===== 3D Viewport =====
+  background: string;          // Canvas background color
+
+  // ===== 3D Grid =====
+  grid3d: {
+    cell: string;              // Grid cell line color
+    section: string;           // Grid section line color
+  };
+
+  // ===== Axis Gizmo =====
+  gizmo: {
+    default: string;           // Default arrow color
+    defaultHover: string;      // Arrow hover color
+    shaft: string;             // Reverse-direction shaft color
+    shaftHover: string;        // Reverse-direction shaft hover color
+    label: string;             // Center disc color
+  };
+
+  // ===== Sub-Assembly 3D Outline =====
+  subAssemblyOutline: {
+    selected: string;          // Selected wireframe color
+    unselected: string;        // Unselected wireframe color
+    preview: string;           // Creation preview wireframe/fill color
+  };
+
+  // ===== Debug =====
+  debug: {
+    anchor: string;            // Debug anchor sphere color
+  };
+
   // ===== 2D Sketch View =====
   sketch: {
     grid: {
@@ -172,6 +202,31 @@ export const defaultColors: ColorConfig = {
   bounds: {
     assembly: '#ff0000',
     previewActive: '#ffcc00',
+  },
+
+  background: '#1a1a2e',
+
+  grid3d: {
+    cell: '#444',
+    section: '#666',
+  },
+
+  gizmo: {
+    default: '#4fc3f7',
+    defaultHover: '#81d4fa',
+    shaft: '#666',
+    shaftHover: '#888',
+    label: '#fff',
+  },
+
+  subAssemblyOutline: {
+    selected: '#e74c3c',
+    unselected: '#666',
+    preview: '#2ecc71',
+  },
+
+  debug: {
+    anchor: '#ff6600',
   },
 
   sketch: {
