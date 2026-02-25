@@ -14,6 +14,7 @@ import {
   NodeKind,
   FaceId,
   EdgePosition,
+  EdgeExtensions,
   MaterialConfig,
   Transform3D,
   PanelHole,
@@ -29,6 +30,7 @@ import {
   getAdjacentFace,
 } from '../../utils/faceGeometry';
 import { getEdgeGender } from '../../utils/genderRules';
+import { getOverlapLoser } from '../../utils/axisOwnership';
 import { getEdgeAxis, Face as StoreFace, AssemblyConfig as StoreAssemblyConfig } from '../../types';
 import { debug, enableDebugTag } from '../../utils/debug';
 
@@ -1128,6 +1130,118 @@ export class FacePanelNode extends BasePanel {
     // The otherSub.position is the position of the crossing divider,
     // and it's on the axis perpendicular to the slot we're creating.
     return otherSub.position - mt;
+  }
+
+  // ==========================================================================
+  // Extension Corner Ownership
+  // ==========================================================================
+
+  /**
+   * Compute per-corner insets for edge extension corner ownership.
+   *
+   * When two adjacent face panels both extend the same edge (e.g. front and right
+   * both extend 'top'), the loser (determined by gender/wall priority via
+   * getOverlapLoser) must inset its extended corner by MT to avoid overlap.
+   *
+   * For horizontal (top/bottom) extension conflicts:
+   *   - the inset is in x direction (perpendicular to extension)
+   *   - topLeft/bottomLeft: inward dx = +mt, topRight/bottomRight: inward dx = -mt
+   *
+   * For vertical (left/right) extension conflicts:
+   *   - the inset is in y direction (perpendicular to extension)
+   *   - topLeft/topRight: inward dy = -mt, bottomLeft/bottomRight: inward dy = +mt
+   */
+  protected override getExtensionCornerInsets(
+    extensions: EdgeExtensions,
+    mt: number
+  ): {
+    topLeft: { dx: number; dy: number };
+    topRight: { dx: number; dy: number };
+    bottomRight: { dx: number; dy: number };
+    bottomLeft: { dx: number; dy: number };
+  } {
+    const insets = {
+      topLeft: { dx: 0, dy: 0 },
+      topRight: { dx: 0, dy: 0 },
+      bottomRight: { dx: 0, dy: 0 },
+      bottomLeft: { dx: 0, dy: 0 },
+    };
+
+    const faces = this._assembly.getFaces() as unknown as StoreFace[];
+    const assemblyConfig = this._assembly.assemblyConfig as unknown as StoreAssemblyConfig;
+
+    // Each corner is associated with a horizontal edge (top/bottom) and a
+    // vertical edge (left/right). Check for conflicts on both axes.
+    const corners = [
+      {
+        key: 'topLeft' as const,
+        horizEdge: 'top' as const,
+        vertEdge: 'left' as const,
+        adjForHoriz: 'left' as const,   // adjacent face via vertical side
+        adjForVert: 'top' as const,      // adjacent face via horizontal side
+        horizDx: +1,                     // inward x direction when losing horiz conflict
+        vertDy: -1,                      // inward y direction when losing vert conflict
+      },
+      {
+        key: 'topRight' as const,
+        horizEdge: 'top' as const,
+        vertEdge: 'right' as const,
+        adjForHoriz: 'right' as const,
+        adjForVert: 'top' as const,
+        horizDx: -1,
+        vertDy: -1,
+      },
+      {
+        key: 'bottomRight' as const,
+        horizEdge: 'bottom' as const,
+        vertEdge: 'right' as const,
+        adjForHoriz: 'right' as const,
+        adjForVert: 'bottom' as const,
+        horizDx: -1,
+        vertDy: +1,
+      },
+      {
+        key: 'bottomLeft' as const,
+        horizEdge: 'bottom' as const,
+        vertEdge: 'left' as const,
+        adjForHoriz: 'left' as const,
+        adjForVert: 'bottom' as const,
+        horizDx: +1,
+        vertDy: +1,
+      },
+    ] as const;
+
+    for (const { key, horizEdge, vertEdge, adjForHoriz, adjForVert, horizDx, vertDy } of corners) {
+      // Check horizontal extension conflict (e.g., both panels extend 'top')
+      if (extensions[horizEdge] > 0.001) {
+        const adjFaceId = getAdjacentFace(this.faceId, adjForHoriz);
+        const adjPanel = this._assembly.getFacePanel(adjFaceId);
+        if (adjPanel && adjPanel.edgeExtensions[horizEdge] > 0.001) {
+          const loser = getOverlapLoser(
+            this.faceId, adjFaceId, faces, assemblyConfig, horizEdge, horizEdge
+          );
+          if (loser === this.faceId) {
+            insets[key].dx = horizDx * mt;
+          }
+        }
+      }
+
+      // Check vertical extension conflict (e.g., both panels extend 'left')
+      if (extensions[vertEdge] > 0.001) {
+        const adjFaceId = getAdjacentFace(this.faceId, adjForVert);
+        const adjPanel = this._assembly.getFacePanel(adjFaceId);
+        if (adjPanel && adjPanel.edgeExtensions[vertEdge] > 0.001) {
+          const loser = getOverlapLoser(
+            this.faceId, adjFaceId, faces, assemblyConfig, vertEdge, vertEdge
+          );
+          if (loser === this.faceId) {
+            insets[key].dy = vertDy * mt;
+          }
+        }
+      }
+    }
+
+    return insets;
   }
 
   // ==========================================================================

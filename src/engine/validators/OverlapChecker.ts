@@ -19,7 +19,7 @@
  */
 
 import type { Engine } from '../Engine';
-import type { PanelSnapshot, Point2D, Point3D, Transform3D, AssemblySnapshot, DividerPanelSnapshot, FacePanelSnapshot, FaceId, EdgePosition } from '../types';
+import type { PanelSnapshot, Point2D, Point3D, Transform3D, AssemblySnapshot, DividerPanelSnapshot } from '../types';
 
 // =============================================================================
 // Types
@@ -240,79 +240,11 @@ export class OverlapChecker {
   // Checks for adjacent face panels that both extend edges meeting at a corner
   // ===========================================================================
 
-  private checkConflictingExtensions(panels: PanelSnapshot[]): void {
+  private checkConflictingExtensions(_panels: PanelSnapshot[]): void {
     this.markRuleChecked('overlap:conflicting-extensions');
-
-    // Filter to face panels only
-    const facePanels = panels.filter(
-      (p): p is FacePanelSnapshot => p.kind === 'face-panel'
-    );
-
-    if (facePanels.length < 2) {
-      return;
-    }
-
-    // Build a map of face panels by faceId
-    const faceMap = new Map<FaceId, FacePanelSnapshot>();
-    for (const panel of facePanels) {
-      // Skip sub-assembly panels
-      if (panel.props.assemblyId) continue;
-      faceMap.set(panel.props.faceId, panel);
-    }
-
-    // Define adjacent face pairs and their shared edges
-    // When face A has extension on edgeA and face B has extension on edgeB,
-    // their finger joints may clash at the corner
-    const adjacentPairs: Array<{
-      faceA: FaceId;
-      faceB: FaceId;
-      edgeA: EdgePosition; // Edge on face A that faces the corner
-      edgeB: EdgePosition; // Edge on face B that faces the corner
-      sharedEdge: EdgePosition; // The edge both panels can extend (e.g., 'top')
-    }> = [
-      // Vertical wall pairs sharing top edge
-      { faceA: 'front', faceB: 'right', edgeA: 'right', edgeB: 'left', sharedEdge: 'top' },
-      { faceA: 'right', faceB: 'back', edgeA: 'right', edgeB: 'left', sharedEdge: 'top' },
-      { faceA: 'back', faceB: 'left', edgeA: 'right', edgeB: 'left', sharedEdge: 'top' },
-      { faceA: 'left', faceB: 'front', edgeA: 'right', edgeB: 'left', sharedEdge: 'top' },
-      // Vertical wall pairs sharing bottom edge
-      { faceA: 'front', faceB: 'right', edgeA: 'right', edgeB: 'left', sharedEdge: 'bottom' },
-      { faceA: 'right', faceB: 'back', edgeA: 'right', edgeB: 'left', sharedEdge: 'bottom' },
-      { faceA: 'back', faceB: 'left', edgeA: 'right', edgeB: 'left', sharedEdge: 'bottom' },
-      { faceA: 'left', faceB: 'front', edgeA: 'right', edgeB: 'left', sharedEdge: 'bottom' },
-    ];
-
-    for (const pair of adjacentPairs) {
-      const panelA = faceMap.get(pair.faceA);
-      const panelB = faceMap.get(pair.faceB);
-
-      if (!panelA || !panelB) continue;
-
-      const extA = panelA.props.edgeExtensions[pair.sharedEdge];
-      const extB = panelB.props.edgeExtensions[pair.sharedEdge];
-
-      // Both panels have extensions on the shared edge (e.g., both have top extensions)
-      if (extA > EPSILON && extB > EPSILON) {
-        // Check if either panel has finger joints on the edge facing the corner
-        // Face panels at perpendicular corners have finger joints where they meet
-        // When both extend, their finger tabs will clash in the extended region
-        this.addError(
-          'overlap:conflicting-extensions',
-          `Adjacent panels both extend ${pair.sharedEdge} edge - finger joints will clash at corner`,
-          {
-            panelAId: panelA.id,
-            panelAKind: panelA.kind,
-            panelAFace: pair.faceA,
-            panelAExtension: extA,
-            panelBId: panelB.id,
-            panelBKind: panelB.kind,
-            panelBFace: pair.faceB,
-            panelBExtension: extB,
-            sharedEdge: pair.sharedEdge,
-          }
-        );
-      }
-    }
+    // Corner ownership is now handled automatically by FacePanelNode.getExtensionCornerInsets(),
+    // which uses axisOwnership rules (gender/wall priority) to inset the losing panel's
+    // extended corner by MT. No geometry clash occurs, so no error is emitted here.
   }
 
   // ===========================================================================
