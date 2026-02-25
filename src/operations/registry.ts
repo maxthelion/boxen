@@ -278,9 +278,10 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
     availableIn: ['3d'],
     description: 'Create a drawer, tray, or insert in a void',
     createPreviewAction: (params) => {
-      const { voidId, clearance } = params as {
+      const { voidId, clearance, assemblyAxis } = params as {
         voidId?: string;
         clearance?: number;
+        assemblyAxis?: Axis;
       };
 
       if (!voidId) return null;
@@ -291,6 +292,7 @@ export const OPERATION_DEFINITIONS: Record<OperationId, OperationDefinition> = {
         payload: {
           voidId,
           clearance: clearance ?? 2,
+          assemblyAxis: assemblyAxis ?? 'y',
         },
       };
     },

@@ -2,6 +2,7 @@ import React from 'react';
 import { useBoxStore } from '../store/useBoxStore';
 import { SubAssembly, Bounds } from '../types';
 import * as THREE from 'three';
+import { AssemblyAxisIndicator, LidFaceHighlight } from './AssemblyAxisIndicator';
 
 interface SubAssembly3DProps {
   subAssembly: SubAssembly;
@@ -16,11 +17,13 @@ export const SubAssembly3D: React.FC<SubAssembly3DProps> = ({
   scale,
   boxCenter,
 }) => {
-  const { selectedSubAssemblyIds, selectSubAssembly, selectionMode, selectedAssemblyId, selectAssembly } = useBoxStore();
+  const { selectedSubAssemblyIds, selectSubAssembly, selectionMode, selectedAssemblyId, selectAssembly, operationState } = useBoxStore();
 
   const isSelectedSubAssembly = selectedSubAssemblyIds.has(subAssembly.id);
   const isSelectedAssembly = selectedAssemblyId === subAssembly.id;
   const isSelected = isSelectedSubAssembly || isSelectedAssembly;
+  const isCreating = operationState.activeOperation === 'create-sub-assembly';
+  const showAxisIndicator = isSelected || isCreating;
   const { clearance, rootVoid, materialThickness, faceOffsets } = subAssembly;
 
   // Get face offsets (default to 0 if not set)
@@ -68,6 +71,22 @@ export const SubAssembly3D: React.FC<SubAssembly3DProps> = ({
           <boxGeometry args={[scaledW, scaledH, scaledD]} />
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
+      )}
+
+      {/* Assembly axis indicator - shows when selected or during creation */}
+      {showAxisIndicator && (
+        <>
+          <AssemblyAxisIndicator
+            axis={subAssembly.assembly.assemblyAxis}
+            dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
+            visible={true}
+          />
+          <LidFaceHighlight
+            axis={subAssembly.assembly.assemblyAxis}
+            dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
+            visible={true}
+          />
+        </>
       )}
     </group>
   );
