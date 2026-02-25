@@ -114,6 +114,10 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const dragStartWorldPos = useRef<THREE.Vector3 | null>(null);
+  // Frozen copy of getWorldPointerPos captured at drag start.
+  // Prevents the raycasting plane from shifting mid-drag when the gizmo's
+  // position prop updates (e.g. because the preview panel has moved).
+  const frozenGetWorldPointerPos = useRef<((event: ThreeEvent<PointerEvent>) => THREE.Vector3 | null) | null>(null);
 
   // Normalise the axis to guard against non-unit vectors
   const normalizedAxis = useMemo(() => axis.clone().normalize(), [axis]);
@@ -177,6 +181,11 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
       setIsDragging(true);
       onDragStart?.();
 
+      // Freeze the pointer→world projection function so that changes to the
+      // gizmo position prop during the drag (caused by preview panel movement)
+      // do not shift the raycasting plane under our feet.
+      frozenGetWorldPointerPos.current = getWorldPointerPos;
+
       const worldPos = getWorldPointerPos(event);
       dragStartWorldPos.current = worldPos;
 
@@ -190,7 +199,10 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
       if (!isDragging || !dragStartWorldPos.current) return;
       event.stopPropagation();
 
-      const worldPos = getWorldPointerPos(event);
+      // Use the frozen function captured at drag start so the plane stays stable
+      // even when the gizmo position updates mid-drag.
+      const getPosFunc = frozenGetWorldPointerPos.current ?? getWorldPointerPos;
+      const worldPos = getPosFunc(event);
       if (!worldPos) return;
 
       const delta = worldPos.clone().sub(dragStartWorldPos.current);
@@ -205,6 +217,7 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
       if (!isDragging) return;
       setIsDragging(false);
       dragStartWorldPos.current = null;
+      frozenGetWorldPointerPos.current = null;
       onDragEnd?.();
       (gl.domElement as HTMLElement).releasePointerCapture(event.pointerId);
     },
