@@ -1,6 +1,6 @@
 import React, { useMemo, useRef } from 'react';
 import { useBoxStore, getLeafVoids, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible, computeVisuallySelectedPanelIds } from '../store/useBoxStore';
-import { useEngineConfig, useEngineVoidTree, useEnginePanels, useEngineMainPanels, useEngineMainConfig, useEngineFaces } from '../engine';
+import { useEngineConfig, useEngineVoidTree, useEnginePanels, useEngineMainConfig, useEngineFaces } from '../engine';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { PanelCollectionRenderer } from './PanelPathRenderer';
@@ -49,9 +49,8 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
   const panelCollection = useEnginePanels();
   const faces = useEngineFaces();
 
-  // Main (committed) state - for arrow positioning during preview
+  // Main (committed) config - used for bounding box and arrow size calculations
   const mainConfig = useEngineMainConfig();
-  const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
   const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectedEdges, selectedCornerIds, selectPanel, selectAssembly, selectPanelEdges, selectPanelCorners, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
@@ -240,10 +239,10 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
       <PanelCornerRenderer scale={scale} />
 
       {/* Push/Pull arrow indicator when tool is active and face panel is selected */}
-      {activeTool === 'push-pull' && mainPanelCollection && pushPullCallbacks && (() => {
-        // Find selected face panel - use MAIN panel collection for original position
-        // Look up via source metadata since panel IDs are UUIDs
-        const selectedPanel = mainPanelCollection.panels.find(p =>
+      {activeTool === 'push-pull' && panelCollection && pushPullCallbacks && (() => {
+        // Find selected face panel - use preview panel collection so the arrow
+        // follows the panel as the user drags.
+        const selectedPanel = panelCollection.panels.find(p =>
           selectedPanelIds.has(p.id) && p.source.type === 'face' && p.source.faceId
         );
         if (!selectedPanel) return null;
@@ -253,7 +252,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
 
         const arrowSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.5;
 
-        // Position arrow at the ORIGINAL panel surface (not affected by preview offset)
+        // Position arrow at the current (preview) panel surface so it tracks the drag
         const arrowPosition: [number, number, number] = [...panel.position] as [number, number, number];
         const mt = mainConfig.materialThickness * scale;
         switch (faceId) {
@@ -305,7 +304,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
       })()}
 
       {/* AxisGizmo for Move tool - shows when a divider panel is selected */}
-      {activeTool === 'move' && mainPanelCollection && moveGizmoCallbacks && (() => {
+      {activeTool === 'move' && panelCollection && moveGizmoCallbacks && (() => {
         // Read gizmo params from operation state (set by MovePalette at operation start)
         const params = operationState.params as {
           moveDefs?: MoveDef[];
@@ -316,9 +315,9 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
         const { moveDefs, minDelta, maxDelta, delta: paramsDelta } = params;
         if (!moveDefs?.length) return null;
 
-        // Find the first selected divider panel for positioning
-        // Use MAIN panel collection (stable during preview) for position
-        const selectedPanel = mainPanelCollection.panels.find(p =>
+        // Find the first selected divider panel - use preview panel collection
+        // so the gizmo follows the divider as the user drags.
+        const selectedPanel = panelCollection.panels.find(p =>
           selectedPanelIds.has(p.id) && p.source.type === 'divider'
         );
         if (!selectedPanel) return null;
@@ -365,7 +364,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
       })()}
 
       {/* Axis gizmos for inset/outset tool – one per selected edge */}
-      {activeTool === 'inset' && mainPanelCollection && insetCallbacks && selectedEdges.size > 0 && (() => {
+      {activeTool === 'inset' && panelCollection && insetCallbacks && selectedEdges.size > 0 && (() => {
         const gizmoSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.4;
         const gizmos: React.ReactElement[] = [];
 
@@ -388,7 +387,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
           const panelId = edgeKey.slice(0, colonIndex);
           const edge = edgeKey.slice(colonIndex + 1) as EdgePosition;
 
-          const panel = mainPanelCollection.panels.find(p => p.id === panelId);
+          const panel = panelCollection.panels.find(p => p.id === panelId);
           if (!panel) continue;
 
           const halfWidth = (panel.width * scale) / 2;
