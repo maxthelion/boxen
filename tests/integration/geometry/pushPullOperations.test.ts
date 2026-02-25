@@ -250,21 +250,24 @@ describe('Successive Push/Pull Operations', () => {
       expect(dims2!.worldX + dims2!.width / 2).toBeCloseTo(rightFaceOriginal + 5, 1);
       expect(dims2!.worldX - dims2!.width / 2).toBeCloseTo(leftFaceOriginal, 1);
 
-      // Second push/pull: +3mm pushing LEFT face (right now anchored)
-      // This should anchor the NEW right face position
+      // Second push/pull: +1mm pushing LEFT face (right now anchored)
+      // This should anchor the NEW right face position.
+      // Note: only +1mm used here because the left void boundary is a closed
+      // face panel; using a push within the remaining void clearance keeps
+      // the test independent of constraint clamping.
       const rightFaceAfterFirst = dims2!.worldX + dims2!.width / 2;
 
       engine.dispatch({
         type: 'SET_DIMENSIONS',
         targetId: subAssemblyId,
-        payload: { width: dims2!.width + 3, faceId: 'left' },
+        payload: { width: dims2!.width + 1, faceId: 'left' },
       });
 
       const dims3 = getSubAssemblyDimensions();
       // Right face should stay where it was after first operation
       expect(dims3!.worldX + dims3!.width / 2).toBeCloseTo(rightFaceAfterFirst, 1);
-      // Left face should have moved -3mm (width increased, but anchored on right)
-      expect(dims3!.worldX - dims3!.width / 2).toBeCloseTo(leftFaceOriginal - 3, 1);
+      // Left face should have moved -1mm (width increased, but anchored on right)
+      expect(dims3!.worldX - dims3!.width / 2).toBeCloseTo(leftFaceOriginal - 1, 1);
     });
   });
 });
@@ -396,18 +399,19 @@ describe('Sub-Assembly Preview After Commit', () => {
     const originalHeight = subAsm1.props.height;
     const originalOffsetY = subAsm1.props.positionOffset?.y ?? 0;
 
-    // First push-pull: push top face up by 10mm
+    // First push-pull: push top face up by 1mm (within the clearance so it
+    // doesn't hit the closed-parent-face constraint).
     engine.startPreview();
     engine.dispatch({
       type: 'SET_DIMENSIONS',
       targetId: subAssemblyId,
-      payload: { height: originalHeight + 10, faceId: 'top' },
+      payload: { height: originalHeight + 1, faceId: 'top' },
     }, { preview: true });
 
     // Verify preview state
     const previewSnapshot1 = engine.getSnapshot();
     const previewSubAsm1 = findSubAssembly(previewSnapshot1);
-    expect(previewSubAsm1.props.height).toBe(originalHeight + 10);
+    expect(previewSubAsm1.props.height).toBe(originalHeight + 1);
     const offsetAfterFirstPush = previewSubAsm1.props.positionOffset?.y ?? 0;
     // Offset should change when pushing top face (to keep bottom anchored)
     expect(offsetAfterFirstPush).not.toBe(originalOffsetY);
@@ -418,7 +422,7 @@ describe('Sub-Assembly Preview After Commit', () => {
     // Verify committed state
     const committedSnapshot = engine.getSnapshot();
     const committedSubAsm = findSubAssembly(committedSnapshot);
-    expect(committedSubAsm.props.height).toBe(originalHeight + 10);
+    expect(committedSubAsm.props.height).toBe(originalHeight + 1);
     expect(committedSubAsm.props.positionOffset?.y).toBeCloseTo(offsetAfterFirstPush, 5);
 
     // Start a NEW preview for second push-pull
@@ -429,14 +433,14 @@ describe('Sub-Assembly Preview After Commit', () => {
     const newPreviewSubAsm = findSubAssembly(newPreviewSnapshot);
 
     // THIS IS THE BUG: Position offset should be preserved from committed state
-    expect(newPreviewSubAsm.props.height).toBe(originalHeight + 10);
+    expect(newPreviewSubAsm.props.height).toBe(originalHeight + 1);
     expect(newPreviewSubAsm.props.positionOffset?.y).toBeCloseTo(offsetAfterFirstPush, 5);
 
     // Dispatching with offset 0 should maintain current position
     engine.dispatch({
       type: 'SET_DIMENSIONS',
       targetId: subAssemblyId,
-      payload: { height: originalHeight + 10, faceId: 'top' },
+      payload: { height: originalHeight + 1, faceId: 'top' },
     }, { preview: true });
 
     const afterZeroOffset = engine.getSnapshot();
