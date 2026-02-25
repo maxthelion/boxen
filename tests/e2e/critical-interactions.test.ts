@@ -33,13 +33,13 @@
  *   - Canvas center: roughly (790, 385)
  *   - Front face arrow: approximately (620, 450) in screen coords
  *
- * ## Known failing tests
+ * ## Previously failing tests
  *
- * `push-pull arrow click — operation is NOT cancelled` is marked `test.fixme()`.
- * Root cause: FloatingPalette uses closeOnClickOutside=true by default, so clicking
+ * `push-pull arrow click — operation is NOT cancelled` was previously `test.fixme()`.
+ * Root cause was: FloatingPalette uses closeOnClickOutside=true by default, so clicking
  * anywhere outside the palette (including the 3D canvas to interact with the arrow)
- * closes the palette. Fix: pass closeOnClickOutside={false} to the push-pull palette.
- * See: src/components/FloatingPalette.tsx, src/components/PushPullPalette.tsx
+ * closed the palette. Fix: pass closeOnClickOutside={false} to PushPullPalette's FloatingPalette.
+ * See: src/components/PushPullPalette.tsx (fixed in TASK-de4d90e2)
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -189,20 +189,15 @@ test.describe('3D Viewport — Critical Interactions', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 5: Push-pull operation survives arrow click (KNOWN BUG — fixme)
+  // Test 5: Push-pull operation survives arrow click
   //
-  // BUG: FloatingPalette has closeOnClickOutside=true by default. Clicking
-  // anywhere in the 3D canvas (outside the palette) closes the palette and
-  // cancels the operation. This prevents the user from clicking the push-pull
-  // arrow to start dragging.
-  //
-  // Fix required: PushPullPalette should pass closeOnClickOutside={false} to
-  // FloatingPalette. See src/components/PushPullPalette.tsx.
+  // Fixed in TASK-de4d90e2: PushPullPalette now passes closeOnClickOutside={false}
+  // to FloatingPalette, so clicking the 3D canvas no longer closes the palette.
   //
   // Context: InteractionManager postmortem (2026-02-25). The bug was the original
   // impetus for creating this test suite.
   // -------------------------------------------------------------------------
-  test.fixme('push-pull arrow click — operation is NOT cancelled', async ({ page }) => {
+  test('push-pull arrow click — operation is NOT cancelled', async ({ page }) => {
     await loadApp(page);
 
     // Step 1: Select the Front face via tree
@@ -274,13 +269,13 @@ test.describe('3D Viewport — Critical Interactions', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Test 6b: Push-pull drag — canvas drag (KNOWN BUG — fixme)
+  // Test 6b: Push-pull drag — canvas drag
   //
-  // BUG: Same root cause as test 5 (closeOnClickOutside=true). The mouse.down()
-  // in the canvas triggers the FloatingPalette's click-outside handler which
-  // closes the palette. The drag interaction cannot be tested until the bug is fixed.
+  // Fixed in TASK-de4d90e2: PushPullPalette now passes closeOnClickOutside={false}
+  // to FloatingPalette. The mouse.down() in the canvas no longer triggers the
+  // click-outside handler, so drag interactions now work correctly.
   // -------------------------------------------------------------------------
-  test.fixme('push-pull drag — drag arrow in canvas changes offset', async ({ page }) => {
+  test('push-pull drag — drag arrow in canvas changes offset', async ({ page }) => {
     await loadApp(page);
 
     await selectFaceInTree(page, 'Front');
