@@ -159,8 +159,8 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
     shaftGeometry.rotateX(Math.PI / 2);
     shaftGeometry.translate(0, 0, (arrowLength - headLength) / 2);
 
-    // Cone head at the tip
-    const headGeometry = new THREE.ConeGeometry(headRadius, headLength, 8);
+    // Cone head at the tip (openEnded removes the flat bottom cap disc artifact)
+    const headGeometry = new THREE.ConeGeometry(headRadius, headLength, 8, 1, true);
     headGeometry.rotateX(Math.PI / 2);
     headGeometry.translate(0, 0, arrowLength - headLength / 2);
 
