@@ -1,6 +1,6 @@
 import React, { useMemo, useRef } from 'react';
 import { useBoxStore, getLeafVoids, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible, computeVisuallySelectedPanelIds } from '../store/useBoxStore';
-import { useEngineConfig, useEngineVoidTree, useEnginePanels, useEngineMainConfig, useEngineFaces } from '../engine';
+import { useEngineConfig, useEngineVoidTree, useEnginePanels, useEngineMainPanels, useEngineMainConfig, useEngineFaces } from '../engine';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { PanelCollectionRenderer } from './PanelPathRenderer';
@@ -13,47 +13,21 @@ import { PanelToggleOverlay } from './PanelToggleOverlay';
 import { FaceId, EdgePosition } from '../types';
 import { MoveDef } from './MovePalette';
 import { logPushPull } from '../utils/pushPullDebug';
-import { getSelectionBehaviorForTool, getOperationForTool, getOperation } from '../operations/registry';
 import * as THREE from 'three';
 
-export interface PushPullCallbacks {
-  onOffsetChange: (faceId: FaceId, offset: number) => void;
-  onDragStart: () => void;
-  onDragEnd: () => void;
-}
-
-export interface MoveGizmoCallbacks {
-  onDeltaChange: (newDelta: number) => void;
-  onDragStart: () => void;
-  onDragEnd: () => void;
-}
-
-export interface InsetCallbacks {
-  /** Current extension offset in mm – passed to the gizmo as the drag baseline */
-  offset: number;
-  onOffsetChange: (newOffset: number) => void;
-  onDragStart?: () => void;
-  onDragEnd?: () => void;
-}
-
-interface Box3DProps {
-  pushPullCallbacks?: PushPullCallbacks;
-  moveGizmoCallbacks?: MoveGizmoCallbacks;
-  insetCallbacks?: InsetCallbacks;
-}
-
-export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallbacks, insetCallbacks }) => {
+export const Box3D: React.FC = () => {
   // Model state from engine (returns preview state when preview is active)
   const config = useEngineConfig();
   const rootVoid = useEngineVoidTree();
   const panelCollection = useEnginePanels();
   const faces = useEngineFaces();
 
-  // Main (committed) config - used for bounding box and arrow size calculations
+  // Main (committed) state - for arrow positioning during preview
   const mainConfig = useEngineMainConfig();
+  const mainPanelCollection = useEngineMainPanels();
 
   // UI state and actions from store
-  const { subAssemblyPreview, selectionMode, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedVoidIds, selectedEdges, selectedCornerIds, selectPanel, selectAssembly, selectPanelEdges, selectPanelCorners, toggleFace, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState } = useBoxStore();
+  const { subAssemblyPreview, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedEdges, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState, updateOperationParams, toggleFace } = useBoxStore();
 
   // Compute visually selected panels (includes cascade from assembly selection)
   const allPanels = panelCollection?.panels ?? [];
@@ -187,47 +161,6 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
         <PanelCollectionRenderer
           scale={scale}
           selectedPanelIds={selectedPanelIds}
-          onPanelClick={(selectionMode === 'panel' || selectionMode === null) ? (panelId, e) => {
-            const isShiftClick = e?.shiftKey ?? false;
-            // Check if active tool needs selection expansion (panel → edges or corners)
-            const operationId = getOperationForTool(activeTool);
-            if (operationId) {
-              const operation = getOperation(operationId);
-              const selectionType = operation.selectionType;
-
-              // Edge expansion (inset tool)
-              if (selectionType === 'edge') {
-                const behavior = getSelectionBehaviorForTool(activeTool, 'panel', selectedEdges.size);
-                if (behavior === 'expand') {
-                  const panel = panelCollection.panels.find(p => p.id === panelId);
-                  if (panel?.edgeStatuses) {
-                    selectPanelEdges(panelId, panel.edgeStatuses, isShiftClick);
-                    return;
-                  }
-                }
-              }
-
-              // Corner expansion (fillet tool)
-              if (selectionType === 'corner') {
-                const behavior = getSelectionBehaviorForTool(activeTool, 'panel', selectedCornerIds.size);
-                if (behavior === 'expand') {
-                  const panel = panelCollection.panels.find(p => p.id === panelId);
-                  if (panel?.cornerEligibility) {
-                    selectPanelCorners(panelId, panel.cornerEligibility, isShiftClick);
-                    return;
-                  }
-                }
-              }
-            }
-            // Default panel selection behavior (or tool doesn't need expansion)
-            selectPanel(panelId, isShiftClick);
-          } : undefined}
-          onPanelDoubleClick={selectionMode === null ? (panelId) => {
-            // Look up panel to get its assembly from source
-            const panel = panelCollection.panels.find(p => p.id === panelId);
-            const assemblyId = panel?.source.subAssemblyId ?? 'main';
-            selectAssembly(assemblyId);
-          } : undefined}
           hiddenFaceIds={hiddenFaceIds}
         />
       )}
@@ -239,10 +172,10 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
       <PanelCornerRenderer scale={scale} />
 
       {/* Push/Pull arrow indicator when tool is active and face panel is selected */}
-      {activeTool === 'push-pull' && panelCollection && pushPullCallbacks && (() => {
-        // Find selected face panel - use preview panel collection so the arrow
-        // follows the panel as the user drags.
-        const selectedPanel = panelCollection.panels.find(p =>
+      {activeTool === 'push-pull' && mainPanelCollection && (() => {
+        // Find selected face panel - use MAIN panel collection for original position
+        // Look up via source metadata since panel IDs are UUIDs
+        const selectedPanel = mainPanelCollection.panels.find(p =>
           selectedPanelIds.has(p.id) && p.source.type === 'face' && p.source.faceId
         );
         if (!selectedPanel) return null;
@@ -289,6 +222,10 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
           },
         });
 
+        // onOffsetChange updates the operation params directly (no parent callback needed)
+        const currentMode = (operationState.params as any)?.mode ?? 'scale';
+        const currentAssemblyId = (operationState.params as any)?.assemblyId ?? 'main-assembly';
+
         return (
           <PushPullArrow
             faceId={faceId}
@@ -296,15 +233,15 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
             size={arrowSize}
             offset={0}  // Offset is relative to current drag, starts at 0
             scale={scale}
-            onOffsetChange={(newOffset) => pushPullCallbacks.onOffsetChange(faceId, newOffset)}
-            onDragStart={pushPullCallbacks.onDragStart}
-            onDragEnd={pushPullCallbacks.onDragEnd}
+            onOffsetChange={(newOffset) => {
+              updateOperationParams({ faceId, offset: newOffset, mode: currentMode, assemblyId: currentAssemblyId });
+            }}
           />
         );
       })()}
 
       {/* AxisGizmo for Move tool - shows when a divider panel is selected */}
-      {activeTool === 'move' && panelCollection && moveGizmoCallbacks && (() => {
+      {activeTool === 'move' && mainPanelCollection && (() => {
         // Read gizmo params from operation state (set by MovePalette at operation start)
         const params = operationState.params as {
           moveDefs?: MoveDef[];
@@ -312,12 +249,12 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
           maxDelta?: number;
           delta?: number;
         };
-        const { moveDefs, minDelta, maxDelta, delta: paramsDelta } = params;
+        const { moveDefs, delta: paramsDelta } = params;
         if (!moveDefs?.length) return null;
 
-        // Find the first selected divider panel - use preview panel collection
-        // so the gizmo follows the divider as the user drags.
-        const selectedPanel = panelCollection.panels.find(p =>
+        // Find the first selected divider panel for positioning
+        // Use PREVIEW panel collection so the gizmo follows the divider during drag
+        const selectedPanel = panelCollection?.panels.find(p =>
           selectedPanelIds.has(p.id) && p.source.type === 'divider'
         );
         if (!selectedPanel) return null;
@@ -337,48 +274,70 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
         const gizmoSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.4;
 
         const handleMoveDelta = (deltaMm: number) => {
+          // Read current params from the store to get moveDefs and bounds.
           // deltaMm is cumulative from drag start; use moveInitialDeltaRef (captured
           // at drag start) to compute absolute delta without compounding.
+          const currentState = useBoxStore.getState();
+          const currentParams = currentState.operationState.params as {
+            moveDefs?: MoveDef[];
+            minDelta?: number;
+            maxDelta?: number;
+          };
+          const { moveDefs: currentMoveDefs, minDelta: currentMin = -50, maxDelta: currentMax = 50 } = currentParams;
+          if (!currentMoveDefs?.length) return;
+
           const newDelta = moveInitialDeltaRef.current + deltaMm;
-          const clamped = Math.max(minDelta ?? -50, Math.min(maxDelta ?? 50, newDelta));
-          moveGizmoCallbacks.onDeltaChange(clamped);
+          const clamped = Math.max(currentMin, Math.min(currentMax, newDelta));
+
+          // Build moves array for the engine preview action
+          const moves = currentMoveDefs.map((m: MoveDef) => ({
+            subdivisionId: m.subdivisionId,
+            newPosition: m.currentPosition + clamped,
+            isGridDivider: m.isGridDivider,
+            gridPositionIndex: m.gridPositionIndex,
+            parentVoidId: m.parentVoidId,
+            axis: m.axis,
+          }));
+
+          updateOperationParams({ moves, delta: clamped });
         };
 
         const handleMoveDragStart = () => {
           moveInitialDeltaRef.current = currentDelta;
-          moveGizmoCallbacks.onDragStart();
         };
 
         return (
           <AxisGizmo
             position={selectedPanel.position}
             axis={axisVector}
-            scale={scale}
             size={gizmoSize}
             bidirectional={true}
             onDelta={handleMoveDelta}
             onDragStart={handleMoveDragStart}
-            onDragEnd={moveGizmoCallbacks.onDragEnd}
           />
         );
       })()}
 
       {/* Axis gizmos for inset/outset tool – one per selected edge */}
-      {activeTool === 'inset' && panelCollection && insetCallbacks && selectedEdges.size > 0 && (() => {
+      {activeTool === 'inset' && mainPanelCollection && selectedEdges.size > 0 && (() => {
         const gizmoSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.4;
         const gizmos: React.ReactElement[] = [];
 
         // Shared handlers for all inset gizmos. deltaMm from AxisGizmo is cumulative
         // from drag start, so we use insetInitialOffsetRef (captured at drag start)
         // rather than the current offset to avoid compounding across re-renders.
+        // Read params from store at callback time (feature branch inline-store pattern).
         const handleInsetDelta = (deltaMm: number) => {
+          const insetParams = useBoxStore.getState().operationState.params as any;
+          const edges: string[] = insetParams?.edges ?? [];
+          const baseExtensions: Record<string, number> = insetParams?.baseExtensions ?? {};
           const newOffset = Math.round(insetInitialOffsetRef.current + deltaMm);
-          insetCallbacks.onOffsetChange(newOffset);
+          updateOperationParams({ edges, offset: newOffset, baseExtensions });
         };
 
         const handleInsetDragStart = () => {
-          insetInitialOffsetRef.current = insetCallbacks.offset;
-          insetCallbacks.onDragStart?.();
+          const insetParams = useBoxStore.getState().operationState.params as any;
+          insetInitialOffsetRef.current = insetParams?.offset ?? 0;
         };
 
         for (const edgeKey of selectedEdges) {
@@ -387,7 +346,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
           const panelId = edgeKey.slice(0, colonIndex);
           const edge = edgeKey.slice(colonIndex + 1) as EdgePosition;
 
-          const panel = panelCollection.panels.find(p => p.id === panelId);
+          const panel = panelCollection?.panels.find(p => p.id === panelId);
           if (!panel) continue;
 
           const halfWidth = (panel.width * scale) / 2;
@@ -396,25 +355,31 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
           // Clearance so the gizmo floats slightly beyond the edge surface
           const clearance = gizmoSize * 0.25;
 
+          // Read current inset offset from operation params (needed for gizmo position)
+          const insetParams = operationState.params as any;
+          const currentOffset: number = insetParams?.offset ?? 0;
+
           // Compute local-space offset and outward normal for this edge
+          // Include currentOffset so the gizmo follows the preview edge during drag
+          const scaledOffset = currentOffset * scale;
           let localOffset: THREE.Vector3;
           let localNormal: THREE.Vector3;
           switch (edge) {
             case 'top':
-              localOffset = new THREE.Vector3(0, halfHeight + clearance, 0);
+              localOffset = new THREE.Vector3(0, halfHeight + clearance + scaledOffset, 0);
               localNormal = new THREE.Vector3(0, 1, 0);
               break;
             case 'bottom':
-              localOffset = new THREE.Vector3(0, -(halfHeight + clearance), 0);
+              localOffset = new THREE.Vector3(0, -(halfHeight + clearance + scaledOffset), 0);
               localNormal = new THREE.Vector3(0, -1, 0);
               break;
             case 'left':
-              localOffset = new THREE.Vector3(-(halfWidth + clearance), 0, 0);
+              localOffset = new THREE.Vector3(-(halfWidth + clearance + scaledOffset), 0, 0);
               localNormal = new THREE.Vector3(-1, 0, 0);
               break;
             case 'right':
             default:
-              localOffset = new THREE.Vector3(halfWidth + clearance, 0, 0);
+              localOffset = new THREE.Vector3(halfWidth + clearance + scaledOffset, 0, 0);
               localNormal = new THREE.Vector3(1, 0, 0);
               break;
           }
@@ -437,12 +402,10 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
               key={edgeKey}
               position={gizmoPosition}
               axis={worldNormal}
-              scale={scale}
               size={gizmoSize}
               bidirectional={false}
               onDelta={handleInsetDelta}
               onDragStart={handleInsetDragStart}
-              onDragEnd={insetCallbacks.onDragEnd}
             />,
           );
         }
@@ -510,7 +473,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
           isVoidVisible(voidId, rootVoid, hiddenVoidIds, isolatedVoidId) &&
           isSubAssemblyVisible(subAssembly.id, hiddenSubAssemblyIds, isolatedSubAssemblyId)
         )
-        .map(({ voidId, subAssembly, bounds }) => (
+        .map(({ subAssembly, bounds }) => (
           <SubAssembly3D
             key={subAssembly.id}
             subAssembly={subAssembly}

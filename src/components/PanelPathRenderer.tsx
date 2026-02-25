@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { PanelPath, PathPoint, EditorTool } from '../types';
 import { useBoxStore, isPanelSelectedIn3DView, getAssemblyIdFromPanel } from '../store/useBoxStore';
 import { useEnginePanels, useEngineMainPanels, getEngine } from '../engine';
-import { debug, enableDebugTag } from '../utils/debug';
+import { debug } from '../utils/debug';
 import { useColors, getColors } from '../hooks/useColors';
 import { getVisibilityKey } from '../utils/visibilityKey';
 
@@ -57,8 +57,6 @@ interface PanelPathRendererProps {
   scale: number;
   isSelected: boolean;
   isHovered?: boolean;
-  onClick?: (event?: React.MouseEvent) => void;
-  onDoubleClick?: (event?: React.MouseEvent) => void;
   onHover?: (hovered: boolean) => void;
   color?: string;
   selectedColor?: string;
@@ -294,8 +292,6 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
   scale,
   isSelected,
   isHovered = false,
-  onClick,
-  onDoubleClick,
   onHover,
   color = defaultPanelColors.panel.face.base,
   selectedColor = defaultPanelColors.selection.primary.base,
@@ -347,19 +343,6 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
     return null;
   }
 
-  const handleClick = onClick ? (e: any) => {
-    e.stopPropagation?.();
-    // Extract native event for shiftKey access
-    const nativeEvent = e.nativeEvent || e;
-    onClick(nativeEvent);
-  } : undefined;
-
-  const handleDoubleClick = onDoubleClick ? (e: any) => {
-    e.stopPropagation?.();
-    const nativeEvent = e.nativeEvent || e;
-    onDoubleClick(nativeEvent);
-  } : undefined;
-
   const handlePointerOver = onHover ? (e: any) => {
     e.stopPropagation?.();
     onHover(true);
@@ -383,10 +366,9 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
     <group position={scaledPosition} rotation={rotation}>
       <mesh
         geometry={geometry}
-        onClick={handleClick}
-        onDoubleClick={handleDoubleClick}
         onPointerOver={handlePointerOver}
         onPointerOut={handlePointerOut}
+        userData={{ interactionTarget: { type: 'panel', panelId: panel.id } }}
       >
         <meshStandardMaterial
           color={displayColor}
@@ -411,16 +393,12 @@ export const PanelPathRenderer: React.FC<PanelPathRendererProps> = ({
 interface PanelCollectionRendererProps {
   scale: number;
   selectedPanelIds: Set<string>;
-  onPanelClick?: (panelId: string, event?: React.MouseEvent) => void;
-  onPanelDoubleClick?: (panelId: string, event?: React.MouseEvent) => void;
   hiddenFaceIds?: Set<string>;
 }
 
 export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = ({
   scale,
   selectedPanelIds,
-  onPanelClick,
-  onPanelDoubleClick,
   hiddenFaceIds = new Set(),
 }) => {
   // Get centralized colors
@@ -550,8 +528,6 @@ export const PanelCollectionRenderer: React.FC<PanelCollectionRendererProps> = (
             scale={scale}
             isSelected={isSelected}
             isHovered={isHovered}
-            onClick={onPanelClick ? (e) => onPanelClick(panel.id, e) : undefined}
-            onDoubleClick={onPanelDoubleClick ? (e) => onPanelDoubleClick(panel.id, e) : undefined}
             onHover={(hovered) => setHoveredPanel(hovered ? panel.id : null)}
             color={baseColor}
             selectedColor={colors.selection.primary.base}
