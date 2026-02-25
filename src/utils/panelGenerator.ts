@@ -32,6 +32,7 @@ import {
   getMatingEdge,
 } from './faceGeometry';
 import { FACE_AXIS_MAPPINGS, MeetsBoundary } from './dividerSlotMappings';
+import { DIVIDER_AXIS_MAPPINGS } from './dividerToSlotMappings';
 
 // Helper to get edge axis position range for finger system
 // Returns [startPos, endPos] along the axis where:
@@ -2076,8 +2077,9 @@ const generateDividerToSlotHoles = (
   const tolerance = 0.01;
   const { bounds, axis, position } = subdivision;
   const isFaceSolid = (faceId: FaceId) => faces.find(f => f.id === faceId)?.solid ?? false;
+  const dims = { width, height, depth };
 
-  // Find child dividers that connect to this divider
+  // Find child dividers that connect to this divider using the axis-pair lookup table.
   // A child divider connects if:
   // 1. It's on a perpendicular axis
   // 2. One of its bounds edges (adjusted for mt/2) equals this divider's position
@@ -2087,132 +2089,27 @@ const generateDividerToSlotHoles = (
     if (child.id === subdivision.id) continue;
     if (child.axis === axis) continue; // Must be perpendicular
 
-    let connectsToThis = false;
-    let slotPosition: number = 0; // Position along this divider's surface (in panel local coords)
-    let slotLength: number = 0;
-    let cornerInsetStart: number = 0; // Inset at start of slot (if child meets outer face)
-    let cornerInsetEnd: number = 0;   // Inset at end of slot (if child meets outer face)
-    let isHorizontal: boolean = false;
+    const mapping = DIVIDER_AXIS_MAPPINGS[axis]?.[child.axis as 'x' | 'y' | 'z'];
+    if (!mapping) continue;
 
-    // Check if child's bounds edge (with mt/2 adjustment) matches this divider's position
+    // Check if child's bounds edge (with mt/2 adjustment) matches this divider's position.
     // Child bounds are offset by mt/2 from the actual divider positions:
     // - child.bounds start edge corresponds to divider at (bounds.start - mt/2)
     // - child.bounds end edge corresponds to divider at (bounds.end + mt/2)
+    const cb = child.bounds;
+    const childMin = cb[mapping.childLowKey] - mt / 2;
+    const childMax = cb[mapping.childLowKey] + cb[mapping.childSizeKey] + mt / 2;
 
-    switch (axis) {
-      case 'y':
-        // This is a Y-axis divider (horizontal shelf) at `position` on Y-axis
-        // Panel dimensions: width = bounds.w (X), height = bounds.d (Z)
-        // Child X-axis dividers connect if their Y-bounds edge touches this Y position
-        if (child.axis === 'x') {
-          // Check if child's Y bounds edge (adjusted) matches this divider's Y position
-          const childYMin = child.bounds.y - mt / 2;
-          const childYMax = child.bounds.y + child.bounds.h + mt / 2;
+    if (Math.abs(childMin - position) >= tolerance && Math.abs(childMax - position) >= tolerance) continue;
+    if (!mapping.inParentBounds(child.position, bounds)) continue;
 
-          if (Math.abs(childYMin - position) < tolerance || Math.abs(childYMax - position) < tolerance) {
-            if (bounds.x <= child.position && child.position <= bounds.x + bounds.w) {
-              connectsToThis = true;
-              slotPosition = child.position - (bounds.x + bounds.w / 2);
-              // Child X-divider's edge runs along Z; check if it meets back/front outer faces
-              slotLength = child.bounds.d;
-              // Child's "left" edge (in panel coords) is back face, "right" is front face
-              cornerInsetStart = (isFaceSolid('back') && child.bounds.z <= tolerance) ? mt : 0;
-              cornerInsetEnd = (isFaceSolid('front') && child.bounds.z + child.bounds.d >= depth - tolerance) ? mt : 0;
-              isHorizontal = false;
-            }
-          }
-        } else if (child.axis === 'z') {
-          const childYMin = child.bounds.y - mt / 2;
-          const childYMax = child.bounds.y + child.bounds.h + mt / 2;
+    const slotPosition = mapping.getSlotPosition(child.position, bounds);
+    const slotLength = mapping.getSlotLength(cb);
+    const cornerInsetStart = mapping.getInsetStart(cb, isFaceSolid, mt, dims, tolerance);
+    const cornerInsetEnd = mapping.getInsetEnd(cb, isFaceSolid, mt, dims, tolerance);
+    const isHorizontal = mapping.isHorizontal;
 
-          if (Math.abs(childYMin - position) < tolerance || Math.abs(childYMax - position) < tolerance) {
-            if (bounds.z <= child.position && child.position <= bounds.z + bounds.d) {
-              connectsToThis = true;
-              slotPosition = child.position - (bounds.z + bounds.d / 2);
-              slotLength = child.bounds.w;
-              // Child Z-divider's edge runs along X; check if it meets left/right outer faces
-              cornerInsetStart = (isFaceSolid('left') && child.bounds.x <= tolerance) ? mt : 0;
-              cornerInsetEnd = (isFaceSolid('right') && child.bounds.x + child.bounds.w >= width - tolerance) ? mt : 0;
-              isHorizontal = true;
-            }
-          }
-        }
-        break;
-
-      case 'x':
-        // This is an X-axis divider (vertical partition) at `position` on X-axis
-        // Panel dimensions: width = bounds.d (Z), height = bounds.h (Y)
-        if (child.axis === 'y') {
-          const childXMin = child.bounds.x - mt / 2;
-          const childXMax = child.bounds.x + child.bounds.w + mt / 2;
-
-          if (Math.abs(childXMin - position) < tolerance || Math.abs(childXMax - position) < tolerance) {
-            if (bounds.y <= child.position && child.position <= bounds.y + bounds.h) {
-              connectsToThis = true;
-              slotPosition = child.position - (bounds.y + bounds.h / 2);
-              slotLength = child.bounds.d;
-              // Child Y-divider's edge runs along Z; check if it meets back/front outer faces
-              cornerInsetStart = (isFaceSolid('back') && child.bounds.z <= tolerance) ? mt : 0;
-              cornerInsetEnd = (isFaceSolid('front') && child.bounds.z + child.bounds.d >= depth - tolerance) ? mt : 0;
-              isHorizontal = true;
-            }
-          }
-        } else if (child.axis === 'z') {
-          const childXMin = child.bounds.x - mt / 2;
-          const childXMax = child.bounds.x + child.bounds.w + mt / 2;
-
-          if (Math.abs(childXMin - position) < tolerance || Math.abs(childXMax - position) < tolerance) {
-            if (bounds.z <= child.position && child.position <= bounds.z + bounds.d) {
-              connectsToThis = true;
-              slotPosition = child.position - (bounds.z + bounds.d / 2);
-              slotLength = child.bounds.h;
-              // Child Z-divider's edge runs along Y; check if it meets top/bottom outer faces
-              cornerInsetStart = (isFaceSolid('bottom') && child.bounds.y <= tolerance) ? mt : 0;
-              cornerInsetEnd = (isFaceSolid('top') && child.bounds.y + child.bounds.h >= height - tolerance) ? mt : 0;
-              isHorizontal = false;
-            }
-          }
-        }
-        break;
-
-      case 'z':
-        // This is a Z-axis divider at `position` on Z-axis
-        // Panel dimensions: width = bounds.w (X), height = bounds.h (Y)
-        if (child.axis === 'x') {
-          const childZMin = child.bounds.z - mt / 2;
-          const childZMax = child.bounds.z + child.bounds.d + mt / 2;
-
-          if (Math.abs(childZMin - position) < tolerance || Math.abs(childZMax - position) < tolerance) {
-            if (bounds.x <= child.position && child.position <= bounds.x + bounds.w) {
-              connectsToThis = true;
-              slotPosition = child.position - (bounds.x + bounds.w / 2);
-              slotLength = child.bounds.h;
-              // Child X-divider's edge runs along Y; check if it meets top/bottom outer faces
-              cornerInsetStart = (isFaceSolid('bottom') && child.bounds.y <= tolerance) ? mt : 0;
-              cornerInsetEnd = (isFaceSolid('top') && child.bounds.y + child.bounds.h >= height - tolerance) ? mt : 0;
-              isHorizontal = false;
-            }
-          }
-        } else if (child.axis === 'y') {
-          const childZMin = child.bounds.z - mt / 2;
-          const childZMax = child.bounds.z + child.bounds.d + mt / 2;
-
-          if (Math.abs(childZMin - position) < tolerance || Math.abs(childZMax - position) < tolerance) {
-            if (bounds.y <= child.position && child.position <= bounds.y + bounds.h) {
-              connectsToThis = true;
-              slotPosition = child.position - (bounds.y + bounds.h / 2);
-              slotLength = child.bounds.w;
-              // Child Y-divider's edge runs along X; check if it meets left/right outer faces
-              cornerInsetStart = (isFaceSolid('left') && child.bounds.x <= tolerance) ? mt : 0;
-              cornerInsetEnd = (isFaceSolid('right') && child.bounds.x + child.bounds.w >= width - tolerance) ? mt : 0;
-              isHorizontal = true;
-            }
-          }
-        }
-        break;
-    }
-
-    if (connectsToThis && slotLength > 0) {
+    if (slotLength > 0) {
       // Calculate effective edge length (same as child's finger pattern)
       // Account for corner insets where child meets outer faces
       const effectiveLength = slotLength - cornerInsetStart - cornerInsetEnd;
