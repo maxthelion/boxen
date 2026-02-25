@@ -113,16 +113,20 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Three.js world space normalizes the longest box dimension to 100 units:
   //   scale = 100 / max(W, H, D)
   // The box is centered at the origin, so the bottom face is at y = -scaledH/2.
+  // The grid is offset by half the material thickness below the outer bottom face
+  // to prevent Z-fighting with the bottom panel surface.
   const gridProps = useMemo(() => {
     if (!engineConfig) {
       return { gridY: -60, gridSize: 400, fadeDistance: 400 };
     }
-    const { width, height, depth } = engineConfig;
+    const { width, height, depth, materialThickness } = engineConfig;
     const scale = 100 / Math.max(width, height, depth);
     const scaledH = height * scale;
     const scaledW = width * scale;
     const scaledD = depth * scale;
-    const gridY = -scaledH / 2;
+    const scaledThickness = materialThickness * scale;
+    // Offset grid below the outer bottom face to prevent Z-fighting with the bottom panel
+    const gridY = -scaledH / 2 - scaledThickness / 2;
     // Extend grid well beyond the box footprint (5× the footprint max)
     const gridSize = Math.max(scaledW, scaledD) * 5;
     // Fade distance proportional to the overall box size
