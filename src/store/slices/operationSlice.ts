@@ -89,9 +89,18 @@ export const createOperationSlice: StateCreator<
 
       // Use registry-defined preview action creator if available
       if (operation.createPreviewAction) {
-        // Build context for operations that need it (e.g., push-pull needs dimensions)
-        const snapshot = engine.getSnapshot();
         const assemblyId = newParams.assemblyId as string | undefined;
+
+        // Restart preview BEFORE reading snapshot so we always read from the
+        // committed scene (not preview-inflated dimensions).
+        // This prevents additive accumulation: offset=10 then offset=-2 must
+        // give committed+(-2), not committed+10+(-2).
+        engine.discardPreview();
+        engine.startPreview();
+
+        // Build context for operations that need it (e.g., push-pull needs dimensions)
+        // getSnapshot() now returns the fresh preview clone of committed state
+        const snapshot = engine.getSnapshot();
 
         // Find the target assembly - either main assembly or a sub-assembly
         let targetAssembly = snapshot.children?.[0]; // Default to main assembly
@@ -150,10 +159,6 @@ export const createOperationSlice: StateCreator<
 
         const action = operation.createPreviewAction(newParams, context);
         if (action) {
-          // Restart preview to get fresh clone
-          // Note: Panel IDs are stable across clones (cached on VoidNode), so no remapping needed
-          engine.discardPreview();
-          engine.startPreview();
           engine.dispatch(action, { preview: true });
           engineStateChanged = true;
         }
