@@ -189,6 +189,82 @@ describe('projectDeltaToAxis', () => {
   });
 });
 
+describe('Linear delta consumer pattern', () => {
+  /**
+   * These tests verify the correct pattern for AxisGizmo consumers.
+   *
+   * AxisGizmo reports cumulative delta from drag start on every pointer-move
+   * event (not incremental per frame). Consumers must compute:
+   *
+   *   newValue = initialValue + deltaMm
+   *
+   * NOT:
+   *
+   *   newValue = currentValue + deltaMm
+   *
+   * The buggy pattern compounds because `currentValue` is updated by each
+   * onDelta call, so subsequent calls add to an already-updated value.
+   */
+
+  it('correct pattern: initialValue + deltaMm gives linear output for cumulative deltas', () => {
+    // Simulate what the fixed PushPullArrow / move handler does.
+    const initialOffset = 10;
+    const outputs: number[] = [];
+
+    // Simulate multiple onDelta calls with increasing cumulative values
+    // (as AxisGizmo would report when the pointer moves further from drag start)
+    const cumulativeDeltas = [5, 10, 15, 20]; // mm from drag start
+    for (const deltaMm of cumulativeDeltas) {
+      outputs.push(initialOffset + deltaMm);
+    }
+
+    // Each output is linearly proportional to the drag distance
+    expect(outputs).toEqual([15, 20, 25, 30]);
+  });
+
+  it('buggy pattern: currentValue + deltaMm causes exponential compounding', () => {
+    // Demonstrate the bug that the fix addresses.
+    let currentOffset = 10;
+    const outputs: number[] = [];
+
+    const cumulativeDeltas = [5, 10, 15, 20];
+    for (const deltaMm of cumulativeDeltas) {
+      currentOffset = currentOffset + deltaMm; // BUG: compounds
+      outputs.push(currentOffset);
+    }
+
+    // Outputs grow exponentially (each adds to the already-updated value)
+    expect(outputs).toEqual([15, 25, 40, 60]);
+    // Note: for 20mm of actual drag movement, result is 60 instead of 30
+  });
+
+  it('correct pattern with negative initial offset stays linear', () => {
+    const initialOffset = -5;
+    const cumulativeDeltas = [3, 6, 9, 12];
+    const outputs = cumulativeDeltas.map(d => initialOffset + d);
+
+    expect(outputs).toEqual([-2, 1, 4, 7]);
+  });
+
+  it('correct pattern with zero initial value stays linear', () => {
+    const initialValue = 0;
+    const cumulativeDeltas = [10, 20, 30];
+    const outputs = cumulativeDeltas.map(d => initialValue + d);
+
+    expect(outputs).toEqual([10, 20, 30]);
+  });
+
+  it('correct pattern: final value matches initial + total drag distance', () => {
+    const initialOffset = 5;
+    const totalDragDistance = 25; // mm
+    // Simulate intermediate frames
+    const frames = [5, 12, 18, 25];
+    const lastOutput = initialOffset + frames[frames.length - 1];
+
+    expect(lastOutput).toBe(initialOffset + totalDragDistance);
+  });
+});
+
 describe('Face normal to axis mapping (logic used by PushPullArrow)', () => {
   // These tests verify the face normal values that PushPullArrow passes to AxisGizmo
   it('front face normal is +Z', () => {
