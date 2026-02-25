@@ -5,7 +5,7 @@
  * All drag/raycast logic lives in AxisGizmo.
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { FaceId } from '../types';
 import { useColors } from '../hooks/useColors';
@@ -46,16 +46,26 @@ export const PushPullArrow: React.FC<PushPullArrowProps> = ({
 }) => {
   const colors = useColors();
   const normal = useMemo(() => getFaceNormal(faceId), [faceId]);
+  // Captures the offset value at drag start so cumulative deltas from AxisGizmo
+  // are computed as initialOffset + deltaMm (not currentOffset + deltaMm, which
+  // would compound across re-renders and cause exponential growth).
+  const initialOffsetRef = useRef<number>(0);
 
   const baseColor = offset >= 0 ? colors.operation.positive.base : colors.operation.negative.base;
   const hoverColor = offset >= 0 ? colors.operation.positive.hover : colors.operation.negative.hover;
   const draggingColor = colors.operation.dragging;
 
   const handleDelta = (deltaMm: number) => {
-    // Convert delta from drag start to absolute offset
-    const newOffset = Math.round(offset + deltaMm);
+    // deltaMm is cumulative from drag start (not incremental per frame).
+    // Use initialOffsetRef to avoid double-counting across re-renders.
+    const newOffset = Math.round(initialOffsetRef.current + deltaMm);
     const clampedOffset = Math.max(-100, Math.min(100, newOffset));
     onOffsetChange(clampedOffset);
+  };
+
+  const handleDragStart = () => {
+    initialOffsetRef.current = offset;
+    onDragStart?.();
   };
 
   return (
@@ -69,7 +79,7 @@ export const PushPullArrow: React.FC<PushPullArrowProps> = ({
       hoverColor={hoverColor}
       draggingColor={draggingColor}
       onDelta={handleDelta}
-      onDragStart={onDragStart}
+      onDragStart={handleDragStart}
       onDragEnd={onDragEnd}
     />
   );

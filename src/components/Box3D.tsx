@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { useBoxStore, getLeafVoids, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible, computeVisuallySelectedPanelIds } from '../store/useBoxStore';
 import { useEngineConfig, useEngineVoidTree, useEnginePanels, useEngineMainPanels, useEngineMainConfig, useEngineFaces } from '../engine';
 import { VoidMesh } from './VoidMesh';
@@ -80,6 +80,13 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
 
   // Check if a preview is currently active
   const isPreviewActive = operationState.activeOperation !== null;
+
+  // Refs that capture initial values at drag start for move and inset gizmos.
+  // AxisGizmo reports cumulative delta from drag start, so consumers must use
+  // initialValue + deltaMm rather than currentValue + deltaMm to avoid
+  // exponential compounding across re-renders during a drag.
+  const moveInitialDeltaRef = useRef<number>(0);
+  const insetInitialOffsetRef = useRef<number>(0);
 
   // Early return if engine not initialized
   if (!config || !rootVoid || !mainConfig) return null;
@@ -331,9 +338,16 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
         const gizmoSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.4;
 
         const handleMoveDelta = (deltaMm: number) => {
-          const newDelta = currentDelta + deltaMm;
+          // deltaMm is cumulative from drag start; use moveInitialDeltaRef (captured
+          // at drag start) to compute absolute delta without compounding.
+          const newDelta = moveInitialDeltaRef.current + deltaMm;
           const clamped = Math.max(minDelta ?? -50, Math.min(maxDelta ?? 50, newDelta));
           moveGizmoCallbacks.onDeltaChange(clamped);
+        };
+
+        const handleMoveDragStart = () => {
+          moveInitialDeltaRef.current = currentDelta;
+          moveGizmoCallbacks.onDragStart();
         };
 
         return (
@@ -344,7 +358,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
             size={gizmoSize}
             bidirectional={true}
             onDelta={handleMoveDelta}
-            onDragStart={moveGizmoCallbacks.onDragStart}
+            onDragStart={handleMoveDragStart}
             onDragEnd={moveGizmoCallbacks.onDragEnd}
           />
         );
@@ -354,6 +368,19 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
       {activeTool === 'inset' && mainPanelCollection && insetCallbacks && selectedEdges.size > 0 && (() => {
         const gizmoSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.4;
         const gizmos: React.ReactElement[] = [];
+
+        // Shared handlers for all inset gizmos. deltaMm from AxisGizmo is cumulative
+        // from drag start, so we use insetInitialOffsetRef (captured at drag start)
+        // rather than the current offset to avoid compounding across re-renders.
+        const handleInsetDelta = (deltaMm: number) => {
+          const newOffset = Math.round(insetInitialOffsetRef.current + deltaMm);
+          insetCallbacks.onOffsetChange(newOffset);
+        };
+
+        const handleInsetDragStart = () => {
+          insetInitialOffsetRef.current = insetCallbacks.offset;
+          insetCallbacks.onDragStart?.();
+        };
 
         for (const edgeKey of selectedEdges) {
           const colonIndex = edgeKey.lastIndexOf(':');
@@ -405,12 +432,6 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
           ];
 
           const worldNormal = localNormal.clone().applyQuaternion(panelQuat);
-          const currentOffset = insetCallbacks.offset;
-
-          const handleInsetDelta = (deltaMm: number) => {
-            const newOffset = Math.round(currentOffset + deltaMm);
-            insetCallbacks.onOffsetChange(newOffset);
-          };
 
           gizmos.push(
             <AxisGizmo
@@ -421,7 +442,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
               size={gizmoSize}
               bidirectional={false}
               onDelta={handleInsetDelta}
-              onDragStart={insetCallbacks.onDragStart}
+              onDragStart={handleInsetDragStart}
               onDragEnd={insetCallbacks.onDragEnd}
             />,
           );
