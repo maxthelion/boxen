@@ -72,6 +72,7 @@ export const PushPullPalette: React.FC<PushPullPaletteProps> = ({
       onPositionChange={onPositionChange}
       minWidth={220}
       containerRef={containerRef}
+      closeOnClickOutside={false}
     >
       <PaletteNumberInput
         label="Offset"
