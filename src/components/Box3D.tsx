@@ -65,18 +65,9 @@ export const Box3D: React.FC = () => {
   if (!config || !rootVoid || !mainConfig) return null;
 
   const { width, height, depth } = config;
+  const materialThickness = config.materialThickness;
 
-  const scale = 100 / Math.max(width, height, depth);
-  const scaledW = width * scale;
-  const scaledH = height * scale;
-  const scaledD = depth * scale;
-  const scaledThickness = config.materialThickness * scale;
-
-  // Original (non-preview) dimensions for bounding box and arrow positioning
-  const mainScaledW = mainConfig.width * scale;
-  const mainScaledH = mainConfig.height * scale;
-  const mainScaledD = mainConfig.depth * scale;
-
+  // 1 Three.js world unit = 1mm — no normalization scale factor
   const boxCenter = { x: width / 2, y: height / 2, z: depth / 2 };
 
   // Get all leaf voids (selectable cells)
@@ -87,11 +78,11 @@ export const Box3D: React.FC = () => {
 
   // Calculate the 8 box corner anchor points (inset by half material thickness)
   // This represents the center of the panel material at each corner.
-  const halfMT = scaledThickness / 2;
+  const halfMT = materialThickness / 2;
   const anchorCorners = useMemo(() => {
-    const hx = scaledW / 2 - halfMT;
-    const hy = scaledH / 2 - halfMT;
-    const hz = scaledD / 2 - halfMT;
+    const hx = width / 2 - halfMT;
+    const hy = height / 2 - halfMT;
+    const hz = depth / 2 - halfMT;
     return [
       { x: -hx, y: -hy, z: -hz },
       { x: hx, y: -hy, z: -hz },
@@ -102,13 +93,13 @@ export const Box3D: React.FC = () => {
       { x: -hx, y: hy, z: hz },
       { x: hx, y: hy, z: hz },
     ];
-  }, [scaledW, scaledH, scaledD, halfMT]);
+  }, [width, height, depth, halfMT]);
 
   // Bounding box shows preview dimensions when previewing, otherwise main dimensions
   // Always centered at origin (no shift)
-  const boundingBoxW = isPreviewActive ? scaledW : mainScaledW;
-  const boundingBoxH = isPreviewActive ? scaledH : mainScaledH;
-  const boundingBoxD = isPreviewActive ? scaledD : mainScaledD;
+  const boundingBoxW = isPreviewActive ? width : mainConfig.width;
+  const boundingBoxH = isPreviewActive ? height : mainConfig.height;
+  const boundingBoxD = isPreviewActive ? depth : mainConfig.depth;
 
   return (
     <group>
@@ -124,12 +115,12 @@ export const Box3D: React.FC = () => {
         <>
           <AssemblyAxisIndicator
             axis={config.assembly.assemblyAxis}
-            dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
+            dimensions={{ width, height, depth }}
             visible={true}
           />
           <LidFaceHighlight
             axis={config.assembly.assemblyAxis}
-            dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
+            dimensions={{ width, height, depth }}
             visible={true}
           />
         </>
@@ -140,8 +131,8 @@ export const Box3D: React.FC = () => {
         faces && (
           <PanelToggleOverlay
             faces={faces}
-            dimensions={{ width: scaledW, height: scaledH, depth: scaledD }}
-            thickness={scaledThickness}
+            dimensions={{ width, height, depth }}
+            thickness={materialThickness}
             onToggle={toggleFace}
             visible={true}
             selectedFaceIds={selectedFaceIds}
@@ -159,17 +150,17 @@ export const Box3D: React.FC = () => {
       {/* Render panels from engine-generated paths */}
       {panelCollection && (
         <PanelCollectionRenderer
-          scale={scale}
+          scale={1}
           selectedPanelIds={selectedPanelIds}
           hiddenFaceIds={hiddenFaceIds}
         />
       )}
 
       {/* Panel edge faces for inset/outset tool */}
-      <PanelEdgeRenderer scale={scale} />
+      <PanelEdgeRenderer scale={1} />
 
       {/* Panel corner indicators for fillet tool */}
-      <PanelCornerRenderer scale={scale} />
+      <PanelCornerRenderer scale={1} />
 
       {/* Push/Pull arrow indicator when tool is active and face panel is selected */}
       {activeTool === 'push-pull' && mainPanelCollection && (() => {
@@ -183,11 +174,11 @@ export const Box3D: React.FC = () => {
         const faceId = selectedPanel.source.faceId!;
         const panel = selectedPanel;
 
-        const arrowSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.5;
+        const arrowSize = Math.min(mainConfig.width, mainConfig.height, mainConfig.depth) * 0.5;
 
         // Position arrow at the current (preview) panel surface so it tracks the drag
         const arrowPosition: [number, number, number] = [...panel.position] as [number, number, number];
-        const mt = mainConfig.materialThickness * scale;
+        const mt = mainConfig.materialThickness;
         switch (faceId) {
           case 'front': arrowPosition[2] += mt / 2; break;
           case 'back': arrowPosition[2] -= mt / 2; break;
@@ -208,8 +199,8 @@ export const Box3D: React.FC = () => {
             previewPanel: previewPanel?.position as [number, number, number],
           },
           scaledDimensions: {
-            main: { w: mainScaledW, h: mainScaledH, d: mainScaledD },
-            preview: { w: scaledW, h: scaledH, d: scaledD },
+            main: { w: mainConfig.width, h: mainConfig.height, d: mainConfig.depth },
+            preview: { w: width, h: height, d: depth },
           },
           previewState: {
             hasPreview: isPreviewActive,
@@ -232,7 +223,7 @@ export const Box3D: React.FC = () => {
             position={arrowPosition}
             size={arrowSize}
             offset={0}  // Offset is relative to current drag, starts at 0
-            scale={scale}
+            scale={1}
             onOffsetChange={(newOffset) => {
               updateOperationParams({ faceId, offset: newOffset, mode: currentMode, assemblyId: currentAssemblyId });
             }}
@@ -271,7 +262,7 @@ export const Box3D: React.FC = () => {
         const axisVector = axisVectors[axis];
 
         const currentDelta = paramsDelta ?? 0;
-        const gizmoSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.4;
+        const gizmoSize = Math.min(mainConfig.width, mainConfig.height, mainConfig.depth) * 0.4;
 
         const handleMoveDelta = (deltaMm: number) => {
           // Read current params from the store to get moveDefs and bounds.
@@ -320,7 +311,7 @@ export const Box3D: React.FC = () => {
 
       {/* Axis gizmos for inset/outset tool – one per selected edge */}
       {activeTool === 'inset' && mainPanelCollection && selectedEdges.size > 0 && (() => {
-        const gizmoSize = Math.min(mainScaledW, mainScaledH, mainScaledD) * 0.4;
+        const gizmoSize = Math.min(mainConfig.width, mainConfig.height, mainConfig.depth) * 0.4;
         const gizmos: React.ReactElement[] = [];
 
         // Shared handlers for all inset gizmos. deltaMm from AxisGizmo is cumulative
@@ -349,8 +340,8 @@ export const Box3D: React.FC = () => {
           const panel = panelCollection?.panels.find(p => p.id === panelId);
           if (!panel) continue;
 
-          const halfWidth = (panel.width * scale) / 2;
-          const halfHeight = (panel.height * scale) / 2;
+          const halfWidth = panel.width / 2;
+          const halfHeight = panel.height / 2;
 
           // Clearance so the gizmo floats slightly beyond the edge surface
           const clearance = gizmoSize * 0.25;
@@ -360,26 +351,26 @@ export const Box3D: React.FC = () => {
           const currentOffset: number = insetParams?.offset ?? 0;
 
           // Compute local-space offset and outward normal for this edge
-          // Include currentOffset so the gizmo follows the preview edge during drag
-          const scaledOffset = currentOffset * scale;
+          // Include currentOffset (in mm, which equals world units) so the gizmo
+          // follows the preview edge during drag
           let localOffset: THREE.Vector3;
           let localNormal: THREE.Vector3;
           switch (edge) {
             case 'top':
-              localOffset = new THREE.Vector3(0, halfHeight + clearance + scaledOffset, 0);
+              localOffset = new THREE.Vector3(0, halfHeight + clearance + currentOffset, 0);
               localNormal = new THREE.Vector3(0, 1, 0);
               break;
             case 'bottom':
-              localOffset = new THREE.Vector3(0, -(halfHeight + clearance + scaledOffset), 0);
+              localOffset = new THREE.Vector3(0, -(halfHeight + clearance + currentOffset), 0);
               localNormal = new THREE.Vector3(0, -1, 0);
               break;
             case 'left':
-              localOffset = new THREE.Vector3(-(halfWidth + clearance + scaledOffset), 0, 0);
+              localOffset = new THREE.Vector3(-(halfWidth + clearance + currentOffset), 0, 0);
               localNormal = new THREE.Vector3(-1, 0, 0);
               break;
             case 'right':
             default:
-              localOffset = new THREE.Vector3(halfWidth + clearance + scaledOffset, 0, 0);
+              localOffset = new THREE.Vector3(halfWidth + clearance + currentOffset, 0, 0);
               localNormal = new THREE.Vector3(1, 0, 0);
               break;
           }
@@ -416,23 +407,23 @@ export const Box3D: React.FC = () => {
       {/* Sub-assembly creation preview (wireframe box) */}
       {subAssemblyPreview && (() => {
         const { bounds } = subAssemblyPreview;
-        const centerX = (bounds.x + bounds.w / 2 - boxCenter.x) * scale;
-        const centerY = (bounds.y + bounds.h / 2 - boxCenter.y) * scale;
-        const centerZ = (bounds.z + bounds.d / 2 - boxCenter.z) * scale;
-        const scaledW = bounds.w * scale;
-        const scaledH = bounds.h * scale;
-        const scaledD = bounds.d * scale;
+        const centerX = bounds.x + bounds.w / 2 - boxCenter.x;
+        const centerY = bounds.y + bounds.h / 2 - boxCenter.y;
+        const centerZ = bounds.z + bounds.d / 2 - boxCenter.z;
+        const previewW = bounds.w;
+        const previewH = bounds.h;
+        const previewD = bounds.d;
 
         return (
           <group position={[centerX, centerY, centerZ]}>
             {/* Wireframe outline - scale slightly to prevent z-fighting with panel surfaces */}
             <lineSegments>
-              <edgesGeometry args={[new THREE.BoxGeometry(scaledW * 1.001, scaledH * 1.001, scaledD * 1.001)]} />
+              <edgesGeometry args={[new THREE.BoxGeometry(previewW * 1.001, previewH * 1.001, previewD * 1.001)]} />
               <lineBasicMaterial color="#2ecc71" linewidth={2} />
             </lineSegments>
             {/* Semi-transparent fill */}
             <mesh>
-              <boxGeometry args={[scaledW, scaledH, scaledD]} />
+              <boxGeometry args={[previewW, previewH, previewD]} />
               <meshStandardMaterial
                 color="#2ecc71"
                 transparent
@@ -451,19 +442,8 @@ export const Box3D: React.FC = () => {
           <VoidMesh
             key={leafVoid.id}
             voidId={leafVoid.id}
-            bounds={{
-              x: leafVoid.bounds.x * scale,
-              y: leafVoid.bounds.y * scale,
-              z: leafVoid.bounds.z * scale,
-              w: leafVoid.bounds.w * scale,
-              h: leafVoid.bounds.h * scale,
-              d: leafVoid.bounds.d * scale,
-            }}
-            boxCenter={{
-              x: boxCenter.x * scale,
-              y: boxCenter.y * scale,
-              z: boxCenter.z * scale,
-            }}
+            bounds={leafVoid.bounds}
+            boxCenter={boxCenter}
           />
         ))}
 
@@ -478,7 +458,7 @@ export const Box3D: React.FC = () => {
             key={subAssembly.id}
             subAssembly={subAssembly}
             parentBounds={bounds}
-            scale={scale}
+            scale={1}
             boxCenter={boxCenter}
           />
         ))}

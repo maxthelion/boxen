@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useState, useMemo } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment } from '@react-three/drei';
 import { Box3D } from './Box3D';
 import { InteractionController } from './InteractionController';
@@ -33,6 +33,36 @@ import { AllCornerId } from '../engine/types';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
 import { useIneligibilityTooltip } from '../hooks/useIneligibilityTooltip';
+
+/**
+ * CameraAutoFit - positions the camera to frame the box on first load.
+ * Must be rendered inside a <Canvas> element so useThree is available.
+ * Only adjusts camera once on initial config load (not on every resize),
+ * so the user's manual camera position is preserved during editing.
+ */
+const CameraAutoFit: React.FC<{ width: number; height: number; depth: number }> = ({
+  width,
+  height,
+  depth,
+}) => {
+  const { camera } = useThree();
+  const initializedRef = useRef(false);
+
+  useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+
+    // Place camera at a position that frames the box.
+    // Use a diagonal view from above-right-front for a natural perspective.
+    const maxDim = Math.max(width, height, depth);
+    const dist = maxDim * 2;
+    camera.position.set(dist, dist * 0.75, dist);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+  }, [camera, width, height, depth]);
+
+  return null;
+};
 
 export interface Viewport3DHandle {
   getCanvas: () => HTMLCanvasElement | null;
@@ -117,29 +147,35 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // AI Design error
   const designError = useBoxStore((state) => state.designError);
 
-  // Grid positioning — track box bottom face and scale coverage with box size.
-  // Three.js world space normalizes the longest box dimension to 100 units:
-  //   scale = 100 / max(W, H, D)
-  // The box is centered at the origin, so the bottom face is at y = -scaledH/2.
+  // Grid positioning — 1 world unit = 1mm.
+  // The box is centered at the origin, so the bottom face is at y = -height/2.
   // The grid is offset by half the material thickness below the outer bottom face
   // to prevent Z-fighting with the bottom panel surface.
   const gridProps = useMemo(() => {
     if (!engineConfig) {
-      return { gridY: -60, gridSize: 400, fadeDistance: 400 };
+      return { gridY: -80, gridSize: 1000, fadeDistance: 1000 };
     }
     const { width, height, depth, materialThickness } = engineConfig;
-    const scale = 100 / Math.max(width, height, depth);
-    const scaledH = height * scale;
-    const scaledW = width * scale;
-    const scaledD = depth * scale;
-    const scaledThickness = materialThickness * scale;
     // Offset grid below the outer bottom face to prevent Z-fighting with the bottom panel
-    const gridY = -scaledH / 2 - scaledThickness / 2;
+    const gridY = -height / 2 - materialThickness / 2;
     // Extend grid well beyond the box footprint (5× the footprint max)
-    const gridSize = Math.max(scaledW, scaledD) * 5;
+    const gridSize = Math.max(width, depth) * 5;
     // Fade distance proportional to the overall box size
-    const fadeDistance = Math.max(scaledW, scaledH, scaledD) * 5;
+    const fadeDistance = Math.max(width, height, depth) * 5;
     return { gridY, gridSize, fadeDistance };
+  }, [engineConfig]);
+
+  // OrbitControls distance limits based on box size (1 world unit = 1mm)
+  const orbitLimits = useMemo(() => {
+    if (!engineConfig) {
+      return { minDistance: 50, maxDistance: 5000 };
+    }
+    const { width, height, depth } = engineConfig;
+    const maxDim = Math.max(width, height, depth);
+    return {
+      minDistance: Math.max(maxDim * 0.3, 10),
+      maxDistance: maxDim * 20,
+    };
   }, [engineConfig]);
 
   // Get selected face ID and assembly ID for push-pull tool
@@ -867,7 +903,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
       )}
 
       <Canvas
-        camera={{ position: [150, 150, 150], fov: 50 }}
+        camera={{ position: [300, 200, 300], fov: 50 }}
         style={{ background: '#1a1a2e' }}
         gl={{ preserveDrawingBuffer: true }}
       >
@@ -876,6 +912,15 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         <pointLight position={[-10, -10, -5]} intensity={0.5} />
 
         <InteractionController onCameraEnabledChange={setCameraEnabled} />
+
+        {/* Auto-fit camera to box dimensions on initial load */}
+        {engineConfig && (
+          <CameraAutoFit
+            width={engineConfig.width}
+            height={engineConfig.height}
+            depth={engineConfig.depth}
+          />
+        )}
 
         <Box3D />
 
@@ -896,8 +941,8 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         <OrbitControls
           makeDefault
           enabled={cameraEnabled}
-          minDistance={50}
-          maxDistance={500}
+          minDistance={orbitLimits.minDistance}
+          maxDistance={orbitLimits.maxDistance}
           target={[0, 0, 0]}
         />
 
