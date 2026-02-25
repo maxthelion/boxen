@@ -10,7 +10,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@react-three/drei": "^9.88.0",
@@ -23,7 +26,9 @@
     "zustand": "^4.4.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/lz-string": "^1.5.0",
+    "@types/node": "^25.3.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@types/three": "^0.158.0",
