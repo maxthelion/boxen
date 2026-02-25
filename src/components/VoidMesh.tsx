@@ -25,7 +25,7 @@ export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter })
   const rootVoid = useEngineVoidTree();
 
   // UI state from store
-  const { selectedVoidIds, selectVoid, hoveredVoidId, setHoveredVoid, selectionMode, hiddenVoidIds, isolatedVoidId } = useBoxStore();
+  const { selectedVoidIds, hoveredVoidId, setHoveredVoid, selectionMode, hiddenVoidIds, isolatedVoidId } = useBoxStore();
   const { size: canvasSize } = useThree();
 
   // Early return if engine not initialized
@@ -139,14 +139,10 @@ export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter })
       {/* Magenta wireframe outline - always visible */}
       <primitive object={lineSegments} />
 
-      {/* Interactive mesh - click only in void mode, but always show selection/hover */}
+      {/* Interactive mesh - always shows selection/hover; clicks handled by InteractionController */}
       <mesh
         ref={meshRef}
         scale={[0.95, 0.95, 0.95]}
-        onClick={isVoidMode ? (e) => {
-          e.stopPropagation();
-          selectVoid(voidId, e.shiftKey);
-        } : undefined}
         onPointerOver={isVoidMode ? (e) => {
           e.stopPropagation();
           setHoveredVoid(voidId);
@@ -156,6 +152,7 @@ export const VoidMesh: React.FC<VoidMeshProps> = ({ voidId, bounds, boxCenter })
           setHoveredVoid(null);
           document.body.style.cursor = 'auto';
         } : undefined}
+        userData={{ interactionTarget: { type: 'void', voidId } }}
       >
         <boxGeometry args={[insetBounds.w, insetBounds.h, insetBounds.d]} />
         <meshStandardMaterial

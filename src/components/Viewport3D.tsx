@@ -13,8 +13,8 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef, useCallback, useState, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment } from '@react-three/drei';
-import { Box3D, PushPullCallbacks, MoveGizmoCallbacks, InsetCallbacks } from './Box3D';
-import { MoveDef } from './MovePalette';
+import { Box3D } from './Box3D';
+import { InteractionController } from './InteractionController';
 import { ViewportToolbar } from './ViewportToolbar';
 import { EditorToolbar } from './EditorToolbar';
 import { PushPullPalette, PushPullMode } from './PushPullPalette';
@@ -66,20 +66,29 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const applyOperation = useBoxStore((state) => state.applyOperation);
   const cancelOperation = useBoxStore((state) => state.cancelOperation);
 
+  // Derived offset values — read directly from operation params so both palette and
+  // gizmo drags (which update params directly via InteractionController) stay in sync.
+  const currentOffset = operationState.activeOperation === 'push-pull'
+    ? ((operationState.params as { offset?: number } | null)?.offset ?? 0)
+    : 0;
+  const insetOffset = operationState.activeOperation === 'inset-outset'
+    ? ((operationState.params as { offset?: number } | null)?.offset ?? 0)
+    : 0;
+
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+
+  // Camera enabled state — InteractionController disables OrbitControls during drags
+  const [cameraEnabled, setCameraEnabled] = useState(true);
 
   // Push/Pull palette state (local UI state only)
   const [pushPullMode, setPushPullMode] = useState<PushPullMode>('scale');
   const [palettePosition, setPalettePosition] = useState({ x: 20, y: 150 });
-  const [isDraggingArrow, setIsDraggingArrow] = useState(false);
-  const [currentOffset, setCurrentOffset] = useState(0); // Track current offset for UI display
 
   // Subdivide palette state (local UI state only)
   const [subdividePalettePosition, setSubdividePalettePosition] = useState({ x: 20, y: 150 });
 
   // Move palette state (local UI state only)
   const [movePalettePosition, setMovePalettePosition] = useState({ x: 20, y: 150 });
-  const [isDraggingMoveGizmo, setIsDraggingMoveGizmo] = useState(false);
 
   // Create sub-assembly palette state (local UI state only)
   const [createSubAssemblyPalettePosition, setCreateSubAssemblyPalettePosition] = useState({ x: 20, y: 150 });
@@ -92,7 +101,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
   // Inset palette state (local UI state only)
   const [insetPalettePosition, setInsetPalettePosition] = useState({ x: 20, y: 150 });
-  const [insetOffset, setInsetOffset] = useState(0);
   const baseExtensionsRef = useRef<Record<string, number>>({});
 
   // Fillet palette state (local UI state only)
@@ -166,7 +174,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
       // Initialize params (no offset yet) - include assemblyId for sub-assembly support
       // For sub-assemblies, force extend mode
       updateOperationParams({ faceId: selectedFaceId, offset: 0, mode: effectiveMode, assemblyId: selectedAssemblyId });
-      setCurrentOffset(0);
     }
   }, [activeTool, selectedFaceId, selectedAssemblyId, operationState.activeOperation, startOperation, updateOperationParams, effectiveMode]);
 
@@ -175,7 +182,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     if (operationState.activeOperation === 'push-pull') {
       if (activeTool !== 'push-pull' || !selectedFaceId) {
         cancelOperation();
-        setCurrentOffset(0);
       }
     }
   }, [activeTool, selectedFaceId, operationState.activeOperation, cancelOperation]);
@@ -198,7 +204,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
       },
     });
     if (selectedFaceId && operationState.activeOperation === 'push-pull') {
-      setCurrentOffset(offset);
       updateOperationParams({ faceId: selectedFaceId, offset, mode: effectiveMode, assemblyId: selectedAssemblyId });
     }
   }, [selectedFaceId, selectedAssemblyId, operationState.activeOperation, effectiveMode, isSubAssembly, updateOperationParams]);
@@ -207,53 +212,11 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const handleApplyOffset = useCallback(() => {
     if (operationState.activeOperation === 'push-pull' && currentOffset !== 0) {
       applyOperation();
-      setCurrentOffset(0);
       // Close the operation - switch back to select tool
       setActiveTool('select');
       clearSelection();
     }
   }, [operationState.activeOperation, currentOffset, applyOperation, setActiveTool, clearSelection]);
-
-  // Push-pull callbacks for Box3D (arrow dragging)
-  const pushPullCallbacks: PushPullCallbacks = useMemo(() => ({
-    onOffsetChange: (_faceId: FaceId, offset: number) => {
-      handlePreviewOffsetChange(offset);
-    },
-    onDragStart: () => setIsDraggingArrow(true),
-    onDragEnd: () => setIsDraggingArrow(false),
-  }), [handlePreviewOffsetChange]);
-
-  // Move gizmo callbacks for Box3D (AxisGizmo dragging)
-  const moveGizmoCallbacks: MoveGizmoCallbacks = useMemo(() => ({
-    onDeltaChange: (newDelta: number) => {
-      // Read current params from the store (stable via getState)
-      const currentState = useBoxStore.getState();
-      const params = currentState.operationState.params as {
-        moveDefs?: MoveDef[];
-        minDelta?: number;
-        maxDelta?: number;
-      };
-      const { moveDefs, minDelta = -50, maxDelta = 50 } = params;
-      if (!moveDefs?.length) return;
-
-      const clamped = Math.max(minDelta, Math.min(maxDelta, newDelta));
-
-      // Build the moves array for the engine preview action
-      const moves = moveDefs.map(m => ({
-        subdivisionId: m.subdivisionId,
-        newPosition: m.currentPosition + clamped,
-        isGridDivider: m.isGridDivider,
-        gridPositionIndex: m.gridPositionIndex,
-        parentVoidId: m.parentVoidId,
-        axis: m.axis,
-      }));
-
-      // Update params: moves (for preview) + delta (so palette slider syncs)
-      updateOperationParams({ moves, delta: clamped });
-    },
-    onDragStart: () => setIsDraggingMoveGizmo(true),
-    onDragEnd: () => setIsDraggingMoveGizmo(false),
-  }), [updateOperationParams]);
 
   // Handle inset face (open face + create divider at offset)
   const handleInsetFace = useCallback(() => {
@@ -261,7 +224,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
       // Cancel the operation first, then apply inset to main state
       cancelOperation();
       insetFace(selectedFaceId, Math.abs(currentOffset));
-      setCurrentOffset(0);
       setActiveTool('select');
     }
   }, [selectedFaceId, currentOffset, cancelOperation, insetFace, setActiveTool]);
@@ -269,7 +231,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Close palette when tool changes away from push-pull
   const handlePaletteClose = useCallback(() => {
     cancelOperation();
-    setCurrentOffset(0);
     setActiveTool('select');
   }, [cancelOperation, setActiveTool]);
 
@@ -418,7 +379,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
       startOperation('inset-outset');
       updateOperationParams({ edges: selectedEdgesArray, offset: 0, baseExtensions });
-      setInsetOffset(0);
     }
   }, [activeTool, selectedEdgesArray, operationState.activeOperation, startOperation, updateOperationParams, computeBaseExtensions]);
 
@@ -427,7 +387,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
     if (operationState.activeOperation === 'inset-outset') {
       if (activeTool !== 'inset' || selectedEdgesArray.length === 0) {
         cancelOperation();
-        setInsetOffset(0);
       }
     }
   }, [activeTool, selectedEdgesArray.length, operationState.activeOperation, cancelOperation]);
@@ -482,7 +441,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Handle inset offset change
   const handleInsetOffsetChange = useCallback((offset: number) => {
     if (operationState.activeOperation === 'inset-outset') {
-      setInsetOffset(offset);
       updateOperationParams({ edges: selectedEdgesArray, offset, baseExtensions: baseExtensionsRef.current });
     }
   }, [operationState.activeOperation, selectedEdgesArray, updateOperationParams]);
@@ -491,7 +449,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   const handleInsetApply = useCallback(() => {
     if (operationState.activeOperation === 'inset-outset' && insetOffset !== 0) {
       applyOperation();
-      setInsetOffset(0);
       setActiveTool('select');
     }
   }, [operationState.activeOperation, insetOffset, applyOperation, setActiveTool]);
@@ -499,17 +456,8 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
   // Close inset palette
   const handleInsetPaletteClose = useCallback(() => {
     cancelOperation();
-    setInsetOffset(0);
     setActiveTool('select');
   }, [cancelOperation, setActiveTool]);
-
-  // Inset gizmo callbacks for Box3D (AxisGizmo dragging on edges)
-  const insetCallbacks: InsetCallbacks = useMemo(() => ({
-    offset: insetOffset,
-    onOffsetChange: handleInsetOffsetChange,
-    onDragStart: undefined,
-    onDragEnd: undefined,
-  }), [insetOffset, handleInsetOffsetChange]);
 
   // =========================================================================
   // Fillet operation handlers
@@ -775,7 +723,6 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
       if (e.key === 'Escape') {
         if (activeTool === 'push-pull' && operationState.activeOperation === 'push-pull') {
           cancelOperation();
-          setCurrentOffset(0);
         }
         clearSelection();
         if (activeTool === 'push-pull') {
@@ -923,24 +870,14 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
         camera={{ position: [150, 150, 150], fov: 50 }}
         style={{ background: '#1a1a2e' }}
         gl={{ preserveDrawingBuffer: true }}
-        onPointerMissed={() => {
-          // Don't clear selection when in push-pull mode - user might be clicking the arrow
-          // which doesn't always register as a mesh hit
-          if (activeTool === 'push-pull' && selectedFaceId) {
-            return;
-          }
-          clearSelection();
-        }}
       >
         <ambientLight intensity={0.5} />
         <directionalLight position={[10, 10, 5]} intensity={1} />
         <pointLight position={[-10, -10, -5]} intensity={0.5} />
 
-        <Box3D
-          pushPullCallbacks={pushPullCallbacks}
-          moveGizmoCallbacks={moveGizmoCallbacks}
-          insetCallbacks={insetCallbacks}
-        />
+        <InteractionController onCameraEnabledChange={setCameraEnabled} />
+
+        <Box3D />
 
         <Grid
           args={[gridProps.gridSize, gridProps.gridSize]}
@@ -958,9 +895,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
         <OrbitControls
           makeDefault
-          enablePan={!isDraggingArrow && !isDraggingMoveGizmo}
-          enableZoom={!isDraggingArrow && !isDraggingMoveGizmo}
-          enableRotate={!isDraggingArrow && !isDraggingMoveGizmo}
+          enabled={cameraEnabled}
           minDistance={50}
           maxDistance={500}
           target={[0, 0, 0]}
