@@ -162,8 +162,8 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
         </>
       )}
 
-      {/* Panel toggle buttons - show when any face panels are visually selected or configure tool is active */}
-      {(hasFacePanelsSelected || activeTool === 'configure-assembly') &&
+      {/* Panel toggle buttons - show only when select tool is active and face panels are selected */}
+      {activeTool === 'select' && hasFacePanelsSelected &&
         faces && (
           <PanelToggleOverlay
             faces={faces}
@@ -171,7 +171,7 @@ export const Box3D: React.FC<Box3DProps> = ({ pushPullCallbacks, moveGizmoCallba
             thickness={scaledThickness}
             onToggle={toggleFace}
             visible={true}
-            selectedFaceIds={activeTool === 'configure-assembly' ? undefined : selectedFaceIds}
+            selectedFaceIds={selectedFaceIds}
           />
         )}
 
