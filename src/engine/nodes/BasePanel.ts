@@ -916,22 +916,24 @@ export abstract class BasePanel extends BaseNode {
 
     // Pre-compute all 4 extended corners ONCE (based on diagram docs/IMG_8225.jpeg)
     // These are the definitive corner positions - all edges use these same values
+    // Corner insets handle adjacent-panel corner ownership (female panel yields by MT)
+    const cornerInsets = this.getExtensionCornerInsets(extensions, mt);
     const extendedCorners = {
       topLeft: {
-        x: outerCorners.topLeft.x - extensions.left,
-        y: outerCorners.topLeft.y + extensions.top,
+        x: outerCorners.topLeft.x - extensions.left + cornerInsets.topLeft.dx,
+        y: outerCorners.topLeft.y + extensions.top + cornerInsets.topLeft.dy,
       },
       topRight: {
-        x: outerCorners.topRight.x + extensions.right,
-        y: outerCorners.topRight.y + extensions.top,
+        x: outerCorners.topRight.x + extensions.right + cornerInsets.topRight.dx,
+        y: outerCorners.topRight.y + extensions.top + cornerInsets.topRight.dy,
       },
       bottomRight: {
-        x: outerCorners.bottomRight.x + extensions.right,
-        y: outerCorners.bottomRight.y - extensions.bottom,
+        x: outerCorners.bottomRight.x + extensions.right + cornerInsets.bottomRight.dx,
+        y: outerCorners.bottomRight.y - extensions.bottom + cornerInsets.bottomRight.dy,
       },
       bottomLeft: {
-        x: outerCorners.bottomLeft.x - extensions.left,
-        y: outerCorners.bottomLeft.y - extensions.bottom,
+        x: outerCorners.bottomLeft.x - extensions.left + cornerInsets.bottomLeft.dx,
+        y: outerCorners.bottomLeft.y - extensions.bottom + cornerInsets.bottomLeft.dy,
       },
     };
 
@@ -1651,6 +1653,33 @@ export abstract class BasePanel extends BaseNode {
     points.push({ x: leftFootOuterX, y: baseY });
 
     return points;
+  }
+
+  /**
+   * Compute per-corner insets for edge extension corner ownership.
+   *
+   * When two adjacent face panels both extend the same edge, the "loser"
+   * (determined by gender/wall priority) must inset its extended corner by MT
+   * to avoid overlapping with the winner's extension at that corner.
+   *
+   * Base implementation returns zero insets (no corner ownership logic).
+   * FacePanelNode overrides this to apply corner ownership via axisOwnership rules.
+   */
+  protected getExtensionCornerInsets(
+    _extensions: EdgeExtensions,
+    _mt: number
+  ): {
+    topLeft: { dx: number; dy: number };
+    topRight: { dx: number; dy: number };
+    bottomRight: { dx: number; dy: number };
+    bottomLeft: { dx: number; dy: number };
+  } {
+    return {
+      topLeft: { dx: 0, dy: 0 },
+      topRight: { dx: 0, dy: 0 },
+      bottomRight: { dx: 0, dy: 0 },
+      bottomLeft: { dx: 0, dy: 0 },
+    };
   }
 
   /**

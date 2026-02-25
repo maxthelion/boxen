@@ -50,7 +50,7 @@ describe('Edge Extension Overlap', () => {
       expect(result.errors).toHaveLength(0);
     });
 
-    it('should DETECT overlap when extending top edges of two neighboring panels (front + right) by 20mm', () => {
+    it('should pass overlap check when extending top edges of two neighboring panels (front + right) by 20mm', () => {
       const frontPanel = getFacePanel('front');
       const rightPanel = getFacePanel('right');
 
@@ -81,17 +81,17 @@ describe('Edge Extension Overlap', () => {
 
       const result = checkOverlap(engine);
 
-      // This SHOULD be flagged as an error - adjacent panels extending the same edge
-      // will have finger joints that clash at the corner
-      expect(result.valid).toBe(false);
-      expect(result.errors).toHaveLength(1);
-      expect(result.errors[0].rule).toBe('overlap:conflicting-extensions');
-      expect(result.errors[0].details.panelAFace).toBe('front');
-      expect(result.errors[0].details.panelBFace).toBe('right');
-      expect(result.errors[0].details.sharedEdge).toBe('top');
+      // Corner ownership is now properly handled: the loser yields by MT at the shared corner.
+      // No geometry clash occurs.
+      if (!result.valid) {
+        console.log('Unexpected overlap errors:');
+        console.log(formatOverlapCheckResult(result));
+      }
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
-    it('should DETECT overlaps when extending top edges of all four wall panels by 20mm', () => {
+    it('should pass overlap check when extending top edges of all four wall panels by 20mm', () => {
       const frontPanel = getFacePanel('front');
       const rightPanel = getFacePanel('right');
       const backPanel = getFacePanel('back');
@@ -118,13 +118,16 @@ describe('Edge Extension Overlap', () => {
 
       const result = checkOverlap(engine);
 
-      // Should flag all 4 adjacent pairs (front-right, right-back, back-left, left-front)
-      expect(result.valid).toBe(false);
-      expect(result.errors.length).toBe(4);
-      expect(result.errors.every(e => e.rule === 'overlap:conflicting-extensions')).toBe(true);
+      // All 4 adjacent corners are now properly resolved via corner ownership rules.
+      if (!result.valid) {
+        console.log('Unexpected overlap errors:');
+        console.log(formatOverlapCheckResult(result));
+      }
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
-    it('should DETECT conflict in full validation when extending top edges of front + right by 20mm', () => {
+    it('should pass full validation when extending top edges of front + right by 20mm', () => {
       const frontPanel = getFacePanel('front');
       const rightPanel = getFacePanel('right');
 
@@ -156,10 +159,9 @@ describe('Edge Extension Overlap', () => {
       // Run full validation including overlap checker
       const result = validateOperation(engine);
 
-      // Check overlap detected the conflict
-      expect(result.overlap?.valid).toBe(false);
-      expect(result.overlap?.errors).toHaveLength(1);
-      expect(result.overlap?.errors[0].rule).toBe('overlap:conflicting-extensions');
+      // Corner ownership fix means no overlap errors
+      expect(result.overlap?.valid).toBe(true);
+      expect(result.overlap?.errors).toHaveLength(0);
 
       // Check rules were checked
       expect(result.summary.rulesChecked).toContain('overlap:no-body-intersection');
@@ -168,12 +170,12 @@ describe('Edge Extension Overlap', () => {
   });
 
   describe('Bug Fix Verification', () => {
-    // This test is SKIPPED until Issue 001 is fixed.
-    // Once the geometry generation properly applies corner ownership rules,
-    // adjacent panels with extended edges should NOT overlap.
-    // See: docs/issues/001-adjacent-edge-extension-overlap.md
-    // See: src/utils/axisOwnership.ts (getOverlapLoser, calculateOverlapNotch)
-    it.skip('should produce valid non-overlapping geometry when adjacent panels extend same edge (Issue 001)', () => {
+    // Issue 001 is now fixed: FacePanelNode.getExtensionCornerInsets() uses
+    // axisOwnership rules to inset the loser's extended corner by MT,
+    // preventing overlap at shared corners when adjacent panels extend the same edge.
+    // See: src/utils/axisOwnership.ts (getOverlapLoser)
+    // See: src/engine/nodes/FacePanelNode.ts (getExtensionCornerInsets)
+    it('should produce valid non-overlapping geometry when adjacent panels extend same edge (Issue 001)', () => {
       const frontPanel = getFacePanel('front');
       const rightPanel = getFacePanel('right');
 
@@ -213,7 +215,7 @@ describe('Edge Extension Overlap', () => {
   });
 
   describe('Corner Extension Scenarios', () => {
-    it('should DETECT large extensions (50mm) on neighboring panels', () => {
+    it('should pass overlap check for large extensions (50mm) on neighboring panels', () => {
       const frontPanel = getFacePanel('front');
       const rightPanel = getFacePanel('right');
 
@@ -243,9 +245,13 @@ describe('Edge Extension Overlap', () => {
 
       const result = checkOverlap(engine);
 
-      // Should detect the conflict
-      expect(result.valid).toBe(false);
-      expect(result.errors[0].rule).toBe('overlap:conflicting-extensions');
+      // Corner ownership properly resolves the corner even for large extensions.
+      if (!result.valid) {
+        console.log('Unexpected overlap errors:');
+        console.log(formatOverlapCheckResult(result));
+      }
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
     it('should handle extensions on multiple edges of the same panel', () => {
