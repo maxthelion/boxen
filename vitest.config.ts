@@ -8,5 +8,9 @@ export default defineConfig({
       'src/**/*.test.ts',
       'tests/**/*.test.ts',
     ],
+    exclude: [
+      'tests/e2e/**',
+      '**/node_modules/**',
+    ],
   },
 });
