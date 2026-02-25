@@ -78,8 +78,8 @@ export const InteractionController: React.FC<InteractionControllerProps> = ({
   useEffect(() => { sceneRef.current = scene; }, [scene]);
   useEffect(() => {
     if (engineConfig) {
-      const { width, height, depth } = engineConfig;
-      scaleRef.current = 100 / Math.max(width, height, depth);
+      // 1 world unit = 1mm, so scale is always 1
+      scaleRef.current = 1;
     }
   }, [engineConfig]);
 

@@ -14,7 +14,7 @@ interface SubAssembly3DProps {
 export const SubAssembly3D: React.FC<SubAssembly3DProps> = ({
   subAssembly,
   parentBounds,
-  scale,
+  scale: _scale,  // No longer used: 1 world unit = 1mm
   boxCenter,
 }) => {
   const { selectedSubAssemblyIds, selectSubAssembly, selectionMode, selectedAssemblyId, selectAssembly, operationState } = useBoxStore();
@@ -34,16 +34,16 @@ export const SubAssembly3D: React.FC<SubAssembly3DProps> = ({
   const subOuterH = rootVoid.bounds.h + 2 * materialThickness;
   const subOuterD = rootVoid.bounds.d + 2 * materialThickness;
 
-  // Scale the dimensions
-  const scaledW = subOuterW * scale;
-  const scaledH = subOuterH * scale;
-  const scaledD = subOuterD * scale;
+  // 1 world unit = 1mm, so dimensions are used directly
+  const scaledW = subOuterW;
+  const scaledH = subOuterH;
+  const scaledD = subOuterD;
 
   // Calculate the center position of the sub-assembly within the parent void
   // Face offsets shift the base position: positive offset extends outward from clearance boundary
-  const subCenterX = (parentBounds.x + clearance - offsets.left + subOuterW / 2 - boxCenter.x) * scale;
-  const subCenterY = (parentBounds.y + clearance - offsets.bottom + subOuterH / 2 - boxCenter.y) * scale;
-  const subCenterZ = (parentBounds.z + clearance - offsets.back + subOuterD / 2 - boxCenter.z) * scale;
+  const subCenterX = parentBounds.x + clearance - offsets.left + subOuterW / 2 - boxCenter.x;
+  const subCenterY = parentBounds.y + clearance - offsets.bottom + subOuterH / 2 - boxCenter.y;
+  const subCenterZ = parentBounds.z + clearance - offsets.back + subOuterD / 2 - boxCenter.z;
 
   const handleClick = (e: any) => {
     e.stopPropagation();
