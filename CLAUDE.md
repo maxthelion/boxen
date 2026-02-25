@@ -168,6 +168,7 @@ Operations are user actions that modify the model. See `docs/modification-patter
 - Operation parameters live in the store, not the engine
 - Preview mutations go to `engine._previewScene`, committed state to `engine._scene`
 - Components use `useEnginePanels()` which automatically returns preview if active
+- **CRITICAL — Preview snapshot contamination:** When building a preview action that needs current dimensions (e.g., push-pull computing new height from offset), always read from the **committed** scene, never from `engine.getSnapshot()` while a preview is active. `getSnapshot()` returns the preview scene, so dimensions already include the previous preview's changes. Reading preview dimensions to build the next preview action causes additive/compounding errors. Either read dimensions before starting the preview, or discard the preview first, or use a dedicated method that reads from `engine._scene`.
 
 ### Event Sourcing (Future)
 
