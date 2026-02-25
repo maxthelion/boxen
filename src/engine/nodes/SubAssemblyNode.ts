@@ -16,6 +16,7 @@ import {
   MaterialConfig,
   Transform3D,
   AssemblySnapshot,
+  FaceId,
 } from '../types';
 
 export class SubAssemblyNode extends BaseAssembly {
@@ -162,6 +163,131 @@ export class SubAssemblyNode extends BaseAssembly {
       node = node.parent;
     }
     return null;
+  }
+
+  // ==========================================================================
+  // Constraint Checking
+  // ==========================================================================
+
+  /**
+   * Clamp a requested dimension for a push-pull operation so the sub-assembly
+   * face does not protrude through a CLOSED parent face panel.
+   *
+   * Extension beyond the void boundary is allowed only when the void boundary
+   * on the pushed side coincides with an OPEN parent assembly face.
+   * If the void boundary is formed by a divider (not a face panel), the
+   * sub-assembly is always clamped to the void edge.
+   *
+   * @param faceId - The face being pushed (determines axis and direction)
+   * @param requestedDim - The new width, height, or depth requested
+   * @returns The constrained dimension (may be less than requestedDim)
+   */
+  clampDimensionToParentBounds(faceId: FaceId, requestedDim: number): number {
+    const parentAssembly = this.findRootAssembly();
+    if (!parentAssembly) return requestedDim;
+
+    const vb = this._parentVoid.bounds;
+    const mt = parentAssembly.material.thickness;
+
+    type AxisInfo = {
+      voidLimitHigh: number;      // void boundary on the high (positive) side
+      voidLimitLow: number;       // void boundary on the low (negative) side
+      assemblyDimHigh: number;    // assembly inner-surface position on high side
+      assemblyDimLow: number;     // assembly inner-surface position on low side
+      currentDim: number;         // current sub-assembly dimension on this axis
+      currentOffsetAxis: number;  // current positionOffset component for this axis
+      voidCenter: number;         // centre of void along this axis (assembly-local)
+      pushesHighSide: boolean;    // does faceId point toward the high side?
+      parentFaceHigh: FaceId;     // assembly face on the high side
+      parentFaceLow: FaceId;      // assembly face on the low side
+    };
+
+    let info: AxisInfo;
+    switch (faceId) {
+      case 'top':
+      case 'bottom':
+        info = {
+          voidLimitHigh: vb.y + vb.h,
+          voidLimitLow: vb.y,
+          assemblyDimHigh: parentAssembly.height - mt,
+          assemblyDimLow: mt,
+          currentDim: this._height,
+          currentOffsetAxis: this._positionOffset.y,
+          voidCenter: vb.y + vb.h / 2,
+          pushesHighSide: faceId === 'top',
+          parentFaceHigh: 'top',
+          parentFaceLow: 'bottom',
+        };
+        break;
+      case 'right':
+      case 'left':
+        info = {
+          voidLimitHigh: vb.x + vb.w,
+          voidLimitLow: vb.x,
+          assemblyDimHigh: parentAssembly.width - mt,
+          assemblyDimLow: mt,
+          currentDim: this._width,
+          currentOffsetAxis: this._positionOffset.x,
+          voidCenter: vb.x + vb.w / 2,
+          pushesHighSide: faceId === 'right',
+          parentFaceHigh: 'right',
+          parentFaceLow: 'left',
+        };
+        break;
+      case 'front':
+      case 'back':
+        info = {
+          voidLimitHigh: vb.z + vb.d,
+          voidLimitLow: vb.z,
+          assemblyDimHigh: parentAssembly.depth - mt,
+          assemblyDimLow: mt,
+          currentDim: this._depth,
+          currentOffsetAxis: this._positionOffset.z,
+          voidCenter: vb.z + vb.d / 2,
+          pushesHighSide: faceId === 'front',
+          parentFaceHigh: 'front',
+          parentFaceLow: 'back',
+        };
+        break;
+      default:
+        return requestedDim;
+    }
+
+    // Determine which void boundary we are pushing toward and which face (if any) bounds it
+    const voidPushLimit = info.pushesHighSide ? info.voidLimitHigh : info.voidLimitLow;
+    const assemblyFaceLimit = info.pushesHighSide ? info.assemblyDimHigh : info.assemblyDimLow;
+    const pushFaceId = info.pushesHighSide ? info.parentFaceHigh : info.parentFaceLow;
+
+    // Check whether the void boundary coincides with a parent face panel.
+    // If it doesn't (i.e. it's a divider), we impose no constraint — only closed
+    // parent face panels block the sub-assembly from extending.
+    const TOLERANCE = 0.5; // mm
+    const isAtFacePanel = Math.abs(voidPushLimit - assemblyFaceLimit) < TOLERANCE;
+
+    if (!isAtFacePanel) {
+      // Boundary is a divider, not a parent face panel → no constraint
+      return requestedDim;
+    }
+
+    // Void boundary is a parent face panel.
+    // If that face is OPEN (toggled off) → allow free extension through it.
+    if (!parentAssembly.isFaceSolid(pushFaceId)) {
+      return requestedDim;
+    }
+
+    // Face is CLOSED → clamp so the sub-assembly face stays at the void boundary.
+    // Compute the anchored (fixed) face position in assembly-local coords.
+    // When pushing the high side, the low face is anchored and vice-versa.
+    const anchoredFaceLocal = info.pushesHighSide
+      ? info.voidCenter + info.currentOffsetAxis - info.currentDim / 2
+      : info.voidCenter + info.currentOffsetAxis + info.currentDim / 2;
+
+    // Maximum allowed dimension so the pushed face stays at the void boundary
+    const maxDim = info.pushesHighSide
+      ? voidPushLimit - anchoredFaceLocal
+      : anchoredFaceLocal - voidPushLimit;
+
+    return Math.min(requestedDim, Math.max(maxDim, 0));
   }
 
   // ==========================================================================

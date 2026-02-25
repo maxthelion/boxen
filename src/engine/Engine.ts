@@ -478,13 +478,31 @@ export class Engine {
             const subAsm = assembly as SubAssemblyNode;
             const faceId = action.payload.faceId as FaceId;
 
+            // Clamp requested dimension: sub-assembly face cannot protrude through a
+            // closed parent face panel. Only open (toggled-off) parent faces allow
+            // the sub-assembly to extend beyond the parent void boundary.
+            const constrainedPayload = { ...action.payload };
+            if (faceId === 'top' || faceId === 'bottom') {
+              if (constrainedPayload.height !== undefined) {
+                constrainedPayload.height = subAsm.clampDimensionToParentBounds(faceId, constrainedPayload.height);
+              }
+            } else if (faceId === 'left' || faceId === 'right') {
+              if (constrainedPayload.width !== undefined) {
+                constrainedPayload.width = subAsm.clampDimensionToParentBounds(faceId, constrainedPayload.width);
+              }
+            } else if (faceId === 'front' || faceId === 'back') {
+              if (constrainedPayload.depth !== undefined) {
+                constrainedPayload.depth = subAsm.clampDimensionToParentBounds(faceId, constrainedPayload.depth);
+              }
+            }
+
             // Get current dimensions before change
             const oldWidth = subAsm.width;
             const oldHeight = subAsm.height;
             const oldDepth = subAsm.depth;
 
-            // Apply dimension changes
-            assembly.setDimensions(action.payload);
+            // Apply constrained dimension changes
+            assembly.setDimensions(constrainedPayload);
 
             // Calculate dimension deltas
             const deltaW = subAsm.width - oldWidth;
