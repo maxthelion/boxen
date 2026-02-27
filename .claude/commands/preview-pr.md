@@ -48,7 +48,7 @@ Find the task ID associated with this PR by checking the DB or task files:
 ```bash
 .orchestrator/venv/bin/python -c "
 import sys; sys.path.insert(0, 'orchestrator')
-from orchestrator.db import list_tasks
+from octopoid.db import list_tasks
 tasks = list_tasks()
 for t in tasks:
     if t.get('pr_number') == $ARGUMENTS:

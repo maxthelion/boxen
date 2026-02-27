@@ -11,7 +11,7 @@ Run a visual QA check against a task's staging deployment using Playwright MCP.
 ```bash
 .orchestrator/venv/bin/python -c "
 import sys; sys.path.insert(0, 'orchestrator')
-from orchestrator.db import get_task
+from octopoid.db import get_task
 t = get_task('$ARGUMENTS')
 if t:
     print(f'TASK_ID={t[\"id\"]}')

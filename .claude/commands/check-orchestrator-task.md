@@ -11,7 +11,7 @@ Review an orchestrator_impl task's work: check what changed in both the main box
 ```bash
 .orchestrator/venv/bin/python -c "
 import sys; sys.path.insert(0, 'orchestrator')
-from orchestrator.db import get_task
+from octopoid.db import get_task
 t = get_task('ARGUMENT')
 if t: print(f'id={t[\"id\"]}\nrole={t[\"role\"]}\nqueue={t[\"queue\"]}\nclaimed_by={t[\"claimed_by\"]}\nturns={t[\"turns_used\"]}\ncommits={t[\"commits_count\"]}')
 else: print('NOT FOUND')

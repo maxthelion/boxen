@@ -32,7 +32,7 @@ Use `/enqueue` with `qa` flow for anything user-visible (UI, geometry, rendering
 ## Implementation
 
 ```python
-from orchestrator.tasks import create_task
+from octopoid.tasks import create_task
 
 create_task(
     title="Fix typo in panel labels",

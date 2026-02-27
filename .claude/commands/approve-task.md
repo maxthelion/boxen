@@ -12,7 +12,7 @@ Look up the task in the DB to determine routing:
 ```bash
 .orchestrator/venv/bin/python -c "
 import sys; sys.path.insert(0, 'orchestrator')
-from orchestrator.db import get_task
+from octopoid.db import get_task
 t = get_task('ARGUMENT')
 if t: print(f'id={t[\"id\"]} role={t[\"role\"]} queue={t[\"queue\"]}')
 else: print('NOT FOUND')

@@ -7,7 +7,7 @@ Display the current state of the task queue.
 Run this Python script to fetch and display queue status:
 
 ```python
-from orchestrator.queue_utils import get_sdk
+from octopoid.queue_utils import get_sdk
 from datetime import datetime, timezone
 
 sdk = get_sdk()

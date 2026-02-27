@@ -31,7 +31,7 @@ from pathlib import Path
 project_root = Path(os.environ.get("PARENT_PROJECT", "."))
 sys.path.insert(0, str(project_root / "orchestrator"))
 
-from orchestrator.db import record_check_result
+from octopoid.db import record_check_result
 
 task_id = os.environ.get("REVIEW_TASK_ID")
 check_name = os.environ.get("REVIEW_CHECK_NAME", os.environ.get("AGENT_FOCUS"))

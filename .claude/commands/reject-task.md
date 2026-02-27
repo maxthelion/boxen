@@ -23,7 +23,7 @@ Run the `review_reject_task()` function:
 ```python
 import sys
 sys.path.insert(0, "orchestrator")
-from orchestrator.queue_utils import review_reject_task, get_task_by_id
+from octopoid.queue_utils import review_reject_task, get_task_by_id
 
 # Look up the task
 task = get_task_by_id("<task-id>")
@@ -41,7 +41,7 @@ else:
 Or via the DB directly if the file path is unknown:
 
 ```python
-from orchestrator.db import get_task, review_reject_completion
+from octopoid.db import get_task, review_reject_completion
 
 task = get_task("<task-id>")
 review_reject_completion(task["id"], reason="<feedback>", reviewer="human")

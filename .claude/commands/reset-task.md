@@ -25,7 +25,7 @@ Reset a task to the incoming queue with clean state. Replaces 5+ lines of manual
 ```python
 import sys
 sys.path.insert(0, "orchestrator")
-from orchestrator.queue_utils import reset_task
+from octopoid.queue_utils import reset_task
 
 result = reset_task("$ARGUMENTS")
 print(f"Task {result['task_id']} reset: {result['old_path']} → {result['new_path']}")

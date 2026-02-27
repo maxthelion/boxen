@@ -24,7 +24,7 @@ Park a task in the escalated queue so the scheduler ignores it. Use this when a 
 ```python
 import sys
 sys.path.insert(0, "orchestrator")
-from orchestrator.queue_utils import hold_task
+from octopoid.queue_utils import hold_task
 
 result = hold_task("$ARGUMENTS")
 print(f"Task {result['task_id']} held: {result['old_path']} → {result['new_path']}")

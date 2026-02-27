@@ -85,7 +85,7 @@ Determine the appropriate status:
 Update the status on the server:
 
 ```python
-from orchestrator.queue_utils import get_sdk
+from octopoid.queue_utils import get_sdk
 sdk = get_sdk()
 sdk._request("PATCH", f"/api/v1/drafts/{draft_id}", json={"status": new_status})
 ```

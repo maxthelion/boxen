@@ -29,7 +29,7 @@ For each outstanding item found:
 Update the draft status on the octopoid server. **Do not move files on disk** — the server status is the source of truth. Files stay in `project-management/drafts/`.
 
 ```python
-from orchestrator.queue_utils import get_sdk
+from octopoid.queue_utils import get_sdk
 sdk = get_sdk()
 sdk._request("PATCH", f"/api/v1/drafts/{draft_id}", json={"status": "complete"})
 ```
