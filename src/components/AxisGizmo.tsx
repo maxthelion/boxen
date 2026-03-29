@@ -21,6 +21,9 @@
 import React, { useMemo, useState, useCallback, useId } from 'react';
 import * as THREE from 'three';
 import type { InteractionTarget } from '../interaction/InteractionManager';
+import { getColors } from '../hooks/useColors';
+
+const _colors = getColors();
 
 /**
  * Project a world-space delta vector onto an axis and convert to mm.
@@ -105,8 +108,8 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
   axis,
   size = 20,
   bidirectional = true,
-  color = '#4fc3f7',
-  hoverColor = '#81d4fa',
+  color = _colors.gizmo.default,
+  hoverColor = _colors.gizmo.defaultHover,
   onDelta,
   onDragStart,
   onDragEnd,
@@ -221,14 +224,14 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
         <group rotation={[0, Math.PI, 0]}>
           <mesh geometry={geometry.shaftGeometry} {...meshHandlers} userData={{ interactionTarget }}>
             <meshStandardMaterial
-              color={isHovered ? '#888' : '#666'}
+              color={isHovered ? _colors.gizmo.shaftHover : _colors.gizmo.shaft}
               transparent
               opacity={isHovered ? 0.6 : 0.4}
             />
           </mesh>
           <mesh geometry={geometry.headGeometry} {...meshHandlers} userData={{ interactionTarget }}>
             <meshStandardMaterial
-              color={isHovered ? '#888' : '#666'}
+              color={isHovered ? _colors.gizmo.shaftHover : _colors.gizmo.shaft}
               transparent
               opacity={isHovered ? 0.6 : 0.4}
             />
@@ -240,8 +243,8 @@ export const AxisGizmo: React.FC<AxisGizmoProps> = ({
       <mesh rotation={[Math.PI / 2, 0, 0]} {...meshHandlers} userData={{ interactionTarget }}>
         <circleGeometry args={[size * 0.035, 16]} />
         <meshStandardMaterial
-          color="#fff"
-          emissive="#fff"
+          color={_colors.gizmo.label}
+          emissive={_colors.gizmo.label}
           emissiveIntensity={0.5}
           side={THREE.DoubleSide}
         />

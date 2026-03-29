@@ -33,6 +33,7 @@ import { AllCornerId } from '../engine/types';
 import { FaceId } from '../types';
 import { logPushPull } from '../utils/pushPullDebug';
 import { useIneligibilityTooltip } from '../hooks/useIneligibilityTooltip';
+import { useColors } from '../hooks/useColors';
 
 /**
  * CameraAutoFit - positions the camera to frame the box on first load.
@@ -69,6 +70,9 @@ export interface Viewport3DHandle {
 }
 
 export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
+  // Color configuration
+  const colors = useColors();
+
   // Model state from engine
   const panelCollection = useEnginePanels();
   // Main scene panels for eligibility (doesn't change during preview)
@@ -904,7 +908,7 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
 
       <Canvas
         camera={{ position: [300, 200, 300], fov: 50 }}
-        style={{ background: '#1a1a2e' }}
+        style={{ background: colors.background }}
         gl={{ preserveDrawingBuffer: true }}
       >
         <ambientLight intensity={0.5} />
@@ -928,10 +932,10 @@ export const Viewport3D = forwardRef<Viewport3DHandle>((_, ref) => {
           args={[gridProps.gridSize, gridProps.gridSize]}
           cellSize={10}
           cellThickness={0.5}
-          cellColor="#444"
+          cellColor={colors.grid3d.cell}
           sectionSize={50}
           sectionThickness={1}
-          sectionColor="#666"
+          sectionColor={colors.grid3d.section}
           fadeDistance={gridProps.fadeDistance}
           fadeStrength={1}
           followCamera={false}

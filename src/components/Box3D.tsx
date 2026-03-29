@@ -1,6 +1,7 @@
 import React, { useMemo, useRef } from 'react';
 import { useBoxStore, getLeafVoids, getAllSubAssemblies, isVoidVisible, isSubAssemblyVisible, computeVisuallySelectedPanelIds } from '../store/useBoxStore';
 import { useEngineConfig, useEngineVoidTree, useEnginePanels, useEngineMainPanels, useEngineMainConfig, useEngineFaces } from '../engine';
+import { useColors } from '../hooks/useColors';
 import { VoidMesh } from './VoidMesh';
 import { SubAssembly3D } from './SubAssembly3D';
 import { PanelCollectionRenderer } from './PanelPathRenderer';
@@ -25,6 +26,9 @@ export const Box3D: React.FC = () => {
   // Main (committed) state - for arrow positioning during preview
   const mainConfig = useEngineMainConfig();
   const mainPanelCollection = useEngineMainPanels();
+
+  // Color configuration
+  const colors = useColors();
 
   // UI state and actions from store
   const { subAssemblyPreview, selectedPanelIds, selectedAssemblyId, selectedSubAssemblyIds, selectedEdges, hiddenVoidIds, isolatedVoidId, hiddenSubAssemblyIds, isolatedSubAssemblyId, hiddenFaceIds, showDebugAnchors, activeTool, operationState, updateOperationParams, toggleFace } = useBoxStore();
@@ -107,7 +111,7 @@ export const Box3D: React.FC = () => {
       {/* Scale slightly larger than panels (1.001x) to prevent z-fighting with coplanar panel surfaces */}
       <lineSegments>
         <edgesGeometry args={[new THREE.BoxGeometry(boundingBoxW * 1.001, boundingBoxH * 1.001, boundingBoxD * 1.001)]} />
-        <lineBasicMaterial color={isPreviewActive ? '#ffcc00' : '#ff0000'} linewidth={2} />
+        <lineBasicMaterial color={isPreviewActive ? colors.bounds.previewActive : colors.bounds.assembly} linewidth={2} />
       </lineSegments>
 
       {/* Assembly axis indicator - shows when main assembly is selected or configure tool is active */}
@@ -143,7 +147,7 @@ export const Box3D: React.FC = () => {
       {showDebugAnchors && anchorCorners.map((corner, idx) => (
         <mesh key={`anchor-${idx}`} position={[corner.x, corner.y, corner.z]}>
           <sphereGeometry args={[2, 16, 16]} />
-          <meshStandardMaterial color="#ff6600" />
+          <meshStandardMaterial color={colors.debug.anchor} />
         </mesh>
       ))}
 
@@ -419,13 +423,13 @@ export const Box3D: React.FC = () => {
             {/* Wireframe outline - scale slightly to prevent z-fighting with panel surfaces */}
             <lineSegments>
               <edgesGeometry args={[new THREE.BoxGeometry(previewW * 1.001, previewH * 1.001, previewD * 1.001)]} />
-              <lineBasicMaterial color="#2ecc71" linewidth={2} />
+              <lineBasicMaterial color={colors.subAssemblyOutline.preview} linewidth={2} />
             </lineSegments>
             {/* Semi-transparent fill */}
             <mesh>
               <boxGeometry args={[previewW, previewH, previewD]} />
               <meshStandardMaterial
-                color="#2ecc71"
+                color={colors.subAssemblyOutline.preview}
                 transparent
                 opacity={0.15}
                 depthWrite={false}
